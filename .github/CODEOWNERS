@@ -1,1 +1,28 @@
-* @omniarm/core
+# Người chịu trách nhiệm mặc định cho toàn bộ repository
+* @leduc121
+
+# Bảo vệ file CODEOWNERS
+/.github/CODEOWNERS @leduc121
+
+# Kiến trúc hệ thống và chuẩn giao tiếp chung
+/docs/architecture/ @leduc121
+/packages/contracts/ @leduc121
+
+# Mobile application
+/apps/mobile/ @leduc121
+
+# Backend và database
+/services/backend/ @vuanhtuan1805 @ttjendatgit @leduc121
+
+# AI service integration
+/services/ai-integration/ @ttjendatgit @leduc121
+
+# Raspberry Pi và robot integration
+/edge/ @Loiprofpt @leduc121
+
+# Docker, cloud và CI/CD
+/infra/ @leduc121
+/.github/workflows/ @leduc121
+
+# Kiểm thử tích hợp toàn hệ thống
+/tests/end-to-end/ @leduc121 @vuanhtuan1805 @ttjendatgit @Loiprofpt
