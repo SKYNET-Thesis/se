@@ -1,0 +1,14 @@
+services:
+  backend:
+    build: ./services/backend
+    env_file:
+      - ./services/backend/.env.example
+    ports:
+      - "3000:3000"
+
+  ai-integration:
+    build: ./services/ai-integration
+    env_file:
+      - ./services/ai-integration/.env.example
+    ports:
+      - "8000:8000"

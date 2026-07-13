@@ -1,0 +1,4 @@
+websockets
+paho-mqtt
+pydantic
+python-dotenv
