@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "OmniArm SE",
+    "slug": "omniarm-se",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "jsEngine": "jsc",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#111211"
+    },
+    "assetBundlePatterns": [
+      "assets/**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.omniarm.se"
+    },
+    "android": {
+      "package": "com.omniarm.se"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "replace-with-eas-project-id"
+      }
+    }
+  }
+}
