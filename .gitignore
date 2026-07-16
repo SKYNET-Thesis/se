@@ -13,3 +13,6 @@ __pycache__/
 .venv/
 .idea/
 .vscode/
+.expo/
+.expo-export-test/
+expo-start*.log
