@@ -1,10 +1,10 @@
 import { Asset } from "expo-asset";
 import { GLView } from "expo-gl";
 import type { ExpoWebGLRenderingContext } from "expo-gl/build/GLView.types";
-import { Renderer } from "expo-three";
 import { RotateCcw } from "lucide-react-native";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   GestureResponderEvent,
   LayoutChangeEvent,
   PanResponder,
@@ -13,7 +13,7 @@ import {
   Text,
   View
 } from "react-native";
-import Svg, { Circle, Line, Polygon } from "react-native-svg";
+import Svg, { Circle } from "react-native-svg";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
@@ -22,15 +22,38 @@ const modelAsset = require("../../assets/models/arm.glb");
 type Props = {
   compact?: boolean;
   showFaults?: boolean;
+  selectedFault?: number | null;
+  onFaultSelect?: (index: number) => void;
 };
 
 type Point = { x: number; y: number };
 
-const faultInfo = [
-  { label: "2 Warnings", detail: "Shoulder motor temperature is above the warning threshold.", color: "#e9ad37" },
-  { label: "13 Warnings", detail: "Elbow joint torque is fluctuating outside the target range.", color: "#e9ad37" },
-  { label: "6 Errors", detail: "Gripper position feedback is currently unavailable.", color: "#ef5b61" }
-];
+const faultColors = ["#e9ad37", "#e9ad37", "#ef5b61"];
+
+function createRenderer(gl: ExpoWebGLRenderingContext) {
+  const canvas = {
+    width: gl.drawingBufferWidth,
+    height: gl.drawingBufferHeight,
+    clientHeight: gl.drawingBufferHeight,
+    style: {},
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined
+  } as unknown as HTMLCanvasElement;
+
+  return new THREE.WebGLRenderer({
+    canvas,
+    context: gl as unknown as WebGLRenderingContext
+  });
+}
+
+function ensureReactNativeUserAgent() {
+  if (typeof navigator === "undefined" || navigator.userAgent) return;
+
+  Object.defineProperty(navigator, "userAgent", {
+    configurable: true,
+    value: "OmniArm React Native"
+  });
+}
 
 function distanceBetweenTouches(event: GestureResponderEvent) {
   const [first, second] = event.nativeEvent.touches;
@@ -38,22 +61,12 @@ function distanceBetweenTouches(event: GestureResponderEvent) {
   return Math.hypot(second.pageX - first.pageX, second.pageY - first.pageY);
 }
 
-function arrowHead(start: Point, end: Point) {
-  const angle = Math.atan2(end.y - start.y, end.x - start.x);
-  const size = 8;
-  const spread = 0.55;
-  const left = {
-    x: end.x - size * Math.cos(angle - spread),
-    y: end.y - size * Math.sin(angle - spread)
-  };
-  const right = {
-    x: end.x - size * Math.cos(angle + spread),
-    y: end.y - size * Math.sin(angle + spread)
-  };
-  return `${end.x},${end.y} ${left.x},${left.y} ${right.x},${right.y}`;
-}
-
-export function ArmModelViewer({ compact = false, showFaults = !compact }: Props) {
+export function ArmModelViewer({
+  compact = false,
+  showFaults = !compact,
+  selectedFault = null,
+  onFaultSelect
+}: Props) {
   const frameRef = useRef<number | null>(null);
   const groupRef = useRef<THREE.Group | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -61,11 +74,11 @@ export function ArmModelViewer({ compact = false, showFaults = !compact }: Props
   const layoutRef = useRef({ width: 0, height: 0 });
   const rotationRef = useRef({ x: -0.08, y: -0.45 });
   const gestureStartRef = useRef({ x: 0, y: 0 });
-  const zoomRef = useRef(compact ? 3.3 : 4.4);
+  const zoomRef = useRef(compact ? 3.8 : 5.1);
   const pinchRef = useRef({ distance: 0, zoom: zoomRef.current });
+  const pulse = useRef(new Animated.Value(0)).current;
   const [failed, setFailed] = useState(false);
   const [faultPoints, setFaultPoints] = useState<Point[]>([]);
-  const [activeFault, setActiveFault] = useState<number | null>(null);
 
   const projectFaults = useCallback(() => {
     const camera = cameraRef.current;
@@ -88,19 +101,41 @@ export function ArmModelViewer({ compact = false, showFaults = !compact }: Props
 
   const resetView = useCallback(() => {
     rotationRef.current = { x: -0.08, y: -0.45 };
-    zoomRef.current = compact ? 3.3 : 4.4;
+    zoomRef.current = compact ? 3.8 : 5.1;
     if (groupRef.current) {
       groupRef.current.rotation.set(rotationRef.current.x, rotationRef.current.y, 0);
     }
-    if (cameraRef.current) cameraRef.current.position.z = zoomRef.current;
+    if (cameraRef.current) {
+      cameraRef.current.position.set(0, 0.1, zoomRef.current);
+      cameraRef.current.lookAt(0, 0, 0);
+    }
     projectFaults();
   }, [compact, projectFaults]);
+
+  useEffect(() => {
+    if (selectedFault === null || !groupRef.current || !cameraRef.current) return;
+    const focusAngles = [
+      { x: -0.12, y: -0.3 },
+      { x: -0.04, y: 0.18 },
+      { x: 0.02, y: -0.76 }
+    ];
+    const angle = focusAngles[selectedFault] ?? focusAngles[0];
+    rotationRef.current = angle;
+    groupRef.current.rotation.set(angle.x, angle.y, 0);
+    zoomRef.current = 4.7;
+    cameraRef.current.position.z = zoomRef.current;
+    projectFaults();
+  }, [projectFaults, selectedFault]);
 
   const panResponder = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: (event) => event.nativeEvent.touches.length === 2,
+        onStartShouldSetPanResponderCapture: (event) => event.nativeEvent.touches.length === 2,
         onMoveShouldSetPanResponder: (event, gesture) =>
+          event.nativeEvent.touches.length === 2 ||
+          (Math.abs(gesture.dx) > 5 && Math.abs(gesture.dx) > Math.abs(gesture.dy)),
+        onMoveShouldSetPanResponderCapture: (event, gesture) =>
           event.nativeEvent.touches.length === 2 ||
           (Math.abs(gesture.dx) > 5 && Math.abs(gesture.dx) > Math.abs(gesture.dy)),
         onPanResponderGrant: (event) => {
@@ -117,7 +152,7 @@ export function ArmModelViewer({ compact = false, showFaults = !compact }: Props
             const distance = distanceBetweenTouches(event);
             if (pinchRef.current.distance > 0 && distance > 0) {
               const nextZoom = pinchRef.current.zoom * (pinchRef.current.distance / distance);
-              zoomRef.current = Math.max(2.4, Math.min(6.2, nextZoom));
+              zoomRef.current = Math.max(3.2, Math.min(7.2, nextZoom));
               camera.position.z = zoomRef.current;
             }
           } else if (group) {
@@ -148,14 +183,15 @@ export function ArmModelViewer({ compact = false, showFaults = !compact }: Props
     async (gl: ExpoWebGLRenderingContext) => {
       try {
         const { drawingBufferWidth: width, drawingBufferHeight: height } = gl;
-        const renderer = new Renderer({ gl });
+        const renderer = createRenderer(gl);
         renderer.setSize(width, height);
 
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(compact ? "#141716" : "#1b1d1c");
 
         const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
-        camera.position.set(0.85, 1.1, zoomRef.current);
+        camera.position.set(0, 0.1, zoomRef.current);
+        camera.lookAt(0, 0, 0);
         cameraRef.current = camera;
 
         const group = new THREE.Group();
@@ -171,15 +207,16 @@ export function ArmModelViewer({ compact = false, showFaults = !compact }: Props
         scene.add(ambient, key, rim);
 
         const floor = new THREE.Mesh(
-          new THREE.CircleGeometry(compact ? 1.0 : 1.55, 48),
+          new THREE.CircleGeometry(compact ? 1.0 : 1.4, 48),
           new THREE.MeshStandardMaterial({ color: 0x2b302c, roughness: 0.82, metalness: 0.12 })
         );
         floor.rotation.x = -Math.PI / 2;
-        floor.position.y = -0.72;
+        floor.position.y = -1.04;
         scene.add(floor);
 
         const asset = Asset.fromModule(modelAsset);
         await asset.downloadAsync();
+        ensureReactNativeUserAgent();
 
         await new Promise<void>((resolve, reject) => {
           const loader = new GLTFLoader();
@@ -190,7 +227,7 @@ export function ArmModelViewer({ compact = false, showFaults = !compact }: Props
               const box = new THREE.Box3().setFromObject(model);
               const size = box.getSize(new THREE.Vector3());
               const center = box.getCenter(new THREE.Vector3());
-              const scale = (compact ? 1.3 : 2.15) / Math.max(size.x, size.y, size.z);
+              const scale = (compact ? 1.25 : 1.95) / Math.max(size.x, size.y, size.z);
 
               model.position.copy(center).multiplyScalar(-scale);
               model.scale.setScalar(scale);
@@ -202,6 +239,19 @@ export function ArmModelViewer({ compact = false, showFaults = !compact }: Props
                 if (!component) return new THREE.Vector3();
                 return group.worldToLocal(component.getWorldPosition(new THREE.Vector3()));
               });
+
+              if (selectedFault !== null) {
+                const focusAngles = [
+                  { x: -0.12, y: -0.3 },
+                  { x: -0.04, y: 0.18 },
+                  { x: 0.02, y: -0.76 }
+                ];
+                const angle = focusAngles[selectedFault] ?? focusAngles[0];
+                rotationRef.current = angle;
+                group.rotation.set(angle.x, angle.y, 0);
+                zoomRef.current = 4.7;
+                camera.position.z = zoomRef.current;
+              }
 
               projectFaults();
               resolve();
@@ -223,7 +273,7 @@ export function ArmModelViewer({ compact = false, showFaults = !compact }: Props
         setFailed(true);
       }
     },
-    [compact, projectFaults]
+    [compact, projectFaults, selectedFault]
   );
 
   useEffect(
@@ -232,6 +282,17 @@ export function ArmModelViewer({ compact = false, showFaults = !compact }: Props
     },
     []
   );
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 760, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 760, useNativeDriver: true })
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [pulse]);
 
   if (failed) {
     return (
@@ -245,15 +306,9 @@ export function ArmModelViewer({ compact = false, showFaults = !compact }: Props
     );
   }
 
-  const labelCenters = [
-    { x: layoutRef.current.width * 0.2, y: layoutRef.current.height * 0.16 },
-    { x: layoutRef.current.width * 0.79, y: layoutRef.current.height * 0.38 },
-    { x: layoutRef.current.width * 0.8, y: layoutRef.current.height * 0.64 }
-  ];
-
   return (
     <View style={styles.viewer} onLayout={onLayout} {...panResponder.panHandlers}>
-      <GLView style={styles.gl} onContextCreate={onContextCreate} />
+      <GLView pointerEvents="none" style={styles.gl} onContextCreate={onContextCreate} />
 
       {!compact && (
         <Pressable
@@ -266,56 +321,49 @@ export function ArmModelViewer({ compact = false, showFaults = !compact }: Props
         </Pressable>
       )}
 
-      {showFaults && faultPoints.length === faultInfo.length && (
+      {showFaults && faultPoints.length === faultColors.length && (
         <>
           <Svg pointerEvents="none" style={StyleSheet.absoluteFill}>
-            {faultInfo.map((fault, index) => (
-              <Fragment key={fault.label}>
-                <Line
-                  x1={labelCenters[index].x}
-                  y1={labelCenters[index].y}
-                  x2={faultPoints[index].x}
-                  y2={faultPoints[index].y}
-                  stroke={fault.color}
-                  strokeWidth={activeFault === index ? 3 : 2}
-                />
-                <Polygon
-                  points={arrowHead(labelCenters[index], faultPoints[index])}
-                  fill={fault.color}
-                />
-                <Circle cx={faultPoints[index].x} cy={faultPoints[index].y} r={5} fill={fault.color} />
-                <Circle cx={faultPoints[index].x} cy={faultPoints[index].y} r={9} stroke={fault.color} strokeWidth={2} />
-              </Fragment>
+            {faultPoints.map((point, index) => (
+              <Circle
+                key={`${faultColors[index]}-${index}`}
+                cx={point.x}
+                cy={point.y}
+                r={selectedFault === index ? 14 : 8}
+                fill="#111211"
+                fillOpacity={0.86}
+                stroke={faultColors[index]}
+                strokeWidth={selectedFault === index ? 4 : 2.5}
+              />
             ))}
           </Svg>
 
-          {faultInfo.map((fault, index) => (
-            <Pressable
-              key={fault.label}
-              accessibilityRole="button"
-              accessibilityLabel={`${fault.label}. ${fault.detail}`}
-              onPress={() => setActiveFault(activeFault === index ? null : index)}
+          {faultPoints.map((point, index) => (
+            <Animated.View
+              key={`fault-pulse-${index}`}
+              pointerEvents="none"
               style={[
-                styles.faultBadge,
-                index === 0 && styles.faultTop,
-                index === 1 && styles.faultMiddle,
-                index === 2 && styles.faultBottom,
-                { backgroundColor: fault.color },
-                activeFault === index && styles.faultBadgeActive
+                styles.faultPulse,
+                {
+                  left: point.x - 15,
+                  top: point.y - 15,
+                  borderColor: faultColors[index],
+                  opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.75, 0.12] }),
+                  transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.65] }) }]
+                }
               ]}
-            >
-              <Text style={styles.faultBadgeText}>{fault.label}</Text>
-            </Pressable>
+            />
           ))}
 
-          {activeFault !== null && (
-            <View style={styles.faultDetail}>
-              <View style={[styles.faultDetailDot, { backgroundColor: faultInfo[activeFault].color }]} />
-              <Text numberOfLines={2} style={styles.faultDetailText}>
-                {faultInfo[activeFault].detail}
-              </Text>
-            </View>
-          )}
+          {faultPoints.map((point, index) => (
+            <Pressable
+              key={`fault-target-${index}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Open diagnostic ${index + 1}`}
+              onPress={() => onFaultSelect?.(index)}
+              style={[styles.faultTarget, { left: point.x - 22, top: point.y - 22 }]}
+            />
+          ))}
         </>
       )}
     </View>
@@ -347,64 +395,18 @@ const styles = StyleSheet.create({
   resetButtonPressed: {
     backgroundColor: "#343a36"
   },
-  faultBadge: {
+  faultTarget: {
     position: "absolute",
-    minHeight: 34,
-    minWidth: 98,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "transparent"
+    width: 44,
+    height: 44,
+    borderRadius: 44
   },
-  faultBadgeActive: {
-    borderColor: "#ffffff"
-  },
-  faultTop: {
-    top: "11%",
-    left: "4%"
-  },
-  faultMiddle: {
-    top: "33%",
-    right: "4%"
-  },
-  faultBottom: {
-    top: "59%",
-    right: "3%"
-  },
-  faultBadgeText: {
-    color: "#211607",
-    fontSize: 12,
-    fontWeight: "900"
-  },
-  faultDetail: {
+  faultPulse: {
     position: "absolute",
-    left: 10,
-    right: 48,
-    bottom: 10,
-    minHeight: 43,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: "#252927ee",
-    borderWidth: 1,
-    borderColor: "#414843"
-  },
-  faultDetailDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 8
-  },
-  faultDetailText: {
-    flex: 1,
-    color: "#edf1ef",
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "700"
+    width: 30,
+    height: 30,
+    borderRadius: 30,
+    borderWidth: 3
   },
   fallback: {
     flex: 1,
