@@ -1,10 +1,8 @@
 using DotNetEnv;
 
-Env.Load();
+Env.Load("../../.env");
 
 var builder = WebApplication.CreateBuilder(args);
-
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
 builder.Services.AddInfrastructure(builder.Configuration);
 
