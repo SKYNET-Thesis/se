@@ -1,5 +1,8 @@
 using OmniArm.Infrastructure;
 using OmniArm.Infrastructure.Persistence;
+using DotNetEnv;
+
+Env.Load("../../.env");
 
 var builder = WebApplication.CreateBuilder(args);
 

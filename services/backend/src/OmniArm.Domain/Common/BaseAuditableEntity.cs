@@ -1,4 +1,4 @@
-namespace Domain.Common;
+namespace OmniArm.Domain.Common;
 
 public abstract class BaseAuditableEntity : BaseEntity
 {

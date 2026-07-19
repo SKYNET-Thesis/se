@@ -1,9 +1,8 @@
 using System.Reflection;
-using Application.Common.Behaviours;
+using OmniArm.Application.Common.Behaviours;
 using FluentValidation;
 using Microsoft.Extensions.Hosting;
-
-namespace Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 
 public static class DependencyInjection
 {

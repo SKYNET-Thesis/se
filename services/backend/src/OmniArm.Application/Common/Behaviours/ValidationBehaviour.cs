@@ -1,9 +1,9 @@
 ﻿using MediatR;
 using FluentValidation;
 
-using ValidationException = Application.Common.Exceptions.ValidationException;
+using ValidationException = OmniArm.Application.Common.Exceptions.ValidationException;
 
-namespace Application.Common.Behaviours;
+namespace OmniArm.Application.Common.Behaviours;
 
 public class ValidationBehaviour<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
     where TRequest : notnull

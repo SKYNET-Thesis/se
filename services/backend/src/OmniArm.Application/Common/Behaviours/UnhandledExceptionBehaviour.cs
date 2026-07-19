@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using MediatR;
 
-namespace Application.Common.Behaviours;
+namespace OmniArm.Application.Common.Behaviours;
 
 public class UnhandledExceptionBehaviour<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
     where TRequest : notnull
