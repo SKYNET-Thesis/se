@@ -4,6 +4,9 @@
 node_modules/
 dist/
 build/
+bin/
+obj/
+*.user
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
