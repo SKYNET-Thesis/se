@@ -1,50 +1,95 @@
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Hand, Pause, RotateCcw, RotateCw, Square } from "lucide-react-native";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Pause, RotateCcw, RotateCw, Square } from "lucide-react-native";
+import { ReactNode, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-const buttons = [
-  { label: "Up", icon: ChevronUp },
-  { label: "Left", icon: ChevronLeft },
-  { label: "Right", icon: ChevronRight },
-  { label: "Down", icon: ChevronDown }
+type Props = {
+  enabled: boolean;
+  emergencyStopped: boolean;
+  onEmergencyStop: () => void;
+};
+
+const jogButtons = [
+  { label: "Joint up", icon: ChevronUp },
+  { label: "Joint left", icon: ChevronLeft },
+  { label: "Joint right", icon: ChevronRight },
+  { label: "Joint down", icon: ChevronDown }
 ];
 
-export function ManualControls() {
+export function ManualControls({ enabled, emergencyStopped, onEmergencyStop }: Props) {
+  const [activeCommand, setActiveCommand] = useState<string | null>(null);
+  const controlsDisabled = !enabled || emergencyStopped;
+
+  const startCommand = (command: string) => {
+    if (!controlsDisabled) setActiveCommand(command);
+  };
+
+  const stopCommand = () => setActiveCommand(null);
+
   return (
     <View style={styles.card}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>Manual Mode</Text>
-          <Text style={styles.caption}>Jog arm axes and gripper for demo control</Text>
+          <Text style={styles.title}>Jog controls</Text>
+          <Text style={styles.caption}>{controlsDisabled ? "Controls locked" : "Release any control to stop motion"}</Text>
         </View>
-        <View style={styles.modePill}>
-          <Hand size={14} color="#111211" />
-          <Text style={styles.modeText}>Manual</Text>
+        <View style={[styles.commandPill, activeCommand && styles.commandPillActive]}>
+          <View style={[styles.commandDot, activeCommand && styles.commandDotActive]} />
+          <Text style={[styles.commandText, activeCommand && styles.commandTextActive]}>
+            {activeCommand ?? "Idle"}
+          </Text>
         </View>
       </View>
 
-      <View style={styles.controlRow}>
+      <View style={styles.controls}>
         <View style={styles.dpad}>
-          {buttons.map(({ label, icon: Icon }) => (
-            <Pressable key={label} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
-              <Icon size={22} color="#edf1ef" />
+          {jogButtons.map(({ label, icon: Icon }) => (
+            <Pressable
+              key={label}
+              accessibilityLabel={label}
+              disabled={controlsDisabled}
+              onPressIn={() => startCommand(label)}
+              onPressOut={stopCommand}
+              style={({ pressed }) => [
+                styles.iconButton,
+                controlsDisabled && styles.disabledControl,
+                pressed && styles.pressed
+              ]}
+            >
+              <Icon size={23} color="#edf1ef" />
             </Pressable>
           ))}
         </View>
 
         <View style={styles.actionGrid}>
-          <Pressable style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
-            <RotateCcw size={20} color="#7ee4b8" />
-            <Text style={styles.actionText}>Base -</Text>
-          </Pressable>
-          <Pressable style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
-            <RotateCw size={20} color="#7ee4b8" />
-            <Text style={styles.actionText}>Base +</Text>
-          </Pressable>
-          <Pressable style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
-            <Pause size={20} color="#e7b443" />
-            <Text style={styles.actionText}>Hold</Text>
-          </Pressable>
-          <Pressable style={({ pressed }) => [styles.stopButton, pressed && styles.pressed]}>
+          <HoldButton
+            label="Base -"
+            disabled={controlsDisabled}
+            icon={<RotateCcw size={20} color="#7ee4b8" />}
+            onStart={startCommand}
+            onStop={stopCommand}
+          />
+          <HoldButton
+            label="Base +"
+            disabled={controlsDisabled}
+            icon={<RotateCw size={20} color="#7ee4b8" />}
+            onStart={startCommand}
+            onStop={stopCommand}
+          />
+          <HoldButton
+            label="Hold"
+            disabled={controlsDisabled}
+            icon={<Pause size={20} color="#e7b443" />}
+            onStart={startCommand}
+            onStop={stopCommand}
+          />
+          <Pressable
+            accessibilityLabel="Emergency stop"
+            onPress={() => {
+              stopCommand();
+              onEmergencyStop();
+            }}
+            style={({ pressed }) => [styles.stopButton, pressed && styles.pressed]}
+          >
             <Square size={19} color="#250709" />
             <Text style={styles.stopText}>E-Stop</Text>
           </Pressable>
@@ -54,12 +99,34 @@ export function ManualControls() {
   );
 }
 
+type HoldButtonProps = {
+  label: string;
+  disabled: boolean;
+  icon: ReactNode;
+  onStart: (label: string) => void;
+  onStop: () => void;
+};
+
+function HoldButton({ label, disabled, icon, onStart, onStop }: HoldButtonProps) {
+  return (
+    <Pressable
+      disabled={disabled}
+      onPressIn={() => onStart(label)}
+      onPressOut={onStop}
+      style={({ pressed }) => [styles.actionButton, disabled && styles.disabledControl, pressed && styles.pressed]}
+    >
+      {icon}
+      <Text style={styles.actionText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   card: {
     borderRadius: 8,
     backgroundColor: "#202321",
     borderWidth: 1,
-    borderColor: "#313733",
+    borderColor: "#343b37",
     padding: 14,
     gap: 16
   },
@@ -76,26 +143,46 @@ const styles = StyleSheet.create({
   },
   caption: {
     color: "#8b948f",
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 3
   },
-  modePill: {
-    minHeight: 32,
-    paddingHorizontal: 11,
+  commandPill: {
+    minHeight: 31,
+    maxWidth: 112,
+    paddingHorizontal: 10,
     borderRadius: 8,
-    backgroundColor: "#7ee4b8",
     flexDirection: "row",
     alignItems: "center",
-    gap: 6
+    gap: 6,
+    backgroundColor: "#292d2b"
   },
-  modeText: {
-    color: "#111211",
-    fontSize: 12,
+  commandPillActive: {
+    backgroundColor: "#183027"
+  },
+  commandDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 7,
+    backgroundColor: "#69736d"
+  },
+  commandDotActive: {
+    backgroundColor: "#5cff9d"
+  },
+  commandText: {
+    flexShrink: 1,
+    color: "#a5aea9",
+    fontSize: 10,
     fontWeight: "900"
   },
-  controlRow: {
+  commandTextActive: {
+    color: "#bdf5d8"
+  },
+  controls: {
     flexDirection: "row",
-    gap: 14
+    gap: 12
+  },
+  disabledControl: {
+    opacity: 0.35
   },
   dpad: {
     width: 126,
@@ -105,7 +192,7 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     width: 56,
-    height: 48,
+    height: 52,
     borderRadius: 8,
     backgroundColor: "#2a2f2c",
     borderWidth: 1,
@@ -122,7 +209,7 @@ const styles = StyleSheet.create({
   actionButton: {
     flexGrow: 1,
     flexBasis: 92,
-    height: 48,
+    height: 52,
     borderRadius: 8,
     backgroundColor: "#2a2f2c",
     borderWidth: 1,
@@ -135,7 +222,7 @@ const styles = StyleSheet.create({
   stopButton: {
     flexGrow: 1,
     flexBasis: 92,
-    height: 48,
+    height: 52,
     borderRadius: 8,
     backgroundColor: "#ef5b61",
     alignItems: "center",
@@ -154,7 +241,7 @@ const styles = StyleSheet.create({
     fontWeight: "900"
   },
   pressed: {
-    opacity: 0.72,
+    opacity: 0.7,
     transform: [{ scale: 0.98 }]
   }
 });

@@ -15,4 +15,5 @@ __pycache__/
 .vscode/
 .expo/
 .expo-export-test/
+.expo-web-test/
 expo-start*.log
