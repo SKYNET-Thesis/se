@@ -1,0 +1,6 @@
+@OmniArm.Api_HostAddress = http://localhost:5244
+
+GET {{OmniArm.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
