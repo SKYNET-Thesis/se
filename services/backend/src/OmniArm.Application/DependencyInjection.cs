@@ -1,22 +1,26 @@
 using System.Reflection;
-using OmniArm.Application.Common.Behaviours;
 using FluentValidation;
-using Microsoft.Extensions.Hosting;
+using MediatR;
 using Microsoft.Extensions.DependencyInjection;
+using OmniArm.Application.Common.Behaviours;
+
+namespace OmniArm.Application;
 
 public static class DependencyInjection
 {
-    public static void AddApplicationServices(this IHostApplicationBuilder builder)
+    public static IServiceCollection AddApplication(
+        this IServiceCollection services)
     {
-        builder.Services.AddAutoMapper(cfg => 
-            cfg.AddMaps(Assembly.GetExecutingAssembly()));
+        var assembly = Assembly.GetExecutingAssembly();
 
-        builder.Services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
+        services.AddValidatorsFromAssembly(assembly);
 
-        builder.Services.AddMediatR(cfg => {
-            cfg.RegisterServicesFromAssembly(Assembly.GetExecutingAssembly());
-            cfg.AddOpenBehavior(typeof(UnhandledExceptionBehaviour<,>));
-            cfg.AddOpenBehavior(typeof(ValidationBehaviour<,>));
+        services.AddMediatR(configuration =>
+        {
+            configuration.RegisterServicesFromAssembly(assembly);
+            configuration.AddOpenBehavior(typeof(ValidationBehaviour<,>));
         });
+
+        return services;
     }
 }
