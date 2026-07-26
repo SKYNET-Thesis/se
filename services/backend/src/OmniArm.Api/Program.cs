@@ -1,8 +1,7 @@
+using OmniArm.Api.Middlewares;
+using OmniArm.Application;
 using OmniArm.Infrastructure;
 using OmniArm.Infrastructure.Persistence;
-using DotNetEnv;
-
-Env.Load("../../.env");
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -13,9 +12,13 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<AppDbContext>("postgres");
+
+builder.Services.AddExceptionHandler<ApiExceptionHandler>();
+builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
@@ -25,6 +28,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+app.UseExceptionHandler();
 
 app.UseHttpsRedirection();
 

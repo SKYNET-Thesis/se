@@ -4,3 +4,7 @@ node_modules/
 dist/
 .env
 .git
+package.json
+package-lock.json
+tsconfig.json
+src/main.ts
