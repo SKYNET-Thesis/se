@@ -4,6 +4,7 @@ declare module "*.glb" {
 }
 
 declare module "expo-three" {
+  import type { ExpoWebGLRenderingContext } from "expo-gl/build/GLView.types";
   export class Renderer {
     constructor(options: { gl: ExpoWebGLRenderingContext });
     setSize(width: number, height: number): void;
