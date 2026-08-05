@@ -1,14 +1,40 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: omniarm
+      POSTGRES_PASSWORD: omniarm
+      POSTGRES_DB: omniarm
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./infra/mosquitto.conf:/mosquitto/config/mosquitto.conf
+
   backend:
     build: ./services/backend
     env_file:
       - ./services/backend/.env.example
     ports:
       - "3000:3000"
+    depends_on:
+      - postgres
+      - mqtt
 
   ai-integration:
     build: ./services/ai-integration
     env_file:
       - ./services/ai-integration/.env.example
+    environment:
+      BACKEND_URL: http://backend:3000
     ports:
       - "8000:8000"
+
+volumes:
+  pgdata:

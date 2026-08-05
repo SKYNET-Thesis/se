@@ -4,7 +4,6 @@
     "slug": "omniarm-se",
     "version": "0.1.0",
     "orientation": "portrait",
-    "jsEngine": "jsc",
     "userInterfaceStyle": "dark",
     "splash": {
       "backgroundColor": "#111211"
