@@ -40,7 +40,7 @@ export function DebugScreen() {
           <Text style={styles.title}>SO-101 arm</Text>
         </View>
         <View style={styles.onlinePill}>
-          <Radio size={14} color="#7ee4b8" />
+          <Radio size={14} color="#66e0ff" />
           <Text style={styles.onlineText}>12 ms</Text>
         </View>
       </View>
@@ -126,7 +126,7 @@ export function DebugScreen() {
             {expanded && (
               <View style={styles.detailCard}>
                 <View style={styles.detailHeader}>
-                  <Info size={16} color="#7ee4b8" />
+                  <Info size={16} color="#66e0ff" />
                   <Text style={styles.detailTitle}>{selected.component}</Text>
                 </View>
                 <Text style={styles.detailText}>{selected.detail}</Text>
@@ -146,7 +146,7 @@ export function DebugScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#111211"
+    backgroundColor: "transparent"
   },
   header: {
     height: 68,
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#292e2b"
   },
   eyebrow: {
-    color: "#7ee4b8",
+    color: "#66e0ff",
     fontSize: 10,
     fontWeight: "900"
   },
@@ -174,8 +174,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: "#183027"
+    borderRadius: 18,
+    backgroundColor: "#32688a"
   },
   onlineText: {
     color: "#bdf5d8",
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
   viewer: {
     flex: 1,
     minHeight: 300,
-    backgroundColor: "#171918"
+    backgroundColor: "#202851"
   },
   telemetryStrip: {
     position: "absolute",
@@ -196,8 +196,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: "#222624e8",
+    borderRadius: 18,
+    backgroundColor: "#343b72e8",
     borderWidth: 1,
     borderColor: "#39413c"
   },
@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
     fontWeight: "900"
   },
   telemetryValue: {
-    color: "#edf1ef",
+    color: "#f5f5ff",
     fontSize: 11,
     fontWeight: "800",
     marginTop: 3
@@ -229,10 +229,10 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderTopLeftRadius: 8,
     borderTopRightRadius: 8,
-    backgroundColor: "#202321",
+    backgroundColor: "rgba(255,255,255,0.09)",
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: "#3b433e",
+    borderColor: "rgba(255,255,255,0.16)",
     overflow: "hidden"
   },
   sheetHandleArea: {
@@ -263,10 +263,10 @@ const styles = StyleSheet.create({
     top: 18,
     width: 34,
     height: 34,
-    borderRadius: 8,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#292d2b"
+    backgroundColor: "rgba(255,255,255,0.1)"
   },
   sheetTitle: {
     color: "#f0f3f1",
@@ -289,19 +289,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     padding: 9,
-    borderRadius: 8,
-    backgroundColor: "#282c2a",
+    borderRadius: 18,
+    backgroundColor: "#444c85",
     borderWidth: 1,
     borderColor: "transparent"
   },
   issueActive: {
     borderColor: "#6c8176",
-    backgroundColor: "#2d332f"
+    backgroundColor: "#444c85"
   },
   issueIcon: {
     width: 34,
     height: 34,
-    borderRadius: 8,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center"
   },
@@ -316,12 +316,12 @@ const styles = StyleSheet.create({
     minWidth: 0
   },
   issueTitle: {
-    color: "#edf1ef",
+    color: "#f5f5ff",
     fontSize: 12,
     fontWeight: "800"
   },
   issueSummary: {
-    color: "#8f9994",
+    color: "#b5b9de",
     fontSize: 10,
     marginTop: 3
   },
@@ -336,10 +336,10 @@ const styles = StyleSheet.create({
   detailCard: {
     marginTop: 2,
     padding: 12,
-    borderRadius: 8,
-    backgroundColor: "#171918",
+    borderRadius: 18,
+    backgroundColor: "#202851",
     borderWidth: 1,
-    borderColor: "#343b37"
+    borderColor: "rgba(255,255,255,0.13)"
   },
   detailHeader: {
     flexDirection: "row",
@@ -347,7 +347,7 @@ const styles = StyleSheet.create({
     gap: 7
   },
   detailTitle: {
-    color: "#edf1ef",
+    color: "#f5f5ff",
     fontSize: 12,
     fontWeight: "900"
   },
