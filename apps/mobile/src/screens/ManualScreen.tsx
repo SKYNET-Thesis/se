@@ -37,7 +37,7 @@ export function ManualScreen() {
             {emergencyStopped ? (
               <ShieldAlert size={15} color="#ff9b9f" />
             ) : manualEnabled ? (
-              <Hand size={15} color="#111211" />
+              <Hand size={15} color="#20265f" />
             ) : (
               <LockKeyhole size={15} color="#aab3ae" />
             )}
@@ -71,7 +71,7 @@ export function ManualScreen() {
 
         {!manualEnabled && !emergencyStopped && (
           <Pressable onPress={() => setConfirmVisible(true)} style={({ pressed }) => [styles.enableButton, pressed && styles.pressed]}>
-            <Hand size={20} color="#111211" />
+            <Hand size={20} color="#20265f" />
             <Text style={styles.enableText}>Enable Manual Mode</Text>
           </Pressable>
         )}
@@ -128,7 +128,7 @@ function ConfirmationModal({ visible, title, body, confirmLabel, danger, onCance
         <View style={styles.modalCard}>
           <View style={styles.modalHeader}>
             <View style={[styles.modalIcon, danger && styles.modalIconDanger]}>
-              {danger ? <ShieldAlert size={22} color="#ff8589" /> : <Hand size={22} color="#7ee4b8" />}
+              {danger ? <ShieldAlert size={22} color="#ff8589" /> : <Hand size={22} color="#66e0ff" />}
             </View>
             <Pressable accessibilityLabel="Close" onPress={onCancel} style={styles.closeButton}>
               <X size={19} color="#aeb7b2" />
@@ -171,13 +171,13 @@ const styles = StyleSheet.create({
     fontWeight: "900"
   },
   title: {
-    color: "#f4f6f4",
+    color: "#ffffff",
     fontSize: 27,
     fontWeight: "800",
     marginTop: 2
   },
   subtitle: {
-    color: "#8f9994",
+    color: "#b5b9de",
     fontSize: 12,
     marginTop: 3
   },
@@ -187,11 +187,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 7,
     paddingHorizontal: 11,
-    borderRadius: 8,
-    backgroundColor: "#292d2b"
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.1)"
   },
   modePillEnabled: {
-    backgroundColor: "#7ee4b8"
+    backgroundColor: "#66e0ff"
   },
   modePillStopped: {
     backgroundColor: "#3a1f21"
@@ -202,16 +202,16 @@ const styles = StyleSheet.create({
     fontWeight: "900"
   },
   modeTextEnabled: {
-    color: "#111211"
+    color: "#20265f"
   },
   modeTextStopped: {
     color: "#ffb3b6"
   },
   readinessCard: {
-    borderRadius: 8,
-    backgroundColor: "#202321",
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.09)",
     borderWidth: 1,
-    borderColor: "#343b37",
+    borderColor: "rgba(255,255,255,0.13)",
     paddingHorizontal: 13
   },
   readinessRow: {
@@ -236,25 +236,25 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: 1,
-    backgroundColor: "#303632"
+    backgroundColor: "rgba(255,255,255,0.08)"
   },
   enableButton: {
     height: 52,
-    borderRadius: 8,
+    borderRadius: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 9,
-    backgroundColor: "#7ee4b8"
+    backgroundColor: "#66e0ff"
   },
   enableText: {
-    color: "#111211",
+    color: "#20265f",
     fontSize: 13,
     fontWeight: "900"
   },
   resetButton: {
     height: 52,
-    borderRadius: 8,
+    borderRadius: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -282,10 +282,10 @@ const styles = StyleSheet.create({
   modalCard: {
     width: "100%",
     maxWidth: 430,
-    borderRadius: 8,
-    backgroundColor: "#202321",
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.09)",
     borderWidth: 1,
-    borderColor: "#3b433e",
+    borderColor: "rgba(255,255,255,0.16)",
     padding: 18
   },
   modalHeader: {
@@ -296,10 +296,10 @@ const styles = StyleSheet.create({
   modalIcon: {
     width: 42,
     height: 42,
-    borderRadius: 8,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#183027"
+    backgroundColor: "#32688a"
   },
   modalIconDanger: {
     backgroundColor: "#3a1f21"
@@ -330,10 +330,10 @@ const styles = StyleSheet.create({
   cancelButton: {
     flex: 1,
     height: 44,
-    borderRadius: 8,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#2a2f2c"
+    backgroundColor: "rgba(255,255,255,0.12)"
   },
   cancelText: {
     color: "#c3cbc7",
@@ -343,16 +343,16 @@ const styles = StyleSheet.create({
   confirmButton: {
     flex: 1.3,
     height: 44,
-    borderRadius: 8,
+    borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#7ee4b8"
+    backgroundColor: "#66e0ff"
   },
   confirmButtonDanger: {
     backgroundColor: "#ef5b61"
   },
   confirmText: {
-    color: "#111211",
+    color: "#20265f",
     fontSize: 12,
     fontWeight: "900"
   },
