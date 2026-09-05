@@ -55,14 +55,14 @@ export function LineChartCard({ title, color, data }: Props) {
 const styles = StyleSheet.create({
   card: {
     minHeight: 174,
-    borderRadius: 8,
-    backgroundColor: "#202321",
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.09)",
     borderWidth: 1,
-    borderColor: "#313733",
+    borderColor: "rgba(255,255,255,0.13)",
     padding: 14
   },
   title: {
-    color: "#edf1ef",
+    color: "#f5f5ff",
     fontSize: 14,
     fontWeight: "800",
     marginBottom: 12
@@ -81,6 +81,6 @@ const styles = StyleSheet.create({
   },
   gridLine: {
     height: 1,
-    backgroundColor: "#303632"
+    backgroundColor: "rgba(255,255,255,0.08)"
   }
 });

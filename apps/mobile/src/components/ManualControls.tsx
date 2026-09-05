@@ -55,7 +55,7 @@ export function ManualControls({ enabled, emergencyStopped, onEmergencyStop }: P
                 pressed && styles.pressed
               ]}
             >
-              <Icon size={23} color="#edf1ef" />
+              <Icon size={23} color="#f5f5ff" />
             </Pressable>
           ))}
         </View>
@@ -64,14 +64,14 @@ export function ManualControls({ enabled, emergencyStopped, onEmergencyStop }: P
           <HoldButton
             label="Base -"
             disabled={controlsDisabled}
-            icon={<RotateCcw size={20} color="#7ee4b8" />}
+            icon={<RotateCcw size={20} color="#66e0ff" />}
             onStart={startCommand}
             onStop={stopCommand}
           />
           <HoldButton
             label="Base +"
             disabled={controlsDisabled}
-            icon={<RotateCw size={20} color="#7ee4b8" />}
+            icon={<RotateCw size={20} color="#66e0ff" />}
             onStart={startCommand}
             onStop={stopCommand}
           />
@@ -123,10 +123,10 @@ function HoldButton({ label, disabled, icon, onStart, onStop }: HoldButtonProps)
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 8,
-    backgroundColor: "#202321",
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.09)",
     borderWidth: 1,
-    borderColor: "#343b37",
+    borderColor: "rgba(255,255,255,0.13)",
     padding: 14,
     gap: 16
   },
@@ -137,12 +137,12 @@ const styles = StyleSheet.create({
     alignItems: "center"
   },
   title: {
-    color: "#edf1ef",
+    color: "#f5f5ff",
     fontSize: 15,
     fontWeight: "800"
   },
   caption: {
-    color: "#8b948f",
+    color: "#b5b9de",
     fontSize: 11,
     marginTop: 3
   },
@@ -150,14 +150,14 @@ const styles = StyleSheet.create({
     minHeight: 31,
     maxWidth: 112,
     paddingHorizontal: 10,
-    borderRadius: 8,
+    borderRadius: 18,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: "#292d2b"
+    backgroundColor: "rgba(255,255,255,0.1)"
   },
   commandPillActive: {
-    backgroundColor: "#183027"
+    backgroundColor: "#32688a"
   },
   commandDot: {
     width: 7,
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
   },
   commandText: {
     flexShrink: 1,
-    color: "#a5aea9",
+    color: "#c4c9e9",
     fontSize: 10,
     fontWeight: "900"
   },
@@ -193,10 +193,10 @@ const styles = StyleSheet.create({
   iconButton: {
     width: 56,
     height: 52,
-    borderRadius: 8,
-    backgroundColor: "#2a2f2c",
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.12)",
     borderWidth: 1,
-    borderColor: "#3b433e",
+    borderColor: "rgba(255,255,255,0.16)",
     alignItems: "center",
     justifyContent: "center"
   },
@@ -210,10 +210,10 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: 92,
     height: 52,
-    borderRadius: 8,
-    backgroundColor: "#2a2f2c",
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.12)",
     borderWidth: 1,
-    borderColor: "#3b433e",
+    borderColor: "rgba(255,255,255,0.16)",
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
@@ -223,7 +223,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: 92,
     height: 52,
-    borderRadius: 8,
+    borderRadius: 18,
     backgroundColor: "#ef5b61",
     alignItems: "center",
     justifyContent: "center",
@@ -231,7 +231,7 @@ const styles = StyleSheet.create({
     gap: 7
   },
   actionText: {
-    color: "#edf1ef",
+    color: "#f5f5ff",
     fontSize: 12,
     fontWeight: "800"
   },

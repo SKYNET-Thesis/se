@@ -1,89 +1,11 @@
-import { Box, Camera, Hand, LayoutDashboard, LucideIcon } from "lucide-react-native";
+import { Box, Camera, Hand, Bot } from "lucide-react-native";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-
 export type TabKey = "dashboard" | "debug" | "manual" | "camera";
-
-type Tab = {
-  key: TabKey;
-  label: string;
-  icon: LucideIcon;
-};
-
-const tabs: Tab[] = [
-  { key: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { key: "debug", label: "3D Debug", icon: Box },
-  { key: "manual", label: "Manual", icon: Hand },
-  { key: "camera", label: "Camera", icon: Camera }
-];
-
-type Props = {
-  activeTab: TabKey;
-  onChange: (tab: TabKey) => void;
-};
-
-export function BottomTabBar({ activeTab, onChange }: Props) {
-  return (
-    <View style={styles.bar}>
-      {tabs.map(({ key, label, icon: Icon }) => {
-        const active = key === activeTab;
-        return (
-          <Pressable
-            key={key}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-            onPress={() => onChange(key)}
-            style={({ pressed }) => [styles.tab, pressed && styles.pressed]}
-          >
-            <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
-              <Icon size={20} color={active ? "#7ee4b8" : "#7f8984"} strokeWidth={active ? 2.5 : 2} />
-            </View>
-            <Text numberOfLines={1} style={[styles.label, active && styles.labelActive]}>
-              {label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
+const tabs = [{ key: "dashboard", label: "Robots", icon: Bot }, { key: "debug", label: "3D Debug", icon: Box }, { key: "manual", label: "Manual", icon: Hand }, { key: "camera", label: "Camera", icon: Camera }] as const;
+export function BottomTabBar({ activeTab, onChange }: {
+    activeTab: TabKey;
+    onChange: (tab: TabKey) => void;
+}) {
+    return <View style={s.wrap}><View style={s.bar}>{tabs.map(({ key, label, icon: Icon }) => <Pressable key={key} accessibilityRole="tab" accessibilityLabel={label} accessibilityState={{ selected: key === activeTab }} onPress={() => onChange(key)} style={[s.tab, key === activeTab && s.active]}><Icon size={21} color="#202b55"/>{key === activeTab && <Text style={s.label}>{label}</Text>}</Pressable>)}</View></View>;
 }
-
-const styles = StyleSheet.create({
-  bar: {
-    height: 72,
-    flexDirection: "row",
-    alignItems: "stretch",
-    backgroundColor: "#181a19",
-    borderTopWidth: 1,
-    borderTopColor: "#303531",
-    paddingHorizontal: 8,
-    paddingTop: 6
-  },
-  tab: {
-    flex: 1,
-    minWidth: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 3
-  },
-  iconWrap: {
-    width: 42,
-    height: 30,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  iconWrapActive: {
-    backgroundColor: "#183027"
-  },
-  label: {
-    color: "#7f8984",
-    fontSize: 10,
-    fontWeight: "700"
-  },
-  labelActive: {
-    color: "#bdf5d8"
-  },
-  pressed: {
-    opacity: 0.7
-  }
-});
+const s = StyleSheet.create({ wrap: { paddingHorizontal: 18, paddingBottom: 10, paddingTop: 8, width: "100%", maxWidth: 760, alignSelf: "center" }, bar: { flexDirection: "row", backgroundColor: "rgba(226,230,255,0.65)", borderRadius: 30, padding: 7, alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderColor: "rgba(255,255,255,0.3)" }, tab: { minHeight: 44, minWidth: 48, paddingHorizontal: 13, flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center", borderRadius: 24 }, active: { backgroundColor: "#67d9ff", flexGrow: 1, marginHorizontal: 3 }, label: { fontSize: 12, fontWeight: "700", color: "#202b55" } });
