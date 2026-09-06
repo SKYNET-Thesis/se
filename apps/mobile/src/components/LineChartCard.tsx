@@ -73,10 +73,10 @@ const styles = StyleSheet.create({
     overflow: "hidden"
   },
   svg: {
-    ...StyleSheet.absoluteFillObject
+    ...StyleSheet.absoluteFill
   },
   grid: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: "space-between"
   },
   gridLine: {

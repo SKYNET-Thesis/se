@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
         borderColor: "#6985aa55"
     },
     previewGrid: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         justifyContent: "space-evenly"
     },
     gridLineHorizontal: {

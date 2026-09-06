@@ -16,11 +16,17 @@ import {
 import Svg, { Circle } from "react-native-svg";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { colors } from "../theme";
 
 const modelAsset = require("../../assets/models/arm.glb");
 
 type Props = {
+  accentColor?: string;
+  backgroundColor?: string;
   compact?: boolean;
+  floorColor?: string;
+  modelScale?: number;
+  reduceMotion?: boolean;
   showFaults?: boolean;
   selectedFault?: number | null;
   onFaultSelect?: (index: number) => void;
@@ -62,7 +68,12 @@ function distanceBetweenTouches(event: GestureResponderEvent) {
 }
 
 export function ArmModelViewer({
+  accentColor = colors.accent,
+  backgroundColor = colors.surface,
   compact = false,
+  floorColor = colors.surface2,
+  modelScale,
+  reduceMotion = false,
   showFaults = !compact,
   selectedFault = null,
   onFaultSelect
@@ -187,7 +198,7 @@ export function ArmModelViewer({
         renderer.setSize(width, height);
 
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(compact ? "#141716" : "#1b1d1c");
+        scene.background = new THREE.Color(backgroundColor);
 
         const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
         camera.position.set(0, 0.1, zoomRef.current);
@@ -208,7 +219,7 @@ export function ArmModelViewer({
 
         const floor = new THREE.Mesh(
           new THREE.CircleGeometry(compact ? 1.0 : 1.4, 48),
-          new THREE.MeshStandardMaterial({ color: 0x2b302c, roughness: 0.82, metalness: 0.12 })
+          new THREE.MeshStandardMaterial({ color: new THREE.Color(floorColor), roughness: 0.82, metalness: 0.12 })
         );
         floor.rotation.x = -Math.PI / 2;
         floor.position.y = -1.04;
@@ -227,7 +238,7 @@ export function ArmModelViewer({
               const box = new THREE.Box3().setFromObject(model);
               const size = box.getSize(new THREE.Vector3());
               const center = box.getCenter(new THREE.Vector3());
-              const scale = (compact ? 1.25 : 1.95) / Math.max(size.x, size.y, size.z);
+              const scale = (modelScale ?? (compact ? 1.25 : 1.95)) / Math.max(size.x, size.y, size.z);
 
               model.position.copy(center).multiplyScalar(-scale);
               model.scale.setScalar(scale);
@@ -273,7 +284,7 @@ export function ArmModelViewer({
         setFailed(true);
       }
     },
-    [compact, projectFaults, selectedFault]
+    [backgroundColor, compact, floorColor, modelScale, projectFaults, selectedFault]
   );
 
   useEffect(
@@ -284,6 +295,8 @@ export function ArmModelViewer({
   );
 
   useEffect(() => {
+    if (reduceMotion || !showFaults) return undefined;
+
     const animation = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1, duration: 760, useNativeDriver: true }),
@@ -292,7 +305,7 @@ export function ArmModelViewer({
     );
     animation.start();
     return () => animation.stop();
-  }, [pulse]);
+  }, [pulse, reduceMotion, showFaults]);
 
   if (failed) {
     return (
@@ -301,7 +314,7 @@ export function ArmModelViewer({
         <View style={styles.armOne} />
         <View style={styles.armTwo} />
         <View style={styles.jointLarge} />
-        <Text style={styles.fallbackText}>3D model offline</Text>
+        <Text style={styles.fallbackText}>Mô hình 3D tạm ngắt</Text>
       </View>
     );
   }
@@ -330,9 +343,9 @@ export function ArmModelViewer({
                 cx={point.x}
                 cy={point.y}
                 r={selectedFault === index ? 14 : 8}
-                fill="#111211"
+                fill={backgroundColor}
                 fillOpacity={0.86}
-                stroke={faultColors[index]}
+                stroke={selectedFault === index ? accentColor : faultColors[index]}
                 strokeWidth={selectedFault === index ? 4 : 2.5}
               />
             ))}
@@ -377,7 +390,7 @@ const styles = StyleSheet.create({
     overflow: "hidden"
   },
   gl: {
-    ...StyleSheet.absoluteFillObject
+    ...StyleSheet.absoluteFill
   },
   resetButton: {
     position: "absolute",
