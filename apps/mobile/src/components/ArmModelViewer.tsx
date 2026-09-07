@@ -1,4 +1,5 @@
 import { Asset } from "expo-asset";
+import { File } from "expo-file-system";
 import { GLView } from "expo-gl";
 import type { ExpoWebGLRenderingContext } from "expo-gl/build/GLView.types";
 import { RotateCcw } from "lucide-react-native";
@@ -8,6 +9,7 @@ import {
   GestureResponderEvent,
   LayoutChangeEvent,
   PanResponder,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -136,6 +138,60 @@ function ensureReactNativeUserAgent() {
   Object.defineProperty(navigator, "userAgent", {
     configurable: true,
     value: "OmniArm React Native"
+  });
+}
+
+// three.js's FileLoader (used internally by GLTFLoader.load) reports download
+// progress via `new ProgressEvent(...)`. Hermes/RN's fetch polyfill supports
+// streaming (ReadableStream exists) but never registered the ProgressEvent
+// global, so any resource fetched through that path throws
+// "ReferenceError: Property 'ProgressEvent' doesn't exist". arm.glb is a
+// single self-contained binary with no external buffers/textures to fetch,
+// so this only guards future models that do reference external resources.
+function ensureProgressEventPolyfill() {
+  const target = globalThis as unknown as { ProgressEvent?: unknown };
+  if (typeof target.ProgressEvent !== "undefined") return;
+
+  class ProgressEventPolyfill {
+    readonly type: string;
+    readonly lengthComputable: boolean;
+    readonly loaded: number;
+    readonly total: number;
+
+    constructor(type: string, init?: { lengthComputable?: boolean; loaded?: number; total?: number }) {
+      this.type = type;
+      this.lengthComputable = init?.lengthComputable ?? false;
+      this.loaded = init?.loaded ?? 0;
+      this.total = init?.total ?? 0;
+    }
+  }
+
+  target.ProgressEvent = ProgressEventPolyfill;
+}
+
+// Loads the GLB model for both platforms. On web, GLTFLoader.load() over
+// fetch works as-is. On native, three.js's fetch-based FileLoader can't
+// reliably read a local binary file under Hermes — RN's fetch/Response
+// implementation mishandles arraybuffer() for file:// URIs, so GLTFLoader
+// ends up trying to JSON.parse a stringified object ("Unexpected character:
+// o") instead of the real glTF binary. Reading the bytes ourselves via
+// expo-file-system and handing them to GLTFLoader.parse() sidesteps
+// fetch/FileLoader entirely.
+async function loadGltfModel(
+  loader: GLTFLoader,
+  asset: Asset
+): Promise<{ scene: THREE.Object3D }> {
+  const uri = asset.localUri ?? asset.uri;
+
+  if (Platform.OS === "web") {
+    return new Promise((resolve, reject) => {
+      loader.load(uri, resolve, undefined, reject);
+    });
+  }
+
+  const bytes = await new File(uri).bytes();
+  return new Promise((resolve, reject) => {
+    loader.parse(bytes.buffer, "", resolve, reject);
   });
 }
 
@@ -299,63 +355,55 @@ export function ArmModelViewer({
         const asset = Asset.fromModule(modelAsset);
         await asset.downloadAsync();
         ensureReactNativeUserAgent();
+        ensureProgressEventPolyfill();
 
-        await new Promise<void>((resolve, reject) => {
-          const loader = new GLTFLoader();
-          loader.load(
-            asset.localUri ?? asset.uri,
-            (gltf: { scene: THREE.Object3D }) => {
-              const model = gltf.scene;
-              model.updateMatrixWorld(true);
+        const loader = new GLTFLoader();
+        const gltf = await loadGltfModel(loader, asset);
+        const model = gltf.scene;
+        model.updateMatrixWorld(true);
 
-              // Bounding SPHERE (not just the axis-aligned box) so the fit is
-              // rotation-invariant: the model never clips the frame edges no
-              // matter how the user spins it with the two-finger gesture.
-              const box = new THREE.Box3().setFromObject(model);
-              const center = box.getCenter(new THREE.Vector3());
-              const sphere = box.getBoundingSphere(new THREE.Sphere());
-              const boundingRadius = Math.max(sphere.radius, 0.001);
+        // Bounding SPHERE (not just the axis-aligned box) so the fit is
+        // rotation-invariant: the model never clips the frame edges no
+        // matter how the user spins it with the two-finger gesture.
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        const sphere = box.getBoundingSphere(new THREE.Sphere());
+        const boundingRadius = Math.max(sphere.radius, 0.001);
 
-              // Pivot at the model's BASE (not its geometric center): the
-              // model is offset so its floor-contact point sits at the
-              // group's local origin, and the group is shifted down by that
-              // same amount in world space so the bounding-sphere center —
-              // what the camera fit below still targets — lands exactly
-              // where it always did. Yaw rotates around a vertical line
-              // through that base point, so the feet never drift.
-              model.position.set(-center.x, -box.min.y, -center.z);
-              group.position.set(0, box.min.y - center.y, 0);
-              group.add(model);
+        // Pivot at the model's BASE (not its geometric center): the
+        // model is offset so its floor-contact point sits at the
+        // group's local origin, and the group is shifted down by that
+        // same amount in world space so the bounding-sphere center —
+        // what the camera fit below still targets — lands exactly
+        // where it always did. Yaw rotates around a vertical line
+        // through that base point, so the feet never drift.
+        model.position.set(-center.x, -box.min.y, -center.z);
+        group.position.set(0, box.min.y - center.y, 0);
+        group.add(model);
 
-              const fitDistance = fitCameraToBoundingSphere(camera, boundingRadius);
-              fitRef.current = { distance: fitDistance, radius: boundingRadius };
-              zoomRef.current = fitDistance;
+        const fitDistance = fitCameraToBoundingSphere(camera, boundingRadius);
+        fitRef.current = { distance: fitDistance, radius: boundingRadius };
+        zoomRef.current = fitDistance;
 
-              const floorY = box.min.y - center.y - boundingRadius * 0.02;
-              addFloor(scene, { boundingRadius, compact, floorColor, floorY, softFloor });
+        const floorY = box.min.y - center.y - boundingRadius * 0.02;
+        addFloor(scene, { boundingRadius, compact, floorColor, floorY, softFloor });
 
-              group.updateWorldMatrix(true, true);
-              anchorRefs.current = ["shoulder_lift", "elbow_flex", "gripper_link"].map((name) => {
-                const component = model.getObjectByName(name);
-                if (!component) return new THREE.Vector3();
-                return group.worldToLocal(component.getWorldPosition(new THREE.Vector3()));
-              });
-
-              if (selectedFault !== null) {
-                const yaw = FOCUS_YAW_ANGLES[selectedFault] ?? FOCUS_YAW_ANGLES[0];
-                rotationRef.current = yaw;
-                group.rotation.set(0, yaw, 0);
-                zoomRef.current = fitDistance * 0.92;
-                camera.position.z = zoomRef.current;
-              }
-
-              projectFaults();
-              resolve();
-            },
-            undefined,
-            reject
-          );
+        group.updateWorldMatrix(true, true);
+        anchorRefs.current = ["shoulder_lift", "elbow_flex", "gripper_link"].map((name) => {
+          const component = model.getObjectByName(name);
+          if (!component) return new THREE.Vector3();
+          return group.worldToLocal(component.getWorldPosition(new THREE.Vector3()));
         });
+
+        if (selectedFault !== null) {
+          const yaw = FOCUS_YAW_ANGLES[selectedFault] ?? FOCUS_YAW_ANGLES[0];
+          rotationRef.current = yaw;
+          group.rotation.set(0, yaw, 0);
+          zoomRef.current = fitDistance * 0.92;
+          camera.position.z = zoomRef.current;
+        }
+
+        projectFaults();
 
         const render = () => {
           frameRef.current = requestAnimationFrame(render);
