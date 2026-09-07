@@ -123,6 +123,12 @@ const MOTOR_SWEEP: Record<MotorId, { amplitude: number; seed: number }> = {
 const CAUTION_MARGIN = 140;
 const JOG_STEP = 78;
 
+// theme.ts tops out at radius.card (16) — the Home "rich card" language uses
+// a deliberately larger, softer corner for top-level panels, with nested
+// content one size down. Scoped to this screen only.
+const CARD_RADIUS_OUTER = 24;
+const CARD_RADIUS_INNER = 18;
+
 export function TeleopScreen({ emergencyStopped, fontsReady, onBack }: Props) {
   const [tick, setTick] = useState(0);
   const [manualEnabled, setManualEnabled] = useState(false);
@@ -194,11 +200,13 @@ export function TeleopScreen({ emergencyStopped, fontsReady, onBack }: Props) {
 
         {emergencyStopped && <StoppedBanner fontsReady={fontsReady} />}
 
-        <ControlStatePanel
+        <ControlStatePanel fontsReady={fontsReady} state={teleopState} />
+
+        <ManualActionCard
+          disabled={teleopState === "estop"}
           fontsReady={fontsReady}
           manualEnabled={manualEnabled}
-          onToggleManual={openManualConfirm}
-          state={teleopState}
+          onToggle={openManualConfirm}
         />
 
         <GatePanel
@@ -252,57 +260,53 @@ function StoppedBanner({ fontsReady }: { fontsReady: boolean }) {
   );
 }
 
-function ControlStatePanel({
-  fontsReady,
-  manualEnabled,
-  onToggleManual,
-  state
-}: {
-  fontsReady: boolean;
-  manualEnabled: boolean;
-  onToggleManual: () => void;
-  state: TeleopState;
-}) {
+function ControlStatePanel({ fontsReady, state }: { fontsReady: boolean; state: TeleopState }) {
   const display = getStateDisplay(state);
 
   return (
     <View style={[styles.statePanel, state === "estop" && styles.panelDanger, state === "fault" && styles.panelDanger]}>
-      <View style={styles.stateHeader}>
-        <View style={styles.stateTitleBlock}>
-          <View style={styles.stateTitleRow}>
-            {display.icon}
-            <Text style={[styles.stateTitle, display.textStyle, font("display", fontsReady)]}>{display.title}</Text>
-          </View>
-          <Text style={[styles.stateCaption, font("body", fontsReady)]}>{display.caption}</Text>
-        </View>
-
-        <Pressable
-          accessibilityLabel={manualEnabled ? "Tắt Manual" : "Bật Manual"}
-          accessibilityRole="switch"
-          accessibilityState={{ checked: manualEnabled, disabled: state === "estop" }}
-          disabled={state === "estop"}
-          onPress={onToggleManual}
-          style={({ pressed }) => [
-            styles.manualSwitch,
-            manualEnabled && styles.manualSwitchOn,
-            state === "estop" && styles.manualSwitchDisabled,
-            pressed && state !== "estop" && styles.pressed
-          ]}
-        >
-          <View style={[styles.switchKnob, manualEnabled && styles.switchKnobOn]} />
-          <Text
-            style={[
-              styles.manualSwitchText,
-              manualEnabled && styles.manualSwitchTextOn,
-              state === "estop" && styles.manualSwitchTextDisabled,
-              font("display", fontsReady)
-            ]}
-          >
-            Manual
-          </Text>
-        </Pressable>
+      <View style={styles.stateTitleRow}>
+        {display.icon}
+        <Text style={[styles.stateTitle, display.textStyle, font("display", fontsReady)]}>{display.title}</Text>
       </View>
+      <Text style={[styles.stateCaption, font("body", fontsReady)]}>{display.caption}</Text>
     </View>
+  );
+}
+
+function ManualActionCard({
+  disabled,
+  fontsReady,
+  manualEnabled,
+  onToggle
+}: {
+  disabled: boolean;
+  fontsReady: boolean;
+  manualEnabled: boolean;
+  onToggle: () => void;
+}) {
+  const label = manualEnabled ? "Tắt Manual" : "Bật Manual";
+
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: manualEnabled, disabled }}
+      disabled={disabled}
+      onPress={onToggle}
+      style={({ pressed }) => [
+        styles.manualAction,
+        disabled && styles.manualActionDisabled,
+        pressed && !disabled && styles.pressed
+      ]}
+    >
+      <Text style={[styles.manualActionText, disabled && styles.manualActionTextDisabled, font("display", fontsReady)]}>
+        {label}
+      </Text>
+      <View style={[styles.manualActionIcon, disabled && styles.manualActionIconDisabled]}>
+        <Hand color={disabled ? colors.textLo : colors.accent} size={18} />
+      </View>
+    </Pressable>
   );
 }
 
@@ -328,10 +332,12 @@ function GatePanel({
         <Text style={[styles.sectionMeta, font("mono", fontsReady)]}>MOCK</Text>
       </View>
 
-      <View style={styles.gateGrid}>
-        <GateChip active={connected && !emergencyStopped} fontsReady={fontsReady} label="Kết nối" value="Online" />
-        <GateChip active={calibrated && !emergencyStopped} fontsReady={fontsReady} label="Calibrate" value={profile} />
-        <GateChip active={manualEnabled && !emergencyStopped} fontsReady={fontsReady} label="Manual" value={manualEnabled ? "ON" : "OFF"} />
+      <View style={styles.gateShell}>
+        <View style={styles.gateGrid}>
+          <GateChip active={connected && !emergencyStopped} fontsReady={fontsReady} label="Kết nối" value="Online" />
+          <GateChip active={calibrated && !emergencyStopped} fontsReady={fontsReady} label="Calibrate" value={profile} />
+          <GateChip active={manualEnabled && !emergencyStopped} fontsReady={fontsReady} label="Manual" value={manualEnabled ? "ON" : "OFF"} />
+        </View>
       </View>
     </View>
   );
@@ -398,7 +404,7 @@ function ArmLiveCard({
         <Metric fontsReady={fontsReady} label="Loop" value={role === "follower" ? "52 Hz" : "49 Hz"} />
       </View>
 
-      <LiveJointTable fontsReady={fontsReady} readings={readings} />
+      <JointReadouts fontsReady={fontsReady} readings={readings} />
     </View>
   );
 }
@@ -445,44 +451,42 @@ function HealthPill({
   );
 }
 
-function LiveJointTable({ fontsReady, readings }: { fontsReady: boolean; readings: ReadingByMotor }) {
+function JointReadouts({ fontsReady, readings }: { fontsReady: boolean; readings: ReadingByMotor }) {
   return (
-    <View style={styles.liveTable}>
-      <View style={styles.tableHeaderRow}>
-        <Text style={[styles.motorHeaderCell, font("body", fontsReady)]}>Motor</Text>
-        <Text style={[styles.countHeaderCell, font("mono", fontsReady)]}>COUNT</Text>
-        <Text style={[styles.stateHeaderCell, font("body", fontsReady)]}>State</Text>
-      </View>
-
+    <View style={styles.jointList}>
       {MOTOR_IDS.map((motorId) => {
         const reading = readings[motorId];
         const near = reading.tone === "near";
         const fault = reading.tone === "fault";
 
         return (
-          <View key={motorId} style={[styles.tableRow, near && styles.tableRowCaution, fault && styles.tableRowDanger]}>
-            <Text numberOfLines={1} style={[styles.motorCell, font("mono", fontsReady)]}>
-              {motorId}
-            </Text>
+          <View key={motorId} style={[styles.jointRow, near && styles.jointRowCaution, fault && styles.jointRowDanger]}>
+            <View style={styles.jointRowLabelBlock}>
+              <Text numberOfLines={1} style={[styles.jointRowLabel, font("mono", fontsReady)]}>
+                {motorId}
+              </Text>
+              {reading.tone !== "ok" && (
+                <Text
+                  style={[
+                    styles.jointRowState,
+                    fault && styles.jointRowStateDanger,
+                    near && styles.jointRowStateCaution,
+                    font("display", fontsReady)
+                  ]}
+                >
+                  {jointToneLabel(reading.tone)}
+                </Text>
+              )}
+            </View>
             <Text
               style={[
-                styles.countCell,
-                near && styles.countCellCaution,
-                fault && styles.countCellDanger,
+                styles.jointRowValue,
+                near && styles.jointRowValueCaution,
+                fault && styles.jointRowValueDanger,
                 font("monoStrong", fontsReady)
               ]}
             >
               {formatCount(reading.count)}
-            </Text>
-            <Text
-              style={[
-                styles.rowState,
-                near && styles.rowStateCaution,
-                fault && styles.rowStateDanger,
-                font("display", fontsReady)
-              ]}
-            >
-              {jointToneLabel(reading.tone)}
             </Text>
           </View>
         );
@@ -818,7 +822,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     backgroundColor: colors.surface,
     borderColor: colors.danger,
-    borderRadius: radius.card,
+    borderRadius: CARD_RADIUS_OUTER,
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
@@ -832,9 +836,9 @@ const styles = StyleSheet.create({
   statePanel: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: radius.card,
+    borderRadius: CARD_RADIUS_OUTER,
     borderWidth: 1,
-    gap: spacing.md,
+    gap: spacing.sm,
     padding: spacing.md
   },
   panelDanger: {
@@ -842,16 +846,6 @@ const styles = StyleSheet.create({
   },
   panelCaution: {
     borderColor: colors.caution
-  },
-  stateHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.md,
-    justifyContent: "space-between"
-  },
-  stateTitleBlock: {
-    flex: 1,
-    minWidth: 0
   },
   stateTitleRow: {
     alignItems: "center",
@@ -879,43 +873,36 @@ const styles = StyleSheet.create({
     color: colors.textLo,
     marginTop: spacing.xxs
   },
-  manualSwitch: {
+  manualAction: {
     alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flexDirection: "row",
-    flexShrink: 0,
-    gap: spacing.xs,
-    minHeight: 44,
-    paddingHorizontal: spacing.sm
-  },
-  manualSwitchOn: {
     backgroundColor: colors.accent,
-    borderColor: colors.accent
+    borderRadius: CARD_RADIUS_OUTER,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 68,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md
   },
-  manualSwitchDisabled: {
-    opacity: 0.45
+  manualActionDisabled: {
+    backgroundColor: colors.surface2
   },
-  switchKnob: {
-    backgroundColor: colors.textLo,
-    borderRadius: radius.round,
-    height: 16,
-    width: 16
-  },
-  switchKnobOn: {
-    backgroundColor: colors.accentText
-  },
-  manualSwitchText: {
-    ...type.label,
-    color: colors.textHi
-  },
-  manualSwitchTextOn: {
+  manualActionText: {
+    ...type.title,
     color: colors.accentText
   },
-  manualSwitchTextDisabled: {
+  manualActionTextDisabled: {
     color: colors.textLo
+  },
+  manualActionIcon: {
+    alignItems: "center",
+    backgroundColor: colors.accentText,
+    borderRadius: radius.round,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  manualActionIconDisabled: {
+    backgroundColor: colors.surface
   },
   gatePanel: {
     gap: spacing.md
@@ -938,6 +925,11 @@ const styles = StyleSheet.create({
     ...type.mono,
     color: colors.textLo
   },
+  gateShell: {
+    backgroundColor: colors.surface2,
+    borderRadius: CARD_RADIUS_OUTER,
+    padding: spacing.sm
+  },
   gateGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -946,8 +938,8 @@ const styles = StyleSheet.create({
   gateChip: {
     alignItems: "center",
     backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.button,
+    borderColor: "transparent",
+    borderRadius: CARD_RADIUS_INNER,
     borderWidth: 1,
     flexBasis: "31%",
     flexDirection: "row",
@@ -991,7 +983,7 @@ const styles = StyleSheet.create({
   armCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: radius.card,
+    borderRadius: CARD_RADIUS_OUTER,
     borderWidth: 1,
     gap: spacing.md,
     padding: spacing.md
@@ -1095,90 +1087,60 @@ const styles = StyleSheet.create({
     color: colors.textHi,
     fontVariant: ["tabular-nums"]
   },
-  liveTable: {
+  jointList: {
+    gap: spacing.xs
+  },
+  jointRow: {
+    alignItems: "center",
     backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.button,
+    borderColor: "transparent",
+    borderRadius: CARD_RADIUS_INNER,
     borderWidth: 1,
-    gap: spacing.xs,
-    padding: spacing.sm
-  },
-  tableHeaderRow: {
-    alignItems: "center",
-    borderBottomColor: colors.border,
-    borderBottomWidth: 1,
     flexDirection: "row",
-    gap: spacing.xs,
-    minHeight: 30,
-    paddingBottom: spacing.xs
+    justifyContent: "space-between",
+    minHeight: 56,
+    paddingHorizontal: spacing.md
   },
-  motorHeaderCell: {
+  jointRowCaution: {
+    borderColor: colors.caution
+  },
+  jointRowDanger: {
+    borderColor: colors.danger
+  },
+  jointRowLabelBlock: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0
+  },
+  jointRowLabel: {
     ...type.small,
-    color: colors.textLo,
-    flex: 1.65
+    color: colors.textLo
   },
-  countHeaderCell: {
-    ...type.mono,
-    color: colors.textLo,
-    flex: 0.82,
-    textAlign: "right"
-  },
-  stateHeaderCell: {
+  jointRowState: {
     ...type.small,
-    color: colors.textLo,
-    flex: 0.95,
-    textAlign: "right"
-  },
-  tableRow: {
-    alignItems: "center",
-    borderRadius: radius.status,
-    flexDirection: "row",
-    gap: spacing.xs,
-    minHeight: 32,
-    paddingHorizontal: spacing.xxs
-  },
-  tableRowCaution: {
-    borderColor: colors.caution,
-    borderWidth: 1
-  },
-  tableRowDanger: {
-    borderColor: colors.danger,
-    borderWidth: 1
-  },
-  motorCell: {
-    ...type.mono,
-    color: colors.textHi,
-    flex: 1.65
-  },
-  countCell: {
-    ...type.mono,
-    color: colors.textHi,
-    flex: 0.82,
-    fontVariant: ["tabular-nums"],
-    textAlign: "right"
-  },
-  countCellCaution: {
     color: colors.caution
   },
-  countCellDanger: {
+  jointRowStateCaution: {
+    color: colors.caution
+  },
+  jointRowStateDanger: {
     color: colors.danger
   },
-  rowState: {
-    ...type.small,
-    color: colors.textLo,
-    flex: 0.95,
-    textAlign: "right"
+  jointRowValue: {
+    ...type.title,
+    color: colors.textHi,
+    fontVariant: ["tabular-nums"]
   },
-  rowStateCaution: {
+  jointRowValueCaution: {
     color: colors.caution
   },
-  rowStateDanger: {
+  jointRowValueDanger: {
     color: colors.danger
   },
   jogPanel: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: radius.card,
+    borderRadius: CARD_RADIUS_OUTER,
     borderWidth: 1,
     gap: spacing.md,
     padding: spacing.md
@@ -1193,7 +1155,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.surface2,
     borderColor: colors.border,
-    borderRadius: radius.button,
+    borderRadius: CARD_RADIUS_INNER,
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
@@ -1250,7 +1212,7 @@ const styles = StyleSheet.create({
   modalCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: radius.card,
+    borderRadius: CARD_RADIUS_OUTER,
     borderWidth: 1,
     gap: spacing.md,
     padding: spacing.md,
