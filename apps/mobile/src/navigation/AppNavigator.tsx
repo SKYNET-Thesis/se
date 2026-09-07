@@ -6,6 +6,7 @@ import {
 } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator, NativeStackScreenProps } from "@react-navigation/native-stack";
 import { Activity, Bot, Camera, Hand } from "lucide-react-native";
+import { StyleSheet, View } from "react-native";
 import { enableScreens } from "react-native-screens";
 import { CalibrateScreen } from "../screens/CalibrateScreen";
 import { CameraScreen } from "../screens/CameraScreen";
@@ -13,7 +14,7 @@ import { ConnectScreen } from "../screens/ConnectScreen";
 import { HomeRoute, HomeScreen } from "../screens/HomeScreen";
 import { StatusScreen } from "../screens/StatusScreen";
 import { TeleopScreen } from "../screens/TeleopScreen";
-import { colors, font, spacing, type } from "../theme";
+import { colors, font, radius, spacing, type } from "../theme";
 
 enableScreens();
 
@@ -69,9 +70,13 @@ export function AppNavigator({ emergencyStopped, fontsReady, reduceMotion }: App
           lazy: true,
           tabBarActiveTintColor: colors.accent,
           tabBarHideOnKeyboard: true,
-          tabBarIcon: ({ color, focused }) => {
+          tabBarIcon: ({ focused }) => {
             const Icon = tabIcons[route.name];
-            return <Icon color={focused ? colors.accent : color} size={21} />;
+            return (
+              <View style={[styles.tabIconWrap, focused && styles.tabIconWrapActive]}>
+                <Icon color={focused ? colors.accent : colors.textLo} size={19} />
+              </View>
+            );
           },
           tabBarInactiveTintColor: colors.textLo,
           tabBarItemStyle: {
@@ -243,3 +248,19 @@ function StatusTabScreen({
     />
   );
 }
+
+const styles = StyleSheet.create({
+  tabIconWrap: {
+    alignItems: "center",
+    borderColor: "transparent",
+    borderRadius: radius.button,
+    borderWidth: 1,
+    justifyContent: "center",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs
+  },
+  tabIconWrapActive: {
+    backgroundColor: colors.surface2,
+    borderColor: colors.accent
+  }
+});

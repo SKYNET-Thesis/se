@@ -185,6 +185,8 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
   const canContinue = bothConnected && !emergencyStopped;
   const canOpenTeleop = bothConnected && !emergencyStopped;
   const ports = scanState.kind === "found" ? scanState.ports : [];
+  const scanDisabled = emergencyStopped || scanState.kind === "scanning";
+  const scanContentColor = scanState.kind === "scanning" ? colors.caution : scanDisabled ? colors.textLo : colors.accentText;
 
   const rotateStyle = {
     transform: [{ rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }]
@@ -224,23 +226,31 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
           accessibilityHint="Quét lại danh sách cổng nối tiếp đang cắm vào thiết bị"
           accessibilityLabel="Quét cổng"
           accessibilityRole="button"
-          accessibilityState={{ disabled: emergencyStopped || scanState.kind === "scanning" }}
-          disabled={emergencyStopped || scanState.kind === "scanning"}
+          accessibilityState={{ disabled: scanDisabled }}
+          disabled={scanDisabled}
           onPress={handleScan}
           style={({ pressed }) => [
             styles.scanButton,
-            (emergencyStopped || scanState.kind === "scanning") && styles.scanButtonDisabled,
+            emergencyStopped && styles.scanButtonDisabled,
+            scanState.kind === "scanning" && styles.scanButtonBusy,
             pressed && styles.pressed
           ]}
         >
           <Animated.View style={scanState.kind === "scanning" ? rotateStyle : undefined}>
             {scanState.kind === "scanning" ? (
-              <RefreshCw color={colors.accentText} size={19} />
+              <RefreshCw color={scanContentColor} size={19} />
             ) : (
-              <ScanLine color={colors.accentText} size={19} />
+              <ScanLine color={scanContentColor} size={19} />
             )}
           </Animated.View>
-          <Text style={[styles.scanButtonText, font("display", fontsReady)]}>
+          <Text
+            style={[
+              styles.scanButtonText,
+              scanDisabled && styles.scanButtonTextDisabled,
+              scanState.kind === "scanning" && styles.scanButtonTextBusy,
+              font("display", fontsReady)
+            ]}
+          >
             {scanState.kind === "scanning" ? "Đang quét cổng…" : scanState.kind === "idle" ? "Quét cổng" : "Quét lại"}
           </Text>
         </Pressable>
@@ -388,6 +398,7 @@ function ArmSlotCard({
   const slotConflict = conflict && slot.portId !== null;
   const locked = slot.link.kind === "connecting" || slot.link.kind === "connected";
   const canConnect = !disabled && !!slot.portId && !slotConflict && slot.link.kind === "idle";
+  const connected = slot.link.kind === "connected";
 
   return (
     <View style={[styles.card, slotConflict && styles.cardDanger]}>
@@ -402,9 +413,24 @@ function ArmSlotCard({
           </View>
         </View>
 
-        <View style={styles.statusPill}>
-          <View style={[styles.statusDot, { backgroundColor: linkStatusColor[slot.link.kind] }]} />
-          <Text style={[styles.statusText, font("display", fontsReady)]}>{linkStatusLabel[slot.link.kind]}</Text>
+        <View style={[styles.statusPill, connected && styles.statusPillConnected]}>
+          <View
+            style={[
+              styles.statusDot,
+              { backgroundColor: connected ? colors.accentText : linkStatusColor[slot.link.kind] }
+            ]}
+          />
+          <Text
+            style={[
+              styles.statusText,
+              slot.link.kind === "connecting" && styles.statusTextCaution,
+              slot.link.kind === "error" && styles.statusTextDanger,
+              connected && styles.statusTextConnected,
+              font("body", fontsReady)
+            ]}
+          >
+            {linkStatusLabel[slot.link.kind]}
+          </Text>
         </View>
       </View>
 
@@ -606,16 +632,17 @@ const styles = StyleSheet.create({
     flex: 1
   },
   content: {
-    gap: spacing.xl,
-    padding: spacing.lg,
+    gap: spacing.xxl,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
     paddingBottom: spacing.xxxl
   },
   stoppedBanner: {
     alignItems: "flex-start",
-    backgroundColor: colors.surface,
-    borderColor: colors.danger,
-    borderRadius: radius.card,
-    borderWidth: 1,
+    backgroundColor: colors.surface2,
+    borderLeftColor: colors.danger,
+    borderLeftWidth: 3,
+    borderRadius: radius.button,
     flexDirection: "row",
     gap: spacing.sm,
     padding: spacing.md
@@ -626,7 +653,7 @@ const styles = StyleSheet.create({
     flex: 1
   },
   section: {
-    gap: spacing.sm
+    gap: spacing.md
   },
   sectionHeader: {
     alignItems: "center",
@@ -644,18 +671,30 @@ const styles = StyleSheet.create({
   scanButton: {
     alignItems: "center",
     backgroundColor: colors.accent,
-    borderRadius: radius.button,
+    borderRadius: radius.round,
     flexDirection: "row",
     gap: spacing.sm,
     justifyContent: "center",
-    minHeight: 52
+    minHeight: 56
   },
   scanButtonDisabled: {
-    opacity: 0.45
+    backgroundColor: colors.surface2,
+    opacity: 0.58
+  },
+  scanButtonBusy: {
+    backgroundColor: colors.surface2,
+    borderColor: colors.caution,
+    borderWidth: 1
   },
   scanButtonText: {
     ...type.label,
     color: colors.accentText
+  },
+  scanButtonTextDisabled: {
+    color: colors.textLo
+  },
+  scanButtonTextBusy: {
+    color: colors.caution
   },
   scanSummary: {
     ...type.small,
@@ -677,54 +716,56 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.surface,
-    borderColor: colors.border,
     borderRadius: radius.card,
-    borderWidth: 1,
-    gap: spacing.md,
-    padding: spacing.md
+    gap: spacing.lg,
+    padding: spacing.lg
   },
   cardDanger: {
-    borderColor: colors.danger
+    borderColor: colors.danger,
+    borderWidth: 1
   },
   cardHeader: {
     alignItems: "flex-start",
     flexDirection: "row",
-    gap: spacing.sm,
+    gap: spacing.md,
     justifyContent: "space-between"
   },
   cardHeaderLeft: {
     alignItems: "center",
     flex: 1,
     flexDirection: "row",
-    gap: spacing.sm,
+    gap: spacing.md,
     minWidth: 0
   },
   cardIcon: {
     alignItems: "center",
     backgroundColor: colors.surface2,
-    borderRadius: radius.button,
-    height: 36,
+    borderRadius: radius.round,
+    height: 44,
     justifyContent: "center",
-    width: 36
+    width: 44
   },
   cardTitle: {
-    ...type.bodyStrong,
+    ...type.title,
     color: colors.textHi
   },
   cardHint: {
-    ...type.small,
+    ...type.body,
     color: colors.textLo,
-    marginTop: 2
+    marginTop: spacing.xxs
   },
   statusPill: {
     alignItems: "center",
     backgroundColor: colors.surface2,
-    borderRadius: radius.button,
+    borderRadius: radius.round,
     flexDirection: "row",
     flexShrink: 0,
     gap: spacing.xs,
-    minHeight: 30,
+    minHeight: 34,
     paddingHorizontal: spacing.sm
+  },
+  statusPillConnected: {
+    backgroundColor: colors.accent
   },
   statusDot: {
     borderRadius: radius.status,
@@ -732,15 +773,24 @@ const styles = StyleSheet.create({
     width: 8
   },
   statusText: {
-    ...type.small,
+    ...type.label,
     color: colors.textHi
   },
+  statusTextCaution: {
+    color: colors.caution
+  },
+  statusTextDanger: {
+    color: colors.danger
+  },
+  statusTextConnected: {
+    color: colors.accentText
+  },
   portPlaceholder: {
-    ...type.small,
+    ...type.body,
     color: colors.textLo
   },
   portPlaceholderDanger: {
-    ...type.small,
+    ...type.body,
     color: colors.danger
   },
   portRow: {
@@ -750,38 +800,38 @@ const styles = StyleSheet.create({
   },
   portChip: {
     backgroundColor: colors.surface2,
-    borderColor: colors.border,
+    borderColor: colors.surface2,
     borderRadius: radius.button,
     borderWidth: 1,
     flexBasis: "47%",
     flexGrow: 1,
-    gap: 2,
-    minHeight: 56,
-    padding: spacing.sm
+    gap: spacing.xxs,
+    minHeight: 64,
+    padding: spacing.md
   },
   portChipSelected: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent
+    backgroundColor: colors.surface,
+    borderColor: colors.textHi
   },
   portChipTaken: {
     borderColor: colors.caution
   },
   portChipDisabled: {
-    opacity: 0.4
+    opacity: 0.58
   },
   portPath: {
     ...type.mono,
     color: colors.textHi
   },
   portPathSelected: {
-    color: colors.accentText
+    color: colors.textHi
   },
   portVendor: {
     ...type.small,
     color: colors.textLo
   },
   portVendorSelected: {
-    color: colors.accentText
+    color: colors.textHi
   },
   portTakenText: {
     ...type.small,
@@ -803,13 +853,15 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: radius.button,
+    backgroundColor: colors.surface2,
+    borderColor: colors.border,
+    borderRadius: radius.round,
+    borderWidth: 1,
     justifyContent: "center",
-    minHeight: 48
+    minHeight: 52
   },
   actionButtonDisabled: {
-    backgroundColor: colors.surface2
+    opacity: 0.52
   },
   actionButtonBusy: {
     backgroundColor: colors.surface2,
@@ -818,7 +870,7 @@ const styles = StyleSheet.create({
   },
   actionButtonText: {
     ...type.label,
-    color: colors.accentText
+    color: colors.textHi
   },
   actionButtonTextDisabled: {
     color: colors.textLo
@@ -847,7 +899,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.surface2,
     borderColor: colors.border,
-    borderRadius: radius.button,
+    borderRadius: radius.round,
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.xs,
@@ -876,7 +928,7 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     backgroundColor: colors.surface2,
     borderColor: colors.border,
-    borderRadius: radius.button,
+    borderRadius: radius.round,
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.xs,
@@ -893,7 +945,7 @@ const styles = StyleSheet.create({
   continueButton: {
     alignItems: "center",
     backgroundColor: colors.accent,
-    borderRadius: radius.button,
+    borderRadius: radius.round,
     flexDirection: "row",
     gap: spacing.sm,
     justifyContent: "center",
@@ -913,7 +965,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.surface2,
     borderColor: colors.border,
-    borderRadius: radius.button,
+    borderRadius: radius.round,
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
@@ -931,6 +983,7 @@ const styles = StyleSheet.create({
     textAlign: "center"
   },
   pressed: {
-    opacity: 0.78
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }]
   }
 });

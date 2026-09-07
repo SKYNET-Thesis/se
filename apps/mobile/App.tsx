@@ -62,9 +62,7 @@ export default function App() {
         <StatusBar style="light" />
         <GlobalChrome
           emergencyStopped={emergencyStopped}
-          follower={{ label: "Follower", status: emergencyStopped ? "offline" : "online", latencyMs: 12 }}
           fontsReady={fontsReady}
-          leader={{ label: "Leader", status: emergencyStopped ? "offline" : "online", latencyMs: 14 }}
           onEmergencyStop={() => setEmergencyStopped(true)}
           onResetEmergencyStop={requestResetEmergencyStop}
         />

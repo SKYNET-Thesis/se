@@ -1,6 +1,7 @@
 import { Bot, Cable, Camera, Check, Hand, Radio, RotateCcw, ShieldAlert, TriangleAlert } from "lucide-react-native";
 import { ReactNode, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArmModelViewer } from "../components/ArmModelViewer";
 import { colors, font, radius, spacing, type } from "../theme";
 
@@ -45,87 +46,103 @@ const mockHomeState: HomeDataState = {
   }
 };
 
+// The primary pill's label follows the robot's actual readiness gate, so the
+// one action worth thumb-reach always matches what the operator needs next.
+const PRIMARY_LABEL: Record<HomeRoute, string> = {
+  connect: "Kết nối",
+  calibrate: "Hiệu chỉnh",
+  teleop: "Điều khiển",
+  camera: "Camera"
+};
+
+const SECONDARY_LABEL: Record<HomeRoute, string> = {
+  connect: "Connect",
+  calibrate: "Calibrate",
+  teleop: "Teleop",
+  camera: "Camera"
+};
+
+function renderRouteIcon(route: HomeRoute, color: string, size: number) {
+  switch (route) {
+    case "connect":
+      return <Cable color={color} size={size} />;
+    case "calibrate":
+      return <RotateCcw color={color} size={size} />;
+    case "teleop":
+      return <Hand color={color} size={size} />;
+    case "camera":
+      return <Camera color={color} size={size} />;
+  }
+}
+
+// GlobalChrome (single row) and the bottom tab bar are fixed heights that
+// live outside this screen; sizing the hero against the space actually left
+// after them keeps the title/subtitle visually tied to the thumb-zone CTAs.
+const CHROME_HEIGHT = 64;
+const TAB_BAR_HEIGHT = 64;
+const HERO_FILL_RATIO = 0.63;
+const MIN_HERO_HEIGHT = 320;
+
 export function HomeScreen({ emergencyStopped, fontsReady, reduceMotion, onOpenRoute }: Props) {
   const robot = mockHomeState.kind === "success" ? mockHomeState.robot : null;
+  const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+
+  const availableHeight = windowHeight - insets.top - insets.bottom - CHROME_HEIGHT - TAB_BAR_HEIGHT;
+  const heroHeight = Math.max(MIN_HERO_HEIGHT, Math.round(availableHeight * HERO_FILL_RATIO));
+
+  const primaryRoute: HomeRoute = !robot?.connected ? "connect" : !robot?.calibrated ? "calibrate" : "teleop";
+  const isRouteDisabled = (route: HomeRoute) =>
+    (route === "calibrate" || route === "teleop") && emergencyStopped;
+  const secondaryRoutes = (["connect", "calibrate", "teleop", "camera"] as HomeRoute[]).filter(
+    (route) => route !== primaryRoute
+  );
 
   return (
-    <ScrollView
-      accessibilityLabel="Màn hình Home OmniArm"
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-      style={styles.screen}
-    >
-      <View style={styles.heroStage}>
-        <View style={styles.modelStage}>
+    <View style={styles.screen}>
+      <View style={[styles.hero, { height: heroHeight }]}>
+        <View style={styles.modelSlot}>
           <ArmModelViewer
             accentColor={colors.accent}
             backgroundColor={colors.bg}
             compact
             floorColor={colors.surface2}
-            modelScale={1.75}
             reduceMotion={reduceMotion}
             showFaults={false}
+            softFloor
           />
         </View>
 
         <View style={styles.heroCopy}>
           <Text style={[styles.robotName, font("display", fontsReady)]}>{robot?.name ?? "SO-ARM101"}</Text>
-          <Text style={[styles.robotRole, font("body", fontsReady)]}>
-            {robot?.model ?? "Robot song tay"} cho vận hành trực tiếp
+          <Text style={[styles.robotSubtitle, font("body", fontsReady)]}>
+            {robot?.model ?? "Robot song tay"}, vận hành trực tiếp
           </Text>
-          <View style={styles.quickStatusRow}>
-            <QuickStatus fontsReady={fontsReady} label="Kết nối" value="Online" />
-            <QuickStatus fontsReady={fontsReady} label="Calibrate" value="OK" />
-            <QuickStatus fontsReady={fontsReady} label="Chế độ" value="Monitor" />
-          </View>
         </View>
       </View>
 
-      <View style={styles.actionArea}>
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, font("display", fontsReady)]}>Vận hành</Text>
-          <Text style={[styles.sectionMeta, font("mono", fontsReady)]}>MOCK</Text>
-        </View>
+      <View style={styles.ctaCluster}>
+        <PrimaryPill
+          disabled={isRouteDisabled(primaryRoute)}
+          fontsReady={fontsReady}
+          label={PRIMARY_LABEL[primaryRoute]}
+          onPress={() => onOpenRoute(primaryRoute)}
+        />
 
-        <View style={styles.actionGrid}>
-          <ActionTile
-            description="Quét cổng Follower/Leader"
-            disabled={false}
-            fontsReady={fontsReady}
-            icon={<Cable size={20} color={colors.textHi} />}
-            label="Connect"
-            onPress={() => onOpenRoute("connect")}
-          />
-          <ActionTile
-            description="Căn từng khớp và lưu hồ sơ"
-            disabled={emergencyStopped}
-            fontsReady={fontsReady}
-            icon={<RotateCcw size={20} color={emergencyStopped ? colors.textLo : colors.textHi} />}
-            label="Calibrate"
-            onPress={() => onOpenRoute("calibrate")}
-          />
-          <ActionTile
-            description="Jog tay trái/phải theo khớp"
-            disabled={emergencyStopped}
-            fontsReady={fontsReady}
-            icon={<Hand size={21} color={emergencyStopped ? colors.textLo : colors.accentText} />}
-            label="Teleop"
-            onPress={() => onOpenRoute("teleop")}
-            primary={!emergencyStopped}
-          />
-          <ActionTile
-            description="top / wrist / side"
-            disabled={false}
-            fontsReady={fontsReady}
-            icon={<Camera size={20} color={colors.textHi} />}
-            label="Camera"
-            onPress={() => onOpenRoute("camera")}
-          />
+        <View style={styles.secondaryRow}>
+          {secondaryRoutes.map((route) => (
+            <SecondaryAction
+              disabled={isRouteDisabled(route)}
+              fontsReady={fontsReady}
+              icon={(color) => renderRouteIcon(route, color, 20)}
+              key={route}
+              label={SECONDARY_LABEL[route]}
+              onPress={() => onOpenRoute(route)}
+            />
+          ))}
         </View>
       </View>
-
-      <HomeStatusSummary emergencyStopped={emergencyStopped} fontsReady={fontsReady} />
-    </ScrollView>
+    </View>
   );
 }
 
@@ -141,16 +158,6 @@ export function HomeStatusSummary({
     : mockHomeState;
 
   return renderHomeState(state, fontsReady);
-}
-
-function QuickStatus({ label, value, fontsReady }: { label: string; value: string; fontsReady: boolean }) {
-  return (
-    <View style={styles.quickStatus}>
-      <View style={styles.quickDot} />
-      <Text style={[styles.quickLabel, font("body", fontsReady)]}>{label}</Text>
-      <Text style={[styles.quickValue, font(label === "Kết nối" ? "monoStrong" : "display", fontsReady)]}>{value}</Text>
-    </View>
-  );
 }
 
 function renderHomeState(state: HomeDataState, fontsReady: boolean) {
@@ -305,19 +312,13 @@ function StatePanel({
   );
 }
 
-function ActionTile({
+function PrimaryPill({
   label,
-  description,
-  icon,
-  primary,
   disabled,
   fontsReady,
   onPress
 }: {
   label: string;
-  description: string;
-  icon: ReactNode;
-  primary?: boolean;
   disabled: boolean;
   fontsReady: boolean;
   onPress: () => void;
@@ -326,7 +327,6 @@ function ActionTile({
 
   return (
     <Pressable
-      accessibilityHint={description}
       accessibilityLabel={label}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
@@ -335,22 +335,53 @@ function ActionTile({
       onFocus={() => setFocused(true)}
       onPress={onPress}
       style={({ pressed }) => [
-        styles.actionTile,
-        primary && styles.actionTilePrimary,
-        disabled && styles.actionTileDisabled,
+        styles.primaryPill,
+        disabled && styles.primaryPillDisabled,
         focused && styles.focused,
-        pressed && styles.pressed
+        pressed && !disabled && styles.pillPressed
       ]}
     >
-      <View style={[styles.actionIcon, primary && styles.actionIconPrimary]}>{icon}</View>
-      <View style={styles.actionCopy}>
-        <Text style={[styles.actionLabel, primary && styles.actionLabelPrimary, font("display", fontsReady)]}>
-          {label}
-        </Text>
-        <Text style={[styles.actionDescription, primary && styles.actionDescriptionPrimary, font("body", fontsReady)]}>
-          {description}
-        </Text>
+      <Text
+        style={[styles.primaryPillText, disabled && styles.primaryPillTextDisabled, font("display", fontsReady)]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function SecondaryAction({
+  label,
+  icon,
+  disabled,
+  fontsReady,
+  onPress
+}: {
+  label: string;
+  icon: (color: string) => ReactNode;
+  disabled: boolean;
+  fontsReady: boolean;
+  onPress: () => void;
+}) {
+  const [focused, setFocused] = useState(false);
+
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onBlur={() => setFocused(false)}
+      onFocus={() => setFocused(true)}
+      onPress={onPress}
+      style={({ pressed }) => [styles.secondaryAction, pressed && !disabled && styles.pillPressed]}
+    >
+      <View style={[styles.secondaryIcon, disabled && styles.secondaryIconDisabled, focused && styles.focused]}>
+        {icon(disabled ? colors.textLo : colors.textHi)}
       </View>
+      <Text style={[styles.secondaryLabel, disabled && styles.secondaryLabelDisabled, font("body", fontsReady)]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -358,31 +389,21 @@ function ActionTile({
 const styles = StyleSheet.create({
   screen: {
     backgroundColor: colors.bg,
-    flex: 1
+    flex: 1,
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.xl
   },
-  content: {
-    gap: spacing.xl,
-    padding: spacing.lg,
-    paddingBottom: spacing.xxxl
+  hero: {
+    width: "100%"
   },
-  heroStage: {
-    alignItems: "center",
-    gap: spacing.lg,
-    minHeight: 360,
-    justifyContent: "center"
-  },
-  modelStage: {
-    backgroundColor: colors.bg,
-    borderColor: colors.border,
-    borderRadius: radius.card,
-    borderWidth: 1,
-    height: 252,
-    overflow: "hidden",
+  modelSlot: {
+    flex: 1,
     width: "100%"
   },
   heroCopy: {
     alignItems: "center",
-    gap: spacing.xs
+    gap: spacing.xxs,
+    paddingTop: spacing.sm
   },
   robotName: {
     ...type.display,
@@ -390,42 +411,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
     textAlign: "center"
   },
-  robotRole: {
+  robotSubtitle: {
     ...type.body,
     color: colors.textLo,
     textAlign: "center"
-  },
-  quickStatusRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.xs,
-    justifyContent: "center",
-    marginTop: spacing.sm
-  },
-  quickStatus: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.xs,
-    minHeight: 34,
-    paddingHorizontal: spacing.sm
-  },
-  quickDot: {
-    backgroundColor: colors.accent,
-    borderRadius: radius.status,
-    height: 8,
-    width: 8
-  },
-  quickLabel: {
-    ...type.small,
-    color: colors.textLo
-  },
-  quickValue: {
-    ...type.small,
-    color: colors.textHi
   },
   statusPanel: {
     backgroundColor: colors.surface,
@@ -529,82 +518,65 @@ const styles = StyleSheet.create({
   stateValueDanger: {
     color: colors.danger
   },
-  actionArea: {
-    gap: spacing.md
+  ctaCluster: {
+    gap: spacing.md,
+    paddingBottom: spacing.lg,
+    paddingTop: spacing.xs
   },
-  sectionHeader: {
+  primaryPill: {
     alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between"
+    backgroundColor: colors.accent,
+    borderRadius: radius.round,
+    height: 56,
+    justifyContent: "center",
+    width: "100%"
   },
-  sectionTitle: {
-    ...type.title,
-    color: colors.textHi
+  primaryPillDisabled: {
+    backgroundColor: colors.surface2
   },
-  sectionMeta: {
-    ...type.mono,
+  primaryPillText: {
+    ...type.bodyStrong,
+    color: colors.accentText
+  },
+  primaryPillTextDisabled: {
     color: colors.textLo
   },
-  actionGrid: {
+  secondaryRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: spacing.sm
   },
-  actionTile: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flexBasis: "47%",
-    flexDirection: "row",
-    flexGrow: 1,
-    gap: spacing.sm,
-    minHeight: 104,
-    minWidth: 150,
-    padding: spacing.md
+  secondaryAction: {
+    alignItems: "center",
+    flex: 1,
+    gap: spacing.xs,
+    paddingVertical: spacing.xxs
   },
-  actionTilePrimary: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent
-  },
-  actionTileDisabled: {
-    opacity: 0.45
-  },
-  actionIcon: {
+  secondaryIcon: {
     alignItems: "center",
     backgroundColor: colors.surface2,
-    borderRadius: radius.button,
-    height: 40,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.round,
+    height: 52,
     justifyContent: "center",
-    width: 40
+    width: 52
   },
-  actionIconPrimary: {
-    backgroundColor: colors.textHi
+  secondaryIconDisabled: {
+    opacity: 0.58
   },
-  actionCopy: {
-    flex: 1,
-    minWidth: 0
-  },
-  actionLabel: {
+  secondaryLabel: {
     ...type.label,
     color: colors.textHi
   },
-  actionLabelPrimary: {
-    color: colors.accentText
-  },
-  actionDescription: {
-    ...type.small,
-    color: colors.textLo,
-    marginTop: spacing.xs
-  },
-  actionDescriptionPrimary: {
-    color: colors.accentText
+  secondaryLabelDisabled: {
+    color: colors.textLo
   },
   focused: {
     borderColor: colors.accent,
     borderWidth: 2
   },
-  pressed: {
-    opacity: 0.78
+  pillPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }]
   }
 });

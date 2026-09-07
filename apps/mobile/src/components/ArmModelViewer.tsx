@@ -25,9 +25,9 @@ type Props = {
   backgroundColor?: string;
   compact?: boolean;
   floorColor?: string;
-  modelScale?: number;
   reduceMotion?: boolean;
   showFaults?: boolean;
+  softFloor?: boolean;
   selectedFault?: number | null;
   onFaultSelect?: (index: number) => void;
 };
@@ -35,6 +35,80 @@ type Props = {
 type Point = { x: number; y: number };
 
 const faultColors = ["#e9ad37", "#e9ad37", "#ef5b61"];
+
+// Margin above the exact "sphere touches frame edge" distance (radius / sin(fov/2)).
+// 1.2 leaves the model filling ~80% of the frame height at any rotation, since the
+// fit is derived from the model's bounding SPHERE (rotation-invariant), not its
+// axis-aligned box, so it never clips edges as the user spins it.
+const CAMERA_FIT_MARGIN = 1.2;
+
+function fitCameraToBoundingSphere(camera: THREE.PerspectiveCamera, boundingRadius: number) {
+  const verticalFov = THREE.MathUtils.degToRad(camera.fov);
+  const fitDistance = (boundingRadius / Math.sin(verticalFov / 2)) * CAMERA_FIT_MARGIN;
+
+  camera.position.x = 0;
+  camera.position.y = 0;
+  camera.position.z = fitDistance;
+  camera.lookAt(0, 0, 0);
+  camera.near = Math.max(fitDistance * 0.01, 0.001);
+  camera.far = fitDistance * 12;
+  camera.updateProjectionMatrix();
+
+  return fitDistance;
+}
+
+function addFloor(
+  scene: THREE.Scene,
+  {
+    boundingRadius,
+    compact,
+    floorColor,
+    floorY,
+    softFloor
+  }: {
+    boundingRadius: number;
+    compact: boolean;
+    floorColor: string;
+    floorY: number;
+    softFloor: boolean;
+  }
+) {
+  if (softFloor) {
+    const shadowColor = new THREE.Color(floorColor);
+    const floorLayers = [
+      { radius: boundingRadius * (compact ? 0.74 : 0.92), opacity: 0.1 },
+      { radius: boundingRadius * (compact ? 0.52 : 0.68), opacity: 0.16 }
+    ];
+
+    floorLayers.forEach(({ radius, opacity }, index) => {
+      const floor = new THREE.Mesh(
+        new THREE.CircleGeometry(radius, 64),
+        new THREE.MeshBasicMaterial({
+          color: shadowColor.clone(),
+          depthWrite: false,
+          opacity,
+          transparent: true
+        })
+      );
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.y = floorY + boundingRadius * 0.001 * index;
+      scene.add(floor);
+    });
+    return;
+  }
+
+  const floor = new THREE.Mesh(
+    new THREE.CircleGeometry(boundingRadius * (compact ? 0.85 : 1.05), 48),
+    new THREE.MeshStandardMaterial({
+      color: new THREE.Color(floorColor),
+      roughness: 0.82,
+      metalness: 0.12
+    })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = floorY;
+  scene.add(floor);
+}
 
 function createRenderer(gl: ExpoWebGLRenderingContext) {
   const canvas = {
@@ -72,9 +146,9 @@ export function ArmModelViewer({
   backgroundColor = colors.surface,
   compact = false,
   floorColor = colors.surface2,
-  modelScale,
   reduceMotion = false,
   showFaults = !compact,
+  softFloor = false,
   selectedFault = null,
   onFaultSelect
 }: Props) {
@@ -85,7 +159,10 @@ export function ArmModelViewer({
   const layoutRef = useRef({ width: 0, height: 0 });
   const rotationRef = useRef({ x: -0.08, y: -0.45 });
   const gestureStartRef = useRef({ x: 0, y: 0 });
-  const zoomRef = useRef(compact ? 3.8 : 5.1);
+  // Placeholder distance/radius until the model loads and the real bounding
+  // sphere is known; onContextCreate overwrites this with the fitted values.
+  const fitRef = useRef({ distance: compact ? 3.8 : 5.1, radius: 1 });
+  const zoomRef = useRef(fitRef.current.distance);
   const pinchRef = useRef({ distance: 0, zoom: zoomRef.current });
   const pulse = useRef(new Animated.Value(0)).current;
   const [failed, setFailed] = useState(false);
@@ -112,16 +189,16 @@ export function ArmModelViewer({
 
   const resetView = useCallback(() => {
     rotationRef.current = { x: -0.08, y: -0.45 };
-    zoomRef.current = compact ? 3.8 : 5.1;
+    zoomRef.current = fitRef.current.distance;
     if (groupRef.current) {
       groupRef.current.rotation.set(rotationRef.current.x, rotationRef.current.y, 0);
     }
     if (cameraRef.current) {
-      cameraRef.current.position.set(0, 0.1, zoomRef.current);
+      cameraRef.current.position.set(0, 0, zoomRef.current);
       cameraRef.current.lookAt(0, 0, 0);
     }
     projectFaults();
-  }, [compact, projectFaults]);
+  }, [projectFaults]);
 
   useEffect(() => {
     if (selectedFault === null || !groupRef.current || !cameraRef.current) return;
@@ -133,7 +210,7 @@ export function ArmModelViewer({
     const angle = focusAngles[selectedFault] ?? focusAngles[0];
     rotationRef.current = angle;
     groupRef.current.rotation.set(angle.x, angle.y, 0);
-    zoomRef.current = 4.7;
+    zoomRef.current = fitRef.current.distance * 0.92;
     cameraRef.current.position.z = zoomRef.current;
     projectFaults();
   }, [projectFaults, selectedFault]);
@@ -163,7 +240,9 @@ export function ArmModelViewer({
             const distance = distanceBetweenTouches(event);
             if (pinchRef.current.distance > 0 && distance > 0) {
               const nextZoom = pinchRef.current.zoom * (pinchRef.current.distance / distance);
-              zoomRef.current = Math.max(3.2, Math.min(7.2, nextZoom));
+              const minZoom = fitRef.current.distance * 0.55;
+              const maxZoom = fitRef.current.distance * 1.8;
+              zoomRef.current = Math.max(minZoom, Math.min(maxZoom, nextZoom));
               camera.position.z = zoomRef.current;
             }
           } else if (group) {
@@ -201,7 +280,7 @@ export function ArmModelViewer({
         scene.background = new THREE.Color(backgroundColor);
 
         const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
-        camera.position.set(0, 0.1, zoomRef.current);
+        camera.position.set(0, 0, zoomRef.current);
         camera.lookAt(0, 0, 0);
         cameraRef.current = camera;
 
@@ -217,14 +296,6 @@ export function ArmModelViewer({
         rim.position.set(-4, 2, -2);
         scene.add(ambient, key, rim);
 
-        const floor = new THREE.Mesh(
-          new THREE.CircleGeometry(compact ? 1.0 : 1.4, 48),
-          new THREE.MeshStandardMaterial({ color: new THREE.Color(floorColor), roughness: 0.82, metalness: 0.12 })
-        );
-        floor.rotation.x = -Math.PI / 2;
-        floor.position.y = -1.04;
-        scene.add(floor);
-
         const asset = Asset.fromModule(modelAsset);
         await asset.downloadAsync();
         ensureReactNativeUserAgent();
@@ -235,14 +306,28 @@ export function ArmModelViewer({
             asset.localUri ?? asset.uri,
             (gltf: { scene: THREE.Object3D }) => {
               const model = gltf.scene;
-              const box = new THREE.Box3().setFromObject(model);
-              const size = box.getSize(new THREE.Vector3());
-              const center = box.getCenter(new THREE.Vector3());
-              const scale = (modelScale ?? (compact ? 1.25 : 1.95)) / Math.max(size.x, size.y, size.z);
+              model.updateMatrixWorld(true);
 
-              model.position.copy(center).multiplyScalar(-scale);
-              model.scale.setScalar(scale);
+              // Bounding SPHERE (not just the axis-aligned box) so the fit is
+              // rotation-invariant: the model never clips the frame edges no
+              // matter how the user spins it with the two-finger gesture.
+              const box = new THREE.Box3().setFromObject(model);
+              const center = box.getCenter(new THREE.Vector3());
+              const sphere = box.getBoundingSphere(new THREE.Sphere());
+              const boundingRadius = Math.max(sphere.radius, 0.001);
+
+              // Center the model on the group's origin at its native scale —
+              // no artificial modelScale heuristic, camera distance does the
+              // framing work instead.
+              model.position.sub(center);
               group.add(model);
+
+              const fitDistance = fitCameraToBoundingSphere(camera, boundingRadius);
+              fitRef.current = { distance: fitDistance, radius: boundingRadius };
+              zoomRef.current = fitDistance;
+
+              const floorY = box.min.y - center.y - boundingRadius * 0.02;
+              addFloor(scene, { boundingRadius, compact, floorColor, floorY, softFloor });
 
               group.updateWorldMatrix(true, true);
               anchorRefs.current = ["shoulder_lift", "elbow_flex", "gripper_link"].map((name) => {
@@ -260,7 +345,7 @@ export function ArmModelViewer({
                 const angle = focusAngles[selectedFault] ?? focusAngles[0];
                 rotationRef.current = angle;
                 group.rotation.set(angle.x, angle.y, 0);
-                zoomRef.current = 4.7;
+                zoomRef.current = fitDistance * 0.92;
                 camera.position.z = zoomRef.current;
               }
 
@@ -284,7 +369,7 @@ export function ArmModelViewer({
         setFailed(true);
       }
     },
-    [backgroundColor, compact, floorColor, modelScale, projectFaults, selectedFault]
+    [backgroundColor, compact, floorColor, projectFaults, selectedFault, softFloor]
   );
 
   useEffect(
