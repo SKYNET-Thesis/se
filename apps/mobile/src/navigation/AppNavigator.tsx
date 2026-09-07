@@ -119,7 +119,7 @@ export function AppNavigator({ emergencyStopped, fontsReady, reduceMotion }: App
         </Tab.Screen>
 
         <Tab.Screen name="Camera" options={{ tabBarLabel: "Camera" }}>
-          {(props) => <CameraTabScreen {...props} />}
+          {(props) => <CameraTabScreen {...props} fontsReady={fontsReady} />}
         </Tab.Screen>
 
         <Tab.Screen name="Status" options={{ tabBarLabel: "Trạng thái" }}>
@@ -234,9 +234,13 @@ function ControlStackScreen({ emergencyStopped, fontsReady, reduceMotion }: AppN
   );
 }
 
-function CameraTabScreen({ navigation }: BottomTabScreenProps<RootTabParamList, "Camera">) {
+function CameraTabScreen({
+  fontsReady,
+  navigation
+}: BottomTabScreenProps<RootTabParamList, "Camera"> & Pick<AppNavigatorProps, "fontsReady">) {
   return (
     <CameraScreen
+      fontsReady={fontsReady}
       onBack={() => navigation.navigate("Home")}
       onOpenManual={() => navigation.navigate("Control", { screen: "Teleop" })}
     />

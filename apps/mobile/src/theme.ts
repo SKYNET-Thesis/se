@@ -1,4 +1,7 @@
-import { FontDisplay, FontSource } from "expo-font";
+import { SpaceGrotesk_700Bold } from "@expo-google-fonts/space-grotesk";
+import { Manrope_500Medium } from "@expo-google-fonts/manrope";
+import { IBMPlexMono_400Regular, IBMPlexMono_600SemiBold } from "@expo-google-fonts/ibm-plex-mono";
+import { FontSource } from "expo-font";
 import { Platform, TextStyle } from "react-native";
 
 export const colors = {
@@ -39,23 +42,19 @@ export const fontNames = {
   monoStrong: "IBMPlexMono-SemiBold"
 } as const;
 
+// Bundled as local app assets via @expo-google-fonts (no network fetch at
+// runtime). The previous version pulled these from raw.githubusercontent.com
+// at startup: if that fetch was slow or blocked on any single font, the
+// whole `useFonts` Promise.all rejected and fontsReady stayed false forever,
+// silently pinning the ENTIRE app to system fallback fonts with no visible
+// error. Local require()'d assets resolve from the bundle instead — no
+// network dependency, and Metro serves them as static files on web too, so
+// no extra @font-face/webpack setup is needed there.
 export const appFontSources: Record<string, FontSource> = {
-  SpaceGrotesk: {
-    uri: "https://raw.githubusercontent.com/google/fonts/main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf",
-    display: FontDisplay.SWAP
-  },
-  Manrope: {
-    uri: "https://raw.githubusercontent.com/google/fonts/main/ofl/manrope/Manrope%5Bwght%5D.ttf",
-    display: FontDisplay.SWAP
-  },
-  IBMPlexMono: {
-    uri: "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-Regular.ttf",
-    display: FontDisplay.SWAP
-  },
-  "IBMPlexMono-SemiBold": {
-    uri: "https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexmono/IBMPlexMono-SemiBold.ttf",
-    display: FontDisplay.SWAP
-  }
+  SpaceGrotesk: SpaceGrotesk_700Bold,
+  Manrope: Manrope_500Medium,
+  IBMPlexMono: IBMPlexMono_400Regular,
+  "IBMPlexMono-SemiBold": IBMPlexMono_600SemiBold
 };
 
 const fallbackFonts = {

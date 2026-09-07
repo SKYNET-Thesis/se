@@ -1,284 +1,411 @@
-import { ArrowLeft, CircleCheck, TriangleAlert, Hand, Expand, Radio, RefreshCw, Video, Wifi } from "lucide-react-native";
+import { CircleCheck, Expand, Hand, RefreshCw, TriangleAlert } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Line } from "react-native-svg";
-const cameras = ["X9", "X10", "Wrist"] as const;
-export function CameraScreen({ onBack, onOpenManual }: {
-    onBack: () => void;
-    onOpenManual: () => void;
-}) {
-    const [expanded, setExpanded] = useState(false);
-    const [revision, setRevision] = useState(0);
-    const [selectedCamera, setSelectedCamera] = useState<(typeof cameras)[number]>("X9");
-    return (<ScrollView contentContainerStyle={styles.page} showsVerticalScrollIndicator={false}>
-      <Pressable accessibilityLabel="Back to robots" onPress={onBack} style={styles.actionButton}><ArrowLeft color="white" size={20}/></Pressable>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>ROBOT VISION</Text>
-          <Text style={styles.title}>Live Robot Camera</Text>
-          <Text style={styles.subtitle}>SO-101 · Precision arm</Text>
-        </View>
-        <View style={styles.onlinePill}>
-          <Wifi size={15} color="#68dbff"/>
-          <Text style={styles.onlineText}>Demo</Text>
+import { ScreenHeader } from "../components/ScreenHeader";
+import { colors, font, radius, spacing, type } from "../theme";
+
+type StreamId = "top" | "wrist" | "side";
+type StreamStatus = "ready" | "caution" | "danger";
+
+type StreamInfo = {
+  id: StreamId;
+  label: string;
+  status: StreamStatus;
+};
+
+type Props = {
+  fontsReady: boolean;
+  onBack: () => void;
+  onOpenManual: () => void;
+};
+
+// theme.ts tops out at radius.card (16) — the Home "rich card" language uses
+// a deliberately larger, softer corner for top-level panels, with nested
+// content one size down. Scoped to this screen only.
+const CARD_RADIUS_OUTER = 24;
+const CARD_RADIUS_INNER = 18;
+
+const STREAMS: StreamInfo[] = [
+  { id: "top", label: "Top", status: "ready" },
+  { id: "wrist", label: "Wrist", status: "caution" },
+  { id: "side", label: "Side", status: "danger" }
+];
+
+const STATUS_LABEL: Record<StreamStatus, string> = {
+  ready: "Đang phát",
+  caution: "Đang tải",
+  danger: "Mất tín hiệu"
+};
+
+const STATUS_COLOR: Record<StreamStatus, string> = {
+  ready: colors.accent,
+  caution: colors.caution,
+  danger: colors.danger
+};
+
+export function CameraScreen({ fontsReady, onBack, onOpenManual }: Props) {
+  const [revision, setRevision] = useState(0);
+  const [selectedId, setSelectedId] = useState<StreamId>("top");
+
+  const selected = STREAMS.find((stream) => stream.id === selectedId) ?? STREAMS[0];
+  const otherStreams = STREAMS.filter((stream) => stream.id !== selectedId);
+
+  return (
+    <ScrollView
+      accessibilityLabel="Màn hình camera OmniArm"
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      style={styles.screen}
+    >
+      <ScreenHeader
+        fontsReady={fontsReady}
+        meta="MOCK"
+        onBack={onBack}
+        subtitle="3 góc quan sát: top, wrist, side"
+        title="Camera"
+      />
+
+      <HeroStreamCard
+        fontsReady={fontsReady}
+        onOpenManual={onOpenManual}
+        onRefresh={() => setRevision((value) => value + 1)}
+        revision={revision}
+        stream={selected}
+      />
+
+      <View style={styles.thumbShell}>
+        <View style={styles.thumbRow}>
+          {otherStreams.map((stream) => (
+            <ThumbStreamCard
+              fontsReady={fontsReady}
+              key={stream.id}
+              onPress={() => setSelectedId(stream.id)}
+              stream={stream}
+            />
+          ))}
         </View>
       </View>
 
-      <View style={styles.segmented}>
-        {cameras.map((camera) => {
-            const active = camera === selectedCamera;
-            return (<Pressable key={camera} onPress={() => setSelectedCamera(camera)} style={[styles.segment, active && styles.segmentActive]}>
-              <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{camera}</Text>
-            </Pressable>);
-        })}
-      </View>
+      <View style={styles.insightsSection}>
+        <Text style={[styles.sectionTitle, font("display", fontsReady)]}>AI Insights</Text>
 
-      <View style={styles.feedCard}>
-        <View style={styles.feedHeader}>
-          <View style={styles.feedTitleRow}>
-            <Radio size={16} color="#68dbff"/>
-            <Text style={styles.feedTitle}>Camera {selectedCamera}</Text>
-          </View>
-          <View style={styles.liveBadge}>
-            <View style={styles.liveDot}/>
-            <Text style={styles.liveText}>DEMO</Text>
+        <View style={styles.insightCard}>
+          <CircleCheck color={colors.accent} size={22} />
+          <View style={styles.insightCopy}>
+            <Text style={[styles.insightTitle, font("display", fontsReady)]}>Task progress: 78% complete</Text>
+            <Text style={[styles.insightCaption, font("body", fontsReady)]}>Sample insight · Assembly Line A</Text>
           </View>
         </View>
 
-        <View style={[styles.feedPreview, expanded && { aspectRatio: 0.7 }]}>
-          <View style={styles.previewGrid}>
-            {Array.from({ length: 5 }).map((_, index) => <View key={`h-${index}`} style={styles.gridLineHorizontal}/>)}
-          </View>
-          <Svg width="200" height="230" viewBox="0 0 200 230"><Line x1="20" y1="204" x2="185" y2="204" stroke="#7597b2" strokeWidth="2"/><Line x1="95" y1="200" x2="95" y2="151" stroke="#a6c8df" strokeWidth="24"/><Line x1="95" y1="151" x2="140" y2="91" stroke="#d4e7ef" strokeWidth="20"/><Line x1="140" y1="91" x2="87" y2="46" stroke="#9fbed4" strokeWidth="18"/><Line x1="87" y1="46" x2="52" y2="70" stroke="#d4e7ef" strokeWidth="12"/><Line x1="52" y1="70" x2="34" y2="69" stroke="#78acc9" strokeWidth="6"/><Line x1="52" y1="70" x2="48" y2="89" stroke="#78acc9" strokeWidth="6"/>{[[95, 151], [140, 91], [87, 46]].map(([x, y]) => <Circle key={y} cx={x} cy={y} r="12" fill="#253d63" stroke="#71d5f4" strokeWidth="4"/>)}</Svg>
-          <Text style={styles.demoLabel}>DEMO PREVIEW · {selectedCamera}</Text>
-          <Svg pointerEvents="none" style={StyleSheet.absoluteFill} viewBox="0 0 360 240">
-            <Line x1="180" y1="86" x2="180" y2="106" stroke="#68dbff" strokeWidth="1.5"/>
-            <Line x1="180" y1="134" x2="180" y2="154" stroke="#68dbff" strokeWidth="1.5"/>
-            <Line x1="146" y1="120" x2="166" y2="120" stroke="#68dbff" strokeWidth="1.5"/>
-            <Line x1="194" y1="120" x2="214" y2="120" stroke="#68dbff" strokeWidth="1.5"/>
-            <Circle cx="180" cy="120" r="14" stroke="#68dbff" strokeWidth="1.5"/>
-          </Svg>
-          <View style={styles.timestamp}>
-            <Text style={styles.timestampText}>Preview {revision + 1}</Text>
-          </View>
-        </View>
-
-        <View style={styles.feedActions}>
-          <Pressable accessibilityLabel="Open manual controls" onPress={onOpenManual} style={[styles.actionButton, { width: "auto", paddingHorizontal: 16, flexDirection: "row", gap: 7, backgroundColor: "#68d9ff" }]}><Hand size={17} color="#203560"/><Text style={{ color: "#203560", fontSize: 12, fontWeight: "600" }}>Manual controls</Text></Pressable>
-          <Pressable accessibilityLabel="Refresh preview" onPress={() => setRevision(v => v + 1)} style={styles.actionButton}><RefreshCw size={18} color="#dce2df"/></Pressable>
-          <Pressable accessibilityLabel="Expand preview" onPress={() => setExpanded(!expanded)} style={styles.actionButton}><Expand size={18} color="#dce2df"/></Pressable>
-          <View style={styles.streamInfo}>
-            <Text style={styles.streamInfoValue}>Demo</Text>
-            <Text style={styles.streamInfoLabel}>Local</Text>
+        <View style={styles.insightCard}>
+          <TriangleAlert color={colors.caution} size={22} />
+          <View style={styles.insightCopy}>
+            <Text style={[styles.insightTitle, font("display", fontsReady)]}>Component bin at 15% capacity</Text>
+            <Text style={[styles.insightCaption, font("body", fontsReady)]}>Sample insight · Refill suggested</Text>
           </View>
         </View>
       </View>
-
-      <Text style={{ color: "white", fontSize: 17, fontWeight: "600", marginTop: 6 }}>AI Insights</Text>
-      <View style={[styles.healthCard, { flexDirection: "row", alignItems: "center", gap: 12 }]}><CircleCheck color="#65deff" size={24}/><View style={{ flex: 1 }}><Text style={styles.healthTitle}>Task progress: 78% complete</Text><Text style={styles.healthCaption}>Sample insight · Assembly Line A</Text></View></View>
-      <View style={[styles.healthCard, { flexDirection: "row", alignItems: "center", gap: 12 }]}><TriangleAlert color="#ffd062" size={24}/><View style={{ flex: 1 }}><Text style={styles.healthTitle}>Component bin at 15% capacity</Text><Text style={styles.healthCaption}>Sample insight · Refill suggested</Text></View></View>
-    </ScrollView>);
+    </ScrollView>
+  );
 }
+
+function HeroStreamCard({
+  fontsReady,
+  onOpenManual,
+  onRefresh,
+  revision,
+  stream
+}: {
+  fontsReady: boolean;
+  onOpenManual: () => void;
+  onRefresh: () => void;
+  revision: number;
+  stream: StreamInfo;
+}) {
+  return (
+    <View style={styles.heroCard}>
+      <View style={styles.heroHeader}>
+        <Text style={[styles.heroLabel, font("display", fontsReady)]}>{stream.label}</Text>
+        <StatusPill fontsReady={fontsReady} status={stream.status} />
+      </View>
+
+      <View style={styles.viewport}>
+        <View style={styles.viewportGrid}>
+          {Array.from({ length: 5 }).map((_, index) => (
+            <View key={`grid-${index}`} style={styles.viewportGridLine} />
+          ))}
+        </View>
+
+        <Svg height="230" viewBox="0 0 200 230" width="200">
+          <Line stroke="#7597b2" strokeWidth="2" x1="20" x2="185" y1="204" y2="204" />
+          <Line stroke="#a6c8df" strokeWidth="24" x1="95" x2="95" y1="200" y2="151" />
+          <Line stroke="#d4e7ef" strokeWidth="20" x1="95" x2="140" y1="151" y2="91" />
+          <Line stroke="#9fbed4" strokeWidth="18" x1="140" x2="87" y1="91" y2="46" />
+          <Line stroke="#d4e7ef" strokeWidth="12" x1="87" x2="52" y1="46" y2="70" />
+          <Line stroke="#78acc9" strokeWidth="6" x1="52" x2="34" y1="70" y2="69" />
+          <Line stroke="#78acc9" strokeWidth="6" x1="52" x2="48" y1="70" y2="89" />
+          {[
+            [95, 151],
+            [140, 91],
+            [87, 46]
+          ].map(([x, y]) => (
+            <Circle cx={x} cy={y} fill="#253d63" key={y} r="12" stroke="#71d5f4" strokeWidth="4" />
+          ))}
+        </Svg>
+
+        <Text style={[styles.viewportLabel, font("mono", fontsReady)]}>MOCK PREVIEW · {stream.label}</Text>
+
+        <View style={styles.viewportTag}>
+          <Text style={[styles.viewportTagText, font("mono", fontsReady)]}>Preview {revision + 1}</Text>
+        </View>
+      </View>
+
+      <View style={styles.heroActions}>
+        <Pressable
+          accessibilityLabel="Làm mới preview"
+          onPress={onRefresh}
+          style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+        >
+          <RefreshCw color={colors.textHi} size={18} />
+        </Pressable>
+
+        <Pressable
+          accessibilityLabel="Phóng to preview"
+          style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+        >
+          <Expand color={colors.textHi} size={18} />
+        </Pressable>
+
+        <Pressable
+          accessibilityLabel="Mở điều khiển thủ công"
+          onPress={onOpenManual}
+          style={({ pressed }) => [styles.manualButton, pressed && styles.pressed]}
+        >
+          <Hand color={colors.accentText} size={17} />
+          <Text style={[styles.manualButtonText, font("display", fontsReady)]}>Manual controls</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function ThumbStreamCard({
+  fontsReady,
+  onPress,
+  stream
+}: {
+  fontsReady: boolean;
+  onPress: () => void;
+  stream: StreamInfo;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={`Xem camera ${stream.label}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.thumbCard, pressed && styles.pressed]}
+    >
+      <View style={[styles.thumbDot, { backgroundColor: STATUS_COLOR[stream.status] }]} />
+      <View style={styles.thumbCopy}>
+        <Text style={[styles.thumbLabel, font("display", fontsReady)]}>{stream.label}</Text>
+        <Text style={[styles.thumbStatus, { color: STATUS_COLOR[stream.status] }, font("body", fontsReady)]}>
+          {STATUS_LABEL[stream.status]}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function StatusPill({ fontsReady, status }: { fontsReady: boolean; status: StreamStatus }) {
+  return (
+    <View style={[styles.statusPill, { borderColor: STATUS_COLOR[status] }]}>
+      <View style={[styles.statusDot, { backgroundColor: STATUS_COLOR[status] }]} />
+      <Text style={[styles.statusText, { color: STATUS_COLOR[status] }, font("display", fontsReady)]}>
+        {STATUS_LABEL[status]}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-    page: {
-        width: "100%",
-        maxWidth: 760,
-        alignSelf: "center",
-        padding: 18,
-        paddingBottom: 30,
-        gap: 14
-    },
-    header: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "flex-start",
-        gap: 12
-    },
-    eyebrow: {
-        color: "#68dbff",
-        fontSize: 10,
-        fontWeight: "900"
-    },
-    title: {
-        color: "#ffffff",
-        fontSize: 27,
-        fontWeight: "800",
-        marginTop: 2
-    },
-    subtitle: {
-        color: "#c0c5e8",
-        fontSize: 12,
-        marginTop: 3
-    },
-    onlinePill: {
-        minHeight: 33,
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 7,
-        paddingHorizontal: 10,
-        borderRadius: 22,
-        backgroundColor: "#398a9222"
-    },
-    onlineText: {
-        color: "#bdf5d8",
-        fontSize: 11,
-        fontWeight: "900"
-    },
-    segmented: {
-        height: 42,
-        flexDirection: "row",
-        padding: 4,
-        borderRadius: 22,
-        backgroundColor: "rgba(255,255,255,0.10)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)"
-    },
-    segment: {
-        flex: 1,
-        borderRadius: 20,
-        alignItems: "center",
-        justifyContent: "center"
-    },
-    segmentActive: {
-        backgroundColor: "#65d7ff"
-    },
-    segmentText: {
-        color: "#c7cced",
-        fontSize: 11,
-        fontWeight: "800"
-    },
-    segmentTextActive: {
-        color: "#203560"
-    },
-    feedCard: {
-        borderRadius: 22,
-        padding: 12,
-        gap: 11,
-        backgroundColor: "rgba(255,255,255,0.10)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)"
-    },
-    feedHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between"
-    },
-    feedTitleRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 8
-    },
-    feedTitle: {
-        color: "#f5f6ff",
-        fontSize: 14,
-        fontWeight: "900"
-    },
-    liveBadge: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6
-    },
-    liveDot: {
-        width: 7,
-        height: 7,
-        borderRadius: 7,
-        backgroundColor: "#ef5b61"
-    },
-    liveText: {
-        color: "#ff9b9f",
-        fontSize: 9,
-        fontWeight: "900"
-    },
-    feedPreview: {
-        width: "100%",
-        aspectRatio: 0.95,
-        minHeight: 220,
-        borderRadius: 22,
-        overflow: "hidden",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "#172b47",
-        borderWidth: 1,
-        borderColor: "#6985aa55"
-    },
-    previewGrid: {
-        ...StyleSheet.absoluteFill,
-        justifyContent: "space-evenly"
-    },
-    gridLineHorizontal: {
-        height: 1,
-        backgroundColor: "#7897b51a"
-    },
-    demoLabel: {
-        color: "#a9bdda",
-        fontSize: 10,
-        fontWeight: "900",
-        marginTop: 10
-    },
-    timestamp: {
-        position: "absolute",
-        right: 10,
-        bottom: 10,
-        paddingHorizontal: 7,
-        paddingVertical: 4,
-        borderRadius: 5,
-        backgroundColor: "#090b0acc"
-    },
-    timestampText: {
-        color: "#cbd2ce",
-        fontSize: 9,
-        fontWeight: "800"
-    },
-    feedActions: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 8
-    },
-    actionButton: {
-        width: 42,
-        height: 40,
-        borderRadius: 22,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "rgba(255,255,255,0.15)",
-        borderWidth: 1,
-        borderColor: "#3c443f"
-    },
-    streamInfo: {
-        flex: 1,
-        alignItems: "flex-end"
-    },
-    streamInfoValue: {
-        color: "#dce2df",
-        fontSize: 11,
-        fontWeight: "900"
-    },
-    streamInfoLabel: {
-        color: "#77817b",
-        fontSize: 9,
-        marginTop: 2
-    },
-    healthCard: {
-        borderRadius: 22,
-        padding: 14,
-        backgroundColor: "rgba(255,255,255,0.10)",
-        borderWidth: 1,
-        borderColor: "rgba(255,255,255,0.14)"
-    },
-    healthTitle: {
-        color: "#f5f6ff",
-        fontSize: 14,
-        fontWeight: "900"
-    },
-    healthCaption: {
-        color: "#8e9892",
-        fontSize: 10,
-        marginTop: 3
-    },
-    matrixWrap: {
-        marginTop: 13
-    },
-    pressed: {
-        opacity: 0.68
-    }
+  screen: {
+    backgroundColor: colors.bg,
+    flex: 1
+  },
+  content: {
+    gap: spacing.xl,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxxl
+  },
+  heroCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: CARD_RADIUS_OUTER,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.md
+  },
+  heroHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  heroLabel: {
+    ...type.title,
+    color: colors.textHi
+  },
+  statusPill: {
+    alignItems: "center",
+    backgroundColor: colors.surface2,
+    borderRadius: radius.round,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    minHeight: 32,
+    paddingHorizontal: spacing.sm
+  },
+  statusDot: {
+    borderRadius: radius.status,
+    height: 8,
+    width: 8
+  },
+  statusText: {
+    ...type.label
+  },
+  viewport: {
+    alignItems: "center",
+    aspectRatio: 0.95,
+    backgroundColor: colors.bg,
+    borderRadius: CARD_RADIUS_INNER,
+    justifyContent: "center",
+    minHeight: 220,
+    overflow: "hidden",
+    width: "100%"
+  },
+  viewportGrid: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: "space-evenly"
+  },
+  viewportGridLine: {
+    backgroundColor: colors.border,
+    height: 1
+  },
+  viewportLabel: {
+    ...type.small,
+    color: colors.textLo,
+    marginTop: spacing.sm
+  },
+  viewportTag: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.status,
+    bottom: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 4,
+    position: "absolute",
+    right: spacing.sm
+  },
+  viewportTagText: {
+    ...type.small,
+    color: colors.textLo
+  },
+  heroActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  iconButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface2,
+    borderRadius: radius.round,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  manualButton: {
+    alignItems: "center",
+    backgroundColor: colors.accent,
+    borderRadius: radius.round,
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: spacing.md
+  },
+  manualButtonText: {
+    ...type.label,
+    color: colors.accentText
+  },
+  thumbShell: {
+    backgroundColor: colors.surface2,
+    borderRadius: CARD_RADIUS_OUTER,
+    padding: spacing.sm
+  },
+  thumbRow: {
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  thumbCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: CARD_RADIUS_INNER,
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 64,
+    paddingHorizontal: spacing.sm
+  },
+  thumbDot: {
+    borderRadius: radius.round,
+    height: 8,
+    width: 8
+  },
+  thumbCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  thumbLabel: {
+    ...type.label,
+    color: colors.textHi
+  },
+  thumbStatus: {
+    ...type.small,
+    marginTop: 2
+  },
+  insightsSection: {
+    gap: spacing.sm
+  },
+  sectionTitle: {
+    ...type.title,
+    color: colors.textHi
+  },
+  insightCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: CARD_RADIUS_OUTER,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  insightCopy: {
+    flex: 1,
+    minWidth: 0
+  },
+  insightTitle: {
+    ...type.bodyStrong,
+    color: colors.textHi
+  },
+  insightCaption: {
+    ...type.small,
+    color: colors.textLo,
+    marginTop: spacing.xxs
+  },
+  pressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }]
+  }
 });

@@ -5,9 +5,6 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "splash": {
-      "backgroundColor": "#111211"
-    },
     "assetBundlePatterns": [
       "assets/**/*"
     ],
@@ -26,7 +23,13 @@
     "plugins": [
       "expo-asset",
       "expo-font",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#111211"
+        }
+      ]
     ]
   }
 }
