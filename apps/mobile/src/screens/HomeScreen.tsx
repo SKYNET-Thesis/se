@@ -1,4 +1,4 @@
-import { Bot, Cable, Camera, Check, Hand, Radio, RotateCcw, ShieldAlert, TriangleAlert } from "lucide-react-native";
+import { ArrowRight, Bot, Cable, Camera, Check, Hand, Radio, RotateCcw, ShieldAlert, TriangleAlert } from "lucide-react-native";
 import { ReactNode, useState } from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -83,6 +83,12 @@ const TAB_BAR_HEIGHT = 64;
 const HERO_FILL_RATIO = 0.63;
 const MIN_HERO_HEIGHT = 320;
 
+// theme.ts tops out at radius.card (16) — the CTA cluster's "rich card" look
+// calls for a deliberately larger, softer corner than the rest of the app's
+// thin-bordered surfaces, so these are scoped to this cluster only.
+const CARD_RADIUS_OUTER = 24;
+const CARD_RADIUS_INNER = 20;
+
 export function HomeScreen({ emergencyStopped, fontsReady, reduceMotion, onOpenRoute }: Props) {
   const robot = mockHomeState.kind === "success" ? mockHomeState.robot : null;
   const { height: windowHeight } = useWindowDimensions();
@@ -129,17 +135,19 @@ export function HomeScreen({ emergencyStopped, fontsReady, reduceMotion, onOpenR
           onPress={() => onOpenRoute(primaryRoute)}
         />
 
-        <View style={styles.secondaryRow}>
-          {secondaryRoutes.map((route) => (
-            <SecondaryAction
-              disabled={isRouteDisabled(route)}
-              fontsReady={fontsReady}
-              icon={(color) => renderRouteIcon(route, color, 20)}
-              key={route}
-              label={SECONDARY_LABEL[route]}
-              onPress={() => onOpenRoute(route)}
-            />
-          ))}
+        <View style={styles.secondaryShell}>
+          <View style={styles.secondaryRow}>
+            {secondaryRoutes.map((route) => (
+              <SecondaryAction
+                disabled={isRouteDisabled(route)}
+                fontsReady={fontsReady}
+                icon={(color) => renderRouteIcon(route, color, 19)}
+                key={route}
+                label={SECONDARY_LABEL[route]}
+                onPress={() => onOpenRoute(route)}
+              />
+            ))}
+          </View>
         </View>
       </View>
     </View>
@@ -346,6 +354,9 @@ function PrimaryPill({
       >
         {label}
       </Text>
+      <View style={[styles.primaryPillIcon, disabled && styles.primaryPillIconDisabled]}>
+        <ArrowRight color={disabled ? colors.textLo : colors.accent} size={18} />
+      </View>
     </Pressable>
   );
 }
@@ -374,12 +385,17 @@ function SecondaryAction({
       onBlur={() => setFocused(false)}
       onFocus={() => setFocused(true)}
       onPress={onPress}
-      style={({ pressed }) => [styles.secondaryAction, pressed && !disabled && styles.pillPressed]}
+      style={({ pressed }) => [
+        styles.secondaryCard,
+        disabled && styles.secondaryCardDisabled,
+        focused && styles.focused,
+        pressed && !disabled && styles.pillPressed
+      ]}
     >
-      <View style={[styles.secondaryIcon, disabled && styles.secondaryIconDisabled, focused && styles.focused]}>
+      <View style={[styles.secondaryIcon, disabled && styles.secondaryIconDisabled]}>
         {icon(disabled ? colors.textLo : colors.textHi)}
       </View>
-      <Text style={[styles.secondaryLabel, disabled && styles.secondaryLabelDisabled, font("body", fontsReady)]}>
+      <Text style={[styles.secondaryLabel, disabled && styles.secondaryLabelDisabled, font("display", fontsReady)]}>
         {label}
       </Text>
     </Pressable>
@@ -519,50 +535,73 @@ const styles = StyleSheet.create({
     color: colors.danger
   },
   ctaCluster: {
-    gap: spacing.md,
+    gap: spacing.lg,
     paddingBottom: spacing.lg,
     paddingTop: spacing.xs
   },
   primaryPill: {
     alignItems: "center",
     backgroundColor: colors.accent,
-    borderRadius: radius.round,
-    height: 56,
-    justifyContent: "center",
+    borderRadius: CARD_RADIUS_OUTER,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    minHeight: 68,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     width: "100%"
   },
   primaryPillDisabled: {
     backgroundColor: colors.surface2
   },
   primaryPillText: {
-    ...type.bodyStrong,
+    ...type.title,
     color: colors.accentText
   },
   primaryPillTextDisabled: {
     color: colors.textLo
   },
+  primaryPillIcon: {
+    alignItems: "center",
+    backgroundColor: colors.accentText,
+    borderRadius: radius.round,
+    height: 40,
+    justifyContent: "center",
+    width: 40
+  },
+  primaryPillIconDisabled: {
+    backgroundColor: colors.surface
+  },
+  secondaryShell: {
+    backgroundColor: colors.surface2,
+    borderRadius: CARD_RADIUS_OUTER,
+    padding: spacing.sm
+  },
   secondaryRow: {
     flexDirection: "row",
     gap: spacing.sm
   },
-  secondaryAction: {
+  secondaryCard: {
     alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: CARD_RADIUS_INNER,
     flex: 1,
     gap: spacing.xs,
-    paddingVertical: spacing.xxs
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.md
+  },
+  secondaryCardDisabled: {
+    opacity: 0.58
   },
   secondaryIcon: {
     alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderWidth: 1,
+    backgroundColor: colors.bg,
     borderRadius: radius.round,
-    height: 52,
+    height: 44,
     justifyContent: "center",
-    width: 52
+    width: 44
   },
   secondaryIconDisabled: {
-    opacity: 0.58
+    opacity: 0.7
   },
   secondaryLabel: {
     ...type.label,
