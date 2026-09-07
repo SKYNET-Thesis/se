@@ -42,6 +42,10 @@ const faultColors = ["#e9ad37", "#e9ad37", "#ef5b61"];
 // axis-aligned box, so it never clips edges as the user spins it.
 const CAMERA_FIT_MARGIN = 1.2;
 
+// Yaw-only camera presets for the diagnostic fault callouts — no pitch
+// component, so focusing a fault never tilts the base off its plane.
+const FOCUS_YAW_ANGLES = [-0.3, 0.18, -0.76];
+
 function fitCameraToBoundingSphere(camera: THREE.PerspectiveCamera, boundingRadius: number) {
   const verticalFov = THREE.MathUtils.degToRad(camera.fov);
   const fitDistance = (boundingRadius / Math.sin(verticalFov / 2)) * CAMERA_FIT_MARGIN;
@@ -157,8 +161,10 @@ export function ArmModelViewer({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const anchorRefs = useRef<THREE.Vector3[]>([]);
   const layoutRef = useRef({ width: 0, height: 0 });
-  const rotationRef = useRef({ x: -0.08, y: -0.45 });
-  const gestureStartRef = useRef({ x: 0, y: 0 });
+  // Yaw only (radians around the vertical axis) — pitch/roll are permanently
+  // locked so the robot's base plane never tilts, matching a turntable.
+  const rotationRef = useRef(-0.45);
+  const gestureStartRef = useRef(0);
   // Placeholder distance/radius until the model loads and the real bounding
   // sphere is known; onContextCreate overwrites this with the fitted values.
   const fitRef = useRef({ distance: compact ? 3.8 : 5.1, radius: 1 });
@@ -188,10 +194,10 @@ export function ArmModelViewer({
   }, []);
 
   const resetView = useCallback(() => {
-    rotationRef.current = { x: -0.08, y: -0.45 };
+    rotationRef.current = -0.45;
     zoomRef.current = fitRef.current.distance;
     if (groupRef.current) {
-      groupRef.current.rotation.set(rotationRef.current.x, rotationRef.current.y, 0);
+      groupRef.current.rotation.set(0, rotationRef.current, 0);
     }
     if (cameraRef.current) {
       cameraRef.current.position.set(0, 0, zoomRef.current);
@@ -202,14 +208,9 @@ export function ArmModelViewer({
 
   useEffect(() => {
     if (selectedFault === null || !groupRef.current || !cameraRef.current) return;
-    const focusAngles = [
-      { x: -0.12, y: -0.3 },
-      { x: -0.04, y: 0.18 },
-      { x: 0.02, y: -0.76 }
-    ];
-    const angle = focusAngles[selectedFault] ?? focusAngles[0];
-    rotationRef.current = angle;
-    groupRef.current.rotation.set(angle.x, angle.y, 0);
+    const yaw = FOCUS_YAW_ANGLES[selectedFault] ?? FOCUS_YAW_ANGLES[0];
+    rotationRef.current = yaw;
+    groupRef.current.rotation.set(0, yaw, 0);
     zoomRef.current = fitRef.current.distance * 0.92;
     cameraRef.current.position.z = zoomRef.current;
     projectFaults();
@@ -227,7 +228,7 @@ export function ArmModelViewer({
           event.nativeEvent.touches.length === 2 ||
           (Math.abs(gesture.dx) > 5 && Math.abs(gesture.dx) > Math.abs(gesture.dy)),
         onPanResponderGrant: (event) => {
-          gestureStartRef.current = { ...rotationRef.current };
+          gestureStartRef.current = rotationRef.current;
           pinchRef.current = {
             distance: distanceBetweenTouches(event),
             zoom: zoomRef.current
@@ -246,11 +247,10 @@ export function ArmModelViewer({
               camera.position.z = zoomRef.current;
             }
           } else if (group) {
-            rotationRef.current = {
-              x: Math.max(-0.65, Math.min(0.65, gestureStartRef.current.x + gesture.dy * 0.006)),
-              y: gestureStartRef.current.y + gesture.dx * 0.009
-            };
-            group.rotation.set(rotationRef.current.x, rotationRef.current.y, 0);
+            // Yaw only — horizontal drag spins the base like a turntable;
+            // vertical drag is intentionally ignored so pitch stays locked.
+            rotationRef.current = gestureStartRef.current + gesture.dx * 0.009;
+            group.rotation.set(0, rotationRef.current, 0);
           }
           projectFaults();
         },
@@ -285,7 +285,7 @@ export function ArmModelViewer({
         cameraRef.current = camera;
 
         const group = new THREE.Group();
-        group.rotation.set(rotationRef.current.x, rotationRef.current.y, 0);
+        group.rotation.set(0, rotationRef.current, 0);
         groupRef.current = group;
         scene.add(group);
 
@@ -316,10 +316,15 @@ export function ArmModelViewer({
               const sphere = box.getBoundingSphere(new THREE.Sphere());
               const boundingRadius = Math.max(sphere.radius, 0.001);
 
-              // Center the model on the group's origin at its native scale —
-              // no artificial modelScale heuristic, camera distance does the
-              // framing work instead.
-              model.position.sub(center);
+              // Pivot at the model's BASE (not its geometric center): the
+              // model is offset so its floor-contact point sits at the
+              // group's local origin, and the group is shifted down by that
+              // same amount in world space so the bounding-sphere center —
+              // what the camera fit below still targets — lands exactly
+              // where it always did. Yaw rotates around a vertical line
+              // through that base point, so the feet never drift.
+              model.position.set(-center.x, -box.min.y, -center.z);
+              group.position.set(0, box.min.y - center.y, 0);
               group.add(model);
 
               const fitDistance = fitCameraToBoundingSphere(camera, boundingRadius);
@@ -337,14 +342,9 @@ export function ArmModelViewer({
               });
 
               if (selectedFault !== null) {
-                const focusAngles = [
-                  { x: -0.12, y: -0.3 },
-                  { x: -0.04, y: 0.18 },
-                  { x: 0.02, y: -0.76 }
-                ];
-                const angle = focusAngles[selectedFault] ?? focusAngles[0];
-                rotationRef.current = angle;
-                group.rotation.set(angle.x, angle.y, 0);
+                const yaw = FOCUS_YAW_ANGLES[selectedFault] ?? FOCUS_YAW_ANGLES[0];
+                rotationRef.current = yaw;
+                group.rotation.set(0, yaw, 0);
                 zoomRef.current = fitDistance * 0.92;
                 camera.position.z = zoomRef.current;
               }
