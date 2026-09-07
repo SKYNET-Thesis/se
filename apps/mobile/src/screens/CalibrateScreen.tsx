@@ -1,20 +1,10 @@
-import {
-  Check,
-  CircleAlert,
-  CircleCheck,
-  RefreshCw,
-  Save,
-  ShieldAlert,
-  SlidersHorizontal,
-  TriangleAlert
-} from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { Check, Circle, CircleCheck, RotateCcw, ScanLine, ShieldAlert, TriangleAlert } from "lucide-react-native";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, font, radius, spacing, type } from "../theme";
 
 type ArmRole = "follower" | "leader";
-type PhaseKind = "center" | "range";
 type MotorId =
   | "shoulder_pan"
   | "shoulder_lift"
@@ -30,24 +20,16 @@ type RangeRow = {
 };
 
 type RangeByMotor = Record<MotorId, RangeRow>;
+type RunStatus = "idle" | "recording" | "completed";
 
-type RangeState =
-  | { kind: "idle" }
-  | { kind: "recording" }
-  | { kind: "error"; message: string }
-  | { kind: "done"; stoppedAt: string };
-
-type ArmCalibrationState = {
-  centerConfirmed: boolean;
+type ArmCalibration = {
+  status: RunStatus;
   range: RangeByMotor;
-  rangeState: RangeState;
 };
 
-type PhaseStep = {
-  key: string;
-  arm: ArmRole;
-  phase: PhaseKind;
-  index: number;
+type PortState = {
+  value: string | null;
+  searching: boolean;
 };
 
 type Props = {
@@ -56,7 +38,7 @@ type Props = {
   onBack: () => void;
 };
 
-const ARM_SEQUENCE: ArmRole[] = ["follower", "leader"];
+const ARM_ROLES: ArmRole[] = ["follower", "leader"];
 const MOTOR_IDS: MotorId[] = [
   "shoulder_pan",
   "shoulder_lift",
@@ -72,8 +54,13 @@ const ROLE_LABEL: Record<ArmRole, "Follower" | "Leader"> = {
 };
 
 const ROLE_HINT: Record<ArmRole, string> = {
-  follower: "Tay thực hiện chuyển động",
-  leader: "Tay điều khiển / ghi lệnh"
+  follower: "Robot",
+  leader: "Teleoperator"
+};
+
+const MOCK_PORT: Record<ArmRole, string> = {
+  follower: "/dev/ttyACM0",
+  leader: "/dev/ttyACM1"
 };
 
 const MOTOR_CONFIG: Record<MotorId, { amplitude: number; followerCenter: number; leaderCenter: number; seed: number }> = {
@@ -85,415 +72,342 @@ const MOTOR_CONFIG: Record<MotorId, { amplitude: number; followerCenter: number;
   gripper: { amplitude: 760, followerCenter: 1710, leaderCenter: 1764, seed: 37 }
 };
 
-const PHASE_STEPS: PhaseStep[] = [
-  { key: "follower:center", arm: "follower", phase: "center", index: 0 },
-  { key: "follower:range", arm: "follower", phase: "range", index: 1 },
-  { key: "leader:center", arm: "leader", phase: "center", index: 2 },
-  { key: "leader:range", arm: "leader", phase: "range", index: 3 }
-];
-
-const TOTAL_PHASES = PHASE_STEPS.length;
-const LEADER_RANGE_ERROR =
-  "Không đọc được bus servo mock của Leader. Kiểm tra nguồn, dây tín hiệu và thử lại.";
+// A joint counts as "captured" once its recorded swing covers most of its
+// realistic travel — comfortably reachable while still requiring an honest
+// full-range sweep before the Save pill unlocks.
+function requiredSpan(motorId: MotorId) {
+  return MOTOR_CONFIG[motorId].amplitude * 1.1;
+}
 
 export function CalibrateScreen({ emergencyStopped, fontsReady, onBack }: Props) {
-  const [activePhaseIndex, setActivePhaseIndex] = useState(0);
+  const [selectedArm, setSelectedArm] = useState<ArmRole>("follower");
   const [sampleTick, setSampleTick] = useState(0);
-  const [leaderRangeRetried, setLeaderRangeRetried] = useState(false);
-  const [complete, setComplete] = useState(false);
-  const [profileSaved, setProfileSaved] = useState(false);
-  const [arms, setArms] = useState<Record<ArmRole, ArmCalibrationState>>({
-    follower: createArmCalibrationState("follower"),
-    leader: createArmCalibrationState("leader")
+  const [arms, setArms] = useState<Record<ArmRole, ArmCalibration>>({
+    follower: createArmCalibration("follower"),
+    leader: createArmCalibration("leader")
+  });
+  const [ports, setPorts] = useState<Record<ArmRole, PortState>>({
+    follower: { value: null, searching: false },
+    leader: { value: null, searching: false }
   });
 
-  const activeStep = PHASE_STEPS[activePhaseIndex];
-  const activeArm = arms[activeStep.arm];
-  const completedPhaseCount = useMemo(() => countCompletedPhases(arms), [arms]);
-  const profileReady = arms.follower.rangeState.kind === "done" && arms.leader.rangeState.kind === "done";
+  const selectedRun = arms[selectedArm];
+  const otherArm: ArmRole = selectedArm === "follower" ? "leader" : "follower";
+  const allCaptured = MOTOR_IDS.every(
+    (motorId) => selectedRun.range[motorId].max - selectedRun.range[motorId].min >= requiredSpan(motorId)
+  );
 
   useEffect(() => {
-    if (complete || emergencyStopped || activeStep.phase !== "range") return undefined;
-
-    setArms((prev) => {
-      const armState = prev[activeStep.arm];
-      if (armState.rangeState.kind !== "idle") return prev;
-
-      if (activeStep.arm === "leader" && !leaderRangeRetried) {
-        return updateArm(prev, activeStep.arm, {
-          rangeState: { kind: "error", message: LEADER_RANGE_ERROR }
-        });
-      }
-
-      return updateArm(prev, activeStep.arm, { rangeState: { kind: "recording" } });
-    });
-
-    return undefined;
-  }, [activeStep.arm, activeStep.phase, activeStep.key, complete, emergencyStopped, leaderRangeRetried]);
-
-  useEffect(() => {
-    if (
-      complete ||
-      emergencyStopped ||
-      activeStep.phase !== "range" ||
-      activeArm.rangeState.kind !== "recording"
-    ) {
-      return undefined;
-    }
+    if (emergencyStopped || selectedRun.status !== "recording") return undefined;
 
     const timer = setInterval(() => {
       setSampleTick((tick) => {
         const nextTick = tick + 1;
         setArms((prev) =>
-          updateArm(prev, activeStep.arm, {
-            range: advanceMockRange(prev[activeStep.arm].range, activeStep.arm, nextTick)
+          updateArm(prev, selectedArm, {
+            range: advanceMockRange(prev[selectedArm].range, selectedArm, nextTick)
           })
         );
         return nextTick;
       });
-    }, 520);
+    }, 480);
 
     return () => clearInterval(timer);
-  }, [activeArm.rangeState.kind, activeStep.arm, activeStep.phase, complete, emergencyStopped]);
+  }, [emergencyStopped, selectedArm, selectedRun.status]);
 
-  const handleConfirmCenter = () => {
-    if (emergencyStopped || activeStep.phase !== "center") return;
-
-    setArms((prev) => updateArm(prev, activeStep.arm, { centerConfirmed: true }));
-    setActivePhaseIndex((index) => Math.min(index + 1, TOTAL_PHASES - 1));
+  const handleStart = () => {
+    if (emergencyStopped) return;
+    setArms((prev) => updateArm(prev, selectedArm, { status: "recording" }));
   };
 
-  const handleRetryRange = () => {
-    if (emergencyStopped || activeStep.phase !== "range") return;
-
-    if (activeStep.arm === "leader") setLeaderRangeRetried(true);
-    setArms((prev) => updateArm(prev, activeStep.arm, { rangeState: { kind: "recording" } }));
+  const handleCancel = () => {
+    if (emergencyStopped) return;
+    setArms((prev) => updateArm(prev, selectedArm, { status: "idle", range: createInitialRange(selectedArm) }));
   };
 
-  const handleStopRange = () => {
-    if (emergencyStopped || activeStep.phase !== "range" || activeArm.rangeState.kind !== "recording") return;
-
-    const stoppedAt = new Date().toLocaleTimeString("vi-VN", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit"
-    });
-
-    setArms((prev) => updateArm(prev, activeStep.arm, { rangeState: { kind: "done", stoppedAt } }));
-
-    if (activeStep.arm === "follower") {
-      setActivePhaseIndex(2);
-      return;
-    }
-
-    setComplete(true);
+  const handleSave = () => {
+    if (emergencyStopped || selectedRun.status !== "recording" || !allCaptured) return;
+    setArms((prev) => updateArm(prev, selectedArm, { status: "completed" }));
   };
 
-  const handleSaveProfile = () => {
-    if (emergencyStopped || !profileReady) return;
-    setProfileSaved(true);
+  const handleFindPort = () => {
+    if (emergencyStopped) return;
+    const role = selectedArm;
+    setPorts((prev) => ({ ...prev, [role]: { ...prev[role], searching: true } }));
+    setTimeout(() => {
+      setPorts((prev) => ({ ...prev, [role]: { value: MOCK_PORT[role], searching: false } }));
+    }, 500);
   };
 
-  if (complete) {
-    return (
-      <ScrollView
-        accessibilityLabel="Màn hình tóm tắt calibrate SO-101"
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        style={styles.screen}
-      >
-        <ScreenHeader
-          fontsReady={fontsReady}
-          meta="4/4"
-          onBack={onBack}
-          subtitle="Tóm tắt giới hạn count đã ghi cho Follower và Leader"
-          title="Calibrate"
-        />
-
-        {emergencyStopped && <StoppedBanner fontsReady={fontsReady} />}
-        <SafetyBanner fontsReady={fontsReady} />
-        <ProgressRail activeIndex={TOTAL_PHASES - 1} arms={arms} />
-
-        <View style={styles.summaryPanel}>
-          <View style={styles.summaryHeader}>
-            <View style={styles.summaryTitleBlock}>
-              <Text style={[styles.panelTitle, font("display", fontsReady)]}>Tóm tắt MIN/MAX</Text>
-              <Text style={[styles.panelCaption, font("body", fontsReady)]}>
-                Dữ liệu servo mock, đơn vị count 0-4095
-              </Text>
-            </View>
-            <View style={styles.readyPill}>
-              <CircleCheck color={colors.accentText} size={15} />
-              <Text style={[styles.readyText, font("display", fontsReady)]}>Đủ 4 pha</Text>
-            </View>
-          </View>
-
-          <SummaryTable arms={arms} fontsReady={fontsReady} role="follower" />
-          <SummaryTable arms={arms} fontsReady={fontsReady} role="leader" />
-        </View>
-
-        {profileSaved && (
-          <View style={styles.savedBanner}>
-            <Check color={colors.accent} size={17} />
-            <Text style={[styles.savedText, font("body", fontsReady)]}>
-              Hồ sơ SO101-CAL-MOCK đã được lưu trong phiên mock.
-            </Text>
-          </View>
-        )}
-
-        <Pressable
-          accessibilityLabel="Lưu hồ sơ calibrate"
-          accessibilityRole="button"
-          accessibilityState={{ disabled: emergencyStopped || !profileReady || profileSaved }}
-          disabled={emergencyStopped || !profileReady || profileSaved}
-          onPress={handleSaveProfile}
-          style={({ pressed }) => [
-            styles.primaryButton,
-            (emergencyStopped || !profileReady || profileSaved) && styles.primaryButtonDisabled,
-            pressed && !emergencyStopped && !profileSaved && styles.pressed
-          ]}
-        >
-          <Save color={profileSaved ? colors.textLo : colors.accentText} size={18} />
-          <Text
-            style={[
-              styles.primaryButtonText,
-              profileSaved && styles.primaryButtonTextDisabled,
-              font("display", fontsReady)
-            ]}
-          >
-            Lưu hồ sơ calibrate
-          </Text>
-        </Pressable>
-      </ScrollView>
-    );
-  }
+  const primaryLabel = selectedRun.status === "recording" ? "Hủy hiệu chỉnh" : "Bắt đầu hiệu chỉnh";
+  const primaryDisabled = emergencyStopped || selectedRun.status === "completed";
+  const onPrimaryPress = selectedRun.status === "recording" ? handleCancel : handleStart;
 
   return (
     <ScrollView
-      accessibilityLabel="Màn hình calibrate SO-101"
+      accessibilityLabel="Màn hình hiệu chỉnh SO-101"
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
       style={styles.screen}
     >
       <ScreenHeader
         fontsReady={fontsReady}
-        meta={`${activeStep.index + 1}/4`}
+        meta={ROLE_LABEL[selectedArm]}
         onBack={onBack}
-        subtitle="LeRobot SO-101: Follower center/range, sau đó Leader center/range"
-        title="Calibrate"
+        subtitle="Ghi tầm chuyển động thật cho Follower và Leader"
+        title="Hiệu chỉnh"
       />
 
       {emergencyStopped && <StoppedBanner fontsReady={fontsReady} />}
-      <SafetyBanner fontsReady={fontsReady} />
-      <ProgressRail activeIndex={activePhaseIndex} arms={arms} />
 
-      <View style={styles.armRail}>
-        {ARM_SEQUENCE.map((role) => (
-          <ArmChip active={activeStep.arm === role} arms={arms} fontsReady={fontsReady} key={role} role={role} />
-        ))}
+      <View style={styles.configBlock}>
+        <ArmSegmented disabled={emergencyStopped} fontsReady={fontsReady} onChange={setSelectedArm} value={selectedArm} />
+
+        <PortField
+          disabled={emergencyStopped}
+          fontsReady={fontsReady}
+          onFind={handleFindPort}
+          port={ports[selectedArm]}
+        />
+
+        <Pressable
+          accessibilityLabel={primaryLabel}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: primaryDisabled }}
+          disabled={primaryDisabled}
+          onPress={onPrimaryPress}
+          style={({ pressed }) => [
+            styles.primaryPill,
+            selectedRun.status === "recording" && styles.primaryPillDanger,
+            primaryDisabled && styles.primaryPillDisabled,
+            pressed && !primaryDisabled && styles.pillPressed
+          ]}
+        >
+          <Text
+            style={[
+              styles.primaryPillText,
+              selectedRun.status === "recording" && styles.primaryPillTextDanger,
+              primaryDisabled && styles.primaryPillTextDisabled,
+              font("display", fontsReady)
+            ]}
+          >
+            {primaryLabel}
+          </Text>
+        </Pressable>
+
+        <ArmChecklist arms={arms} fontsReady={fontsReady} />
       </View>
 
-      {activeStep.phase === "center" ? (
-        <CenterPhase
-          arm={activeStep.arm}
-          disabled={emergencyStopped}
-          fontsReady={fontsReady}
-          onConfirm={handleConfirmCenter}
-        />
-      ) : (
-        <RangePhase
-          arm={activeStep.arm}
-          disabled={emergencyStopped}
-          fontsReady={fontsReady}
-          onRetry={handleRetryRange}
-          onStop={handleStopRange}
-          range={activeArm.range}
-          rangeState={activeArm.rangeState}
-          sampleTick={sampleTick}
-        />
+      <View style={styles.statusBlock}>
+        <StatusBadge fontsReady={fontsReady} status={selectedRun.status} />
+
+        {selectedRun.status === "idle" && (
+          <Text style={[styles.promptLine, font("body", fontsReady)]}>
+            Đưa mọi khớp về giữa tầm rồi bắt đầu ghi.
+          </Text>
+        )}
+
+        {selectedRun.status !== "idle" && (
+          <>
+            <ReminderBanner fontsReady={fontsReady} />
+
+            <View style={styles.jointListHeader}>
+              <Text style={[styles.jointListTitle, font("display", fontsReady)]}>Dữ liệu vị trí trực tiếp</Text>
+              <Text style={[styles.jointListMeta, font("mono", fontsReady)]}>MOCK · T{sampleTick}</Text>
+            </View>
+
+            <View style={styles.jointList}>
+              {MOTOR_IDS.map((motorId) => (
+                <JointRow
+                  captured={selectedRun.range[motorId].max - selectedRun.range[motorId].min >= requiredSpan(motorId)}
+                  fontsReady={fontsReady}
+                  key={motorId}
+                  motorId={motorId}
+                  row={selectedRun.range[motorId]}
+                />
+              ))}
+            </View>
+          </>
+        )}
+      </View>
+
+      {selectedRun.status === "recording" && (
+        <View style={styles.saveBlock}>
+          <Pressable
+            accessibilityLabel="Lưu hiệu chỉnh"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: emergencyStopped || !allCaptured }}
+            disabled={emergencyStopped || !allCaptured}
+            onPress={handleSave}
+            style={({ pressed }) => [
+              styles.savePill,
+              (emergencyStopped || !allCaptured) && styles.savePillDisabled,
+              pressed && allCaptured && !emergencyStopped && styles.pillPressed
+            ]}
+          >
+            <Check color={allCaptured && !emergencyStopped ? colors.accentText : colors.textLo} size={18} />
+            <Text
+              style={[
+                styles.savePillText,
+                (!allCaptured || emergencyStopped) && styles.savePillTextDisabled,
+                font("display", fontsReady)
+              ]}
+            >
+              Lưu hiệu chỉnh
+            </Text>
+          </Pressable>
+
+          {!allCaptured && (
+            <Text style={[styles.saveHint, font("body", fontsReady)]}>
+              Ghi đủ tầm cho cả 6 khớp để bật nút lưu.
+            </Text>
+          )}
+        </View>
       )}
 
-      <Text style={[styles.phaseFootnote, font("body", fontsReady)]}>
-        Đã hoàn tất {completedPhaseCount}/{TOTAL_PHASES} pha. Sau khi dừng ghi tầm Follower, wizard tự chuyển sang Leader.
-      </Text>
+      {selectedRun.status === "completed" && (
+        <CompletionPanel
+          fontsReady={fontsReady}
+          onSwitchArm={() => setSelectedArm(otherArm)}
+          otherArm={otherArm}
+          otherDone={arms[otherArm].status === "completed"}
+        />
+      )}
     </ScrollView>
   );
 }
 
-function CenterPhase({
-  arm,
+function ArmSegmented({
   disabled,
   fontsReady,
-  onConfirm
+  onChange,
+  value
 }: {
-  arm: ArmRole;
   disabled: boolean;
   fontsReady: boolean;
-  onConfirm: () => void;
+  onChange: (role: ArmRole) => void;
+  value: ArmRole;
 }) {
   return (
-    <View style={styles.phasePanel}>
-      <View style={styles.phaseHeader}>
-        <View style={styles.phaseTitleRow}>
-          <View style={styles.phaseIcon}>
-            <SlidersHorizontal color={colors.textHi} size={18} />
-          </View>
-          <View style={styles.phaseTitleBlock}>
-            <Text style={[styles.phaseEyebrow, font("mono", fontsReady)]}>{ROLE_LABEL[arm]} · PHA 1</Text>
-            <Text style={[styles.phaseTitle, font("display", fontsReady)]}>Vị trí giữa</Text>
-          </View>
-        </View>
-        <StatePill fontsReady={fontsReady} tone="waiting" value="Chờ xác nhận" />
-      </View>
+    <View accessibilityRole="tablist" style={styles.segmented}>
+      {ARM_ROLES.map((role) => {
+        const active = value === role;
+        return (
+          <Pressable
+            accessibilityLabel={`${ROLE_LABEL[role]} (${ROLE_HINT[role]})`}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active, disabled }}
+            disabled={disabled}
+            key={role}
+            onPress={() => onChange(role)}
+            style={[styles.segment, active && styles.segmentActive]}
+          >
+            <Text style={[styles.segmentTitle, active && styles.segmentTitleActive, font("display", fontsReady)]}>
+              {ROLE_LABEL[role]}
+            </Text>
+            <Text style={[styles.segmentHint, active && styles.segmentHintActive, font("body", fontsReady)]}>
+              {ROLE_HINT[role]}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
 
-      <Text style={[styles.instruction, font("body", fontsReady)]}>
-        Đưa toàn bộ tay về tư thế mọi khớp ở GIỮA tầm, rồi xác nhận.
-      </Text>
-
-      <ReferencePoseSlot fontsReady={fontsReady} />
-
-      <View style={styles.wristNotice}>
-        <CircleAlert color={colors.caution} size={16} />
-        <Text style={[styles.wristNoticeText, font("body", fontsReady)]}>
-          Chú ý trục cổ tay (wrist): wrist_flex và wrist_roll phải ở giữa tầm, không xoắn lệch trước khi xác nhận.
+function PortField({
+  disabled,
+  fontsReady,
+  onFind,
+  port
+}: {
+  disabled: boolean;
+  fontsReady: boolean;
+  onFind: () => void;
+  port: PortState;
+}) {
+  return (
+    <View style={styles.portRow}>
+      <View style={styles.portField}>
+        <Text style={[styles.portLabel, font("body", fontsReady)]}>Port</Text>
+        <Text style={[styles.portValue, font("mono", fontsReady)]}>
+          {port.searching ? "Đang tìm…" : (port.value ?? "Chưa xác định")}
         </Text>
       </View>
 
       <Pressable
-        accessibilityLabel="Xác nhận vị trí giữa"
+        accessibilityLabel="Tìm port"
         accessibilityRole="button"
         accessibilityState={{ disabled }}
         disabled={disabled}
-        onPress={onConfirm}
-        style={({ pressed }) => [styles.primaryButton, disabled && styles.primaryButtonDisabled, pressed && styles.pressed]}
+        onPress={onFind}
+        style={({ pressed }) => [styles.findButton, disabled && styles.findButtonDisabled, pressed && !disabled && styles.pillPressed]}
       >
-        <Check color={disabled ? colors.textLo : colors.accentText} size={18} />
-        <Text
-          style={[styles.primaryButtonText, disabled && styles.primaryButtonTextDisabled, font("display", fontsReady)]}
-        >
-          Xác nhận vị trí giữa
+        <ScanLine color={disabled ? colors.textLo : colors.textHi} size={16} />
+        <Text style={[styles.findButtonText, disabled && styles.findButtonTextDisabled, font("display", fontsReady)]}>
+          Tìm
         </Text>
       </Pressable>
     </View>
   );
 }
 
-function RangePhase({
-  arm,
-  disabled,
-  fontsReady,
-  onRetry,
-  onStop,
-  range,
-  rangeState,
-  sampleTick
-}: {
-  arm: ArmRole;
-  disabled: boolean;
-  fontsReady: boolean;
-  onRetry: () => void;
-  onStop: () => void;
-  range: RangeByMotor;
-  rangeState: RangeState;
-  sampleTick: number;
-}) {
-  const recording = rangeState.kind === "recording";
-
+function ArmChecklist({ arms, fontsReady }: { arms: Record<ArmRole, ArmCalibration>; fontsReady: boolean }) {
   return (
-    <View style={[styles.phasePanel, rangeState.kind === "error" && styles.phasePanelDanger]}>
-      <View style={styles.phaseHeader}>
-        <View style={styles.phaseTitleRow}>
-          <View style={styles.phaseIcon}>
-            <SlidersHorizontal color={colors.textHi} size={18} />
-          </View>
-          <View style={styles.phaseTitleBlock}>
-            <Text style={[styles.phaseEyebrow, font("mono", fontsReady)]}>{ROLE_LABEL[arm]} · PHA 2</Text>
-            <Text style={[styles.phaseTitle, font("display", fontsReady)]}>Quét tầm chuyển động</Text>
-          </View>
-        </View>
-        <StatePill fontsReady={fontsReady} tone={rangeState.kind} value={rangeStateLabel(rangeState.kind)} />
-      </View>
-
-      <Text style={[styles.instruction, font("body", fontsReady)]}>
-        Di chuyển từng khớp hết tầm tới ĐIỂM CHẶN CƠ KHÍ thật (có thể lặp lại). Coi chừng kẹt dây sẽ ghi sai giới hạn.
-      </Text>
-
-      {rangeState.kind === "error" ? (
-        <View style={styles.errorPanel}>
-          <View style={styles.errorRow}>
-            <CircleAlert color={colors.danger} size={17} />
-            <Text style={[styles.errorText, font("body", fontsReady)]}>{rangeState.message}</Text>
-          </View>
-          <Pressable
-            accessibilityLabel="Thử lại đọc servo"
-            accessibilityRole="button"
-            accessibilityState={{ disabled }}
-            disabled={disabled}
-            onPress={onRetry}
-            style={({ pressed }) => [
-              styles.secondaryButton,
-              disabled && styles.secondaryButtonDisabled,
-              pressed && !disabled && styles.pressed
-            ]}
-          >
-            <RefreshCw color={disabled ? colors.textLo : colors.textHi} size={15} />
-            <Text
-              style={[
-                styles.secondaryButtonText,
-                disabled && styles.secondaryButtonTextDisabled,
-                font("display", fontsReady)
-              ]}
-            >
-              Thử lại
+    <View style={styles.checklistRow}>
+      {ARM_ROLES.map((role) => {
+        const done = arms[role].status === "completed";
+        return (
+          <View key={role} style={styles.checklistItem}>
+            {done ? <CircleCheck color={colors.accent} size={16} /> : <Circle color={colors.textLo} size={16} />}
+            <Text style={[styles.checklistText, done && styles.checklistTextDone, font("body", fontsReady)]}>
+              {ROLE_LABEL[role]}
             </Text>
-          </Pressable>
-        </View>
-      ) : (
-        <>
-          <RangeTable fontsReady={fontsReady} range={range} sampleTick={sampleTick} />
-          {rangeState.kind === "done" && (
-            <View style={styles.savedBanner}>
-              <CircleCheck color={colors.accent} size={17} />
-              <Text style={[styles.savedText, font("body", fontsReady)]}>
-                Đã dừng ghi tầm lúc {rangeState.stoppedAt}.
-              </Text>
-            </View>
-          )}
-          <Pressable
-            accessibilityLabel="Dừng ghi tầm"
-            accessibilityRole="button"
-            accessibilityState={{ disabled: disabled || !recording }}
-            disabled={disabled || !recording}
-            onPress={onStop}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              (disabled || !recording) && styles.primaryButtonDisabled,
-              pressed && recording && !disabled && styles.pressed
-            ]}
-          >
-            <Check color={recording && !disabled ? colors.accentText : colors.textLo} size={18} />
-            <Text
-              style={[
-                styles.primaryButtonText,
-                (disabled || !recording) && styles.primaryButtonTextDisabled,
-                font("display", fontsReady)
-              ]}
-            >
-              Dừng ghi tầm
-            </Text>
-          </Pressable>
-        </>
-      )}
+          </View>
+        );
+      })}
     </View>
   );
 }
 
-function SafetyBanner({ fontsReady }: { fontsReady: boolean }) {
+function StatusBadge({ fontsReady, status }: { fontsReady: boolean; status: RunStatus }) {
+  const label = status === "idle" ? "Đưa về giữa" : status === "recording" ? "Đang ghi tầm" : "Hoàn tất";
+
   return (
-    <View style={styles.safetyBanner}>
-      <TriangleAlert color={colors.caution} size={18} />
-      <Text style={[styles.safetyText, font("body", fontsReady)]}>
-        Chỉ tới điểm chặn cơ khí thật; calibrate sai có thể khiến tay vung mạnh — cuối quá trình tay có thể giật nhanh, giữ khu vực an toàn.
+    <View
+      style={[
+        styles.badge,
+        status === "recording" && styles.badgeRecording,
+        status === "completed" && styles.badgeCompleted
+      ]}
+    >
+      <View
+        style={[
+          styles.badgeDot,
+          status === "recording" && styles.badgeDotRecording,
+          status === "completed" && styles.badgeDotCompleted
+        ]}
+      />
+      <Text
+        style={[
+          styles.badgeText,
+          status === "recording" && styles.badgeTextRecording,
+          status === "completed" && styles.badgeTextCompleted,
+          font("display", fontsReady)
+        ]}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function ReminderBanner({ fontsReady }: { fontsReady: boolean }) {
+  return (
+    <View style={styles.reminderBanner}>
+      <TriangleAlert color={colors.caution} size={16} />
+      <Text style={[styles.reminderText, font("body", fontsReady)]}>
+        Di chuyển từng khớp hết tầm tới điểm chặn cơ khí.
       </Text>
     </View>
   );
@@ -504,208 +418,93 @@ function StoppedBanner({ fontsReady }: { fontsReady: boolean }) {
     <View style={styles.stoppedBanner}>
       <ShieldAlert color={colors.danger} size={18} />
       <Text style={[styles.stoppedText, font("body", fontsReady)]}>
-        Hệ thống đang E-STOP, không thể đọc hoặc lưu calibrate. Reset E-STOP ở thanh trạng thái để tiếp tục.
+        Hệ thống đang E-STOP, không thể ghi hoặc lưu hiệu chỉnh. Reset E-STOP ở thanh trạng thái để tiếp tục.
       </Text>
     </View>
   );
 }
 
-function ReferencePoseSlot({ fontsReady }: { fontsReady: boolean }) {
-  return (
-    <View accessibilityLabel="Chỗ đặt ảnh tư thế tham chiếu" style={styles.referenceSlot}>
-      <View style={styles.referenceArm}>
-        <View style={styles.referenceBase} />
-        <View style={styles.referenceSegmentLong} />
-        <View style={styles.referenceJoint} />
-        <View style={styles.referenceSegmentShort} />
-        <View style={styles.referenceWrist} />
-      </View>
-      <View style={styles.referenceCopy}>
-        <Text style={[styles.referenceTitle, font("display", fontsReady)]}>Ảnh tư thế tham chiếu</Text>
-        <Text style={[styles.referenceText, font("body", fontsReady)]}>Center pose · mọi khớp ở giữa tầm</Text>
-      </View>
-    </View>
-  );
-}
-
-function ProgressRail({
-  activeIndex,
-  arms
-}: {
-  activeIndex: number;
-  arms: Record<ArmRole, ArmCalibrationState>;
-}) {
-  return (
-    <View style={styles.progressRail} accessibilityLabel="Tiến độ calibrate 4 pha">
-      {PHASE_STEPS.map((step) => {
-        const done = isPhaseDone(step, arms);
-        const active = step.index === activeIndex;
-
-        return (
-          <View
-            key={step.key}
-            style={[
-              styles.progressSegment,
-              done && styles.progressSegmentDone,
-              active && !done && styles.progressSegmentActive
-            ]}
-          />
-        );
-      })}
-    </View>
-  );
-}
-
-function ArmChip({
-  active,
-  arms,
+function JointRow({
+  captured,
   fontsReady,
-  role
+  motorId,
+  row
 }: {
-  active: boolean;
-  arms: Record<ArmRole, ArmCalibrationState>;
+  captured: boolean;
   fontsReady: boolean;
-  role: ArmRole;
+  motorId: MotorId;
+  row: RangeRow;
 }) {
-  const arm = arms[role];
-  const doneCount = Number(arm.centerConfirmed) + Number(arm.rangeState.kind === "done");
-  const complete = doneCount === 2;
+  const span = row.max - row.min;
+  const fraction = span > 0 ? (row.pos - row.min) / span : 0.5;
 
   return (
-    <View style={[styles.armChip, active && styles.armChipActive, complete && styles.armChipComplete]}>
-      <View style={[styles.armDot, complete && styles.armDotDone]} />
-      <View style={styles.armChipCopy}>
-        <Text style={[styles.armChipTitle, active && styles.armChipTitleActive, font("display", fontsReady)]}>
-          {ROLE_LABEL[role]}
-        </Text>
-        <Text style={[styles.armChipText, active && styles.armChipTextActive, font("body", fontsReady)]}>
-          {doneCount}/2 · {ROLE_HINT[role]}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function StatePill({
-  fontsReady,
-  tone,
-  value
-}: {
-  fontsReady: boolean;
-  tone: "waiting" | RangeState["kind"];
-  value: string;
-}) {
-  const danger = tone === "error";
-  const done = tone === "done";
-  const recording = tone === "recording";
-
-  return (
-    <View style={[styles.statePill, danger && styles.statePillDanger, done && styles.statePillDone]}>
-      <View
-        style={[
-          styles.stateDot,
-          danger && styles.stateDotDanger,
-          done && styles.stateDotDone,
-          recording && styles.stateDotRecording
-        ]}
-      />
-      <Text
-        style={[
-          styles.stateText,
-          danger && styles.stateTextDanger,
-          done && styles.stateTextDone,
-          font("display", fontsReady)
-        ]}
-      >
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function RangeTable({
-  fontsReady,
-  range,
-  sampleTick
-}: {
-  fontsReady: boolean;
-  range: RangeByMotor;
-  sampleTick: number;
-}) {
-  return (
-    <View style={styles.rangeTable}>
-      <View style={styles.tableTitleRow}>
-        <Text style={[styles.tableTitle, font("display", fontsReady)]}>Bảng trực tiếp</Text>
-        <Text style={[styles.tableMeta, font("mono", fontsReady)]}>MOCK · count 0-4095 · T{sampleTick}</Text>
-      </View>
-      <View style={styles.tableHeaderRow}>
-        <Text style={[styles.motorHeaderCell, font("body", fontsReady)]}>Motor</Text>
-        <Text style={[styles.countHeaderCell, font("mono", fontsReady)]}>MIN</Text>
-        <Text style={[styles.countHeaderCell, font("mono", fontsReady)]}>POS</Text>
-        <Text style={[styles.countHeaderCell, font("mono", fontsReady)]}>MAX</Text>
-      </View>
-
-      {MOTOR_IDS.map((motorId) => (
-        <View key={motorId} style={styles.tableRow}>
-          <Text numberOfLines={1} style={[styles.motorCell, font("mono", fontsReady)]}>
-            {motorId}
-          </Text>
-          <Text style={[styles.countCell, font("monoStrong", fontsReady)]}>{formatCount(range[motorId].min)}</Text>
-          <Text style={[styles.countCell, styles.posCell, font("monoStrong", fontsReady)]}>
-            {formatCount(range[motorId].pos)}
-          </Text>
-          <Text style={[styles.countCell, font("monoStrong", fontsReady)]}>{formatCount(range[motorId].max)}</Text>
+    <View style={[styles.jointCard, captured && styles.jointCardDone]}>
+      <View style={styles.jointHeaderRow}>
+        <View style={styles.jointNameRow}>
+          {captured ? <CircleCheck color={colors.accent} size={16} /> : <Circle color={colors.textLo} size={16} />}
+          <Text style={[styles.jointName, font("mono", fontsReady)]}>{motorId}</Text>
         </View>
-      ))}
-    </View>
-  );
-}
+        <Text style={[styles.jointPos, font("monoStrong", fontsReady)]}>{formatCount(row.pos)}</Text>
+      </View>
 
-function SummaryTable({
-  arms,
-  fontsReady,
-  role
-}: {
-  arms: Record<ArmRole, ArmCalibrationState>;
-  fontsReady: boolean;
-  role: ArmRole;
-}) {
-  return (
-    <View style={styles.summaryTable}>
-      <View style={styles.summaryTableHeader}>
-        <Text style={[styles.summaryRole, font("display", fontsReady)]}>{ROLE_LABEL[role]}</Text>
-        <Text style={[styles.summaryMeta, font("mono", fontsReady)]}>
-          {arms[role].rangeState.kind === "done" ? "Đã ghi tầm" : "Chưa đủ"}
+      <View style={styles.track}>
+        <View style={[styles.trackCursor, { left: `${Math.round(fraction * 100)}%` }]} />
+      </View>
+
+      <View style={styles.trackLabels}>
+        <Text style={[styles.trackLabel, font("mono", fontsReady)]}>{formatCount(row.min)}</Text>
+        <Text style={[styles.trackLabel, styles.trackLabelRight, font("mono", fontsReady)]}>
+          {formatCount(row.max)}
         </Text>
       </View>
-      <View style={styles.summaryHeaderRow}>
-        <Text style={[styles.summaryMotorHeader, font("body", fontsReady)]}>Motor</Text>
-        <Text style={[styles.summaryCountHeader, font("mono", fontsReady)]}>MIN</Text>
-        <Text style={[styles.summaryCountHeader, font("mono", fontsReady)]}>MAX</Text>
-      </View>
-      {MOTOR_IDS.map((motorId) => (
-        <View key={`${role}:${motorId}`} style={styles.summaryRow}>
-          <Text numberOfLines={1} style={[styles.summaryMotorCell, font("mono", fontsReady)]}>
-            {motorId}
-          </Text>
-          <Text style={[styles.summaryCountCell, font("monoStrong", fontsReady)]}>
-            {formatCount(arms[role].range[motorId].min)}
-          </Text>
-          <Text style={[styles.summaryCountCell, font("monoStrong", fontsReady)]}>
-            {formatCount(arms[role].range[motorId].max)}
-          </Text>
-        </View>
-      ))}
     </View>
   );
 }
 
-function createArmCalibrationState(role: ArmRole): ArmCalibrationState {
-  return {
-    centerConfirmed: false,
-    range: createInitialRange(role),
-    rangeState: { kind: "idle" }
-  };
+function CompletionPanel({
+  fontsReady,
+  onSwitchArm,
+  otherArm,
+  otherDone
+}: {
+  fontsReady: boolean;
+  onSwitchArm: () => void;
+  otherArm: ArmRole;
+  otherDone: boolean;
+}) {
+  return (
+    <View style={styles.completionPanel}>
+      <View style={styles.completionRow}>
+        <CircleCheck color={colors.accent} size={18} />
+        <Text style={[styles.completionText, font("body", fontsReady)]}>
+          Đã lưu hiệu chỉnh cho {ROLE_LABEL[otherArm === "follower" ? "leader" : "follower"]}.
+        </Text>
+      </View>
+
+      {otherDone ? (
+        <Text style={[styles.completionText, font("body", fontsReady)]}>
+          Cả Follower và Leader đã hiệu chỉnh xong.
+        </Text>
+      ) : (
+        <Pressable
+          accessibilityLabel={`Chuyển sang hiệu chỉnh ${ROLE_LABEL[otherArm]}`}
+          accessibilityRole="button"
+          onPress={onSwitchArm}
+          style={({ pressed }) => [styles.switchButton, pressed && styles.pillPressed]}
+        >
+          <RotateCcw color={colors.textHi} size={16} />
+          <Text style={[styles.switchButtonText, font("display", fontsReady)]}>
+            Chuyển sang {ROLE_LABEL[otherArm]}
+          </Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function createArmCalibration(role: ArmRole): ArmCalibration {
+  return { status: "idle", range: createInitialRange(role) };
 }
 
 function createInitialRange(role: ArmRole): RangeByMotor {
@@ -730,9 +529,9 @@ function advanceMockRange(range: RangeByMotor, role: ArmRole, tick: number): Ran
 }
 
 function updateArm(
-  prev: Record<ArmRole, ArmCalibrationState>,
+  prev: Record<ArmRole, ArmCalibration>,
   role: ArmRole,
-  patch: Partial<ArmCalibrationState>
+  patch: Partial<ArmCalibration>
 ) {
   return {
     ...prev,
@@ -741,28 +540,6 @@ function updateArm(
       ...patch
     }
   };
-}
-
-function countCompletedPhases(arms: Record<ArmRole, ArmCalibrationState>) {
-  return PHASE_STEPS.filter((step) => isPhaseDone(step, arms)).length;
-}
-
-function isPhaseDone(step: PhaseStep, arms: Record<ArmRole, ArmCalibrationState>) {
-  const arm = arms[step.arm];
-  return step.phase === "center" ? arm.centerConfirmed : arm.rangeState.kind === "done";
-}
-
-function rangeStateLabel(kind: RangeState["kind"]) {
-  switch (kind) {
-    case "idle":
-      return "Chờ đọc";
-    case "recording":
-      return "Đang ghi tầm";
-    case "error":
-      return "Lỗi đọc servo";
-    case "done":
-      return "Đã ghi tầm";
-  }
 }
 
 function readMockCount(role: ArmRole, motorId: MotorId, tick: number) {
@@ -794,7 +571,8 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: spacing.xl,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.lg,
     paddingBottom: spacing.xxxl
   },
   stoppedBanner: {
@@ -812,7 +590,174 @@ const styles = StyleSheet.create({
     color: colors.textHi,
     flex: 1
   },
-  safetyBanner: {
+  configBlock: {
+    gap: spacing.sm
+  },
+  segmented: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.button,
+    flexDirection: "row",
+    gap: spacing.xxs,
+    padding: spacing.xxs
+  },
+  segment: {
+    alignItems: "center",
+    borderRadius: radius.button,
+    flex: 1,
+    gap: 2,
+    paddingVertical: spacing.sm
+  },
+  segmentActive: {
+    backgroundColor: colors.surface2
+  },
+  segmentTitle: {
+    ...type.label,
+    color: colors.textLo
+  },
+  segmentTitleActive: {
+    color: colors.accent
+  },
+  segmentHint: {
+    ...type.small,
+    color: colors.textLo
+  },
+  segmentHintActive: {
+    color: colors.textHi
+  },
+  portRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm
+  },
+  portField: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.button,
+    borderWidth: 1,
+    flex: 1,
+    minHeight: 52,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs
+  },
+  portLabel: {
+    ...type.small,
+    color: colors.textLo
+  },
+  portValue: {
+    ...type.mono,
+    color: colors.textHi,
+    marginTop: 2
+  },
+  findButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface2,
+    borderColor: colors.border,
+    borderRadius: radius.button,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xxs,
+    minHeight: 52,
+    paddingHorizontal: spacing.md
+  },
+  findButtonDisabled: {
+    opacity: 0.45
+  },
+  findButtonText: {
+    ...type.label,
+    color: colors.textHi
+  },
+  findButtonTextDisabled: {
+    color: colors.textLo
+  },
+  primaryPill: {
+    alignItems: "center",
+    backgroundColor: colors.accent,
+    borderRadius: radius.round,
+    height: 56,
+    justifyContent: "center"
+  },
+  primaryPillDanger: {
+    backgroundColor: colors.danger
+  },
+  primaryPillDisabled: {
+    backgroundColor: colors.surface2
+  },
+  primaryPillText: {
+    ...type.bodyStrong,
+    color: colors.accentText
+  },
+  primaryPillTextDanger: {
+    color: colors.textHi
+  },
+  primaryPillTextDisabled: {
+    color: colors.textLo
+  },
+  checklistRow: {
+    flexDirection: "row",
+    gap: spacing.lg,
+    justifyContent: "center",
+    paddingTop: spacing.xxs
+  },
+  checklistItem: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xxs
+  },
+  checklistText: {
+    ...type.small,
+    color: colors.textLo
+  },
+  checklistTextDone: {
+    color: colors.textHi
+  },
+  statusBlock: {
+    gap: spacing.md
+  },
+  badge: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.surface2,
+    borderColor: colors.border,
+    borderRadius: radius.button,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: spacing.xs,
+    minHeight: 34,
+    paddingHorizontal: spacing.sm
+  },
+  badgeRecording: {
+    borderColor: colors.caution
+  },
+  badgeCompleted: {
+    borderColor: colors.accent
+  },
+  badgeDot: {
+    backgroundColor: colors.textLo,
+    borderRadius: radius.status,
+    height: 8,
+    width: 8
+  },
+  badgeDotRecording: {
+    backgroundColor: colors.caution
+  },
+  badgeDotCompleted: {
+    backgroundColor: colors.accent
+  },
+  badgeText: {
+    ...type.label,
+    color: colors.textHi
+  },
+  badgeTextRecording: {
+    color: colors.caution
+  },
+  badgeTextCompleted: {
+    color: colors.accent
+  },
+  promptLine: {
+    ...type.body,
+    color: colors.textLo
+  },
+  reminderBanner: {
     alignItems: "flex-start",
     backgroundColor: colors.surface,
     borderColor: colors.caution,
@@ -820,494 +765,148 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
-    padding: spacing.md
+    padding: spacing.sm
   },
-  safetyText: {
-    ...type.body,
+  reminderText: {
+    ...type.small,
     color: colors.textHi,
     flex: 1
   },
-  progressRail: {
+  jointListHeader: {
+    alignItems: "center",
     flexDirection: "row",
-    gap: spacing.xs,
-    minHeight: 8
+    justifyContent: "space-between"
   },
-  progressSegment: {
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.status,
-    borderWidth: 1,
-    flex: 1,
-    height: 8
+  jointListTitle: {
+    ...type.title,
+    color: colors.textHi
   },
-  progressSegmentActive: {
-    borderColor: colors.accent
+  jointListMeta: {
+    ...type.mono,
+    color: colors.textLo
   },
-  progressSegmentDone: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent
-  },
-  armRail: {
-    flexDirection: "row",
-    flexWrap: "wrap",
+  jointList: {
     gap: spacing.sm
   },
-  armChip: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flexBasis: "47%",
-    flexDirection: "row",
-    flexGrow: 1,
-    gap: spacing.sm,
-    minHeight: 58,
-    minWidth: 152,
-    padding: spacing.sm
-  },
-  armChipActive: {
-    borderColor: colors.accent
-  },
-  armChipComplete: {
-    backgroundColor: colors.surface2
-  },
-  armDot: {
-    backgroundColor: colors.textLo,
-    borderRadius: radius.status,
-    height: 10,
-    width: 10
-  },
-  armDotDone: {
-    backgroundColor: colors.accent
-  },
-  armChipCopy: {
-    flex: 1,
-    minWidth: 0
-  },
-  armChipTitle: {
-    ...type.label,
-    color: colors.textHi
-  },
-  armChipTitleActive: {
-    color: colors.accent
-  },
-  armChipText: {
-    ...type.small,
-    color: colors.textLo,
-    marginTop: 2
-  },
-  armChipTextActive: {
-    color: colors.textHi
-  },
-  phasePanel: {
+  jointCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: radius.card,
     borderWidth: 1,
-    gap: spacing.md,
+    gap: spacing.sm,
     padding: spacing.md
   },
-  phasePanelDanger: {
-    borderColor: colors.danger
-  },
-  phaseHeader: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "space-between"
-  },
-  phaseTitleRow: {
-    alignItems: "center",
-    flex: 1,
-    flexDirection: "row",
-    gap: spacing.sm,
-    minWidth: 0
-  },
-  phaseIcon: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderRadius: radius.button,
-    height: 38,
-    justifyContent: "center",
-    width: 38
-  },
-  phaseTitleBlock: {
-    flex: 1,
-    minWidth: 0
-  },
-  phaseEyebrow: {
-    ...type.mono,
-    color: colors.textLo
-  },
-  phaseTitle: {
-    ...type.title,
-    color: colors.textHi,
-    marginTop: 2
-  },
-  instruction: {
-    ...type.body,
-    color: colors.textLo
-  },
-  statePill: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flexDirection: "row",
-    flexShrink: 0,
-    gap: spacing.xs,
-    minHeight: 32,
-    paddingHorizontal: spacing.sm
-  },
-  statePillDanger: {
-    borderColor: colors.danger
-  },
-  statePillDone: {
+  jointCardDone: {
     borderColor: colors.accent
   },
-  stateDot: {
-    backgroundColor: colors.caution,
-    borderRadius: radius.status,
-    height: 8,
-    width: 8
-  },
-  stateDotDanger: {
-    backgroundColor: colors.danger
-  },
-  stateDotDone: {
-    backgroundColor: colors.accent
-  },
-  stateDotRecording: {
-    backgroundColor: colors.accent
-  },
-  stateText: {
-    ...type.small,
-    color: colors.textHi
-  },
-  stateTextDanger: {
-    color: colors.danger
-  },
-  stateTextDone: {
-    color: colors.accent
-  },
-  referenceSlot: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.md,
-    minHeight: 132,
-    padding: spacing.md
-  },
-  referenceArm: {
+  jointHeaderRow: {
     alignItems: "center",
     flexDirection: "row",
-    flexShrink: 0,
-    height: 86,
-    justifyContent: "center",
-    width: 128
+    justifyContent: "space-between"
   },
-  referenceBase: {
-    backgroundColor: colors.border,
-    borderRadius: radius.button,
-    height: 28,
-    width: 24
-  },
-  referenceSegmentLong: {
-    backgroundColor: colors.textLo,
-    borderRadius: radius.status,
-    height: 8,
-    width: 44
-  },
-  referenceJoint: {
-    backgroundColor: colors.accent,
-    borderRadius: radius.round,
-    height: 20,
-    width: 20
-  },
-  referenceSegmentShort: {
-    backgroundColor: colors.textLo,
-    borderRadius: radius.status,
-    height: 8,
-    width: 30
-  },
-  referenceWrist: {
-    backgroundColor: colors.caution,
-    borderRadius: radius.status,
-    height: 18,
-    width: 10
-  },
-  referenceCopy: {
-    flex: 1,
-    minWidth: 0
-  },
-  referenceTitle: {
-    ...type.bodyStrong,
-    color: colors.textHi
-  },
-  referenceText: {
-    ...type.small,
-    color: colors.textLo,
-    marginTop: spacing.xxs
-  },
-  wristNotice: {
-    alignItems: "flex-start",
-    backgroundColor: colors.surface2,
-    borderRadius: radius.button,
-    flexDirection: "row",
-    gap: spacing.xs,
-    padding: spacing.sm
-  },
-  wristNoticeText: {
-    ...type.small,
-    color: colors.textHi,
-    flex: 1
-  },
-  rangeTable: {
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    gap: spacing.xs,
-    padding: spacing.sm
-  },
-  tableTitleRow: {
+  jointNameRow: {
     alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "space-between",
-    paddingBottom: spacing.xs
-  },
-  tableTitle: {
-    ...type.label,
-    color: colors.textHi
-  },
-  tableMeta: {
-    ...type.mono,
-    color: colors.textLo
-  },
-  tableHeaderRow: {
-    alignItems: "center",
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    flexDirection: "row",
-    gap: spacing.xs,
-    minHeight: 30,
-    paddingTop: spacing.xs
-  },
-  motorHeaderCell: {
-    ...type.small,
-    color: colors.textLo,
-    flex: 1.7
-  },
-  countHeaderCell: {
-    ...type.mono,
-    color: colors.textLo,
-    flex: 1,
-    textAlign: "right"
-  },
-  tableRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.xs,
-    minHeight: 32
-  },
-  motorCell: {
-    ...type.mono,
-    color: colors.textHi,
-    flex: 1.7
-  },
-  countCell: {
-    ...type.mono,
-    color: colors.textHi,
-    flex: 1,
-    fontVariant: ["tabular-nums"],
-    textAlign: "right"
-  },
-  posCell: {
-    color: colors.accent
-  },
-  errorPanel: {
-    backgroundColor: colors.surface2,
-    borderColor: colors.danger,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    gap: spacing.sm,
-    padding: spacing.sm
-  },
-  errorRow: {
-    alignItems: "flex-start",
     flexDirection: "row",
     gap: spacing.xs
   },
-  errorText: {
-    ...type.small,
-    color: colors.danger,
-    flex: 1
+  jointName: {
+    ...type.body,
+    color: colors.textHi
   },
-  primaryButton: {
+  jointPos: {
+    ...type.title,
+    color: colors.textHi,
+    fontVariant: ["tabular-nums"]
+  },
+  track: {
+    backgroundColor: colors.surface2,
+    borderRadius: radius.round,
+    height: 6,
+    width: "100%"
+  },
+  trackCursor: {
+    backgroundColor: colors.accent,
+    borderRadius: radius.round,
+    height: 14,
+    marginLeft: -7,
+    position: "absolute",
+    top: -4,
+    width: 14
+  },
+  trackLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  trackLabel: {
+    ...type.mono,
+    color: colors.textLo
+  },
+  trackLabelRight: {
+    textAlign: "right"
+  },
+  saveBlock: {
+    gap: spacing.xs
+  },
+  savePill: {
     alignItems: "center",
     backgroundColor: colors.accent,
-    borderRadius: radius.button,
+    borderRadius: radius.round,
     flexDirection: "row",
     gap: spacing.sm,
-    justifyContent: "center",
-    minHeight: 52,
-    paddingHorizontal: spacing.md
+    height: 56,
+    justifyContent: "center"
   },
-  primaryButtonDisabled: {
+  savePillDisabled: {
     backgroundColor: colors.surface2
   },
-  primaryButtonText: {
-    ...type.label,
+  savePillText: {
+    ...type.bodyStrong,
     color: colors.accentText
   },
-  primaryButtonTextDisabled: {
+  savePillTextDisabled: {
     color: colors.textLo
   },
-  secondaryButton: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.xs,
-    minHeight: 40,
-    paddingHorizontal: spacing.sm
-  },
-  secondaryButtonDisabled: {
-    opacity: 0.45
-  },
-  secondaryButtonText: {
-    ...type.label,
-    color: colors.textHi
-  },
-  secondaryButtonTextDisabled: {
-    color: colors.textLo
-  },
-  savedBanner: {
-    alignItems: "flex-start",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.xs,
-    padding: spacing.sm
-  },
-  savedText: {
+  saveHint: {
     ...type.small,
+    color: colors.textLo,
+    textAlign: "center"
+  },
+  completionPanel: {
+    backgroundColor: colors.surface,
+    borderColor: colors.accent,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    gap: spacing.sm,
+    padding: spacing.md
+  },
+  completionRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xs
+  },
+  completionText: {
+    ...type.body,
     color: colors.textHi,
     flex: 1
   },
-  phaseFootnote: {
-    ...type.small,
-    color: colors.textLo,
-    marginTop: -spacing.md,
-    textAlign: "center"
-  },
-  summaryPanel: {
-    backgroundColor: colors.surface,
+  switchButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: colors.surface2,
     borderColor: colors.border,
-    borderRadius: radius.card,
+    borderRadius: radius.round,
     borderWidth: 1,
-    gap: spacing.md,
-    padding: spacing.md
-  },
-  summaryHeader: {
-    alignItems: "flex-start",
     flexDirection: "row",
-    gap: spacing.md,
-    justifyContent: "space-between"
-  },
-  summaryTitleBlock: {
-    flex: 1,
-    minWidth: 0
-  },
-  panelTitle: {
-    ...type.bodyStrong,
-    color: colors.textHi
-  },
-  panelCaption: {
-    ...type.small,
-    color: colors.textLo,
-    marginTop: spacing.xxs
-  },
-  readyPill: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: radius.button,
-    flexDirection: "row",
-    flexShrink: 0,
     gap: spacing.xs,
-    minHeight: 34,
-    paddingHorizontal: spacing.sm
+    minHeight: 44,
+    paddingHorizontal: spacing.md
   },
-  readyText: {
-    ...type.label,
-    color: colors.accentText
-  },
-  summaryTable: {
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    gap: spacing.xs,
-    paddingTop: spacing.sm
-  },
-  summaryTableHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  summaryRole: {
+  switchButtonText: {
     ...type.label,
     color: colors.textHi
   },
-  summaryMeta: {
-    ...type.mono,
-    color: colors.textLo
-  },
-  summaryHeaderRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.xs,
-    minHeight: 28
-  },
-  summaryMotorHeader: {
-    ...type.small,
-    color: colors.textLo,
-    flex: 1.7
-  },
-  summaryCountHeader: {
-    ...type.mono,
-    color: colors.textLo,
-    flex: 1,
-    textAlign: "right"
-  },
-  summaryRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.xs,
-    minHeight: 30
-  },
-  summaryMotorCell: {
-    ...type.mono,
-    color: colors.textHi,
-    flex: 1.7
-  },
-  summaryCountCell: {
-    ...type.mono,
-    color: colors.textHi,
-    flex: 1,
-    fontVariant: ["tabular-nums"],
-    textAlign: "right"
-  },
-  pressed: {
-    opacity: 0.78
+  pillPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }]
   }
 });

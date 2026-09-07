@@ -20,7 +20,7 @@ enableScreens();
 
 type ControlStackParamList = {
   Connect: undefined;
-  Calibrate: undefined;
+  Calibrate: { from?: "home" | "connect" } | undefined;
   Teleop: undefined;
 };
 
@@ -148,7 +148,7 @@ function HomeTabScreen({
         navigation.navigate("Control", { screen: "Connect" });
         break;
       case "calibrate":
-        navigation.navigate("Control", { screen: "Calibrate" });
+        navigation.navigate("Control", { screen: "Calibrate", params: { from: "home" } });
         break;
       case "teleop":
         navigation.navigate("Control", { screen: "Teleop" });
@@ -184,7 +184,7 @@ function ControlStackScreen({ emergencyStopped, fontsReady, reduceMotion }: AppN
             emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
             onBack={() => navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Home")}
-            onContinue={() => navigation.navigate("Calibrate")}
+            onContinue={() => navigation.navigate("Calibrate", { from: "connect" })}
             onOpenTeleop={() => navigation.navigate("Teleop")}
             reduceMotion={reduceMotion}
           />
@@ -192,16 +192,20 @@ function ControlStackScreen({ emergencyStopped, fontsReady, reduceMotion }: AppN
       </ControlStack.Screen>
 
       <ControlStack.Screen name="Calibrate">
-        {({ navigation }: NativeStackScreenProps<ControlStackParamList, "Calibrate">) => (
+        {({ navigation, route }: NativeStackScreenProps<ControlStackParamList, "Calibrate">) => (
           <CalibrateScreen
             emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
             onBack={() => {
+              if (route.params?.from === "home") {
+                navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Home");
+                return;
+              }
               if (navigation.canGoBack()) {
                 navigation.goBack();
                 return;
               }
-              navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Home");
+              navigation.navigate("Connect");
             }}
           />
         )}
