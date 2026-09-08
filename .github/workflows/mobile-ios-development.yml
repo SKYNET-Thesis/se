@@ -47,7 +47,7 @@ jobs:
         run: npx expo install --check
 
       - name: Generate iOS native project
-        run: NODE_ENV=production npx expo prebuild --platform ios --clean --no-install --non-interactive
+        run: NODE_ENV=production npx expo prebuild --platform ios --clean --no-install
 
       - name: Install CocoaPods dependencies
         run: pod install --project-directory=ios
