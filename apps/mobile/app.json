@@ -5,9 +5,6 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "splash": {
-      "backgroundColor": "#111211"
-    },
     "assetBundlePatterns": [
       "assets/**/*"
     ],
@@ -22,6 +19,18 @@
       "eas": {
         "projectId": "replace-with-eas-project-id"
       }
-    }
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-file-system",
+      "expo-font",
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#111211"
+        }
+      ]
+    ]
   }
 }
