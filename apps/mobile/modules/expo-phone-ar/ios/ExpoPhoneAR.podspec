@@ -7,10 +7,13 @@ Pod::Spec.new do |s|
   s.version        = package['version']
   s.summary        = 'ARKit 6DoF phone teleoperation view'
   s.description    = 'Local Expo module exposing an ARKit world-tracking camera view.'
+  s.license        = { :type => 'MIT' }
+  s.author         = { 'OmniArm' => 'https://github.com/SKYNET-Thesis/se' }
+  s.homepage       = 'https://github.com/SKYNET-Thesis/se'
   s.platforms      = { :ios => '16.4' }
   s.swift_version  = '5.9'
   s.static_framework = true
-  s.source         = { :path => '.' }
+  s.source         = { :git => 'https://github.com/SKYNET-Thesis/se.git' }
   s.dependency 'ExpoModulesCore'
   s.source_files = '**/*.{h,m,swift}'
   s.pod_target_xcconfig = {
