@@ -54,7 +54,7 @@ jobs:
 
       - name: Verify ARKit module was autolinked
         run: |
-          if ! rg -q 'ExpoPhoneAR|PhoneARModule' ios; then
+          if ! grep -R -E -q 'ExpoPhoneAR|PhoneARModule' ios; then
             echo 'The local ExpoPhoneAR module was not autolinked into the iOS project.' >&2
             exit 1
           fi
