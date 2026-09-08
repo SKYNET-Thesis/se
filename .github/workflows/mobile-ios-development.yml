@@ -1,0 +1,136 @@
+name: Mobile iOS ARKit unsigned build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-ios-development:
+    name: Build unsigned iOS app
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      CI: "1"
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Check TypeScript
+        run: npm run typecheck
+
+      - name: Validate Expo project
+        run: npx expo-doctor
+
+      - name: Generate iOS native project
+        run: NODE_ENV=production npx expo prebuild --platform ios --clean --no-install --non-interactive
+
+      - name: Install CocoaPods dependencies
+        run: pod install --project-directory=ios
+
+      - name: Verify ARKit module was autolinked
+        run: |
+          if ! rg -q 'ExpoPhoneAR|PhoneARModule' ios; then
+            echo 'The local ExpoPhoneAR module was not autolinked into the iOS project.' >&2
+            exit 1
+          fi
+
+      - name: Archive unsigned iOS app
+        id: ios-project
+        run: |
+          workspace="$(find ios -maxdepth 1 -name '*.xcworkspace' -print -quit)"
+          if [[ -z "$workspace" ]]; then
+            echo "No generated iOS workspace was found." >&2
+            exit 1
+          fi
+          workspace_name="$(basename "$workspace" .xcworkspace)"
+          schemes_json="$(xcodebuild -list -json -workspace "$workspace")"
+          scheme="$(SCHEMES_JSON="$schemes_json" WORKSPACE_NAME="$workspace_name" node -e '
+            const data = JSON.parse(process.env.SCHEMES_JSON);
+            const schemes = data.workspace?.schemes ?? [];
+            const preferred = schemes.find((item) => item === process.env.WORKSPACE_NAME);
+            const fallback = schemes.find((item) => item !== "Pods");
+            process.stdout.write(preferred ?? fallback ?? "");
+          ')"
+          if [[ -z "$scheme" ]]; then
+            echo "No application scheme was found in $workspace." >&2
+            exit 1
+          fi
+          echo "workspace=$workspace" >> "$GITHUB_OUTPUT"
+          echo "scheme=$scheme" >> "$GITHUB_OUTPUT"
+          echo "Using workspace $workspace with scheme $scheme"
+          mkdir -p artifacts
+          set -o pipefail
+          xcodebuild \
+            -workspace "$workspace" \
+            -scheme "$scheme" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/OmniArmDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build | tee artifacts/xcodebuild.log
+
+      - name: Package unsigned IPA
+        run: |
+          app_path="$(find "$RUNNER_TEMP/OmniArmDerivedData/Build/Products/Release-iphoneos" -maxdepth 1 -name '*.app' -print -quit)"
+          if [[ -z "$app_path" ]]; then
+            echo "The iPhone .app bundle was not produced." >&2
+            exit 1
+          fi
+          executable="$(plutil -extract CFBundleExecutable raw "$app_path/Info.plist")"
+          architectures="$(lipo -archs "$app_path/$executable")"
+          if [[ " $architectures " != *" arm64 "* ]]; then
+            echo "Expected an arm64 iPhone binary, got: $architectures" >&2
+            exit 1
+          fi
+          package_dir="$RUNNER_TEMP/OmniArmIpaPackage"
+          ipa_output="$GITHUB_WORKSPACE/apps/mobile/artifacts/OmniArmSE-unsigned.ipa"
+          mkdir -p "$package_dir/Payload" "$(dirname "$ipa_output")"
+          ditto "$app_path" "$package_dir/Payload/$(basename "$app_path")"
+          cd "$package_dir"
+          ditto -c -k --sequesterRsrc --keepParent Payload "$ipa_output"
+          shasum -a 256 "$ipa_output"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmniArmSE-unsigned-${{ github.run_number }}
+          path: apps/mobile/artifacts/OmniArmSE-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Xcode log when build fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OmniArm-xcodebuild-log-${{ github.run_number }}
+          path: apps/mobile/artifacts/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7

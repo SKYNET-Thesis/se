@@ -1,5 +1,6 @@
 import { useFonts } from "expo-font";
 import { StatusBar } from "expo-status-bar";
+import * as ScreenOrientation from "expo-screen-orientation";
 import { useEffect, useState } from "react";
 import { AccessibilityInfo, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -14,6 +15,13 @@ export default function App() {
   const [reduceMotion, setReduceMotion] = useState(false);
   const [fontsLoaded, fontError] = useFonts(appFontSources);
   const fontsReady = fontsLoaded && !fontError;
+
+  useEffect(() => {
+    // A previous Phone Teleop session may have left the OS in landscape after a
+    // reload/background restart. The phone screen takes landscape ownership
+    // again only while it is mounted.
+    void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     let mounted = true;

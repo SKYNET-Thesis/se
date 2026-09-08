@@ -12,6 +12,7 @@ import { CalibrateScreen } from "../screens/CalibrateScreen";
 import { CameraScreen } from "../screens/CameraScreen";
 import { ConnectScreen } from "../screens/ConnectScreen";
 import { HomeRoute, HomeScreen } from "../screens/HomeScreen";
+import { PhoneTeleopScreen } from "../screens/PhoneTeleopScreen";
 import { StatusScreen } from "../screens/StatusScreen";
 import { TeleopScreen } from "../screens/TeleopScreen";
 import { colors, font, radius, spacing, type } from "../theme";
@@ -22,6 +23,7 @@ type ControlStackParamList = {
   Connect: undefined;
   Calibrate: { from?: "home" | "connect" } | undefined;
   Teleop: { from?: "home" | "connect" } | undefined;
+  PhoneTeleop: { from?: "home" } | undefined;
 };
 
 type RootTabParamList = {
@@ -153,6 +155,9 @@ function HomeTabScreen({
       case "teleop":
         navigation.navigate("Control", { screen: "Teleop", params: { from: "home" } });
         break;
+      case "phone-teleop":
+        navigation.navigate("Control", { screen: "PhoneTeleop", params: { from: "home" } });
+        break;
       case "camera":
         navigation.navigate("Camera");
         break;
@@ -214,6 +219,26 @@ function ControlStackScreen({ emergencyStopped, fontsReady, reduceMotion }: AppN
       <ControlStack.Screen name="Teleop">
         {({ navigation, route }: NativeStackScreenProps<ControlStackParamList, "Teleop">) => (
           <TeleopScreen
+            emergencyStopped={emergencyStopped}
+            fontsReady={fontsReady}
+            onBack={() => {
+              if (route.params?.from === "home") {
+                navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Home");
+                return;
+              }
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+                return;
+              }
+              navigation.navigate("Connect");
+            }}
+          />
+        )}
+      </ControlStack.Screen>
+
+      <ControlStack.Screen name="PhoneTeleop">
+        {({ navigation, route }: NativeStackScreenProps<ControlStackParamList, "PhoneTeleop">) => (
+          <PhoneTeleopScreen
             emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
             onBack={() => {
