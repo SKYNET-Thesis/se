@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lekiwi-vr-teleop"
+version = "0.1.0"
+description = "WebXR teleoperation for LeKiwi (SO-101 arm + omni base) from a Meta Quest headset"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "numpy>=1.26",
+    "aiohttp>=3.9",
+    # Used for the LeKiwi ZMQ client, the rotation helpers and the RANGE_0_100 conventions.
+    # It was imported without being declared, so a clean install failed at first import.
+    "lerobot>=0.6.1",
+]
+
+# placo is no longer needed to RUN anything: the kinematics are closed-form in
+# `so101_chain.py`. It is needed to CHECK them — `tests/test_so101_chain.py` loads the URDF
+# through placo and verifies every hard-coded constant against it, which is what stops a
+# URDF revision from silently invalidating the model. Without this extra that test skips.
+#
+# The version window and the two cmeel pins mirror LeRobot's `placo-dep` extra: placo pulls
+# in Pinocchio, whose wheels dlopen specific cmeel sonames, and an unpinned resolver grabs
+# newer ones that fail to import.
+[project.optional-dependencies]
+ik = [
+    "placo>=0.9.6,<0.9.16",
+    "cmeel-urdfdom>=4,<5",
+    "cmeel-tinyxml2<11",
+]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+vr_lekiwi = "lekiwi_vr_teleop.process:main"
+lekiwi-vr-relay = "lekiwi_vr_teleop.cli:relay_main"
+lekiwi-vr-teleop = "lekiwi_vr_teleop.cli:teleop_main"
+so101-vr-teleop = "lekiwi_vr_teleop.cli:so101_main"
+
+[tool.setuptools.packages.find]
+include = ["lekiwi_vr_teleop*"]
+
+[tool.setuptools.package-data]
+lekiwi_vr_teleop = ["web/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

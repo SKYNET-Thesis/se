@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArmModelViewer } from "../components/ArmModelViewer";
 import { colors, font, radius, spacing, type } from "../theme";
 
-export type HomeRoute = "connect" | "calibrate" | "teleop" | "camera";
+export type HomeRoute = "connect" | "calibrate" | "teleop" | "phone-teleop" | "camera";
 type HomeDataState =
   | { kind: "idle" }
   | { kind: "loading" }
@@ -52,6 +52,7 @@ const PRIMARY_LABEL: Record<HomeRoute, string> = {
   connect: "Kết nối",
   calibrate: "Hiệu chỉnh",
   teleop: "Điều khiển",
+  "phone-teleop": "Phone Teleop",
   camera: "Camera"
 };
 
@@ -59,6 +60,7 @@ const SECONDARY_LABEL: Record<HomeRoute, string> = {
   connect: "Connect",
   calibrate: "Calibrate",
   teleop: "Teleop",
+  "phone-teleop": "Phone",
   camera: "Camera"
 };
 
@@ -69,6 +71,8 @@ function renderRouteIcon(route: HomeRoute, color: string, size: number) {
     case "calibrate":
       return <RotateCcw color={color} size={size} />;
     case "teleop":
+      return <Hand color={color} size={size} />;
+    case "phone-teleop":
       return <Hand color={color} size={size} />;
     case "camera":
       return <Camera color={color} size={size} />;
@@ -99,8 +103,8 @@ export function HomeScreen({ emergencyStopped, fontsReady, reduceMotion, onOpenR
 
   const primaryRoute: HomeRoute = !robot?.connected ? "connect" : !robot?.calibrated ? "calibrate" : "teleop";
   const isRouteDisabled = (route: HomeRoute) =>
-    (route === "calibrate" || route === "teleop") && emergencyStopped;
-  const secondaryRoutes = (["connect", "calibrate", "teleop", "camera"] as HomeRoute[]).filter(
+    (route === "calibrate" || route === "teleop" || route === "phone-teleop") && emergencyStopped;
+  const secondaryRoutes = (["connect", "calibrate", "teleop", "phone-teleop", "camera"] as HomeRoute[]).filter(
     (route) => route !== primaryRoute
   );
 

@@ -3,7 +3,7 @@
     "name": "OmniArm SE",
     "slug": "omniarm-se",
     "version": "0.1.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "userInterfaceStyle": "dark",
     "assetBundlePatterns": [
       "assets/**/*"
@@ -13,17 +13,31 @@
       "bundleIdentifier": "com.omniarm.se"
     },
     "android": {
-      "package": "com.omniarm.se"
-    },
-    "extra": {
-      "eas": {
-        "projectId": "replace-with-eas-project-id"
-      }
+      "package": "com.omniarm.se",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET"
+      ]
     },
     "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Cho phép OmniArm dùng camera để quan sát robot."
+        }
+      ],
       "expo-asset",
       "expo-file-system",
       "expo-font",
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Cho phép OmniArm đọc chuyển động điện thoại để điều khiển robot."
+        }
+      ],
       "expo-status-bar",
       [
         "expo-splash-screen",
@@ -31,6 +45,12 @@
           "backgroundColor": "#111211"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "da7db532-ae3d-4e9a-ab28-25f9612f92dc"
+      }
+    },
+    "owner": "duc127"
   }
 }
