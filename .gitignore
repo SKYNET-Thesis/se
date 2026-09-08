@@ -4,6 +4,9 @@
 node_modules/
 dist/
 build/
+bin/
+obj/
+*.user
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
@@ -17,3 +20,51 @@ __pycache__/
 .expo-export-test/
 .expo-web-test/
 expo-start*.log
+
+########################################
+# Build Output
+########################################
+
+bin/
+obj/
+out/
+artifacts/
+
+########################################
+# Logs
+########################################
+
+*.log
+logs/
+
+########################################
+# Test Results
+########################################
+
+TestResults/
+BenchmarkDotNet.Artifacts/
+
+########################################
+# NuGet
+########################################
+
+*.nupkg
+*.snupkg
+packages/
+
+# Uncomment ONLY if you do not use PackageReference
+# !packages/build/
+
+########################################
+# EF Core
+########################################
+
+# Generated SQL scripts (optional)
+*.sql
+
+########################################
+# ASP.NET Core
+########################################
+
+appsettings.Development.json
+
