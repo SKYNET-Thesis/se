@@ -52,6 +52,18 @@ type Props = {
   onOpenTeleop: () => void;
 };
 
+type Tone = "ok" | "caution" | "danger" | "neutral";
+
+// Same tone vocabulary as StatusScreen/HomeScreen so connection state reads
+// consistently across the whole app: lime = good, amber = caution, red =
+// blocking error, muted gray = nothing to report yet.
+const toneColor: Record<Tone, string> = {
+  ok: colors.accent,
+  caution: colors.caution,
+  danger: colors.danger,
+  neutral: colors.textLo
+};
+
 const ROLE_LABEL: Record<ArmRole, "Follower" | "Leader"> = {
   follower: "Follower",
   leader: "Leader"
@@ -85,8 +97,37 @@ const linkStatusColor: Record<LinkState["kind"], string> = {
   error: colors.danger
 };
 
+// theme.ts tops out at radius.card (16). Matches the larger, softer corner
+// Home/Status already established for this app's "rich card" surfaces —
+// kept identical here so Connect reads as the same product.
+const CARD_RADIUS_OUTER = 24;
+const CARD_RADIUS_INNER = 20;
+
 function createSlot(role: ArmRole): ArmSlot {
   return { role, portId: null, link: { kind: "idle" } };
+}
+
+function describeScan(scanState: ScanState): { tone: Tone; title: string; detail: string } {
+  switch (scanState.kind) {
+    case "idle":
+      return { tone: "neutral", title: "Chưa quét", detail: "Nhấn quét để tìm cổng USB đang cắm." };
+    case "scanning":
+      return { tone: "caution", title: "Đang tìm thiết bị…", detail: "Đang dò cổng nối tiếp đang cắm…" };
+    case "found":
+      return {
+        tone: "ok",
+        title: `Tìm thấy ${scanState.ports.length} thiết bị`,
+        detail: "Chọn cổng tương ứng cho Follower và Leader bên dưới."
+      };
+    case "empty":
+      return {
+        tone: "caution",
+        title: "Không tìm thấy thiết bị",
+        detail: "Không tìm thấy cổng nào. Kiểm tra cáp USB rồi quét lại."
+      };
+    case "error":
+      return { tone: "danger", title: "Lỗi quét cổng", detail: scanState.message };
+  }
 }
 
 export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBack, onContinue, onOpenTeleop }: Props) {
@@ -153,6 +194,7 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
       const otherRole: ArmRole = role === "follower" ? "leader" : "follower";
       const other = slots[otherRole];
       if (emergencyStopped || !slot.portId || slot.portId === other.portId) return;
+      if (slot.link.kind === "connecting" || slot.link.kind === "connected") return;
 
       const portId = slot.portId;
       updateSlot(role, { link: { kind: "connecting" } });
@@ -182,11 +224,45 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
   const conflict =
     slots.follower.portId !== null && slots.follower.portId === slots.leader.portId;
   const bothConnected = slots.follower.link.kind === "connected" && slots.leader.link.kind === "connected";
+  const anyConnecting = slots.follower.link.kind === "connecting" || slots.leader.link.kind === "connecting";
   const canContinue = bothConnected && !emergencyStopped;
   const canOpenTeleop = bothConnected && !emergencyStopped;
   const ports = scanState.kind === "found" ? scanState.ports : [];
   const scanDisabled = emergencyStopped || scanState.kind === "scanning";
   const scanContentColor = scanState.kind === "scanning" ? colors.caution : scanDisabled ? colors.textLo : colors.accentText;
+
+  // Roles that are picked, non-conflicting, and not already mid-flight — what
+  // the single "Kết nối" CTA below actually acts on. Per-card connect/retry
+  // buttons stay fully functional on their own; this just connects whatever
+  // is ready in one tap instead of requiring two separate presses.
+  const readyRoles = (Object.keys(slots) as ArmRole[]).filter((role) => {
+    const slot = slots[role];
+    const otherRole: ArmRole = role === "follower" ? "leader" : "follower";
+    return slot.link.kind === "idle" && !!slot.portId && slot.portId !== slots[otherRole].portId;
+  });
+  const canMasterConnect =
+    !emergencyStopped &&
+    scanState.kind !== "scanning" &&
+    !anyConnecting &&
+    !conflict &&
+    !!slots.follower.portId &&
+    !!slots.leader.portId &&
+    readyRoles.length > 0;
+
+  const masterHint = emergencyStopped || conflict || anyConnecting
+    ? null
+    : scanState.kind !== "found"
+      ? "Quét và chọn cổng cho cả Follower và Leader trước."
+      : !slots.follower.portId || !slots.leader.portId
+        ? "Chọn cổng cho cả Follower và Leader để kết nối."
+        : null;
+
+  const handleMasterConnect = useCallback(() => {
+    readyRoles.forEach((role) => handleConnect(role));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handleConnect, JSON.stringify(readyRoles)]);
+
+  const scan = describeScan(scanState);
 
   const rotateStyle = {
     transform: [{ rotate: spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }]
@@ -201,9 +277,8 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
     >
       <ScreenHeader
         fontsReady={fontsReady}
-        meta="GĐ1 · 01"
         onBack={onBack}
-        subtitle="Ghép cổng Follower và Leader trước khi hiệu chỉnh"
+        subtitle="Kết nối Leader và Follower"
         title="Kết nối"
       />
 
@@ -216,15 +291,26 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
         </View>
       )}
 
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={[styles.sectionTitle, font("display", fontsReady)]}>Quét cổng</Text>
-          <Text style={[styles.sectionMeta, font("mono", fontsReady)]}>MOCK</Text>
+      <View style={styles.heroCard}>
+        <View style={styles.heroTop}>
+          <View style={[styles.dot, { backgroundColor: toneColor[scan.tone] }]} />
+          <Text style={[styles.heroLabel, font("display", fontsReady), { color: toneColor[scan.tone] }]}>
+            {scan.title}
+          </Text>
         </View>
+        <Text
+          style={[
+            styles.heroDetail,
+            font("body", fontsReady),
+            scan.tone === "danger" && styles.heroDetailDanger
+          ]}
+        >
+          {scan.detail}
+        </Text>
 
         <Pressable
           accessibilityHint="Quét lại danh sách cổng nối tiếp đang cắm vào thiết bị"
-          accessibilityLabel="Quét cổng"
+          accessibilityLabel="Quét thiết bị"
           accessibilityRole="button"
           accessibilityState={{ disabled: scanDisabled }}
           disabled={scanDisabled}
@@ -251,11 +337,9 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
               font("display", fontsReady)
             ]}
           >
-            {scanState.kind === "scanning" ? "Đang quét cổng…" : scanState.kind === "idle" ? "Quét cổng" : "Quét lại"}
+            {scanState.kind === "scanning" ? "Đang tìm thiết bị…" : scanState.kind === "idle" ? "Quét thiết bị" : "Quét lại"}
           </Text>
         </Pressable>
-
-        {renderScanSummary(scanState, fontsReady)}
       </View>
 
       <ArmSlotCard
@@ -284,90 +368,74 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
         slot={slots.leader}
       />
 
-      <View style={styles.continueGroup}>
-        <Pressable
-          accessibilityHint="Chuyển sang wizard calibrate SO-101"
-          accessibilityLabel="Tiếp tục: Hiệu chỉnh"
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !canContinue }}
-          disabled={!canContinue}
-          onPress={onContinue}
-          style={({ pressed }) => [
-            styles.continueButton,
-            !canContinue && styles.continueButtonDisabled,
-            pressed && canContinue && styles.pressed
-          ]}
-        >
-          <Check color={canContinue ? colors.accentText : colors.textLo} size={19} />
-          <Text style={[styles.continueText, !canContinue && styles.continueTextDisabled, font("display", fontsReady)]}>
-            Tiếp tục: Hiệu chỉnh
-          </Text>
-        </Pressable>
+      {bothConnected ? (
+        <View style={styles.continueGroup}>
+          <Pressable
+            accessibilityHint="Chuyển sang wizard calibrate SO-101"
+            accessibilityLabel="Tiếp tục: Hiệu chỉnh"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canContinue }}
+            disabled={!canContinue}
+            onPress={onContinue}
+            style={({ pressed }) => [
+              styles.continueButton,
+              !canContinue && styles.continueButtonDisabled,
+              pressed && canContinue && styles.pressed
+            ]}
+          >
+            <Check color={canContinue ? colors.accentText : colors.textLo} size={19} />
+            <Text style={[styles.continueText, !canContinue && styles.continueTextDisabled, font("display", fontsReady)]}>
+              Tiếp tục: Hiệu chỉnh
+            </Text>
+          </Pressable>
 
-        <Pressable
-          accessibilityHint="Mở màn điều khiển trực tiếp leader kéo follower"
-          accessibilityLabel="Tiếp tục: Teleop"
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !canOpenTeleop }}
-          disabled={!canOpenTeleop}
-          onPress={onOpenTeleop}
-          style={({ pressed }) => [
-            styles.teleopButton,
-            !canOpenTeleop && styles.continueButtonDisabled,
-            pressed && canOpenTeleop && styles.pressed
-          ]}
-        >
-          <Hand color={canOpenTeleop ? colors.textHi : colors.textLo} size={19} />
-          <Text style={[styles.teleopText, !canOpenTeleop && styles.continueTextDisabled, font("display", fontsReady)]}>
-            Tiếp tục: Teleop
-          </Text>
-        </Pressable>
-      </View>
+          <Pressable
+            accessibilityHint="Mở màn điều khiển trực tiếp leader kéo follower"
+            accessibilityLabel="Tiếp tục: Teleop"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canOpenTeleop }}
+            disabled={!canOpenTeleop}
+            onPress={onOpenTeleop}
+            style={({ pressed }) => [
+              styles.teleopButton,
+              !canOpenTeleop && styles.continueButtonDisabled,
+              pressed && canOpenTeleop && styles.pressed
+            ]}
+          >
+            <Hand color={canOpenTeleop ? colors.textHi : colors.textLo} size={19} />
+            <Text style={[styles.teleopText, !canOpenTeleop && styles.continueTextDisabled, font("display", fontsReady)]}>
+              Tiếp tục: Teleop
+            </Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={styles.continueGroup}>
+          <Pressable
+            accessibilityHint="Kết nối các tay đã chọn cổng hợp lệ"
+            accessibilityLabel="Kết nối"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !canMasterConnect }}
+            disabled={!canMasterConnect}
+            onPress={handleMasterConnect}
+            style={({ pressed }) => [
+              styles.continueButton,
+              !canMasterConnect && styles.continueButtonDisabled,
+              pressed && canMasterConnect && styles.pressed
+            ]}
+          >
+            <Cable color={canMasterConnect ? colors.accentText : colors.textLo} size={19} />
+            <Text
+              style={[styles.continueText, !canMasterConnect && styles.continueTextDisabled, font("display", fontsReady)]}
+            >
+              {anyConnecting ? "Đang kết nối…" : "Kết nối"}
+            </Text>
+          </Pressable>
 
-      {!bothConnected && (
-        <Text style={[styles.continueHint, font("body", fontsReady)]}>
-          Cần cả Follower và Leader ở trạng thái “Đã kết nối” để tiếp tục.
-        </Text>
+          {masterHint && <Text style={[styles.continueHint, font("body", fontsReady)]}>{masterHint}</Text>}
+        </View>
       )}
     </ScrollView>
   );
-}
-
-function renderScanSummary(scanState: ScanState, fontsReady: boolean) {
-  switch (scanState.kind) {
-    case "idle":
-      return (
-        <Text style={[styles.scanSummary, font("body", fontsReady)]}>
-          Chưa quét cổng nào trong phiên này.
-        </Text>
-      );
-    case "scanning":
-      return (
-        <Text style={[styles.scanSummary, font("body", fontsReady)]}>Đang dò cổng nối tiếp đang cắm…</Text>
-      );
-    case "found":
-      return (
-        <Text style={[styles.scanSummaryMono, font("mono", fontsReady)]}>
-          Tìm thấy {scanState.ports.length} cổng
-        </Text>
-      );
-    case "empty":
-      return (
-        <View style={styles.scanEmptyRow}>
-          <TriangleAlert color={colors.caution} size={15} />
-          <Text style={[styles.scanSummary, font("body", fontsReady)]}>
-            Không tìm thấy cổng nào. Kiểm tra cáp USB rồi quét lại.
-          </Text>
-        </View>
-      );
-    case "error":
-      return (
-        <View style={styles.scanEmptyRow}>
-          <CircleAlert color={colors.danger} size={15} />
-          <Text style={[styles.scanSummaryDanger, font("body", fontsReady)]}>{scanState.message}</Text>
-        </View>
-      );
-  }
 }
 
 function ArmSlotCard({
@@ -404,13 +472,8 @@ function ArmSlotCard({
     <View style={[styles.card, slotConflict && styles.cardDanger]}>
       <View style={styles.cardHeader}>
         <View style={styles.cardHeaderLeft}>
-          <View style={styles.cardIcon}>
-            <Cable color={colors.textHi} size={18} />
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text style={[styles.cardTitle, font("display", fontsReady)]}>{label}</Text>
-            <Text style={[styles.cardHint, font("body", fontsReady)]}>{ROLE_HINT[role]}</Text>
-          </View>
+          <Text style={[styles.cardTitle, font("display", fontsReady)]}>{label}</Text>
+          <Text style={[styles.cardHint, font("body", fontsReady)]}>{ROLE_HINT[role]}</Text>
         </View>
 
         <View style={[styles.statusPill, connected && styles.statusPillConnected]}>
@@ -632,7 +695,7 @@ const styles = StyleSheet.create({
     flex: 1
   },
   content: {
-    gap: spacing.xxl,
+    gap: spacing.lg,
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.lg,
     paddingBottom: spacing.xxxl
@@ -652,21 +715,36 @@ const styles = StyleSheet.create({
     color: colors.textHi,
     flex: 1
   },
-  section: {
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: radius.round
+  },
+
+  // Device discovery hero
+  heroCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: CARD_RADIUS_OUTER,
+    padding: spacing.lg,
     gap: spacing.md
   },
-  sectionHeader: {
+  heroTop: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between"
+    gap: spacing.xs
   },
-  sectionTitle: {
+  heroLabel: {
     ...type.title,
-    color: colors.textHi
+    flexShrink: 1
   },
-  sectionMeta: {
-    ...type.mono,
+  heroDetail: {
+    ...type.small,
     color: colors.textLo
+  },
+  heroDetailDanger: {
+    color: colors.danger
   },
   scanButton: {
     alignItems: "center",
@@ -696,27 +774,9 @@ const styles = StyleSheet.create({
   scanButtonTextBusy: {
     color: colors.caution
   },
-  scanSummary: {
-    ...type.small,
-    color: colors.textLo
-  },
-  scanSummaryMono: {
-    ...type.mono,
-    color: colors.textHi
-  },
-  scanSummaryDanger: {
-    ...type.small,
-    color: colors.danger,
-    flex: 1
-  },
-  scanEmptyRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.xs
-  },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radius.card,
+    borderRadius: CARD_RADIUS_OUTER,
     gap: spacing.lg,
     padding: spacing.lg
   },
@@ -731,19 +791,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between"
   },
   cardHeaderLeft: {
-    alignItems: "center",
     flex: 1,
-    flexDirection: "row",
-    gap: spacing.md,
     minWidth: 0
-  },
-  cardIcon: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderRadius: radius.round,
-    height: 44,
-    justifyContent: "center",
-    width: 44
   },
   cardTitle: {
     ...type.title,
@@ -801,7 +850,7 @@ const styles = StyleSheet.create({
   portChip: {
     backgroundColor: colors.surface2,
     borderColor: colors.surface2,
-    borderRadius: radius.button,
+    borderRadius: CARD_RADIUS_INNER,
     borderWidth: 1,
     flexBasis: "47%",
     flexGrow: 1,
@@ -841,7 +890,7 @@ const styles = StyleSheet.create({
   conflictRow: {
     alignItems: "flex-start",
     backgroundColor: colors.surface2,
-    borderRadius: radius.button,
+    borderRadius: CARD_RADIUS_INNER,
     flexDirection: "row",
     gap: spacing.xs,
     padding: spacing.sm
@@ -903,7 +952,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.xs,
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: spacing.sm
   },
   disconnectText: {
@@ -932,7 +981,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.xs,
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: spacing.sm
   },
   retryText: {
@@ -979,7 +1028,6 @@ const styles = StyleSheet.create({
   continueHint: {
     ...type.small,
     color: colors.textLo,
-    marginTop: -spacing.md,
     textAlign: "center"
   },
   pressed: {
