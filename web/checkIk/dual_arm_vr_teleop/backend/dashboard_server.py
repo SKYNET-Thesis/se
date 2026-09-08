@@ -563,24 +563,10 @@ class Controller:
         if response_profile not in response_profiles:
             raise ValueError("VR response profile must be smooth, balanced, or fast")
         joint_smoothing, max_joint_step_deg = response_profiles[response_profile]
-        if not VUER_CERT.exists() or not VUER_KEY.exists():
-            VUER_CERT.parent.mkdir(parents=True, exist_ok=True)
-            certificate = subprocess.run(
-                [
-                    "openssl", "req", "-x509", "-nodes", "-days", "365",
-                    "-newkey", "rsa:2048", "-keyout", str(VUER_KEY),
-                    "-out", str(VUER_CERT), "-subj", "/CN=so101-vuer.local",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=20,
-            )
-            if certificate.returncode != 0:
-                raise ValueError(f"could not create Vuer HTTPS certificate: {certificate.stderr.strip()}")
         command = [
-            str(LEROBOT_BIN / "python3"), "-u", str(ROOT / "backend" / "vuer_real_teleop_worker.py"),
+            str(LEROBOT_BIN / "python3"), "-u", str(ROOT / "backend" / "real_vr_teleop_server.py"),
             "--arm", arm, "--follower", follower,
-            "--cert", str(VUER_CERT), "--key", str(VUER_KEY),
+            "--host", "0.0.0.0", "--port", "8765",
             "--translation-scale", str(scale),
             "--max-joint-step-deg", str(max_joint_step_deg),
         ]
@@ -595,7 +581,7 @@ class Controller:
                 task = self.task
                 code = task.process.poll() if task else -1
                 output = list(task.output[-40:]) if task else []
-            if any("VUER_TELEOP_READY" in line for line in output):
+            if any("VR_TELEOP_READY" in line for line in output):
                 return
             if code is not None:
                 detail = "\n".join(output[-16:]) or f"worker exited with code {code}"

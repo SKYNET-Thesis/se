@@ -1,0 +1,17 @@
+{
+  "mode": "offline",
+  "left": {
+    "port": "/dev/ttyACM0",
+    "robot_id": "left_follower_arm",
+    "calibration": "~/.cache/huggingface/lerobot/calibration/robots/so_follower/left_follower_arm.json"
+  },
+  "right": {
+    "port": "/dev/ttyACM1",
+    "robot_id": "right_follower_arm",
+    "calibration": "~/.cache/huggingface/lerobot/calibration/robots/so_follower/right_follower_arm.json"
+  },
+  "controls": {
+    "side_grip": "clutch/enable arm movement",
+    "front_trigger": "close gripper; released means fully open"
+  }
+}
