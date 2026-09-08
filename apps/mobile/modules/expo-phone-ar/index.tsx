@@ -1,4 +1,4 @@
-import { requireNativeModule, requireNativeViewManager } from "expo-modules-core";
+import { requireNativeModule, requireNativeView } from "expo";
 import { ComponentType } from "react";
 import { StyleProp, ViewStyle } from "react-native";
 
@@ -19,7 +19,7 @@ try {
   // actual module first so Expo Go uses CameraView/DeviceMotion instead of
   // rendering an "Unimplemented component" native view.
   requireNativeModule("ExpoPhoneAR");
-  NativePhoneARView = requireNativeViewManager("ExpoPhoneAR", "PhoneARView") as ComponentType<NativePhoneARViewProps>;
+  NativePhoneARView = requireNativeView("ExpoPhoneAR", "PhoneARView") as ComponentType<NativePhoneARViewProps>;
 } catch {
   // Expo Go and Android do not contain the local iOS module. The screen uses DeviceMotion there.
 }
