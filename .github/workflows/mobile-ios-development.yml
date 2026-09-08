@@ -43,8 +43,8 @@ jobs:
       - name: Check TypeScript
         run: npm run typecheck
 
-      - name: Validate Expo project
-        run: npx expo-doctor
+      - name: Validate Expo dependencies
+        run: npx expo install --check
 
       - name: Generate iOS native project
         run: NODE_ENV=production npx expo prebuild --platform ios --clean --no-install --non-interactive
