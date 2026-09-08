@@ -1,0 +1,31 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # tests/test_arm3d.py runs the page's own JavaScript and compares its forward
+      # kinematics against the Python. Without Node that test skips, and the two
+      # implementations of the same geometry are free to drift apart.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The `ik` extra brings placo, which tests/test_so101_chain.py uses to check every
+      # hard-coded link length against the SO-101 URDF. Skipping it would leave the
+      # closed-form model unverified, which is the one thing CI is here to prevent.
+      - run: pip install -e ".[dev,ik]"
+
+      - run: pytest -q

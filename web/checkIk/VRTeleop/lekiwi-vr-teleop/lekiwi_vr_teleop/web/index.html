@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SO-101 VR Teleop</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png">
+  <meta name="theme-color" content="#12151a">
+  <style>
+    :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #12151a; color: #e8edf4; }
+    main { width: min(620px, calc(100vw - 32px)); }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    p.sub { color: #9ca7b5; margin: 0 0 24px; }
+    button { width: 100%; min-height: 96px; border: 0; border-radius: 18px; background: #2f6ea8; color: #fff; font-size: 26px; font-weight: 700; }
+    button:active { background: #4e8ac0; }
+    button.secondary { min-height: 64px; margin-top: 10px; background: #232a34; font-size: 19px; font-weight: 600; }
+    button.secondary:active { background: #2f3846; }
+    .safety { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    .safety button { min-height: 58px; font-size: 18px; border-radius: 8px; }
+    #stop { background: #a9323b; }
+    #resume { background: #2d724d; }
+    p.hint { color: #7f8b9b; font-size: 14px; line-height: 1.5; margin: 12px 0 0; }
+    #status { margin: 20px 0 8px; padding: 14px 16px; border-radius: 12px; background: #1a1f27; color: #83d0ff; font-size: 15px; line-height: 1.5; }
+    #log { color: #9ca7b5; font-size: 14px; min-height: 20px; }
+    section { margin-top: 28px; border-top: 1px solid #232a34; padding-top: 20px; }
+    h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: #7f8b9b; margin: 0 0 10px; }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 18px; margin: 0; font-size: 15px; }
+    dt { color: #9ca7b5; }
+    dd { margin: 0; }
+    strong { color: #ffb4bb; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>SO-101 VR Teleop</h1>
+    <p class="sub">Đeo Quest 3, vào VR rồi dùng tay đã chọn trên URL.</p>
+
+    <button id="enter-ar">Vào VR passthrough</button>
+    <button id="enter-vr" class="secondary">Vào VR nền tối</button>
+    <div class="safety">
+      <button id="stop">DỪNG</button>
+      <button id="resume">Cho phép lại</button>
+    </div>
+    <p class="hint">DỪNG được chốt lại cho tới khi bạn bấm Cho phép lại.</p>
+
+    <div id="status">Đang kết nối...</div>
+    <div id="log"></div>
+
+    <section>
+      <h2>Điều khiển</h2>
+      <dl>
+        <dt>Tay trần</dt><dd>chạm ngón cái-ngón giữa một lần để bật/tắt bám tay</dd>
+        <dt>Gripper</dt><dd>khoảng cách ngón cái-ngón trỏ điều khiển độ đóng mở</dd>
+        <dt>Controller</dt><dd>giữ Grip để bám tay; Trigger điều khiển gripper</dd>
+        <dt><strong>A / X</strong></dt><dd><strong>DỪNG</strong> và giữ nguyên tư thế</dd>
+        <dt>B / Y</dt><dd>giữ 1 giây để cho phép lại</dd>
+        <dt>Thoát VR</dt><dd>giữ nút stick hoặc chụm cả hai tay 1.5 giây</dd>
+      </dl>
+    </section>
+
+    <section>
+      <h2>Trước khi chạy thật</h2>
+      <dl>
+        <dt>1</dt><dd>Chạy fake trước và kiểm tra chiều của mô hình tay</dd>
+        <dt>2</dt><dd>Đặt follower ở tư thế giữa vùng làm việc, dọn trống xung quanh</dd>
+        <dt>3</dt><dd>Chỉ dùng <code>--real</code> cùng đúng cổng follower</dd>
+      </dl>
+    </section>
+  </main>
+  <script src="/arm3d.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
