@@ -32,9 +32,12 @@ const GRIPPER_DEAD_ZONE = 0.1;
 
 export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Props) {
   const [serverHost, setServerHost] = useState("192.168.1.100");
-  const [serverPort, setServerPort] = useState("4443");
+  // The direct-USB LeRobot worker accepts both Quest and phone clients on 8765.
+  const [serverPort, setServerPort] = useState("8765");
   const [connected, setConnected] = useState(false);
-  const [secureTransport, setSecureTransport] = useState(true);
+  // The direct-USB worker intentionally serves plain LAN WebSocket. The Quest
+  // page and phone therefore use the same ws://8765 endpoint.
+  const [secureTransport, setSecureTransport] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [motionAvailable, setMotionAvailable] = useState(false);
   const [nativeTracking, setNativeTracking] = useState<TrackingState>("ready");

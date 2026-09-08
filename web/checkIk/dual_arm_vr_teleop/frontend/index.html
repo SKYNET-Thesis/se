@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SO-101 WebXR Input Test</title>
+  </head>
+  <body>
+    <main id="app">
+      <h1>SO-101 WebXR Virtual Teleoperation</h1>
+      <p class="warning">Hold side Grip to move; front Trigger closes the normally-open gripper.</p>
+      <p id="status">Checking WebXR support…</p>
+      <p id="socket-status">WebSocket: disconnected</p>
+      <p id="model-status">Digital twins: loading arm.glb…</p>
+      <p id="environment-status">Environment: lightweight black grid (teleop mode)</p>
+      <button id="xr-toggle" type="button">START EMULATED VR</button>
+      <section class="controllers">
+        <pre id="left">LEFT CONTROLLER\nDisconnected</pre>
+        <pre id="right">RIGHT CONTROLLER\nDisconnected</pre>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
