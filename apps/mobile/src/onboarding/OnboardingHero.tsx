@@ -37,6 +37,25 @@ const YAW_SWAY_PERIOD = 7; // seconds for one full left–right–left cycle
 // resettle into an obviously mechanical repeating pattern.
 const FLOAT_PERIOD = 5.2; // seconds
 const FLOAT_AMPLITUDE_RATIO = 0.012; // fraction of the model's bounding radius
+
+// Cheapest possible "tech" light effect: instead of adding a light (extra
+// per-pixel lighting cost on a 21MB model already carrying two other
+// animations), just swing the existing lime rim light's position back and
+// forth along an arc each frame — one Vector3.set, no new draw calls, no
+// new shader uniforms. As it moves, different edges catch/lose the rim
+// highlight, reading as a slow lime sweep across the surface without ever
+// touching the white key/fill that carries the base lighting.
+// Distance/height/azimuth below reconstruct the light's original fixed
+// position (-4, 2, -3) as polar coordinates, so the sweep's rest phase
+// (sin = 0) looks identical to the pre-animation lighting.
+const LIME_SWEEP_RADIUS = Math.hypot(-4, -3);
+const LIME_SWEEP_BASE_ANGLE = Math.atan2(-3, -4);
+const LIME_SWEEP_HEIGHT = 2;
+const LIME_SWEEP_ARC = THREE.MathUtils.degToRad(55); // swing each side of the base angle
+// Deliberately not 7 (yaw sway) or 5.2 (float) so the three animations
+// drift in and out of phase instead of resetting together on a beat.
+const LIME_SWEEP_PERIOD = 6.4; // seconds
+
 // Fixed lean, radians — applied once, never animated. Small on purpose:
 // the pivot is the bounding sphere's center, not the feet, so a larger
 // tilt would visibly drift the base.
@@ -505,6 +524,14 @@ export function OnboardingHero({ reduceMotion = false, style }: Props) {
 
             const floatPhase = (elapsedRef.current / FLOAT_PERIOD) * Math.PI * 2;
             group.position.y = Math.sin(floatPhase) * floatAmplitude;
+
+            const sweepPhase = (elapsedRef.current / LIME_SWEEP_PERIOD) * Math.PI * 2;
+            const sweepAngle = LIME_SWEEP_BASE_ANGLE + Math.sin(sweepPhase) * LIME_SWEEP_ARC;
+            rim.position.set(
+              Math.cos(sweepAngle) * LIME_SWEEP_RADIUS,
+              LIME_SWEEP_HEIGHT,
+              Math.sin(sweepAngle) * LIME_SWEEP_RADIUS
+            );
           }
 
           renderer.render(scene, camera);
