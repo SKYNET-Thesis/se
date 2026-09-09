@@ -289,7 +289,11 @@ class Relay:
                         hello = parse_phone_message(json.dumps(payload))
                     except ValueError:
                         continue
-                    if not isinstance(hello, PhoneHello) or not self.state.start_phone_session(hello.sessionId, self.config.phone_hand):
+                    if not isinstance(hello, PhoneHello) or hello.arm != self.config.phone_hand:
+                        await ws.send_json({"type": "error", "code": "arm_mismatch", "message": f"worker expects {self.config.phone_hand} phone arm"})
+                        await ws.close(code=1008)
+                        break
+                    if not self.state.start_phone_session(hello.sessionId, self.config.phone_hand):
                         await ws.send_json({"type": "error", "code": "ownership_conflict", "message": "another teleoperation session owns this arm"})
                         await ws.close(code=1008)
                         break

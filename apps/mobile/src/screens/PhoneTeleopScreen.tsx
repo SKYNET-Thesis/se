@@ -26,6 +26,7 @@ type Props = {
 
 type InputMode = "pad" | "motion";
 type TrackingState = "ready" | "tracking" | "limited" | "lost";
+type ArmSide = "left" | "right";
 
 const PAD_HEIGHT = 220;
 const GRIPPER_DEAD_ZONE = 0.1;
@@ -35,6 +36,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
   // The direct-USB LeRobot worker accepts both Quest and phone clients on 8765.
   const [serverPort, setServerPort] = useState("8765");
   const [connected, setConnected] = useState(false);
+  const [arm, setArm] = useState<ArmSide>("right");
   // The direct-USB worker intentionally serves plain LAN WebSocket. The Quest
   // page and phone therefore use the same ws://8765 endpoint.
   const [secureTransport, setSecureTransport] = useState(false);
@@ -173,7 +175,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
     socket.onopen = () => {
       setConnected(true);
       setTracking(motionAvailable ? "tracking" : "limited");
-      socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, platform: "ios", sessionId: sessionIdRef.current, arm: "right" }));
+      socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, platform: "ios", sessionId: sessionIdRef.current, arm }));
     };
     socket.onmessage = (event) => {
       try {
@@ -311,6 +313,25 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
             <Text style={[styles.connectText, font("display", fontsReady)]}>{connected ? "Ngắt" : "Kết nối"}</Text>
           </Pressable>
         </View>
+        <View style={styles.armSelector}>
+          <Text style={[styles.caption, font("body", fontsReady)]}>Follower điều khiển</Text>
+          <View style={styles.armButtons}>
+            {(["left", "right"] as ArmSide[]).map((side) => (
+              <Pressable
+                key={side}
+                accessibilityRole="button"
+                accessibilityState={{ selected: arm === side, disabled: connected }}
+                disabled={connected}
+                onPress={() => setArm(side)}
+                style={({ pressed }) => [styles.armButton, arm === side && styles.armButtonActive, pressed && styles.pressed]}
+              >
+                <Text style={[styles.armButtonText, font("display", fontsReady), arm === side && styles.armButtonTextActive]}>
+                  {side === "left" ? "Left follower" : "Right follower"}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       </View>
 
       <View style={styles.stateCard}>
@@ -443,7 +464,7 @@ const styles = StyleSheet.create({
   caption: { color: colors.textLo, fontSize: 12, lineHeight: 18 },
   statusPill: { alignItems: "center", borderRadius: radius.round, flexDirection: "row", gap: spacing.xxs, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   statusPillOk: { backgroundColor: "#263516" }, statusPillMuted: { backgroundColor: colors.surface2 },
-  statusPillText: { color: colors.textLo, fontSize: 10 }, inputRow: { flexDirection: "row", gap: spacing.xs },
+  statusPillText: { color: colors.textLo, fontSize: 10 }, inputRow: { flexDirection: "row", gap: spacing.xs }, armSelector: { gap: spacing.xs }, armButtons: { flexDirection: "row", gap: spacing.xs }, armButton: { alignItems: "center", backgroundColor: colors.surface2, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, flex: 1, minHeight: 42, justifyContent: "center", paddingHorizontal: spacing.xs }, armButtonActive: { backgroundColor: colors.accent, borderColor: colors.accent }, armButtonText: { color: colors.textLo, fontSize: 11 }, armButtonTextActive: { color: colors.accentText },
   input: { backgroundColor: colors.surface2, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, color: colors.textHi, minHeight: 46, paddingHorizontal: spacing.sm }, hostInput: { flex: 1 }, portInput: { width: 92 }, transportButton: { alignItems: "center", backgroundColor: colors.surface2, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, justifyContent: "center", minWidth: 48 }, transportButtonActive: { borderColor: colors.accent }, transportText: { color: colors.textLo, fontSize: 10 },
   connectButton: { alignItems: "center", backgroundColor: colors.accent, borderRadius: radius.button, justifyContent: "center", minWidth: 82, paddingHorizontal: spacing.sm }, disconnectButton: { backgroundColor: colors.surface2, borderColor: colors.danger, borderWidth: 1 }, connectText: { color: colors.accentText, fontSize: 13 },
   stateCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: spacing.md, padding: spacing.md }, stateMain: { alignItems: "center", flexDirection: "row", gap: spacing.sm }, stateDot: { borderRadius: radius.round, height: 10, width: 10 }, stateCopy: { flex: 1 }, stateTitle: { color: colors.textHi, fontSize: 14, lineHeight: 20 }, accentText: { color: colors.accent }, stateMetrics: { borderTopColor: colors.border, borderTopWidth: 1, flexDirection: "row", gap: spacing.xxxl, paddingTop: spacing.sm }, metricLabel: { color: colors.textLo, fontSize: 10 }, metricValue: { fontSize: 12, lineHeight: 18 },
