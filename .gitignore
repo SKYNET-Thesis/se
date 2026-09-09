@@ -68,3 +68,5 @@ packages/
 
 appsettings.Development.json
 
+.tmp-review/ 
+apps/mobile/android/ 
