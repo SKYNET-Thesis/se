@@ -18,6 +18,7 @@ import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, font, radius, spacing, type } from "../theme";
 import { isPhoneARNativeAvailable, PhoneARPose, PhoneARView } from "../../modules/expo-phone-ar";
 import { usePoseSender } from "../services/usePoseSender";
+import { gripperSlideVelocity } from "../services/gripperSlide";
 
 type Props = {
   emergencyStopped: boolean;
@@ -53,7 +54,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
   const [controlHeld, setControlHeld] = useState(false);
   const [fineMode, setFineMode] = useState(false);
   const [gripperVelocity, setGripperVelocity] = useState(0);
-  const [gripperClosed, setGripperClosed] = useState(false);
+  const slideOriginY = useRef<number | null>(null);
   const [speed, setSpeed] = useState(50);
   const [referenceLatched, setReferenceLatched] = useState(false);
   const trackingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -214,6 +215,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
   };
 
   const handleControlStop = () => {
+    slideOriginY.current = null;
     setControlHeld(false);
     controlHeldRef.current = false;
     setGripperVelocity(0);
@@ -226,6 +228,18 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
     setMode("motion");
     setMotionFullscreen(true);
     handleControlStop();
+  };
+
+  const handleSlideStart = (event: GestureResponderEvent) => {
+    if (!canControl) return;
+    slideOriginY.current = event.nativeEvent.pageY;
+    setGripperVelocity(0);
+    handleControlStart();
+  };
+
+  const handleSlideMove = (event: GestureResponderEvent) => {
+    if (!controlHeldRef.current || slideOriginY.current === null) return;
+    setGripperVelocity(gripperSlideVelocity(slideOriginY.current, event.nativeEvent.pageY));
   };
 
   const closeMotionFullscreen = () => {
@@ -272,8 +286,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
               motionReading.roll - referenceMotionRef.current.roll,
               motionReading.yaw - referenceMotionRef.current.yaw
             ),
-        gripperVelocity,
-        ...(mode === "motion" ? { gripperClosed } : {})
+        gripperVelocity
       }));
   });
 
@@ -374,7 +387,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
           <View style={styles.controlHeader}><View><Text style={[styles.sectionTitle, font("display", fontsReady)]}>Motion + camera</Text><Text style={[styles.caption, font("body", fontsReady)]}>Di chuyển điện thoại để điều khiển pose</Text></View><Radio color={trackingColor} size={20} /></View>
           {!cameraPermission?.granted ? <View style={styles.cameraPermission}><Camera color={colors.textLo} size={30} /><Text style={[styles.cameraTitle, font("display", fontsReady)]}>Cần quyền camera</Text><Text style={[styles.caption, font("body", fontsReady)]}>Camera được dùng để tracking và quan sát.</Text><Pressable onPress={requestCameraPermission} style={styles.permissionButton}><Text style={[styles.connectText, font("display", fontsReady)]}>Cho phép camera</Text></Pressable></View> : motionFullscreen ? null : <View style={styles.cameraMock}>{isPhoneARNativeAvailable ? <PhoneARView onPose={(event) => handleNativePose(event.nativeEvent)} style={StyleSheet.absoluteFill} /> : <CameraView facing="back" style={StyleSheet.absoluteFill} />}<View style={styles.cameraOverlay}><Text style={[styles.cameraTitle, font("display", fontsReady)]}>{isPhoneARNativeAvailable ? "ARKit 6DOF" : "LIVE CAMERA"}</Text><Text style={[styles.caption, font("body", fontsReady)]}>{isPhoneARNativeAvailable ? nativeTracking.toUpperCase() : motionAvailable ? `P ${motionReading.pitch.toFixed(1)}° · R ${motionReading.roll.toFixed(1)}°` : "Motion sensor unavailable"}</Text><View style={styles.crosshair}><View style={styles.crosshairHorizontal} /><View style={styles.crosshairVertical} /></View></View></View>}
           <Pressable accessibilityRole="button" disabled={!canControl} onPressIn={handleControlStart} onPressOut={handleControlStop} style={({ pressed }) => [styles.holdButton, active && styles.holdButtonActive, !canControl && styles.disabled, pressed && styles.pressed]}><Text style={[styles.holdButtonText, font("display", fontsReady)]}>{active ? "ĐANG ĐIỀU KHIỂN · THẢ ĐỂ DỪNG" : "GIỮ ĐỂ ĐIỀU KHIỂN"}</Text></Pressable>
-          <Pressable accessibilityLabel="Kẹp hoặc nhả gripper" accessibilityRole="button" disabled={!canControl} onPress={() => setGripperClosed((value) => !value)} style={({ pressed }) => [styles.gripperButton, !canControl && styles.disabled, pressed && styles.pressed]}><Hand color={colors.accent} size={18} /><Text style={[styles.gripperButtonText, font("display", fontsReady)]}>{gripperClosed ? "Mở gripper" : "Kẹp gripper"}</Text></Pressable>
+          <Pressable onPress={openMotionFullscreen} style={styles.gripperButton}><Text style={[styles.gripperButtonText, font("display", fontsReady)]}>Mở toàn màn hình · Trượt ↑ mở / ↓ gắp</Text></Pressable>
         </View>
       )}
 
@@ -399,21 +412,29 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
             </View>
           ) : (
             <>
-              <Pressable onPressIn={handleControlStart} onPressOut={handleControlStop} style={styles.fullscreenHoldArea}>
+              <View
+                onStartShouldSetResponder={() => canControl}
+                onResponderGrant={handleSlideStart}
+                onResponderMove={handleSlideMove}
+                onResponderRelease={handleControlStop}
+                onResponderTerminate={handleControlStop}
+                onResponderTerminationRequest={() => false}
+                style={styles.fullscreenHoldArea}
+              >
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>{isPhoneARNativeAvailable ? <PhoneARView onPose={(event) => handleNativePose(event.nativeEvent)} style={StyleSheet.absoluteFill} /> : <CameraView facing="back" style={StyleSheet.absoluteFill} />}</View>
                 <View pointerEvents="none" style={styles.fullscreenOverlay}>
                   <Text style={[styles.fullscreenTracking, font("mono", fontsReady)]}>{isPhoneARNativeAvailable ? `ARKit · ${nativeTracking.toUpperCase()}` : `DEVICE MOTION · ${tracking.toUpperCase()}`}</Text>
                   <View style={styles.crosshair}><View style={styles.crosshairHorizontal} /><View style={styles.crosshairVertical} /></View>
                   <Text style={[styles.fullscreenHint, font("display", fontsReady)]}>{active ? "ĐANG ĐIỀU KHIỂN · THẢ ĐỂ DỪNG" : "GIỮ MÀN HÌNH ĐỂ ĐIỀU KHIỂN"}</Text>
                 </View>
-              </Pressable>
+              </View>
               <Pressable accessibilityLabel="Quay lại trang điều khiển" onPress={closeMotionFullscreen} style={styles.fullscreenBack}>
                 <Text style={[styles.fullscreenBackText, font("display", fontsReady)]}>‹  Điều khiển</Text>
               </Pressable>
-              <Pressable accessibilityLabel="Kẹp hoặc nhả gripper" onPress={() => setGripperClosed((value) => !value)} style={({ pressed }) => [styles.fullscreenGripper, pressed && styles.pressed]}>
+              <View pointerEvents="none" style={styles.fullscreenGripper}>
                 <Hand color={colors.accentText} size={20} />
-                <Text style={[styles.fullscreenGripperText, font("display", fontsReady)]}>{gripperClosed ? "Mở gripper" : "Kẹp gripper"}</Text>
-              </Pressable>
+                <Text style={[styles.fullscreenGripperText, font("display", fontsReady)]}>{gripperVelocity > 0 ? "ĐANG MỞ" : gripperVelocity < 0 ? "ĐANG GẮP" : "↑ MỞ · ↓ GẮP"}</Text>
+              </View>
             </>
           )}
         </View>
