@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
-from lerobot.utils.rotation import Rotation
+from .frames import position_to_base, quaternion_to_base
 
 
 PROTOCOL_VERSION = 1
@@ -60,6 +60,7 @@ class PhonePose(_Message):
     position: Vector3
     quaternion: Quaternion
     gripperVelocity: float = Field(ge=-1.0, le=1.0)
+    gripperClosed: bool | None = None
 
 
 class PhoneDisable(_Message):
@@ -96,14 +97,12 @@ def phone_orientation(quaternion: Quaternion) -> np.ndarray:
     norm = math.sqrt(x * x + y * y + z * z + w * w)
     if not math.isfinite(norm) or norm < 1e-6:
         raise ValueError("invalid phone quaternion")
-    # Phone rotvec axes follow the LeRobot phone example: wx=rotvec.y,
-    # wy=rotvec.x and wz=-rotvec.z. The SO-101 ArmController consumes a
-    # base-frame quaternion and extracts pitch/roll at the engage reference.
-    rotation = Rotation.from_quat(np.array([x, y, z, w], dtype=float) / norm)
-    rotvec = rotation.as_rotvec()
-    return Rotation.from_rotvec(np.array([rotvec[1], rotvec[0], -rotvec[2]])).as_quat()
+    # Use the same proper rotation as translation; never swap rotation-vector
+    # components independently of the position frame.
+    return quaternion_to_base(np.array([x, y, z, w], dtype=float) / norm)
 
 
 def phone_position(position: Vector3) -> np.ndarray:
     """Map phone XYZ to the arm base frame used by ArmController."""
-    return np.array([-position.y, position.x, position.z], dtype=float)
+    # ARKit gravity alignment: +Y up, +X right, -Z forward.
+    return position_to_base(np.array([position.x, position.y, position.z], dtype=float))
