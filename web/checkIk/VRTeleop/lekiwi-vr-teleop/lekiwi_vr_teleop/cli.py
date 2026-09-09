@@ -36,6 +36,12 @@ def _build_parser(description: str) -> argparse.ArgumentParser:
     )
     parser.add_argument("--base-hand", default="left", choices=["left", "right"])
     parser.add_argument(
+        "--phone-hand",
+        default="right",
+        choices=["left", "right"],
+        help="Follower hand selected by the phone app (default: right)",
+    )
+    parser.add_argument(
         "--turn-hand",
         default=None,
         choices=["left", "right"],
@@ -144,7 +150,13 @@ def _build_config(args: argparse.Namespace) -> TeleopConfig:
         robot_id=getattr(args, "robot_id", "lekiwi_01"),
         fps=getattr(args, "fps", 30),
         dry_run=getattr(args, "dry_run", False),
-        relay=RelayConfig(host=args.host, port=args.port, cert_file=args.cert, key_file=args.key),
+        relay=RelayConfig(
+            host=args.host,
+            port=args.port,
+            cert_file=args.cert,
+            key_file=args.key,
+            phone_hand=args.phone_hand,
+        ),
         arms=tuple(
             ArmConfig(
                 hand=hand,
