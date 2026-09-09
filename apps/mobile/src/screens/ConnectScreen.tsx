@@ -702,10 +702,10 @@ const styles = StyleSheet.create({
   },
   stoppedBanner: {
     alignItems: "flex-start",
-    backgroundColor: colors.surface2,
-    borderLeftColor: colors.danger,
-    borderLeftWidth: 3,
-    borderRadius: radius.button,
+    backgroundColor: colors.surface,
+    borderColor: colors.danger,
+    borderRadius: CARD_RADIUS_OUTER,
+    borderWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
     padding: spacing.md
@@ -776,7 +776,9 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: CARD_RADIUS_OUTER,
+    borderWidth: 1,
     gap: spacing.lg,
     padding: spacing.lg
   },

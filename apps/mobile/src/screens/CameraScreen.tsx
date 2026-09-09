@@ -1,4 +1,4 @@
-import { CircleCheck, Expand, Hand, RefreshCw, TriangleAlert } from "lucide-react-native";
+import { Expand, Hand, RefreshCw } from "lucide-react-native";
 import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Svg, { Circle, Line } from "react-native-svg";
@@ -84,26 +84,6 @@ export function CameraScreen({ fontsReady, onBack, onOpenManual }: Props) {
               stream={stream}
             />
           ))}
-        </View>
-      </View>
-
-      <View style={styles.insightsSection}>
-        <Text style={[styles.sectionTitle, font("display", fontsReady)]}>AI Insights</Text>
-
-        <View style={styles.insightCard}>
-          <CircleCheck color={colors.accent} size={22} />
-          <View style={styles.insightCopy}>
-            <Text style={[styles.insightTitle, font("display", fontsReady)]}>Task progress: 78% complete</Text>
-            <Text style={[styles.insightCaption, font("body", fontsReady)]}>Sample insight · Assembly Line A</Text>
-          </View>
-        </View>
-
-        <View style={styles.insightCard}>
-          <TriangleAlert color={colors.caution} size={22} />
-          <View style={styles.insightCopy}>
-            <Text style={[styles.insightTitle, font("display", fontsReady)]}>Component bin at 15% capacity</Text>
-            <Text style={[styles.insightCaption, font("body", fontsReady)]}>Sample insight · Refill suggested</Text>
-          </View>
         </View>
       </View>
     </ScrollView>
@@ -373,36 +353,6 @@ const styles = StyleSheet.create({
   thumbStatus: {
     ...type.small,
     marginTop: 2
-  },
-  insightsSection: {
-    gap: spacing.sm
-  },
-  sectionTitle: {
-    ...type.title,
-    color: colors.textHi
-  },
-  insightCard: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: CARD_RADIUS_OUTER,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.sm,
-    padding: spacing.md
-  },
-  insightCopy: {
-    flex: 1,
-    minWidth: 0
-  },
-  insightTitle: {
-    ...type.bodyStrong,
-    color: colors.textHi
-  },
-  insightCaption: {
-    ...type.small,
-    color: colors.textLo,
-    marginTop: spacing.xxs
   },
   pressed: {
     opacity: 0.85,

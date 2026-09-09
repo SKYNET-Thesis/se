@@ -58,6 +58,12 @@ const ROLE_HINT: Record<ArmRole, string> = {
   leader: "Teleoperator"
 };
 
+// theme.ts tops out at radius.card (16) — matches the larger, softer corner
+// Home/Teleop/Connect already established for this app's "rich card"
+// surfaces, kept identical here so Calibrate reads as the same product.
+const CARD_RADIUS_OUTER = 24;
+const CARD_RADIUS_INNER = 20;
+
 const MOCK_PORT: Record<ArmRole, string> = {
   follower: "/dev/ttyACM0",
   leader: "/dev/ttyACM1"
@@ -161,14 +167,16 @@ export function CalibrateScreen({ emergencyStopped, fontsReady, onBack }: Props)
       {emergencyStopped && <StoppedBanner fontsReady={fontsReady} />}
 
       <View style={styles.configBlock}>
-        <ArmSegmented disabled={emergencyStopped} fontsReady={fontsReady} onChange={setSelectedArm} value={selectedArm} />
+        <View style={styles.configCard}>
+          <ArmSegmented disabled={emergencyStopped} fontsReady={fontsReady} onChange={setSelectedArm} value={selectedArm} />
 
-        <PortField
-          disabled={emergencyStopped}
-          fontsReady={fontsReady}
-          onFind={handleFindPort}
-          port={ports[selectedArm]}
-        />
+          <PortField
+            disabled={emergencyStopped}
+            fontsReady={fontsReady}
+            onFind={handleFindPort}
+            port={ports[selectedArm]}
+          />
+        </View>
 
         <Pressable
           accessibilityLabel={primaryLabel}
@@ -198,7 +206,7 @@ export function CalibrateScreen({ emergencyStopped, fontsReady, onBack }: Props)
         <ArmChecklist arms={arms} fontsReady={fontsReady} />
       </View>
 
-      <View style={styles.statusBlock}>
+      <View style={styles.statusCard}>
         <StatusBadge fontsReady={fontsReady} status={selectedRun.status} />
 
         {selectedRun.status === "idle" && (
@@ -579,7 +587,7 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     backgroundColor: colors.surface,
     borderColor: colors.danger,
-    borderRadius: radius.card,
+    borderRadius: CARD_RADIUS_OUTER,
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
@@ -591,11 +599,17 @@ const styles = StyleSheet.create({
     flex: 1
   },
   configBlock: {
-    gap: spacing.sm
+    gap: spacing.md
+  },
+  configCard: {
+    backgroundColor: colors.surface2,
+    borderRadius: CARD_RADIUS_OUTER,
+    gap: spacing.sm,
+    padding: spacing.md
   },
   segmented: {
     backgroundColor: colors.surface,
-    borderRadius: radius.button,
+    borderRadius: CARD_RADIUS_INNER,
     flexDirection: "row",
     gap: spacing.xxs,
     padding: spacing.xxs
@@ -650,7 +664,7 @@ const styles = StyleSheet.create({
   },
   findButton: {
     alignItems: "center",
-    backgroundColor: colors.surface2,
+    backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: radius.button,
     borderWidth: 1,
@@ -710,8 +724,13 @@ const styles = StyleSheet.create({
   checklistTextDone: {
     color: colors.textHi
   },
-  statusBlock: {
-    gap: spacing.md
+  statusCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: CARD_RADIUS_OUTER,
+    borderWidth: 1,
+    gap: spacing.md,
+    padding: spacing.md
   },
   badge: {
     alignItems: "center",
@@ -759,9 +778,9 @@ const styles = StyleSheet.create({
   },
   reminderBanner: {
     alignItems: "flex-start",
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surface2,
     borderColor: colors.caution,
-    borderRadius: radius.card,
+    borderRadius: CARD_RADIUS_INNER,
     borderWidth: 1,
     flexDirection: "row",
     gap: spacing.sm,
@@ -789,9 +808,9 @@ const styles = StyleSheet.create({
     gap: spacing.sm
   },
   jointCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.card,
+    backgroundColor: colors.surface2,
+    borderColor: "transparent",
+    borderRadius: CARD_RADIUS_INNER,
     borderWidth: 1,
     gap: spacing.sm,
     padding: spacing.md
@@ -819,7 +838,7 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"]
   },
   track: {
-    backgroundColor: colors.surface2,
+    backgroundColor: colors.surface,
     borderRadius: radius.round,
     height: 6,
     width: "100%"
@@ -874,7 +893,7 @@ const styles = StyleSheet.create({
   completionPanel: {
     backgroundColor: colors.surface,
     borderColor: colors.accent,
-    borderRadius: radius.card,
+    borderRadius: CARD_RADIUS_OUTER,
     borderWidth: 1,
     gap: spacing.sm,
     padding: spacing.md
