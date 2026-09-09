@@ -17,6 +17,7 @@ import {
 import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, font, radius, spacing, type } from "../theme";
 import { isPhoneARNativeAvailable, PhoneARPose, PhoneARView } from "../../modules/expo-phone-ar";
+import { usePoseSender } from "../services/usePoseSender";
 
 type Props = {
   emergencyStopped: boolean;
@@ -173,13 +174,13 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
     const socket = new WebSocket(`${secureTransport ? "wss" : "ws"}://${serverHost.trim()}:${serverPort.trim()}/ws`);
     socketRef.current = socket;
     socket.onopen = () => {
-      setConnected(true);
       setTracking(motionAvailable ? "tracking" : "limited");
       socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, platform: "ios", sessionId: sessionIdRef.current, arm }));
     };
     socket.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data as string) as { type?: string; timestampNs?: number };
+        if (message.type === "hello_ack") setConnected(true);
         if (message.type === "pong" && message.timestampNs) setLatencyMs(Math.max(0, Math.round((Date.now() * 1e6 - message.timestampNs) / 1e6)));
       } catch {
         // Ignore malformed status messages; the server remains the protocol authority.
@@ -249,9 +250,8 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
     }
   };
 
-  useEffect(() => {
-    if (!active || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return undefined;
-    const timer = setInterval(() => {
+  usePoseSender(active, () => {
+      if (!controlHeldRef.current || socketRef.current?.readyState !== WebSocket.OPEN) return;
       const timestampNs = Date.now() * 1e6;
       socketRef.current?.send(JSON.stringify({
         type: "phone_pose",
@@ -273,9 +273,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
             ),
         gripperVelocity
       }));
-    }, 50);
-    return () => clearInterval(timer);
-  }, [active, fineMode, gripperVelocity, motionPosition, motionReading, tracking]);
+  });
 
   const statusText = useMemo(() => {
     if (emergencyStopped) return "E-STOP đang bật — mọi lệnh đã bị khóa";
@@ -374,7 +372,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
           <View style={styles.controlHeader}><View><Text style={[styles.sectionTitle, font("display", fontsReady)]}>Motion + camera</Text><Text style={[styles.caption, font("body", fontsReady)]}>Di chuyển điện thoại để điều khiển pose</Text></View><Radio color={trackingColor} size={20} /></View>
           {!cameraPermission?.granted ? <View style={styles.cameraPermission}><Camera color={colors.textLo} size={30} /><Text style={[styles.cameraTitle, font("display", fontsReady)]}>Cần quyền camera</Text><Text style={[styles.caption, font("body", fontsReady)]}>Camera được dùng để tracking và quan sát.</Text><Pressable onPress={requestCameraPermission} style={styles.permissionButton}><Text style={[styles.connectText, font("display", fontsReady)]}>Cho phép camera</Text></Pressable></View> : <View style={styles.cameraMock}>{isPhoneARNativeAvailable ? <PhoneARView onPose={(event) => handleNativePose(event.nativeEvent)} style={StyleSheet.absoluteFill} /> : <CameraView facing="back" style={StyleSheet.absoluteFill} />}<View style={styles.cameraOverlay}><Text style={[styles.cameraTitle, font("display", fontsReady)]}>{isPhoneARNativeAvailable ? "ARKit 6DOF" : "LIVE CAMERA"}</Text><Text style={[styles.caption, font("body", fontsReady)]}>{isPhoneARNativeAvailable ? nativeTracking.toUpperCase() : motionAvailable ? `P ${motionReading.pitch.toFixed(1)}° · R ${motionReading.roll.toFixed(1)}°` : "Motion sensor unavailable"}</Text><View style={styles.crosshair}><View style={styles.crosshairHorizontal} /><View style={styles.crosshairVertical} /></View></View></View>}
           <Pressable accessibilityRole="button" disabled={!canControl} onPressIn={handleControlStart} onPressOut={handleControlStop} style={({ pressed }) => [styles.holdButton, active && styles.holdButtonActive, !canControl && styles.disabled, pressed && styles.pressed]}><Text style={[styles.holdButtonText, font("display", fontsReady)]}>{active ? "ĐANG ĐIỀU KHIỂN · THẢ ĐỂ DỪNG" : "GIỮ ĐỂ ĐIỀU KHIỂN"}</Text></Pressable>
-          <Pressable accessibilityLabel="Kẹp hoặc nhả gripper" accessibilityRole="button" disabled={!canControl} onPress={() => setGripperVelocity((value) => value === 0 ? -1 : 1)} style={({ pressed }) => [styles.gripperButton, !canControl && styles.disabled, pressed && styles.pressed]}><Hand color={colors.accent} size={18} /><Text style={[styles.gripperButtonText, font("display", fontsReady)]}>{gripperVelocity < 0 ? "Mở gripper" : "Kẹp gripper"}</Text></Pressable>
+          <Pressable accessibilityLabel="Kẹp hoặc nhả gripper" accessibilityRole="button" disabled={!canControl} onPress={() => setGripperVelocity((value) => value < 0 ? 1 : -1)} style={({ pressed }) => [styles.gripperButton, !canControl && styles.disabled, pressed && styles.pressed]}><Hand color={colors.accent} size={18} /><Text style={[styles.gripperButtonText, font("display", fontsReady)]}>{gripperVelocity < 0 ? "Mở gripper" : "Kẹp gripper"}</Text></Pressable>
         </View>
       )}
 
@@ -410,7 +408,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
               <Pressable accessibilityLabel="Quay lại trang điều khiển" onPress={closeMotionFullscreen} style={styles.fullscreenBack}>
                 <Text style={[styles.fullscreenBackText, font("display", fontsReady)]}>‹  Điều khiển</Text>
               </Pressable>
-              <Pressable accessibilityLabel="Kẹp hoặc nhả gripper" onPress={() => setGripperVelocity((value) => value === 0 ? -1 : 1)} style={({ pressed }) => [styles.fullscreenGripper, pressed && styles.pressed]}>
+              <Pressable accessibilityLabel="Kẹp hoặc nhả gripper" onPress={() => setGripperVelocity((value) => value < 0 ? 1 : -1)} style={({ pressed }) => [styles.fullscreenGripper, pressed && styles.pressed]}>
                 <Hand color={colors.accentText} size={20} />
                 <Text style={[styles.fullscreenGripperText, font("display", fontsReady)]}>{gripperVelocity < 0 ? "Mở gripper" : "Kẹp gripper"}</Text>
               </Pressable>
