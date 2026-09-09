@@ -7,14 +7,19 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { ShieldAlert, X } from "lucide-react-native";
 import { GlobalChrome } from "./src/components/GlobalChrome";
 import { AppNavigator } from "./src/navigation/AppNavigator";
+import { OnboardingScreen } from "./src/onboarding/OnboardingScreen";
+import { hasCompletedOnboarding } from "./src/services/onboardingStorage";
 import { appFontSources, colors, font, radius, spacing, type } from "./src/theme";
 
 export default function App() {
   const [emergencyStopped, setEmergencyStopped] = useState(false);
   const [resetConfirmVisible, setResetConfirmVisible] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [fontsLoaded, fontError] = useFonts(appFontSources);
   const fontsReady = fontsLoaded && !fontError;
+  const bootReady = fontsReady && onboardingChecked;
 
   useEffect(() => {
     // A previous Phone Teleop session may have left the OS in landscape after a
@@ -38,6 +43,20 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    hasCompletedOnboarding().then((completed) => {
+      if (!mounted) return;
+      setShowOnboarding(!completed);
+      setOnboardingChecked(true);
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const requestResetEmergencyStop = () => {
     setResetConfirmVisible(true);
   };
@@ -51,15 +70,29 @@ export default function App() {
     setResetConfirmVisible(false);
   };
 
-  if (!fontsLoaded && !fontError) {
+  if (!bootReady) {
     return (
       <SafeAreaProvider>
         <SafeAreaView edges={["top", "left", "right", "bottom"]} style={styles.safe}>
+          <StatusBar style="light" />
           <View style={styles.loading}>
             <Text style={[styles.loadingTitle, font("display", false)]}>OmniArm</Text>
             <Text style={[styles.loadingText, font("body", false)]}>Đang nạp giao diện</Text>
           </View>
         </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
+  if (showOnboarding) {
+    return (
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <OnboardingScreen
+          fontsReady={fontsReady}
+          onComplete={() => setShowOnboarding(false)}
+          reduceMotion={reduceMotion}
+        />
       </SafeAreaProvider>
     );
   }
