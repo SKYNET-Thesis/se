@@ -249,7 +249,7 @@ def so101_main() -> None:
         raise SystemExit("--real requires --robot-port /dev/... for the FOLLOWER arm")
     if len(_parse_arms(args.arms)) != 1:
         raise SystemExit("local SO-101 mode accepts exactly one hand/arm")
-    logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(message)s", force=True)
     from .local_teleop import run_local_so101
 
     run_local_so101(_build_config(args), real=args.real, robot_port=args.robot_port)
