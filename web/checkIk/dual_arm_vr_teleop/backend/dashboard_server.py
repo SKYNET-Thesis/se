@@ -317,36 +317,34 @@ class Controller:
             return int(probe.getsockname()[1])
 
     def start_vr_lekiwi(self, mode: str = "dual-arm", relay_port: int | None = None) -> None:
-        """Start the tested LeKiwi operator surface through CHECKIK's process boundary.
-
-        The integration deliberately uses the package's deterministic fake follower path.
-        No serial device is discovered or opened here; assignment values are passed as
-        explicit configuration tokens so the boundary remains identical to hardware mode.
-        """
+        """Start VRTeleop against CHECKIK-assigned, calibrated real followers."""
         arms = self._selected_vr_arms(mode)
+        if not self.enable_motion or self.offline:
+            raise PermissionError("VR LeKiwi motion requires --hardware and --enable-motion")
         if self.state.get("latchedMotionLock"):
             raise PermissionError("motion is latched by E-stop; unlock and re-check readiness first")
+        readiness = self.readiness_check(mode)
+        if not readiness["ready"]:
+            raise ValueError(f"VR LeKiwi readiness check failed: {readiness}")
         with self.lock:
             if self.task and self.task.process.poll() is None:
                 raise ValueError(f"task {self.task.kind} is already running")
         relay_port = relay_port or self._available_local_port()
         if not 1 <= relay_port <= 65535:
             raise ValueError("relay port must be between 1 and 65535")
-        selected = {
-            "left": ("fake://left-follower", "left-follower"),
-            "right": ("fake://right-follower", "right-follower"),
-        }
         command = [
             str(LEROBOT_BIN / "python3"), "-u", "-m", "lekiwi_vr_teleop.process",
             "--mode", mode,
             "--certificate", str(VUER_CERT), "--key", str(VUER_KEY),
             "--relay-port", str(relay_port),
             "--relay-host", "0.0.0.0",
+            "--real",
         ]
         for arm in ("left", "right"):
             if arm in arms:
-                port, device_id = selected[arm]
-                command.extend([f"--{arm}-port", port, f"--{arm}-device-id", device_id])
+                device_id = f"{arm}-follower"
+                port = self.state["assignments"][device_id]
+                command.extend([f"--{arm}-port", port, f"--{arm}-device-id", f"my_awesome_bimanual_follower_{arm}"])
         if not VR_LEKIWI_ROOT.exists():
             raise ValueError(f"vr_lekiwi package is missing: {VR_LEKIWI_ROOT}")
         if not VUER_CERT.exists() or not VUER_KEY.exists():
@@ -952,7 +950,7 @@ def main() -> None:
     parser.add_argument(
         "--hardware",
         action="store_true",
-        help="Enable hardware discovery for legacy tasks; vr_lekiwi remains fake/offline in phase one.",
+        help="Enable assigned hardware checks and real VR LeKiwi follower startup.",
     )
     args = parser.parse_args()
     Handler.controller = Controller(enable_motion=args.enable_motion, offline=not args.hardware)
