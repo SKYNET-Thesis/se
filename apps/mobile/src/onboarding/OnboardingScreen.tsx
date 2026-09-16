@@ -1,6 +1,7 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Image,
   LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -14,7 +15,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ArrowRight } from "lucide-react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
-import { colors, font, radius, spacing, type } from "../theme";
+import { font, radius, spacing, ThemeColors, ThemeMode, type } from "../theme";
+import { useAppTheme } from "../ThemeContext";
 import { markOnboardingCompleted } from "../services/onboardingStorage";
 import { BRAND_MARK, CTA_CONTINUE, CTA_SKIP, CTA_START, ONBOARDING_SLIDES, OnboardingSlide } from "./onboardingData";
 import { MotionTrajectory } from "./MotionTrajectory";
@@ -25,6 +27,15 @@ import { HeroCardAccent, HeroCardBackdrop, TelemetryHud } from "./OnboardingVisu
 // for this screen's single large hero card.
 const HERO_CARD_RADIUS = 28;
 
+// The mark's large white sculptural surfaces read fine straight onto Dark's
+// near-black background, but nearly vanish on Light's near-white one (see
+// LOGO ASSET QA in the branding pass brief). Rather than inventing a new
+// outline/backing treatment, Light reuses the already-approved dark-mark
+// asset — a self-contained tile with its own dark field baked in — so the
+// mark keeps full contrast without any geometry edits.
+const BRAND_MARK_DARK_MODE = require("../../assets/brand/production/skynex-mark-transparent.png");
+const BRAND_MARK_LIGHT_MODE = require("../../assets/brand/production/skynex-mark-dark.png");
+
 type Props = {
   fontsReady: boolean;
   reduceMotion: boolean;
@@ -34,6 +45,8 @@ type Props = {
 const SLIDE_COUNT = ONBOARDING_SLIDES.length;
 
 export function OnboardingScreen({ fontsReady, reduceMotion, onComplete }: Props) {
+  const { colors, mode } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
@@ -81,10 +94,13 @@ export function OnboardingScreen({ fontsReady, reduceMotion, onComplete }: Props
 
   return (
     <View style={styles.screen}>
-      <MotionTrajectory opacity={0.45} style={StyleSheet.absoluteFill} />
+      <MotionTrajectory colors={colors} opacity={0.45} style={StyleSheet.absoluteFill} />
 
+      {/* No wordmark here — the one deliberate brand moment lives in the
+          first slide's own content (see SlidePage below), so it fades in
+          with that slide instead of nagging as a persistent header on
+          every screen. Skip is the only thing that needs to stay put. */}
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-        <Text style={[styles.brand, font("display", fontsReady)]}>{BRAND_MARK}</Text>
         <Pressable
           accessibilityLabel={CTA_SKIP}
           accessibilityRole="button"
@@ -100,21 +116,26 @@ export function OnboardingScreen({ fontsReady, reduceMotion, onComplete }: Props
           the text/HUD layer above it swaps as the pager scrolls. */}
       <View style={styles.body}>
         <View pointerEvents="none" style={styles.cardClip}>
-          <HeroCardBackdrop style={StyleSheet.absoluteFill} />
+          <HeroCardBackdrop colors={colors} style={StyleSheet.absoluteFill} />
 
-          <OnboardingHero reduceMotion={reduceMotion} style={StyleSheet.absoluteFill} />
+          <OnboardingHero
+            fallbackBackgroundColor={colors.background}
+            groundShadowColor={colors.surfaceSecondary}
+            reduceMotion={reduceMotion}
+            style={StyleSheet.absoluteFill}
+          />
 
           <Svg height={132} pointerEvents="none" style={styles.topScrim} width="100%">
             <Defs>
               <LinearGradient id="topScrim" x1="0" x2="0" y1="0" y2="1">
-                <Stop offset="0" stopColor={colors.bg} stopOpacity={0.92} />
-                <Stop offset="1" stopColor={colors.bg} stopOpacity={0} />
+                <Stop offset="0" stopColor={colors.background} stopOpacity={0.92} />
+                <Stop offset="1" stopColor={colors.background} stopOpacity={0} />
               </LinearGradient>
             </Defs>
             <Rect fill="url(#topScrim)" height="100%" width="100%" />
           </Svg>
 
-          <HeroCardAccent />
+          <HeroCardAccent colors={colors} />
         </View>
 
         <Animated.ScrollView
@@ -133,9 +154,11 @@ export function OnboardingScreen({ fontsReady, reduceMotion, onComplete }: Props
         >
           {ONBOARDING_SLIDES.map((slide, i) => (
             <SlidePage
+              colors={colors}
               fontsReady={fontsReady}
               index={i}
               key={slide.id}
+              mode={mode}
               reduceMotion={reduceMotion}
               scrollX={scrollX}
               slide={slide}
@@ -169,20 +192,25 @@ export function OnboardingScreen({ fontsReady, reduceMotion, onComplete }: Props
 }
 
 function SlidePage({
+  colors,
   fontsReady,
   index,
+  mode,
   reduceMotion,
   scrollX,
   slide,
   width
 }: {
+  colors: ThemeColors;
   fontsReady: boolean;
   index: number;
+  mode: ThemeMode;
   reduceMotion: boolean;
   scrollX: Animated.Value;
   slide: OnboardingSlide;
   width: number;
 }) {
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
   const opacity = reduceMotion
     ? 1
@@ -195,6 +223,24 @@ function SlidePage({
     <View style={[styles.slide, { width }]}>
       <Animated.View style={[styles.slideContent, { opacity, transform: [{ translateY }] }]}>
         <View style={styles.copyArea}>
+          {/* Brand strongest here, on the very first slide only — mark +
+              name read as the platform identity, with the slide's own
+              headline right underneath introducing SO-ARM101 as the
+              current hardware it drives. Every other slide stays free of
+              this so it never repeats. */}
+          {index === 0 && (
+            <View style={styles.brandMoment}>
+              <View style={[styles.brandMarkFrame, mode === "light" && styles.brandMarkFrameLight]}>
+                <Image
+                  resizeMode="cover"
+                  source={mode === "light" ? BRAND_MARK_LIGHT_MODE : BRAND_MARK_DARK_MODE}
+                  style={styles.brandMarkImage}
+                />
+              </View>
+              <Text style={[styles.brandWordmark, font("display", fontsReady)]}>{BRAND_MARK}</Text>
+            </View>
+          )}
+
           <Text style={[styles.title, font("display", fontsReady)]}>
             <Text style={styles.titleMain}>{slide.titleMain}</Text>
             <Text style={styles.titleAccent}>{slide.titleAccent}</Text>
@@ -203,153 +249,181 @@ function SlidePage({
         </View>
 
         <View style={styles.hudArea}>
-          <TelemetryHud stats={slide.stats} />
+          <TelemetryHud colors={colors} stats={slide.stats} />
         </View>
       </Animated.View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: colors.bg,
-    flex: 1
-  },
-  header: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.sm,
-    zIndex: 2
-  },
-  brand: {
-    ...type.label,
-    color: colors.textLo,
-    letterSpacing: 2
-  },
-  skipButton: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: spacing.md
-  },
-  skipText: {
-    ...type.label,
-    color: colors.textHi
-  },
-  pressed: {
-    opacity: 0.7
-  },
-  body: {
-    borderColor: colors.border,
-    borderRadius: HERO_CARD_RADIUS,
-    borderWidth: 1,
-    flex: 1,
-    marginBottom: spacing.sm,
-    marginHorizontal: spacing.lg,
-    position: "relative"
-  },
-  cardClip: {
-    borderRadius: HERO_CARD_RADIUS,
-    bottom: 0,
-    left: 0,
-    overflow: "hidden",
-    position: "absolute",
-    right: 0,
-    top: 0
-  },
-  topScrim: {
-    left: 0,
-    position: "absolute",
-    right: 0,
-    top: 0
-  },
-  pager: {
-    flex: 1
-  },
-  slide: {
-    flex: 1,
-    overflow: "hidden"
-  },
-  slideContent: {
-    flex: 1,
-    paddingHorizontal: spacing.xl
-  },
-  copyArea: {
-    gap: spacing.xs,
-    paddingTop: spacing.lg
-  },
-  title: {
-    ...type.display,
-    fontSize: 46,
-    includeFontPadding: true,
-    letterSpacing: -0.5,
-    lineHeight: 62,
-    paddingTop: spacing.xxs
-  },
-  titleMain: {
-    color: colors.textHi
-  },
-  titleAccent: {
-    color: colors.accent
-  },
-  subtitle: {
-    ...type.body,
-    color: colors.textLo
-  },
-  hudArea: {
-    flex: 1,
-    justifyContent: "flex-end",
-    paddingBottom: spacing.lg
-  },
-  footer: {
-    gap: spacing.md,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.sm
-  },
-  dots: {
-    alignSelf: "center",
-    flexDirection: "row",
-    gap: spacing.xs
-  },
-  dot: {
-    backgroundColor: colors.border,
-    borderRadius: radius.round,
-    height: 6,
-    width: 6
-  },
-  dotActive: {
-    backgroundColor: colors.accent,
-    width: 20
-  },
-  cta: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: radius.card,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 60,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md
-  },
-  ctaPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }]
-  },
-  ctaText: {
-    ...type.title,
-    color: colors.accentText
-  },
-  ctaIcon: {
-    alignItems: "center",
-    backgroundColor: colors.accentText,
-    borderRadius: radius.round,
-    height: 36,
-    justifyContent: "center",
-    width: 36
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    screen: {
+      backgroundColor: colors.background,
+      flex: 1
+    },
+    header: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "flex-end",
+      paddingHorizontal: spacing.xl,
+      paddingBottom: spacing.sm,
+      zIndex: 2
+    },
+    skipButton: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: radius.button,
+      borderWidth: 1,
+      justifyContent: "center",
+      minHeight: 44,
+      paddingHorizontal: spacing.md
+    },
+    skipText: {
+      ...type.label,
+      color: colors.textPrimary
+    },
+    pressed: {
+      opacity: 0.7
+    },
+    body: {
+      borderColor: colors.border,
+      borderRadius: HERO_CARD_RADIUS,
+      borderWidth: 1,
+      flex: 1,
+      marginBottom: spacing.sm,
+      marginHorizontal: spacing.lg,
+      position: "relative"
+    },
+    cardClip: {
+      borderRadius: HERO_CARD_RADIUS,
+      bottom: 0,
+      left: 0,
+      overflow: "hidden",
+      position: "absolute",
+      right: 0,
+      top: 0
+    },
+    topScrim: {
+      left: 0,
+      position: "absolute",
+      right: 0,
+      top: 0
+    },
+    pager: {
+      flex: 1
+    },
+    slide: {
+      flex: 1,
+      overflow: "hidden"
+    },
+    slideContent: {
+      flex: 1,
+      paddingHorizontal: spacing.xl
+    },
+    copyArea: {
+      gap: spacing.xs,
+      paddingTop: spacing.lg
+    },
+    brandMoment: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: spacing.xs,
+      marginBottom: spacing.xs
+    },
+    brandMarkFrame: {
+      height: 32,
+      overflow: "hidden",
+      width: 32
+    },
+    // Only applied on Light — see BRAND_MARK_LIGHT_MODE above: that asset is
+    // a filled dark tile, so rounding its corners here reads as a deliberate
+    // small brand chip rather than a hard-edged photo. Dark's mark is
+    // transparent, so its frame stays unrounded (there's no edge to round).
+    brandMarkFrameLight: {
+      borderRadius: 10
+    },
+    brandMarkImage: {
+      height: "100%",
+      width: "100%"
+    },
+    brandWordmark: {
+      ...type.bodyStrong,
+      color: colors.textPrimary,
+      letterSpacing: 0.3
+    },
+    title: {
+      ...type.display,
+      fontSize: 46,
+      includeFontPadding: true,
+      letterSpacing: -0.5,
+      lineHeight: 62,
+      paddingTop: spacing.xxs
+    },
+    titleMain: {
+      color: colors.textPrimary
+    },
+    // accentStrong, not bare accent — this text sits directly on the hero
+    // card surface, and plain lime nearly disappears on Light (see the
+    // theme.ts comment on accent vs accentStrong). Zero visual change on
+    // Dark, where accentStrong equals accent.
+    titleAccent: {
+      color: colors.accentStrong
+    },
+    subtitle: {
+      ...type.body,
+      color: colors.textSecondary
+    },
+    hudArea: {
+      flex: 1,
+      justifyContent: "flex-end",
+      paddingBottom: spacing.lg
+    },
+    footer: {
+      gap: spacing.md,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.sm
+    },
+    dots: {
+      alignSelf: "center",
+      flexDirection: "row",
+      gap: spacing.xs
+    },
+    dot: {
+      backgroundColor: colors.border,
+      borderRadius: radius.round,
+      height: 6,
+      width: 6
+    },
+    dotActive: {
+      backgroundColor: colors.accent,
+      width: 20
+    },
+    cta: {
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: radius.card,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      minHeight: 60,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md
+    },
+    ctaPressed: {
+      opacity: 0.85,
+      transform: [{ scale: 0.98 }]
+    },
+    ctaText: {
+      ...type.title,
+      color: colors.accentForeground
+    },
+    ctaIcon: {
+      alignItems: "center",
+      backgroundColor: colors.accentForeground,
+      borderRadius: radius.round,
+      height: 36,
+      justifyContent: "center",
+      width: 36
+    }
+  });
+}

@@ -6,7 +6,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, StyleProp, StyleSheet, View, ViewStyle } from "react-native";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { colors } from "../theme";
 
 // Dedicated onboarding hero model. Kept independent from Home's arm.glb /
 // ArmModelViewer — same native GLB-loading mechanism, but this viewer is
@@ -17,6 +16,12 @@ const modelAsset = require("../../assets/models/SO-Arm101.glb");
 type Props = {
   reduceMotion?: boolean;
   style?: StyleProp<ViewStyle>;
+  // Theme-aware colors, passed down rather than read via a hook so this
+  // WebGL-heavy component stays decoupled from ThemeContext — same pattern
+  // as ArmModelViewer's color props. Default to the pre-migration Dark
+  // values so any other, not-yet-updated caller keeps rendering unchanged.
+  groundShadowColor?: string;
+  fallbackBackgroundColor?: string;
 };
 
 // Same sphere-based fit as Home's ArmModelViewer. The sphere is
@@ -348,8 +353,8 @@ function fitCameraToBoundingSphere(camera: THREE.PerspectiveCamera, boundingRadi
   return fitDistance;
 }
 
-function addGroundShadow(scene: THREE.Scene, boundingRadius: number, floorY: number) {
-  const shadowColor = new THREE.Color(colors.surface2);
+function addGroundShadow(scene: THREE.Scene, boundingRadius: number, floorY: number, groundShadowColor: string) {
+  const shadowColor = new THREE.Color(groundShadowColor);
   [
     { radius: boundingRadius * 0.5, opacity: 0.4 },
     { radius: boundingRadius * 0.32, opacity: 0.28 }
@@ -437,7 +442,12 @@ async function loadGltfModel(asset: Asset): Promise<{ scene: THREE.Object3D }> {
   });
 }
 
-export function OnboardingHero({ reduceMotion = false, style }: Props) {
+export function OnboardingHero({
+  reduceMotion = false,
+  style,
+  groundShadowColor = "#1F1F24",
+  fallbackBackgroundColor = "#0F0F12"
+}: Props) {
   const frameRef = useRef<number | null>(null);
   const elapsedRef = useRef(0);
   const lastTickRef = useRef<number | null>(null);
@@ -499,7 +509,7 @@ export function OnboardingHero({ reduceMotion = false, style }: Props) {
         fitCameraToBoundingSphere(camera, boundingRadius);
 
         const floorY = box.min.y - center.y - boundingRadius * 0.02;
-        addGroundShadow(scene, boundingRadius, floorY);
+        addGroundShadow(scene, boundingRadius, floorY, groundShadowColor);
 
         const floatAmplitude = boundingRadius * FLOAT_AMPLITUDE_RATIO;
 
@@ -550,7 +560,7 @@ export function OnboardingHero({ reduceMotion = false, style }: Props) {
         setFailed(true);
       }
     },
-    [reduceMotion]
+    [groundShadowColor, reduceMotion]
   );
 
   useEffect(
@@ -561,7 +571,7 @@ export function OnboardingHero({ reduceMotion = false, style }: Props) {
   );
 
   if (failed) {
-    return <View style={[styles.fallback, style]} />;
+    return <View style={[styles.fallback, { backgroundColor: fallbackBackgroundColor }, style]} />;
   }
 
   return (
@@ -579,7 +589,6 @@ const styles = StyleSheet.create({
     flex: 1
   },
   fallback: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: colors.bg
+    ...StyleSheet.absoluteFill
   }
 });

@@ -1,7 +1,8 @@
 import { ChevronLeft } from "lucide-react-native";
-import { ReactNode } from "react";
+import { ReactNode, useMemo } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { colors, font, radius, spacing, type } from "../theme";
+import { useAppTheme } from "../ThemeContext";
+import { font, radius, spacing, ThemeColors, type } from "../theme";
 
 type Props = {
   title: string;
@@ -13,6 +14,9 @@ type Props = {
 };
 
 export function ScreenHeader({ title, subtitle, meta, fontsReady, onBack, right }: Props) {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
     <View style={styles.row}>
       <Pressable
@@ -22,7 +26,7 @@ export function ScreenHeader({ title, subtitle, meta, fontsReady, onBack, right 
         onPress={onBack}
         style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
       >
-        <ChevronLeft color={colors.textHi} size={22} />
+        <ChevronLeft color={colors.textPrimary} size={22} />
       </Pressable>
 
       <View style={styles.titleBlock}>
@@ -42,42 +46,44 @@ export function ScreenHeader({ title, subtitle, meta, fontsReady, onBack, right 
   );
 }
 
-const styles = StyleSheet.create({
-  row: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: spacing.sm
-  },
-  backButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    height: 44,
-    justifyContent: "center",
-    width: 44
-  },
-  titleBlock: {
-    flex: 1,
-    minWidth: 0,
-    paddingTop: spacing.xxs
-  },
-  title: {
-    ...type.title,
-    color: colors.textHi
-  },
-  subtitle: {
-    ...type.small,
-    color: colors.textLo,
-    marginTop: spacing.xxs
-  },
-  meta: {
-    ...type.mono,
-    color: colors.textLo,
-    marginTop: spacing.sm + 4
-  },
-  pressed: {
-    opacity: 0.78
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    row: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: spacing.sm
+    },
+    backButton: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: radius.button,
+      borderWidth: 1,
+      height: 44,
+      justifyContent: "center",
+      width: 44
+    },
+    titleBlock: {
+      flex: 1,
+      minWidth: 0,
+      paddingTop: spacing.xxs
+    },
+    title: {
+      ...type.title,
+      color: colors.textPrimary
+    },
+    subtitle: {
+      ...type.small,
+      color: colors.textSecondary,
+      marginTop: spacing.xxs
+    },
+    meta: {
+      ...type.mono,
+      color: colors.textSecondary,
+      marginTop: spacing.sm + 4
+    },
+    pressed: {
+      opacity: 0.78
+    }
+  });
+}
