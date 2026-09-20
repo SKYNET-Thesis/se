@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SO-101 WebXR Input Test</title>
+  </head>
+  <body>
+    <main id="app">
+      <h1>SO-101 WebXR Teleoperation</h1>
+      <p class="warning">REAL mode: controller A/X toggles control and Trigger closes the gripper. Hand tracking: hold thumb + middle finger for 0.65 s to toggle control; thumb + index controls the gripper.</p>
+      <p id="status">Checking WebXR support…</p>
+      <p id="socket-status">WebSocket: disconnected</p>
+      <p id="model-status">Preparing visualization…</p>
+      <p id="environment-status">Preparing XR environment…</p>
+      <button id="xr-toggle" type="button">START EMULATED VR</button>
+      <section class="controllers">
+        <pre id="left">LEFT CONTROLLER\nDisconnected</pre>
+        <pre id="right">RIGHT CONTROLLER\nDisconnected</pre>
+      </section>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

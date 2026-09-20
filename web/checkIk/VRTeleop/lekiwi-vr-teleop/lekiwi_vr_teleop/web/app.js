@@ -278,6 +278,7 @@ function placePanel(anchor, panel) {
 }
 
 const PANEL_TITLES = { front: 'CAMERA THÂN ROBOT', wrist: 'CAMERA CỔ TAY' };
+const PANEL_SHORT_TITLES = { front: 'THÂN ROBOT', wrist: 'CỔ TAY' };
 
 const EXIT_HOLD_MS = 1500;
 
@@ -297,6 +298,36 @@ const JOINT_LABELS = {
   wrist_roll: 'xoay cổ tay',
   gripper: 'kẹp',
 };
+
+/* Canvas cannot consume CSS custom properties, so keep its visual vocabulary in one
+ * semantic palette. Values intentionally match Version 1 until a later redesign phase
+ * changes the visual direction. */
+const UI_COLORS = Object.freeze({
+  canvas: '#12151a',
+  surface: '#1a1f27',
+  surfaceRaised: '#232a34',
+  surfaceInset: '#161a21',
+  border: '#2b3441',
+  textPrimary: '#e8edf4',
+  textSecondary: '#9ca7b5',
+  textMuted: '#7f8b9b',
+  textDisabled: '#5f6b7b',
+  textFaint: '#48525f',
+  info: '#83d0ff',
+  accentBlue: '#4e8ac0',
+  success: '#4ec97a',
+  successSoft: '#8ce0a6',
+  successSurface: '#1c4a2e',
+  warning: '#f0b45e',
+  warningAccent: '#c9a24e',
+  warningSurface: '#5c3a12',
+  danger: '#e8734a',
+  dangerSurface: '#7a1d29',
+  dangerText: '#ffb4bb',
+  neutralAccent: '#4a5563',
+  held: '#6ab0c7',
+  exit: '#c95e4e',
+});
 
 // ---------------------------------------------------------------- application
 
@@ -495,7 +526,20 @@ class TeleopClient {
     this.placeholderCanvas = document.createElement('canvas');
     this.placeholderCanvas.width = 512;
     this.placeholderCanvas.height = 384;
+    this.cameraCanvases = {};
+    for (const key of ['front', 'wrist']) {
+      this.cameraCanvases[key] = document.createElement('canvas');
+      this.cameraCanvases[key].width = 512;
+      this.cameraCanvases[key].height = 384;
+    }
     this.streamLive = { front: false, wrist: false };
+    this.streamErrors = { front: false, wrist: false };
+    for (const key of ['front', 'wrist']) {
+      this.images[key].onerror = () => {
+        this.streamLive[key] = false;
+        this.streamErrors[key] = true;
+      };
+    }
 
     // Markers drawn at each tracked hand. Without them an opaque session is a black void
     // in which the operator cannot see where their own hands are.
@@ -503,8 +547,8 @@ class TeleopClient {
       left: this.renderer.createTexture(),
       right: this.renderer.createTexture(),
     };
-    this.renderer.upload(this.markerTextures.left, this.drawMarker('#4e8ac0'));
-    this.renderer.upload(this.markerTextures.right, this.drawMarker('#c9a24e'));
+    this.renderer.upload(this.markerTextures.left, this.drawMarker(UI_COLORS.accentBlue));
+    this.renderer.upload(this.markerTextures.right, this.drawMarker(UI_COLORS.warningAccent));
   }
 
   /* The gesture depends on what the operator is holding, so the hint has to as well:
@@ -547,27 +591,62 @@ class TeleopClient {
     return canvas;
   }
 
+  drawCameraChrome(ctx, key, state, stateColor) {
+    ctx.fillStyle = 'rgba(16, 21, 27, 0.94)';
+    ctx.fillRect(0, 0, 512, 38);
+    ctx.fillRect(0, 354, 512, 30);
+    ctx.fillStyle = UI_COLORS.textPrimary;
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText(PANEL_SHORT_TITLES[key] || key, 16, 25);
+    ctx.fillStyle = stateColor;
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(state, 496, 24);
+    ctx.fillStyle = UI_COLORS.textMuted;
+    ctx.font = '12px monospace';
+    ctx.fillText(key === 'front' ? 'PRIMARY VIEW' : 'SECONDARY VIEW', 496, 374);
+    ctx.textAlign = 'left';
+  }
+
+  drawLiveCamera(key, img) {
+    const canvas = this.cameraCanvases[key];
+    const ctx = canvas.getContext('2d');
+    const contentTop = 38;
+    const contentBottom = 354;
+    const contentHeight = contentBottom - contentTop;
+    ctx.fillStyle = UI_COLORS.surfaceInset;
+    ctx.fillRect(0, 0, 512, 384);
+
+    const scale = Math.max(512 / img.naturalWidth, contentHeight / img.naturalHeight);
+    const imageWidth = img.naturalWidth * scale;
+    const imageHeight = img.naturalHeight * scale;
+    const imageX = (512 - imageWidth) / 2;
+    const imageY = contentTop + (contentHeight - imageHeight) / 2;
+    ctx.drawImage(img, imageX, imageY, imageWidth, imageHeight);
+    this.drawCameraChrome(ctx, key, 'STREAM LIVE', UI_COLORS.successSoft);
+    return canvas;
+  }
+
   /* A camera with no stream must not look like a panel that failed to render: say so. */
   drawPlaceholder(key) {
     const ctx = this.placeholderCanvas.getContext('2d');
-    ctx.fillStyle = '#161a21';
+    ctx.fillStyle = UI_COLORS.surfaceInset;
     ctx.fillRect(0, 0, 512, 384);
-    ctx.strokeStyle = '#2b3441';
-    ctx.lineWidth = 4;
-    ctx.strokeRect(12, 12, 488, 360);
+    ctx.strokeStyle = UI_COLORS.border;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(12, 48, 488, 294);
+    this.drawCameraChrome(ctx, key, 'NO SIGNAL', UI_COLORS.warning);
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#5f6b7b';
-    ctx.font = 'bold 26px sans-serif';
+    ctx.fillStyle = UI_COLORS.textDisabled;
+    ctx.font = 'bold 25px sans-serif';
     ctx.fillText(PANEL_TITLES[key] || key, 256, 168);
-    ctx.font = '22px sans-serif';
-    ctx.fillText('không có tín hiệu', 256, 210);
-    ctx.font = '18px sans-serif';
-    ctx.fillStyle = '#48525f';
-    ctx.fillText('robot chưa kết nối', 256, 244);
-    // The centre panel is what an operator looks at first, so the way out is repeated
-    // here rather than only on the telemetry board off to the left.
+    ctx.font = '21px sans-serif';
+    ctx.fillText(this.streamErrors[key] ? 'không thể mở camera' : 'đang chờ tín hiệu', 256, 210);
     ctx.font = '17px sans-serif';
-    ctx.fillStyle = '#7f8b9b';
+    ctx.fillStyle = UI_COLORS.textFaint;
+    ctx.fillText('robot chưa kết nối hoặc stream chưa sẵn sàng', 256, 244);
+    ctx.font = '15px sans-serif';
+    ctx.fillStyle = UI_COLORS.textMuted;
     ctx.fillText(`thoát VR: ${this.exitHint()}`, 256, 318);
     ctx.textAlign = 'left';
     return this.placeholderCanvas;
@@ -913,7 +992,7 @@ class TeleopClient {
       for (const key of ['front', 'wrist']) {
         const img = this.images[key];
         if (img && img.complete && img.naturalWidth > 0) {
-          this.renderer.upload(this.textures[key], img);
+          this.renderer.upload(this.textures[key], this.drawLiveCamera(key, img));
           this.streamLive[key] = true;
         } else if (!this.streamLive[key]) {
           this.renderer.upload(this.textures[key], this.drawPlaceholder(key));
@@ -988,26 +1067,39 @@ class TeleopClient {
     const ctx = this.telemetryCanvas.getContext('2d');
     const t = this.status.telemetry || {};
     const controllers = this.lastControllers || {};
+    const width = 512;
+    const height = 384;
 
-    ctx.fillStyle = '#12151a';
-    ctx.fillRect(0, 0, 512, 384);
+    ctx.fillStyle = UI_COLORS.canvas;
+    ctx.fillRect(0, 0, width, height);
 
-    // Header: the single most important line, readable across the room.
-    // A stalled control loop must never read as a healthy robot: the panel would show
-    // plausible joint angles from before the robot vanished. Age is measured by the relay
-    // thread, so it stays truthful even when the loop is blocked rather than erroring.
+    /* The board is intentionally organized as a glance path:
+     * system state, live input, arm state, then base/link details. */
     const stalled = this.status.telemetryAgeS === null || this.status.telemetryAgeS > 1.0;
     const arms = t.arms || {};
     const hands = Object.keys(arms).sort();
     const active = hands.filter((hand) => arms[hand].engaged);
-    ctx.fillStyle = stalled ? '#5c3a12' : this.stopped ? '#7a1d29' : active.length ? '#1c4a2e' : '#1a1f27';
-    ctx.fillRect(0, 0, 512, 56);
-    ctx.font = 'bold 28px sans-serif';
-    ctx.fillStyle = stalled ? '#f0b45e' : this.stopped ? '#ffb4bb' : active.length ? '#8ce0a6' : '#83d0ff';
-    // Names the engaged arms rather than saying "the arm": with two, which one is live is
-    // the first thing the operator needs and the easiest to get wrong.
+    const stateSurface = stalled
+      ? UI_COLORS.warningSurface
+      : this.stopped
+        ? UI_COLORS.dangerSurface
+        : active.length
+          ? UI_COLORS.successSurface
+          : UI_COLORS.surface;
+    const stateText = stalled
+      ? UI_COLORS.warning
+      : this.stopped
+        ? UI_COLORS.dangerText
+        : active.length
+          ? UI_COLORS.successSoft
+          : UI_COLORS.info;
+    ctx.fillStyle = stateSurface;
+    ctx.fillRect(0, 0, width, 52);
+
     const activeLabel =
       hands.length > 1 ? `ĐANG CHẠY: ${active.map((h) => HAND_LABELS[h]).join(' + ')}` : 'TAY ROBOT ĐANG CHẠY';
+    ctx.font = 'bold 25px sans-serif';
+    ctx.fillStyle = stateText;
     ctx.fillText(
       stalled
         ? 'MẤT KẾT NỐI ROBOT'
@@ -1017,61 +1109,64 @@ class TeleopClient {
             ? activeLabel
             : 'ROBOT ĐANG GIỮ TƯ THẾ',
       18,
-      38,
+      34,
     );
+    ctx.font = '13px monospace';
+    ctx.fillStyle = UI_COLORS.textMuted;
+    ctx.textAlign = 'right';
+    ctx.fillText(t.robotConnected ? 'ROBOT ONLINE' : 'ROBOT OFFLINE', 494, 30);
+    ctx.textAlign = 'left';
 
-    const bar = (x, y, value, color) => {
-      ctx.fillStyle = '#232a34';
-      ctx.fillRect(x, y, 150, 16);
+    const section = (label, y) => {
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillStyle = UI_COLORS.textMuted;
+      ctx.fillText(label, 18, y);
+    };
+    const bar = (x, y, value, color, barWidth = 150) => {
+      ctx.fillStyle = UI_COLORS.surfaceRaised;
+      ctx.fillRect(x, y, barWidth, 14);
       ctx.fillStyle = color;
-      ctx.fillRect(x, y, Math.max(0, Math.min(1, value)) * 150, 16);
+      ctx.fillRect(x, y, Math.max(0, Math.min(1, value)) * barWidth, 14);
     };
 
-    ctx.font = 'bold 17px sans-serif';
-    ctx.fillStyle = '#7f8b9b';
-    ctx.fillText('THIẾT BỊ ĐIỀU KHIỂN', 18, 84);
-
-    /* Two arms need two blocks below, and the board is 384 px tall. So the controller
-     * section drops its second line — stick and hand position — when a second arm appears.
-     * Those two readouts are bring-up instruments, most useful before a robot is attached;
-     * grip and trigger are the ones that matter while flying, and they stay. */
+    section('INPUT', 72);
     const compact = hands.length > 1;
-    let y = 106;
+    let y = 82;
     for (const hand of ['left', 'right']) {
       const c = controllers[hand];
-      ctx.font = 'bold 20px sans-serif';
-      ctx.fillStyle = c && c.tracked ? '#e8edf4' : '#5f6b7b';
-      ctx.fillText(hand === 'left' ? 'TRÁI' : 'PHẢI', 18, y + 14);
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillStyle = c && c.tracked ? UI_COLORS.textPrimary : UI_COLORS.textDisabled;
+      ctx.fillText(hand === 'left' ? 'TRÁI' : 'PHẢI', 18, y + 12);
       if (!c || !c.tracked) {
-        ctx.font = '18px sans-serif';
-        ctx.fillStyle = '#5f6b7b';
-        ctx.fillText('không được theo dõi', 90, y + 14);
+        ctx.font = '14px sans-serif';
+        ctx.fillStyle = UI_COLORS.textDisabled;
+        ctx.fillText('không được theo dõi', 82, y + 12);
       } else if (c.kind === 'hand') {
-        ctx.font = '15px sans-serif';
-        ctx.fillStyle = c.squeeze > 0.5 ? '#8ce0a6' : '#c9a24e';
+        ctx.font = '13px sans-serif';
+        ctx.fillStyle = c.squeeze > 0.5 ? UI_COLORS.successSoft : UI_COLORS.warningAccent;
         ctx.fillText(
           c.squeeze > 0.5 ? 'tay trần · teleop đang bật' : 'tay trần · cái+giữa để bật',
-          90,
-          y + 14,
+          82,
+          y + 12,
         );
         ctx.font = '15px monospace';
-        ctx.fillStyle = '#7f8b9b';
+        ctx.fillStyle = UI_COLORS.textMuted;
         ctx.fillText(
           `xyz ${c.position.map((v) => (v >= 0 ? '+' : '') + v.toFixed(2)).join(' ')}`,
           90,
           y + 36,
         );
       } else {
-        ctx.font = '15px sans-serif';
-        ctx.fillStyle = '#9ca7b5';
-        ctx.fillText('grip', 90, y + 13);
-        bar(130, y, c.squeeze, c.squeeze > 0.5 ? '#4ec97a' : '#4e8ac0');
-        ctx.fillStyle = '#9ca7b5';
-        ctx.fillText('cò', 292, y + 13);
-        bar(332, y, c.trigger, '#c9a24e');
+        ctx.font = '13px sans-serif';
+        ctx.fillStyle = UI_COLORS.textSecondary;
+        ctx.fillText('grip', 82, y + 12);
+        bar(116, y, c.squeeze, c.squeeze > 0.5 ? UI_COLORS.success : UI_COLORS.accentBlue, 128);
+        ctx.fillStyle = UI_COLORS.textSecondary;
+        ctx.fillText('cò', 256, y + 12);
+        bar(276, y, c.trigger, UI_COLORS.warningAccent, 128);
         if (!compact) {
           ctx.font = '15px monospace';
-          ctx.fillStyle = '#7f8b9b';
+          ctx.fillStyle = UI_COLORS.textMuted;
           ctx.fillText(
             `stick ${c.stickX >= 0 ? '+' : ''}${c.stickX.toFixed(2)} ${c.stickY >= 0 ? '+' : ''}${c.stickY.toFixed(2)}`,
             130,
@@ -1084,65 +1179,53 @@ class TeleopClient {
           );
         }
       }
-      y += compact ? 30 : 62;
+      y += compact ? 28 : 46;
     }
 
-    /* One block per arm: jaw, joints and the reason the arm is not where the hand is.
-     *
-     * With one arm the joints get a row each. With two there is no room for ten rows on a
-     * 512x384 board, and there does not need to be — the 3D skeletons carry the joints, and
-     * what the numbers add is the lag, so only the worst lagging joint is named. */
+    section('ARM STATE', compact ? 144 : 132);
     const solo = !compact;
-    let blockY = y + 8;
+    let blockY = compact ? 154 : 142;
     for (const hand of hands) {
       const arm = arms[hand];
       const jaw = arm.joints ? arm.joints.gripper : undefined;
       const wanted = arm.jointsTarget ? arm.jointsTarget.gripper : undefined;
       const clamp01 = (v) => Math.max(0, Math.min(1, v / 100));
 
-      ctx.font = 'bold 16px sans-serif';
-      ctx.fillStyle = arm.approachingReady ? '#f0b45e' : arm.engaged ? '#8ce0a6' : '#7f8b9b';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillStyle = arm.approachingReady ? UI_COLORS.warning : arm.engaged ? UI_COLORS.successSoft : UI_COLORS.textMuted;
       const title = arm.approachingReady
         ? 'ĐANG VỀ TƯ THẾ LÀM VIỆC'
         : solo
           ? 'KẸP'
           : `${HAND_LABELS[hand].toUpperCase()} · KẸP`;
-      ctx.fillText(title, 18, blockY + 14);
-      // A simulated arm must never be mistaken for the robot's own pose. In a dry run the
-      // skeleton follows perfectly and the real arm has not moved at all.
+      ctx.fillText(title, 18, blockY + 12);
       if (arm.simulated) {
-        ctx.font = '14px sans-serif';
-        ctx.fillStyle = '#c9a24e';
-        ctx.fillText('MÔ PHỎNG - robot không di chuyển', 148, blockY + 13);
+        ctx.font = '12px sans-serif';
+        ctx.fillStyle = UI_COLORS.warningAccent;
+        ctx.fillText('MÔ PHỎNG', 148, blockY + 11);
       }
 
       if (jaw !== undefined) {
-        ctx.fillStyle = '#232a34';
-        ctx.fillRect(148, blockY, 150, 16);
-        ctx.fillStyle = arm.gripperHolding ? '#4ec97a' : arm.gripperTaken ? '#6ab0c7' : '#c9a24e';
-        ctx.fillRect(148, blockY, 150 * clamp01(jaw), 16);
-        // Where the finger is asking the jaw to be. When it sits left of the bar's own edge
-        // the jaw is pressing on something: that gap IS the grip force, and it is the only
-        // report of it this arm can make — there is no force sensor and no haptic return.
+        ctx.fillStyle = UI_COLORS.surfaceRaised;
+        ctx.fillRect(148, blockY, 150, 14);
+        ctx.fillStyle = arm.gripperHolding ? UI_COLORS.success : arm.gripperTaken ? UI_COLORS.held : UI_COLORS.warningAccent;
+        ctx.fillRect(148, blockY, 150 * clamp01(jaw), 14);
         if (wanted !== undefined) {
-          ctx.fillStyle = '#f0b45e';
-          ctx.fillRect(148 + 150 * clamp01(wanted) - 1, blockY - 4, 3, 24);
+          ctx.fillStyle = UI_COLORS.warning;
+          ctx.fillRect(148 + 150 * clamp01(wanted) - 1, blockY - 3, 3, 20);
         }
-        ctx.font = '15px sans-serif';
+        ctx.font = '13px monospace';
         let jawText = `${Math.round(jaw)}`;
-        ctx.fillStyle = arm.gripperTaken ? '#7f8b9b' : '#f0b45e';
+        ctx.fillStyle = arm.gripperTaken ? UI_COLORS.textMuted : UI_COLORS.warning;
         if (arm.engaged && !arm.gripperTaken) jawText = 'đưa ngón kẹp tới vị trí hiện tại';
         else if (arm.gripperHolding) {
           jawText = `đang giữ · ${Math.round(jaw)}`;
-          ctx.fillStyle = '#4ec97a';
+          ctx.fillStyle = UI_COLORS.success;
         }
-        ctx.fillText(jawText, 308, blockY + 13);
+        ctx.fillText(jawText, 310, blockY + 11);
       }
-      blockY += 24;
+      blockY += 21;
 
-      // Joints: measured, then how far the command is ahead of it. That second number is
-      // the servo lag on that joint, and it is the same quantity the 3D skeletons draw as
-      // the gap between them; the board gives it in degrees for when the eye is not enough.
       const measured = arm.joints || {};
       const targets = arm.jointsTarget || {};
       const names = Object.keys(measured).filter((name) => name !== 'gripper');
@@ -1150,18 +1233,18 @@ class TeleopClient {
         ctx.font = '15px monospace';
         names.forEach((name, index) => {
           const x = 18 + (index % 3) * 166;
-          const row = blockY + 14 + Math.floor(index / 3) * 21;
-          ctx.fillStyle = '#7f8b9b';
+          const row = blockY + 12 + Math.floor(index / 3) * 18;
+          ctx.fillStyle = UI_COLORS.textMuted;
           ctx.fillText(JOINT_LABELS[name] || name.slice(0, 8), x, row);
-          ctx.fillStyle = '#e8edf4';
+          ctx.fillStyle = UI_COLORS.textPrimary;
           ctx.fillText(measured[name].toFixed(0).padStart(5), x + 72, row);
           if (targets[name] !== undefined) {
             const lag = targets[name] - measured[name];
-            ctx.fillStyle = Math.abs(lag) > 8 ? '#e8734a' : Math.abs(lag) > 3 ? '#f0b45e' : '#4a5563';
+            ctx.fillStyle = Math.abs(lag) > 8 ? UI_COLORS.danger : Math.abs(lag) > 3 ? UI_COLORS.warning : UI_COLORS.neutralAccent;
             ctx.fillText(`${lag >= 0 ? '+' : ''}${lag.toFixed(0)}`, x + 122, row);
           }
         });
-        blockY += 21 * Math.ceil(names.length / 3);
+        blockY += 18 * Math.ceil(names.length / 3);
       } else if (names.length) {
         let worst = null;
         for (const name of names) {
@@ -1171,65 +1254,60 @@ class TeleopClient {
         }
         if (worst) {
           ctx.font = '15px monospace';
-          ctx.fillStyle = worst.lag > 8 ? '#e8734a' : worst.lag > 3 ? '#f0b45e' : '#4a5563';
-          ctx.fillText(`trễ ${JOINT_LABELS[worst.name] || worst.name} ${worst.lag.toFixed(0)}°`, 18, blockY + 14);
-          blockY += 20;
+          ctx.fillStyle = worst.lag > 8 ? UI_COLORS.danger : worst.lag > 3 ? UI_COLORS.warning : UI_COLORS.neutralAccent;
+          ctx.fillText(`trễ ${JOINT_LABELS[worst.name] || worst.name} ${worst.lag.toFixed(0)}°`, 18, blockY + 12);
+          blockY += 18;
         }
       }
 
-      /* Why the arm is not where the hand is. Four distinct causes, and without naming them
-       * every one of them feels identical from inside the headset: the arm stops following. */
       const reasons = [];
       if (arm.reachErrorM > 0.01) reasons.push('ngoài tầm với');
       if (Math.abs(arm.pitchErrorDeg || 0) > 5) reasons.push('không đạt được góc nghiêng');
       if (arm.trackingErrorDeg > 12) reasons.push(`robot trễ ${Math.round(arm.trackingErrorDeg)}°`);
       if (arm.rateLimited) reasons.push('tay di chuyển quá nhanh');
-      ctx.font = '15px sans-serif';
-      ctx.fillStyle = reasons.length ? '#f0b45e' : '#4a5563';
-      // Out of reach almost always means the arm is stowed in a corner of its workspace,
-      // and no amount of hand motion gets it out. Name the way out, not just the symptom.
+      ctx.font = '13px sans-serif';
+      ctx.fillStyle = reasons.length ? UI_COLORS.warning : UI_COLORS.neutralAccent;
       let line = reasons.length ? reasons.join(' · ') : 'đang đi theo bàn tay';
       if (arm.approachingReady) line = 'giữ grip và B/Y';
-      // Re-clutching is the ordinary way out and is not discoverable on its own: the
-      // hand-to-arm correspondence is fixed at the moment the grip closes, so an operator
-      // whose own arm has run out of room must let go, move it back, and take hold again.
       else if (arm.reachErrorM > 0.01) line += '  →  tắt clutch, đưa tay về rồi bật lại';
-      ctx.fillText(line, 18, blockY + 14);
-      blockY += solo ? 22 : 26;
+      ctx.fillText(line, 18, blockY + 12);
+      blockY += solo ? 19 : 22;
     }
 
     if (!hands.length) {
-      ctx.font = '18px sans-serif';
-      ctx.fillStyle = '#5f6b7b';
-      ctx.fillText('không có dữ liệu - robot chưa kết nối', 90, 250);
+      ctx.font = '15px sans-serif';
+      ctx.fillStyle = UI_COLORS.textDisabled;
+      ctx.fillText('không có dữ liệu, robot chưa kết nối', 18, blockY + 20);
     }
 
-    // Footer: base command and the health of the link itself.
+    /* Footer is deliberately stable so base motion and link health remain visible even when
+     * arm details change between one and two hands. */
     const base = t.base || {};
-    ctx.fillStyle = '#1a1f27';
-    ctx.fillRect(0, 340, 512, 44);
-    ctx.font = '17px monospace';
-    ctx.fillStyle = '#9ca7b5';
-    // Spelled out rather than using θ: the monospace face the headset falls back to has
-    // no glyph for it and silently renders a lookalike digit.
+    ctx.fillStyle = UI_COLORS.surface;
+    ctx.fillRect(0, 326, width, 58);
+    ctx.font = '13px sans-serif';
+    ctx.fillStyle = UI_COLORS.textMuted;
+    ctx.fillText('BASE VELOCITY', 18, 342);
+    ctx.font = '16px monospace';
+    ctx.fillStyle = UI_COLORS.textSecondary;
     ctx.fillText(
       `đế x${(base['x.vel'] || 0).toFixed(2)} y${(base['y.vel'] || 0).toFixed(2)} xoay${(base['theta.vel'] || 0).toFixed(0)}`,
       18,
-      358,
+      360,
     );
-    ctx.fillStyle = this.rttMs !== null && this.rttMs < 50 ? '#4ec97a' : '#c9a24e';
-    ctx.fillText(`rtt ${this.rttMs === null ? '--' : this.rttMs.toFixed(0)} ms`, 330, 358);
+    ctx.fillStyle = this.rttMs !== null && this.rttMs < 50 ? UI_COLORS.success : UI_COLORS.warningAccent;
+    ctx.textAlign = 'right';
+    ctx.fillText(`rtt ${this.rttMs === null ? '--' : this.rttMs.toFixed(0)} ms`, 494, 360);
+    ctx.textAlign = 'left';
 
-    // Exit affordance. Worded for whatever is actually in the operator's hands, and with
-    // a filling bar so the hold confirms itself the moment it is tried.
-    ctx.font = '15px sans-serif';
-    ctx.fillStyle = this.exitProgress ? '#e8edf4' : '#7f8b9b';
-    ctx.fillText(`thoát: ${this.exitHint()}`, 18, 374);
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = this.exitProgress ? UI_COLORS.textPrimary : UI_COLORS.textMuted;
+    ctx.fillText(`thoát: ${this.exitHint()}`, 18, 378);
     if (this.exitProgress) {
-      ctx.fillStyle = '#232a34';
-      ctx.fillRect(18, 378, 476, 5);
-      ctx.fillStyle = '#c95e4e';
-      ctx.fillRect(18, 378, 476 * this.exitProgress, 5);
+      ctx.fillStyle = UI_COLORS.surfaceRaised;
+      ctx.fillRect(18, 380, 476, 3);
+      ctx.fillStyle = UI_COLORS.exit;
+      ctx.fillRect(18, 380, 476 * this.exitProgress, 3);
     }
 
     this.renderer.upload(this.textures.telemetry, this.telemetryCanvas);
