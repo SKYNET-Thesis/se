@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { ScreenHeader } from "../components/ScreenHeader";
-import { colors, font, radius, spacing, type } from "../theme";
+import { useAppTheme } from "../ThemeContext";
+import { font, radius, spacing, ThemeColors, type } from "../theme";
 
 type Props = {
   emergencyStopped: boolean;
@@ -10,12 +12,18 @@ type Props = {
 
 type Tone = "ok" | "caution" | "danger" | "neutral";
 
-const toneColor: Record<Tone, string> = {
-  ok: colors.accent,
-  caution: colors.caution,
-  danger: colors.danger,
-  neutral: colors.textLo
-};
+// Built from the live theme (not a module constant) so it follows
+// Light/Dark; "ok" uses accentStrong since this color paints bare text/dot
+// fills directly on a surface, where plain accent reads almost invisibly
+// on Light.
+function buildToneColor(colors: ThemeColors): Record<Tone, string> {
+  return {
+    ok: colors.accentStrong,
+    caution: colors.caution,
+    danger: colors.danger,
+    neutral: colors.textSecondary
+  };
+}
 
 type ArmChannel = {
   label: "Follower" | "Leader";
@@ -128,6 +136,9 @@ const CARD_RADIUS_OUTER = 24;
 const CARD_RADIUS_INNER = 20;
 
 export function StatusScreen({ emergencyStopped, fontsReady, onBack }: Props) {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const toneColor = useMemo(() => buildToneColor(colors), [colors]);
   const state: SystemState = emergencyStopped ? "emergency-stopped" : MOCK_STATE;
 
   return (
@@ -145,27 +156,49 @@ export function StatusScreen({ emergencyStopped, fontsReady, onBack }: Props) {
       />
 
       {state === "loading" ? (
-        <LoadingState fontsReady={fontsReady} />
+        <LoadingState fontsReady={fontsReady} styles={styles} />
       ) : (
         <>
-          <HeroCard fontsReady={fontsReady} snapshot={SNAPSHOTS[state]} />
+          <HeroCard colors={colors} fontsReady={fontsReady} snapshot={SNAPSHOTS[state]} styles={styles} toneColor={toneColor} />
 
           <View style={styles.armShell}>
             <View style={styles.armShellRow}>
-              <ArmChannelCard channel={SNAPSHOTS[state].follower} fontsReady={fontsReady} />
-              <ArmChannelCard channel={SNAPSHOTS[state].leader} fontsReady={fontsReady} />
+              <ArmChannelCard
+                channel={SNAPSHOTS[state].follower}
+                fontsReady={fontsReady}
+                styles={styles}
+                toneColor={toneColor}
+              />
+              <ArmChannelCard
+                channel={SNAPSHOTS[state].leader}
+                fontsReady={fontsReady}
+                styles={styles}
+                toneColor={toneColor}
+              />
             </View>
           </View>
 
-          <ReadinessCard fontsReady={fontsReady} snapshot={SNAPSHOTS[state]} />
-          <ProfileCard fontsReady={fontsReady} />
+          <ReadinessCard fontsReady={fontsReady} snapshot={SNAPSHOTS[state]} styles={styles} toneColor={toneColor} />
+          <ProfileCard fontsReady={fontsReady} styles={styles} />
         </>
       )}
     </ScrollView>
   );
 }
 
-function HeroCard({ snapshot, fontsReady }: { snapshot: StatusSnapshot; fontsReady: boolean }) {
+function HeroCard({
+  colors,
+  fontsReady,
+  snapshot,
+  styles,
+  toneColor
+}: {
+  colors: ThemeColors;
+  fontsReady: boolean;
+  snapshot: StatusSnapshot;
+  styles: ReturnType<typeof createStyles>;
+  toneColor: Record<Tone, string>;
+}) {
   const heroColor = toneColor[snapshot.heroTone];
   const hasLatency = snapshot.systemLatencyMs !== null;
 
@@ -207,7 +240,7 @@ function HeroCard({ snapshot, fontsReady }: { snapshot: StatusSnapshot; fontsRea
               type.display,
               font("monoStrong", fontsReady),
               styles.heroLatencyValue,
-              { color: hasLatency ? colors.textHi : colors.textLo }
+              { color: hasLatency ? colors.textPrimary : colors.textSecondary }
             ]}
           >
             {hasLatency ? snapshot.systemLatencyMs : "—"}
@@ -219,7 +252,17 @@ function HeroCard({ snapshot, fontsReady }: { snapshot: StatusSnapshot; fontsRea
   );
 }
 
-function ArmChannelCard({ channel, fontsReady }: { channel: ArmChannel; fontsReady: boolean }) {
+function ArmChannelCard({
+  channel,
+  fontsReady,
+  styles,
+  toneColor
+}: {
+  channel: ArmChannel;
+  fontsReady: boolean;
+  styles: ReturnType<typeof createStyles>;
+  toneColor: Record<Tone, string>;
+}) {
   const connectionTone: Tone = channel.connected ? "ok" : "danger";
   const statusLabel = channel.connected ? "Đã kết nối" : "Mất kết nối";
   const calibratedLabel = !channel.connected ? "—" : channel.calibrated ? "Có" : "Chưa";
@@ -257,7 +300,17 @@ function ArmChannelCard({ channel, fontsReady }: { channel: ArmChannel; fontsRea
   );
 }
 
-function ReadinessCard({ snapshot, fontsReady }: { snapshot: StatusSnapshot; fontsReady: boolean }) {
+function ReadinessCard({
+  fontsReady,
+  snapshot,
+  styles,
+  toneColor
+}: {
+  fontsReady: boolean;
+  snapshot: StatusSnapshot;
+  styles: ReturnType<typeof createStyles>;
+  toneColor: Record<Tone, string>;
+}) {
   const cameraTone: Tone =
     snapshot.camerasOnline === snapshot.camerasTotal ? "ok" : snapshot.camerasOnline === 0 ? "danger" : "caution";
 
@@ -287,7 +340,7 @@ function ReadinessCard({ snapshot, fontsReady }: { snapshot: StatusSnapshot; fon
   );
 }
 
-function ProfileCard({ fontsReady }: { fontsReady: boolean }) {
+function ProfileCard({ fontsReady, styles }: { fontsReady: boolean; styles: ReturnType<typeof createStyles> }) {
   const rows = [
     { label: "Model", value: "SO-ARM101" },
     { label: "Cấu hình", value: "Dual Arm" },
@@ -311,7 +364,7 @@ function ProfileCard({ fontsReady }: { fontsReady: boolean }) {
   );
 }
 
-function LoadingState({ fontsReady }: { fontsReady: boolean }) {
+function LoadingState({ fontsReady, styles }: { fontsReady: boolean; styles: ReturnType<typeof createStyles> }) {
   return (
     <View style={styles.loadingWrap}>
       <Text style={[styles.loadingCaption, font("body", fontsReady)]}>Đang đồng bộ trạng thái hệ thống…</Text>
@@ -322,237 +375,239 @@ function LoadingState({ fontsReady }: { fontsReady: boolean }) {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: colors.bg,
-    flex: 1
-  },
-  content: {
-    gap: spacing.lg,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xxxl
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: radius.round
-  },
-  dotSmall: {
-    width: 8,
-    height: 8
-  },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    screen: {
+      backgroundColor: colors.background,
+      flex: 1
+    },
+    content: {
+      gap: spacing.lg,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.xxxl
+    },
+    dot: {
+      width: 10,
+      height: 10,
+      borderRadius: radius.round
+    },
+    dotSmall: {
+      width: 8,
+      height: 8
+    },
 
-  // Hero
-  heroCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: CARD_RADIUS_OUTER,
-    padding: spacing.lg,
-    gap: spacing.lg
-  },
-  heroCardDanger: {
-    borderColor: colors.danger
-  },
-  heroTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: spacing.md
-  },
-  heroStateRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    flexShrink: 1
-  },
-  heroLabel: {
-    ...type.title,
-    flexShrink: 1
-  },
-  modePill: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: radius.button,
-    minHeight: 34,
-    paddingHorizontal: spacing.sm
-  },
-  modePillOk: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent
-  },
-  modePillDanger: {
-    borderColor: colors.danger
-  },
-  modeText: {
-    ...type.label,
-    color: colors.textHi
-  },
-  modeTextOk: {
-    color: colors.accentText
-  },
-  modeTextDanger: {
-    color: colors.danger
-  },
-  heroLatencyBlock: {
-    gap: spacing.xxs
-  },
-  heroLatencyLabel: {
-    ...type.small,
-    color: colors.textLo
-  },
-  heroLatencyRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: spacing.xxs
-  },
-  heroLatencyValue: {
-    letterSpacing: 0
-  },
-  heroLatencyUnit: {
-    ...type.mono,
-    color: colors.textLo,
-    paddingBottom: spacing.xs
-  },
+    // Hero
+    heroCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: CARD_RADIUS_OUTER,
+      padding: spacing.lg,
+      gap: spacing.lg
+    },
+    heroCardDanger: {
+      borderColor: colors.danger
+    },
+    heroTop: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.md
+    },
+    heroStateRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      flexShrink: 1
+    },
+    heroLabel: {
+      ...type.title,
+      flexShrink: 1
+    },
+    modePill: {
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: radius.button,
+      minHeight: 34,
+      paddingHorizontal: spacing.sm
+    },
+    modePillOk: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent
+    },
+    modePillDanger: {
+      borderColor: colors.danger
+    },
+    modeText: {
+      ...type.label,
+      color: colors.textPrimary
+    },
+    modeTextOk: {
+      color: colors.accentForeground
+    },
+    modeTextDanger: {
+      color: colors.danger
+    },
+    heroLatencyBlock: {
+      gap: spacing.xxs
+    },
+    heroLatencyLabel: {
+      ...type.small,
+      color: colors.textSecondary
+    },
+    heroLatencyRow: {
+      flexDirection: "row",
+      alignItems: "flex-end",
+      gap: spacing.xxs
+    },
+    heroLatencyValue: {
+      letterSpacing: 0
+    },
+    heroLatencyUnit: {
+      ...type.mono,
+      color: colors.textSecondary,
+      paddingBottom: spacing.xs
+    },
 
-  // Follower / Leader
-  armShell: {
-    backgroundColor: colors.surface2,
-    borderRadius: CARD_RADIUS_OUTER,
-    padding: spacing.sm
-  },
-  armShellRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
-  },
-  armCard: {
-    backgroundColor: colors.surface,
-    borderRadius: CARD_RADIUS_INNER,
-    padding: spacing.md,
-    gap: spacing.sm,
-    flexBasis: "47%",
-    flexGrow: 1,
-    minWidth: 140
-  },
-  armHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs
-  },
-  armLabel: {
-    ...type.bodyStrong,
-    color: colors.textHi
-  },
-  armStatus: {
-    ...type.small
-  },
-  armRows: {
-    gap: spacing.xs,
-    marginTop: spacing.xxs
-  },
-  armRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between"
-  },
-  armRowLabel: {
-    ...type.small,
-    color: colors.textLo
-  },
-  armRowValue: {
-    ...type.small,
-    color: colors.textHi
-  },
+    // Follower / Leader
+    armShell: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: CARD_RADIUS_OUTER,
+      padding: spacing.sm
+    },
+    armShellRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm
+    },
+    armCard: {
+      backgroundColor: colors.surface,
+      borderRadius: CARD_RADIUS_INNER,
+      padding: spacing.md,
+      gap: spacing.sm,
+      flexBasis: "47%",
+      flexGrow: 1,
+      minWidth: 140
+    },
+    armHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs
+    },
+    armLabel: {
+      ...type.bodyStrong,
+      color: colors.textPrimary
+    },
+    armStatus: {
+      ...type.small
+    },
+    armRows: {
+      gap: spacing.xs,
+      marginTop: spacing.xxs
+    },
+    armRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between"
+    },
+    armRowLabel: {
+      ...type.small,
+      color: colors.textSecondary
+    },
+    armRowValue: {
+      ...type.small,
+      color: colors.textPrimary
+    },
 
-  // Readiness
-  readinessCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: CARD_RADIUS_OUTER,
-    padding: spacing.lg,
-    gap: spacing.md
-  },
-  sectionTitle: {
-    ...type.bodyStrong,
-    color: colors.textHi
-  },
-  readinessRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    minHeight: 44,
-    paddingVertical: spacing.xs
-  },
-  readinessRowDivider: {
-    borderTopColor: colors.border,
-    borderTopWidth: 1
-  },
-  readinessLabel: {
-    ...type.body,
-    color: colors.textLo
-  },
-  readinessValue: {
-    ...type.bodyStrong
-  },
+    // Readiness
+    readinessCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: CARD_RADIUS_OUTER,
+      padding: spacing.lg,
+      gap: spacing.md
+    },
+    sectionTitle: {
+      ...type.bodyStrong,
+      color: colors.textPrimary
+    },
+    readinessRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      minHeight: 44,
+      paddingVertical: spacing.xs
+    },
+    readinessRowDivider: {
+      borderTopColor: colors.border,
+      borderTopWidth: 1
+    },
+    readinessLabel: {
+      ...type.body,
+      color: colors.textSecondary
+    },
+    readinessValue: {
+      ...type.bodyStrong
+    },
 
-  // Profile
-  profileCard: {
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: CARD_RADIUS_INNER,
-    padding: spacing.lg,
-    gap: spacing.sm
-  },
-  profileTitle: {
-    ...type.label,
-    color: colors.textLo
-  },
-  profileRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    minHeight: 36,
-    paddingVertical: spacing.xxs
-  },
-  profileRowDivider: {
-    borderTopColor: colors.border,
-    borderTopWidth: 1
-  },
-  profileLabel: {
-    ...type.small,
-    color: colors.textLo
-  },
-  profileValue: {
-    ...type.small,
-    color: colors.textHi
-  },
+    // Profile
+    profileCard: {
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: CARD_RADIUS_INNER,
+      padding: spacing.lg,
+      gap: spacing.sm
+    },
+    profileTitle: {
+      ...type.label,
+      color: colors.textSecondary
+    },
+    profileRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      minHeight: 36,
+      paddingVertical: spacing.xxs
+    },
+    profileRowDivider: {
+      borderTopColor: colors.border,
+      borderTopWidth: 1
+    },
+    profileLabel: {
+      ...type.small,
+      color: colors.textSecondary
+    },
+    profileValue: {
+      ...type.small,
+      color: colors.textPrimary
+    },
 
-  // Loading
-  loadingWrap: {
-    gap: spacing.md
-  },
-  loadingCaption: {
-    ...type.small,
-    color: colors.textLo,
-    textAlign: "center"
-  },
-  skeletonBlock: {
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: CARD_RADIUS_OUTER
-  },
-  skeletonHero: {
-    height: 150
-  },
-  skeletonRow: {
-    height: 96
-  }
-});
+    // Loading
+    loadingWrap: {
+      gap: spacing.md
+    },
+    loadingCaption: {
+      ...type.small,
+      color: colors.textSecondary,
+      textAlign: "center"
+    },
+    skeletonBlock: {
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderWidth: 1,
+      borderRadius: CARD_RADIUS_OUTER
+    },
+    skeletonHero: {
+      height: 150
+    },
+    skeletonRow: {
+      height: 96
+    }
+  });
+}

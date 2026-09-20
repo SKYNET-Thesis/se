@@ -6,14 +6,14 @@ import {
   Minus,
   Plus,
   ShieldAlert,
-  SlidersHorizontal,
   TriangleAlert,
   X
 } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ScreenHeader } from "../components/ScreenHeader";
-import { colors, font, radius, spacing, type } from "../theme";
+import { useAppTheme } from "../ThemeContext";
+import { font, radius, spacing, ThemeColors, type } from "../theme";
 
 type ArmRole = "follower" | "leader";
 type MotorId =
@@ -130,6 +130,8 @@ const CARD_RADIUS_OUTER = 24;
 const CARD_RADIUS_INNER = 18;
 
 export function TeleopScreen({ emergencyStopped, fontsReady, onBack }: Props) {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [tick, setTick] = useState(0);
   const [manualEnabled, setManualEnabled] = useState(false);
   const [confirmManualVisible, setConfirmManualVisible] = useState(false);
@@ -198,33 +200,38 @@ export function TeleopScreen({ emergencyStopped, fontsReady, onBack }: Props) {
           title="Teleop"
         />
 
-        {emergencyStopped && <StoppedBanner fontsReady={fontsReady} />}
+        {emergencyStopped && <StoppedBanner colors={colors} fontsReady={fontsReady} styles={styles} />}
 
-        <ControlStatePanel fontsReady={fontsReady} state={teleopState} />
+        <ControlStatePanel colors={colors} fontsReady={fontsReady} state={teleopState} styles={styles} />
 
         <ManualActionCard
+          colors={colors}
           disabled={teleopState === "estop"}
           fontsReady={fontsReady}
           manualEnabled={manualEnabled}
           onToggle={openManualConfirm}
+          styles={styles}
         />
 
         <GatePanel
-          connected={MOCK_GATE.connected}
           calibrated={MOCK_GATE.calibrated}
+          connected={MOCK_GATE.connected}
           emergencyStopped={emergencyStopped}
           fontsReady={fontsReady}
           manualEnabled={manualEnabled}
           profile={MOCK_GATE.profile}
+          styles={styles}
         />
 
         <View style={styles.armStack}>
           {ARM_SEQUENCE.map((role) => (
             <ArmLiveCard
+              colors={colors}
               fontsReady={fontsReady}
               key={role}
               readings={readings[role]}
               role={role}
+              styles={styles}
               tick={tick}
             />
           ))}
@@ -232,24 +239,36 @@ export function TeleopScreen({ emergencyStopped, fontsReady, onBack }: Props) {
 
         <JogPanel
           activeJog={activeJog}
+          colors={colors}
           disabled={!controlsActive}
           fontsReady={fontsReady}
           onJogStart={setActiveJog}
           onJogStop={() => setActiveJog(null)}
+          styles={styles}
         />
       </ScrollView>
 
       <ManualConfirmModal
+        colors={colors}
         fontsReady={fontsReady}
         onCancel={cancelManualConfirm}
         onConfirm={confirmManual}
+        styles={styles}
         visible={confirmManualVisible}
       />
     </>
   );
 }
 
-function StoppedBanner({ fontsReady }: { fontsReady: boolean }) {
+function StoppedBanner({
+  colors,
+  fontsReady,
+  styles
+}: {
+  colors: ThemeColors;
+  fontsReady: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
   return (
     <View style={styles.stoppedBanner}>
       <ShieldAlert color={colors.danger} size={18} />
@@ -260,8 +279,18 @@ function StoppedBanner({ fontsReady }: { fontsReady: boolean }) {
   );
 }
 
-function ControlStatePanel({ fontsReady, state }: { fontsReady: boolean; state: TeleopState }) {
-  const display = getStateDisplay(state);
+function ControlStatePanel({
+  colors,
+  fontsReady,
+  state,
+  styles
+}: {
+  colors: ThemeColors;
+  fontsReady: boolean;
+  state: TeleopState;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const display = getStateDisplay(state, colors, styles);
 
   return (
     <View style={[styles.statePanel, state === "estop" && styles.panelDanger, state === "fault" && styles.panelDanger]}>
@@ -275,15 +304,19 @@ function ControlStatePanel({ fontsReady, state }: { fontsReady: boolean; state: 
 }
 
 function ManualActionCard({
+  colors,
   disabled,
   fontsReady,
   manualEnabled,
-  onToggle
+  onToggle,
+  styles
 }: {
+  colors: ThemeColors;
   disabled: boolean;
   fontsReady: boolean;
   manualEnabled: boolean;
   onToggle: () => void;
+  styles: ReturnType<typeof createStyles>;
 }) {
   const label = manualEnabled ? "Tắt Manual" : "Bật Manual";
 
@@ -304,7 +337,7 @@ function ManualActionCard({
         {label}
       </Text>
       <View style={[styles.manualActionIcon, disabled && styles.manualActionIconDisabled]}>
-        <Hand color={disabled ? colors.textLo : colors.accent} size={18} />
+        <Hand color={disabled ? colors.textSecondary : colors.accent} size={18} />
       </View>
     </Pressable>
   );
@@ -316,7 +349,8 @@ function GatePanel({
   emergencyStopped,
   fontsReady,
   manualEnabled,
-  profile
+  profile,
+  styles
 }: {
   calibrated: boolean;
   connected: boolean;
@@ -324,6 +358,7 @@ function GatePanel({
   fontsReady: boolean;
   manualEnabled: boolean;
   profile: string;
+  styles: ReturnType<typeof createStyles>;
 }) {
   return (
     <View style={styles.gatePanel}>
@@ -334,9 +369,15 @@ function GatePanel({
 
       <View style={styles.gateShell}>
         <View style={styles.gateGrid}>
-          <GateChip active={connected && !emergencyStopped} fontsReady={fontsReady} label="Kết nối" value="Online" />
-          <GateChip active={calibrated && !emergencyStopped} fontsReady={fontsReady} label="Calibrate" value={profile} />
-          <GateChip active={manualEnabled && !emergencyStopped} fontsReady={fontsReady} label="Manual" value={manualEnabled ? "ON" : "OFF"} />
+          <GateChip active={connected && !emergencyStopped} fontsReady={fontsReady} label="Kết nối" styles={styles} value="Online" />
+          <GateChip active={calibrated && !emergencyStopped} fontsReady={fontsReady} label="Calibrate" styles={styles} value={profile} />
+          <GateChip
+            active={manualEnabled && !emergencyStopped}
+            fontsReady={fontsReady}
+            label="Manual"
+            styles={styles}
+            value={manualEnabled ? "ON" : "OFF"}
+          />
         </View>
       </View>
     </View>
@@ -347,11 +388,13 @@ function GateChip({
   active,
   fontsReady,
   label,
+  styles,
   value
 }: {
   active: boolean;
   fontsReady: boolean;
   label: string;
+  styles: ReturnType<typeof createStyles>;
   value: string;
 }) {
   return (
@@ -366,14 +409,18 @@ function GateChip({
 }
 
 function ArmLiveCard({
+  colors,
   fontsReady,
   readings,
   role,
+  styles,
   tick
 }: {
+  colors: ThemeColors;
   fontsReady: boolean;
   readings: ReadingByMotor;
   role: ArmRole;
+  styles: ReturnType<typeof createStyles>;
   tick: number;
 }) {
   const fault = MOTOR_IDS.some((motorId) => readings[motorId].tone === "fault");
@@ -386,7 +433,7 @@ function ArmLiveCard({
       <View style={styles.armHeader}>
         <View style={styles.armTitleRow}>
           <View style={styles.armIcon}>
-            <Hand color={colors.textHi} size={18} />
+            <Hand color={colors.textPrimary} size={18} />
           </View>
           <View style={styles.armTitleBlock}>
             <Text style={[styles.armTitle, font("display", fontsReady)]}>{ROLE_LABEL[role]}</Text>
@@ -396,20 +443,30 @@ function ArmLiveCard({
           </View>
         </View>
 
-        <HealthPill fontsReady={fontsReady} tone={fault ? "fault" : near ? "near" : "ok"} value={health} />
+        <HealthPill fontsReady={fontsReady} styles={styles} tone={fault ? "fault" : near ? "near" : "ok"} value={health} />
       </View>
 
       <View style={styles.healthRow}>
-        <Metric fontsReady={fontsReady} label="Latency" value={`${latency} ms`} />
-        <Metric fontsReady={fontsReady} label="Loop" value={role === "follower" ? "52 Hz" : "49 Hz"} />
+        <Metric fontsReady={fontsReady} label="Latency" styles={styles} value={`${latency} ms`} />
+        <Metric fontsReady={fontsReady} label="Loop" styles={styles} value={role === "follower" ? "52 Hz" : "49 Hz"} />
       </View>
 
-      <JointReadouts fontsReady={fontsReady} readings={readings} />
+      <JointReadouts fontsReady={fontsReady} readings={readings} styles={styles} />
     </View>
   );
 }
 
-function Metric({ fontsReady, label, value }: { fontsReady: boolean; label: string; value: string }) {
+function Metric({
+  fontsReady,
+  label,
+  styles,
+  value
+}: {
+  fontsReady: boolean;
+  label: string;
+  styles: ReturnType<typeof createStyles>;
+  value: string;
+}) {
   return (
     <View style={styles.metric}>
       <Text style={[styles.metricLabel, font("body", fontsReady)]}>{label}</Text>
@@ -420,10 +477,12 @@ function Metric({ fontsReady, label, value }: { fontsReady: boolean; label: stri
 
 function HealthPill({
   fontsReady,
+  styles,
   tone,
   value
 }: {
   fontsReady: boolean;
+  styles: ReturnType<typeof createStyles>;
   tone: JointTone;
   value: string;
 }) {
@@ -451,7 +510,15 @@ function HealthPill({
   );
 }
 
-function JointReadouts({ fontsReady, readings }: { fontsReady: boolean; readings: ReadingByMotor }) {
+function JointReadouts({
+  fontsReady,
+  readings,
+  styles
+}: {
+  fontsReady: boolean;
+  readings: ReadingByMotor;
+  styles: ReturnType<typeof createStyles>;
+}) {
   return (
     <View style={styles.jointList}>
       {MOTOR_IDS.map((motorId) => {
@@ -497,16 +564,20 @@ function JointReadouts({ fontsReady, readings }: { fontsReady: boolean; readings
 
 function JogPanel({
   activeJog,
+  colors,
   disabled,
   fontsReady,
   onJogStart,
-  onJogStop
+  onJogStop,
+  styles
 }: {
   activeJog: JogCommand | null;
+  colors: ThemeColors;
   disabled: boolean;
   fontsReady: boolean;
   onJogStart: (command: JogCommand) => void;
   onJogStop: () => void;
+  styles: ReturnType<typeof createStyles>;
 }) {
   return (
     <View style={[styles.jogPanel, disabled && styles.jogPanelDisabled]}>
@@ -527,21 +598,25 @@ function JogPanel({
             <View style={styles.jogButtons}>
               <JogButton
                 active={activeJog?.motorId === motorId && activeJog.direction === -1}
-                disabled={disabled}
+                colors={colors}
                 direction={-1}
+                disabled={disabled}
                 fontsReady={fontsReady}
                 motorId={motorId}
                 onJogStart={onJogStart}
                 onJogStop={onJogStop}
+                styles={styles}
               />
               <JogButton
                 active={activeJog?.motorId === motorId && activeJog.direction === 1}
-                disabled={disabled}
+                colors={colors}
                 direction={1}
+                disabled={disabled}
                 fontsReady={fontsReady}
                 motorId={motorId}
                 onJogStart={onJogStart}
                 onJogStop={onJogStop}
+                styles={styles}
               />
             </View>
           </View>
@@ -553,20 +628,24 @@ function JogPanel({
 
 function JogButton({
   active,
+  colors,
   disabled,
   direction,
   fontsReady,
   motorId,
   onJogStart,
-  onJogStop
+  onJogStop,
+  styles
 }: {
   active: boolean;
+  colors: ThemeColors;
   disabled: boolean;
   direction: -1 | 1;
   fontsReady: boolean;
   motorId: MotorId;
   onJogStart: (command: JogCommand) => void;
   onJogStop: () => void;
+  styles: ReturnType<typeof createStyles>;
 }) {
   return (
     <Pressable
@@ -585,9 +664,9 @@ function JogButton({
       ]}
     >
       {direction > 0 ? (
-        <Plus color={active ? colors.accentText : disabled ? colors.textLo : colors.textHi} size={17} />
+        <Plus color={active ? colors.accentForeground : disabled ? colors.textSecondary : colors.textPrimary} size={17} />
       ) : (
-        <Minus color={active ? colors.accentText : disabled ? colors.textLo : colors.textHi} size={17} />
+        <Minus color={active ? colors.accentForeground : disabled ? colors.textSecondary : colors.textPrimary} size={17} />
       )}
       <Text
         style={[
@@ -604,14 +683,18 @@ function JogButton({
 }
 
 function ManualConfirmModal({
+  colors,
   fontsReady,
   onCancel,
   onConfirm,
+  styles,
   visible
 }: {
+  colors: ThemeColors;
   fontsReady: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  styles: ReturnType<typeof createStyles>;
   visible: boolean;
 }) {
   return (
@@ -629,7 +712,7 @@ function ManualConfirmModal({
               onPress={onCancel}
               style={({ pressed }) => [styles.modalClose, pressed && styles.pressed]}
             >
-              <X color={colors.textHi} size={18} />
+              <X color={colors.textPrimary} size={18} />
             </Pressable>
           </View>
 
@@ -653,7 +736,7 @@ function ManualConfirmModal({
               onPress={onConfirm}
               style={({ pressed }) => [styles.modalPrimaryButton, pressed && styles.pressed]}
             >
-              <Check color={colors.accentText} size={17} />
+              <Check color={colors.accentForeground} size={17} />
               <Text style={[styles.modalPrimaryText, font("display", fontsReady)]}>Bật Manual</Text>
             </Pressable>
           </View>
@@ -663,19 +746,24 @@ function ManualConfirmModal({
   );
 }
 
-function getStateDisplay(state: TeleopState) {
+function getStateDisplay(state: TeleopState, colors: ThemeColors, styles: ReturnType<typeof createStyles>): {
+  caption: string;
+  icon: ReactNode;
+  textStyle: object;
+  title: string;
+} {
   switch (state) {
     case "locked":
       return {
         caption: "Control bị khóa cho tới khi đủ kết nối, calibrate và Manual.",
-        icon: <ShieldAlert color={colors.textLo} size={18} />,
+        icon: <ShieldAlert color={colors.textSecondary} size={18} />,
         textStyle: styles.stateTitleMuted,
         title: "Khóa an toàn"
       };
     case "controlling":
       return {
         caption: "Leader đang điều khiển Follower, jog Follower đã bật.",
-        icon: <CircleCheck color={colors.accent} size={18} />,
+        icon: <CircleCheck color={colors.accentStrong} size={18} />,
         textStyle: styles.stateTitleOk,
         title: "Đang điều khiển"
       };
@@ -805,488 +893,490 @@ function formatCount(value: number) {
   return Math.round(value).toString().padStart(4, "0");
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: colors.bg,
-    flex: 1
-  },
-  screenStopped: {
-    backgroundColor: colors.surface2
-  },
-  content: {
-    gap: spacing.xl,
-    padding: spacing.lg,
-    paddingBottom: spacing.xxxl
-  },
-  stoppedBanner: {
-    alignItems: "flex-start",
-    backgroundColor: colors.surface,
-    borderColor: colors.danger,
-    borderRadius: CARD_RADIUS_OUTER,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.sm,
-    padding: spacing.md
-  },
-  stoppedText: {
-    ...type.body,
-    color: colors.textHi,
-    flex: 1
-  },
-  statePanel: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: CARD_RADIUS_OUTER,
-    borderWidth: 1,
-    gap: spacing.sm,
-    padding: spacing.md
-  },
-  panelDanger: {
-    borderColor: colors.danger
-  },
-  panelCaution: {
-    borderColor: colors.caution
-  },
-  stateTitleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.xs
-  },
-  stateTitle: {
-    ...type.bodyStrong,
-    color: colors.textHi
-  },
-  stateTitleMuted: {
-    color: colors.textLo
-  },
-  stateTitleOk: {
-    color: colors.accent
-  },
-  stateTitleCaution: {
-    color: colors.caution
-  },
-  stateTitleDanger: {
-    color: colors.danger
-  },
-  stateCaption: {
-    ...type.small,
-    color: colors.textLo,
-    marginTop: spacing.xxs
-  },
-  manualAction: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: CARD_RADIUS_OUTER,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 68,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md
-  },
-  manualActionDisabled: {
-    backgroundColor: colors.surface2
-  },
-  manualActionText: {
-    ...type.title,
-    color: colors.accentText
-  },
-  manualActionTextDisabled: {
-    color: colors.textLo
-  },
-  manualActionIcon: {
-    alignItems: "center",
-    backgroundColor: colors.accentText,
-    borderRadius: radius.round,
-    height: 40,
-    justifyContent: "center",
-    width: 40
-  },
-  manualActionIconDisabled: {
-    backgroundColor: colors.surface
-  },
-  gatePanel: {
-    gap: spacing.md
-  },
-  sectionHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  sectionTitle: {
-    ...type.title,
-    color: colors.textHi
-  },
-  sectionHint: {
-    ...type.small,
-    color: colors.textLo,
-    marginTop: spacing.xxs
-  },
-  sectionMeta: {
-    ...type.mono,
-    color: colors.textLo
-  },
-  gateShell: {
-    backgroundColor: colors.surface2,
-    borderRadius: CARD_RADIUS_OUTER,
-    padding: spacing.sm
-  },
-  gateGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
-  },
-  gateChip: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: "transparent",
-    borderRadius: CARD_RADIUS_INNER,
-    borderWidth: 1,
-    flexBasis: "31%",
-    flexDirection: "row",
-    flexGrow: 1,
-    gap: spacing.xs,
-    minHeight: 54,
-    minWidth: 112,
-    padding: spacing.sm
-  },
-  gateChipActive: {
-    borderColor: colors.accent
-  },
-  statusDot: {
-    backgroundColor: colors.textLo,
-    borderRadius: radius.status,
-    height: 8,
-    width: 8
-  },
-  statusDotOk: {
-    backgroundColor: colors.accent
-  },
-  gateCopy: {
-    flex: 1,
-    minWidth: 0
-  },
-  gateLabel: {
-    ...type.small,
-    color: colors.textLo
-  },
-  gateValue: {
-    ...type.mono,
-    color: colors.textLo,
-    marginTop: 2
-  },
-  gateValueActive: {
-    color: colors.textHi
-  },
-  armStack: {
-    gap: spacing.md
-  },
-  armCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: CARD_RADIUS_OUTER,
-    borderWidth: 1,
-    gap: spacing.md,
-    padding: spacing.md
-  },
-  armHeader: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "space-between"
-  },
-  armTitleRow: {
-    alignItems: "center",
-    flex: 1,
-    flexDirection: "row",
-    gap: spacing.sm,
-    minWidth: 0
-  },
-  armIcon: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderRadius: radius.button,
-    height: 38,
-    justifyContent: "center",
-    width: 38
-  },
-  armTitleBlock: {
-    flex: 1,
-    minWidth: 0
-  },
-  armTitle: {
-    ...type.bodyStrong,
-    color: colors.textHi
-  },
-  armCaption: {
-    ...type.small,
-    color: colors.textLo,
-    marginTop: 2
-  },
-  healthPill: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flexDirection: "row",
-    flexShrink: 0,
-    gap: spacing.xs,
-    minHeight: 32,
-    paddingHorizontal: spacing.sm
-  },
-  healthPillCaution: {
-    borderColor: colors.caution
-  },
-  healthPillDanger: {
-    borderColor: colors.danger
-  },
-  healthDot: {
-    borderRadius: radius.status,
-    height: 8,
-    width: 8
-  },
-  healthDotOk: {
-    backgroundColor: colors.accent
-  },
-  healthDotCaution: {
-    backgroundColor: colors.caution
-  },
-  healthDotDanger: {
-    backgroundColor: colors.danger
-  },
-  healthText: {
-    ...type.small,
-    color: colors.textHi
-  },
-  healthTextCaution: {
-    color: colors.caution
-  },
-  healthTextDanger: {
-    color: colors.danger
-  },
-  healthRow: {
-    flexDirection: "row",
-    gap: spacing.sm
-  },
-  metric: {
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flex: 1,
-    gap: spacing.xxs,
-    minHeight: 58,
-    padding: spacing.sm
-  },
-  metricLabel: {
-    ...type.small,
-    color: colors.textLo
-  },
-  metricValue: {
-    ...type.mono,
-    color: colors.textHi,
-    fontVariant: ["tabular-nums"]
-  },
-  jointList: {
-    gap: spacing.xs
-  },
-  jointRow: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: "transparent",
-    borderRadius: CARD_RADIUS_INNER,
-    borderWidth: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 56,
-    paddingHorizontal: spacing.md
-  },
-  jointRowCaution: {
-    borderColor: colors.caution
-  },
-  jointRowDanger: {
-    borderColor: colors.danger
-  },
-  jointRowLabelBlock: {
-    flex: 1,
-    gap: 2,
-    minWidth: 0
-  },
-  jointRowLabel: {
-    ...type.small,
-    color: colors.textLo
-  },
-  jointRowState: {
-    ...type.small,
-    color: colors.caution
-  },
-  jointRowStateCaution: {
-    color: colors.caution
-  },
-  jointRowStateDanger: {
-    color: colors.danger
-  },
-  jointRowValue: {
-    ...type.title,
-    color: colors.textHi,
-    fontVariant: ["tabular-nums"]
-  },
-  jointRowValueCaution: {
-    color: colors.caution
-  },
-  jointRowValueDanger: {
-    color: colors.danger
-  },
-  jogPanel: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: CARD_RADIUS_OUTER,
-    borderWidth: 1,
-    gap: spacing.md,
-    padding: spacing.md
-  },
-  jogPanelDisabled: {
-    opacity: 0.72
-  },
-  jogGrid: {
-    gap: spacing.sm
-  },
-  jogRow: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: CARD_RADIUS_INNER,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.sm,
-    minHeight: 50,
-    padding: spacing.sm
-  },
-  jogMotor: {
-    ...type.mono,
-    color: colors.textHi,
-    flex: 1
-  },
-  jogButtons: {
-    flexDirection: "row",
-    gap: spacing.xs
-  },
-  jogButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.xxs,
-    height: 38,
-    justifyContent: "center",
-    minWidth: 58,
-    paddingHorizontal: spacing.xs
-  },
-  jogButtonActive: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent
-  },
-  jogButtonDisabled: {
-    opacity: 0.45
-  },
-  jogButtonText: {
-    ...type.label,
-    color: colors.textHi
-  },
-  jogButtonTextActive: {
-    color: colors.accentText
-  },
-  jogButtonTextDisabled: {
-    color: colors.textLo
-  },
-  modalBackdrop: {
-    alignItems: "center",
-    backgroundColor: colors.bg,
-    flex: 1,
-    justifyContent: "center",
-    opacity: 0.96,
-    padding: spacing.lg
-  },
-  modalCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: CARD_RADIUS_OUTER,
-    borderWidth: 1,
-    gap: spacing.md,
-    padding: spacing.md,
-    width: "100%"
-  },
-  modalHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between"
-  },
-  modalIcon: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderRadius: radius.button,
-    height: 40,
-    justifyContent: "center",
-    width: 40
-  },
-  modalClose: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    height: 38,
-    justifyContent: "center",
-    width: 38
-  },
-  modalTitle: {
-    ...type.title,
-    color: colors.textHi
-  },
-  modalText: {
-    ...type.body,
-    color: colors.textLo
-  },
-  modalActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
-  },
-  modalSecondaryButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.button,
-    borderWidth: 1,
-    flexGrow: 1,
-    justifyContent: "center",
-    minHeight: 48,
-    minWidth: 120,
-    paddingHorizontal: spacing.md
-  },
-  modalSecondaryText: {
-    ...type.label,
-    color: colors.textHi
-  },
-  modalPrimaryButton: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: radius.button,
-    flexDirection: "row",
-    flexGrow: 1,
-    gap: spacing.xs,
-    justifyContent: "center",
-    minHeight: 48,
-    minWidth: 150,
-    paddingHorizontal: spacing.md
-  },
-  modalPrimaryText: {
-    ...type.label,
-    color: colors.accentText
-  },
-  pressed: {
-    opacity: 0.78
-  }
-});
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    screen: {
+      backgroundColor: colors.background,
+      flex: 1
+    },
+    screenStopped: {
+      backgroundColor: colors.surfaceSecondary
+    },
+    content: {
+      gap: spacing.xl,
+      padding: spacing.lg,
+      paddingBottom: spacing.xxxl
+    },
+    stoppedBanner: {
+      alignItems: "flex-start",
+      backgroundColor: colors.surface,
+      borderColor: colors.danger,
+      borderRadius: CARD_RADIUS_OUTER,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.sm,
+      padding: spacing.md
+    },
+    stoppedText: {
+      ...type.body,
+      color: colors.textPrimary,
+      flex: 1
+    },
+    statePanel: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: CARD_RADIUS_OUTER,
+      borderWidth: 1,
+      gap: spacing.sm,
+      padding: spacing.md
+    },
+    panelDanger: {
+      borderColor: colors.danger
+    },
+    panelCaution: {
+      borderColor: colors.caution
+    },
+    stateTitleRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: spacing.xs
+    },
+    stateTitle: {
+      ...type.bodyStrong,
+      color: colors.textPrimary
+    },
+    stateTitleMuted: {
+      color: colors.textSecondary
+    },
+    stateTitleOk: {
+      color: colors.accentStrong
+    },
+    stateTitleCaution: {
+      color: colors.caution
+    },
+    stateTitleDanger: {
+      color: colors.danger
+    },
+    stateCaption: {
+      ...type.small,
+      color: colors.textSecondary,
+      marginTop: spacing.xxs
+    },
+    manualAction: {
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: CARD_RADIUS_OUTER,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      minHeight: 68,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md
+    },
+    manualActionDisabled: {
+      backgroundColor: colors.surfaceSecondary
+    },
+    manualActionText: {
+      ...type.title,
+      color: colors.accentForeground
+    },
+    manualActionTextDisabled: {
+      color: colors.textSecondary
+    },
+    manualActionIcon: {
+      alignItems: "center",
+      backgroundColor: colors.accentForeground,
+      borderRadius: radius.round,
+      height: 40,
+      justifyContent: "center",
+      width: 40
+    },
+    manualActionIconDisabled: {
+      backgroundColor: colors.surface
+    },
+    gatePanel: {
+      gap: spacing.md
+    },
+    sectionHeader: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between"
+    },
+    sectionTitle: {
+      ...type.title,
+      color: colors.textPrimary
+    },
+    sectionHint: {
+      ...type.small,
+      color: colors.textSecondary,
+      marginTop: spacing.xxs
+    },
+    sectionMeta: {
+      ...type.mono,
+      color: colors.textSecondary
+    },
+    gateShell: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: CARD_RADIUS_OUTER,
+      padding: spacing.sm
+    },
+    gateGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm
+    },
+    gateChip: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: "transparent",
+      borderRadius: CARD_RADIUS_INNER,
+      borderWidth: 1,
+      flexBasis: "31%",
+      flexDirection: "row",
+      flexGrow: 1,
+      gap: spacing.xs,
+      minHeight: 54,
+      minWidth: 112,
+      padding: spacing.sm
+    },
+    gateChipActive: {
+      borderColor: colors.accentStrong
+    },
+    statusDot: {
+      backgroundColor: colors.textSecondary,
+      borderRadius: radius.status,
+      height: 8,
+      width: 8
+    },
+    statusDotOk: {
+      backgroundColor: colors.accentStrong
+    },
+    gateCopy: {
+      flex: 1,
+      minWidth: 0
+    },
+    gateLabel: {
+      ...type.small,
+      color: colors.textSecondary
+    },
+    gateValue: {
+      ...type.mono,
+      color: colors.textSecondary,
+      marginTop: 2
+    },
+    gateValueActive: {
+      color: colors.textPrimary
+    },
+    armStack: {
+      gap: spacing.md
+    },
+    armCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: CARD_RADIUS_OUTER,
+      borderWidth: 1,
+      gap: spacing.md,
+      padding: spacing.md
+    },
+    armHeader: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: spacing.sm,
+      justifyContent: "space-between"
+    },
+    armTitleRow: {
+      alignItems: "center",
+      flex: 1,
+      flexDirection: "row",
+      gap: spacing.sm,
+      minWidth: 0
+    },
+    armIcon: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.button,
+      height: 38,
+      justifyContent: "center",
+      width: 38
+    },
+    armTitleBlock: {
+      flex: 1,
+      minWidth: 0
+    },
+    armTitle: {
+      ...type.bodyStrong,
+      color: colors.textPrimary
+    },
+    armCaption: {
+      ...type.small,
+      color: colors.textSecondary,
+      marginTop: 2
+    },
+    healthPill: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderRadius: radius.button,
+      borderWidth: 1,
+      flexDirection: "row",
+      flexShrink: 0,
+      gap: spacing.xs,
+      minHeight: 32,
+      paddingHorizontal: spacing.sm
+    },
+    healthPillCaution: {
+      borderColor: colors.caution
+    },
+    healthPillDanger: {
+      borderColor: colors.danger
+    },
+    healthDot: {
+      borderRadius: radius.status,
+      height: 8,
+      width: 8
+    },
+    healthDotOk: {
+      backgroundColor: colors.accentStrong
+    },
+    healthDotCaution: {
+      backgroundColor: colors.caution
+    },
+    healthDotDanger: {
+      backgroundColor: colors.danger
+    },
+    healthText: {
+      ...type.small,
+      color: colors.textPrimary
+    },
+    healthTextCaution: {
+      color: colors.caution
+    },
+    healthTextDanger: {
+      color: colors.danger
+    },
+    healthRow: {
+      flexDirection: "row",
+      gap: spacing.sm
+    },
+    metric: {
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderRadius: radius.button,
+      borderWidth: 1,
+      flex: 1,
+      gap: spacing.xxs,
+      minHeight: 58,
+      padding: spacing.sm
+    },
+    metricLabel: {
+      ...type.small,
+      color: colors.textSecondary
+    },
+    metricValue: {
+      ...type.mono,
+      color: colors.textPrimary,
+      fontVariant: ["tabular-nums"]
+    },
+    jointList: {
+      gap: spacing.xs
+    },
+    jointRow: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: "transparent",
+      borderRadius: CARD_RADIUS_INNER,
+      borderWidth: 1,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      minHeight: 56,
+      paddingHorizontal: spacing.md
+    },
+    jointRowCaution: {
+      borderColor: colors.caution
+    },
+    jointRowDanger: {
+      borderColor: colors.danger
+    },
+    jointRowLabelBlock: {
+      flex: 1,
+      gap: 2,
+      minWidth: 0
+    },
+    jointRowLabel: {
+      ...type.small,
+      color: colors.textSecondary
+    },
+    jointRowState: {
+      ...type.small,
+      color: colors.caution
+    },
+    jointRowStateCaution: {
+      color: colors.caution
+    },
+    jointRowStateDanger: {
+      color: colors.danger
+    },
+    jointRowValue: {
+      ...type.title,
+      color: colors.textPrimary,
+      fontVariant: ["tabular-nums"]
+    },
+    jointRowValueCaution: {
+      color: colors.caution
+    },
+    jointRowValueDanger: {
+      color: colors.danger
+    },
+    jogPanel: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: CARD_RADIUS_OUTER,
+      borderWidth: 1,
+      gap: spacing.md,
+      padding: spacing.md
+    },
+    jogPanelDisabled: {
+      opacity: 0.72
+    },
+    jogGrid: {
+      gap: spacing.sm
+    },
+    jogRow: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderRadius: CARD_RADIUS_INNER,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.sm,
+      minHeight: 50,
+      padding: spacing.sm
+    },
+    jogMotor: {
+      ...type.mono,
+      color: colors.textPrimary,
+      flex: 1
+    },
+    jogButtons: {
+      flexDirection: "row",
+      gap: spacing.xs
+    },
+    jogButton: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: radius.button,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.xxs,
+      height: 38,
+      justifyContent: "center",
+      minWidth: 58,
+      paddingHorizontal: spacing.xs
+    },
+    jogButtonActive: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent
+    },
+    jogButtonDisabled: {
+      opacity: 0.45
+    },
+    jogButtonText: {
+      ...type.label,
+      color: colors.textPrimary
+    },
+    jogButtonTextActive: {
+      color: colors.accentForeground
+    },
+    jogButtonTextDisabled: {
+      color: colors.textSecondary
+    },
+    modalBackdrop: {
+      alignItems: "center",
+      backgroundColor: colors.background,
+      flex: 1,
+      justifyContent: "center",
+      opacity: 0.96,
+      padding: spacing.lg
+    },
+    modalCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: CARD_RADIUS_OUTER,
+      borderWidth: 1,
+      gap: spacing.md,
+      padding: spacing.md,
+      width: "100%"
+    },
+    modalHeader: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between"
+    },
+    modalIcon: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.button,
+      height: 40,
+      justifyContent: "center",
+      width: 40
+    },
+    modalClose: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderRadius: radius.button,
+      borderWidth: 1,
+      height: 38,
+      justifyContent: "center",
+      width: 38
+    },
+    modalTitle: {
+      ...type.title,
+      color: colors.textPrimary
+    },
+    modalText: {
+      ...type.body,
+      color: colors.textSecondary
+    },
+    modalActions: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm
+    },
+    modalSecondaryButton: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderRadius: radius.button,
+      borderWidth: 1,
+      flexGrow: 1,
+      justifyContent: "center",
+      minHeight: 48,
+      minWidth: 120,
+      paddingHorizontal: spacing.md
+    },
+    modalSecondaryText: {
+      ...type.label,
+      color: colors.textPrimary
+    },
+    modalPrimaryButton: {
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: radius.button,
+      flexDirection: "row",
+      flexGrow: 1,
+      gap: spacing.xs,
+      justifyContent: "center",
+      minHeight: 48,
+      minWidth: 150,
+      paddingHorizontal: spacing.md
+    },
+    modalPrimaryText: {
+      ...type.label,
+      color: colors.accentForeground
+    },
+    pressed: {
+      opacity: 0.78
+    }
+  });
+}

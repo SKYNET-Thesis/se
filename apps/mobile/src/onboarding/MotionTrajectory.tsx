@@ -1,16 +1,17 @@
 import { StyleProp, StyleSheet, View, ViewStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { colors } from "../theme";
+import { ThemeColors } from "../theme";
 
 type Props = {
+  colors: ThemeColors;
   style?: StyleProp<ViewStyle>;
   opacity?: number;
 };
 
-// OmniArm's identity motif: two long, unequal strokes emanating from a single
+// SkyNex's identity motif: two long, unequal strokes emanating from a single
 // point low on the frame — a distant echo of a dual-arm reach, kept quiet
 // enough to read as texture on the frame, never as the subject of it.
-export function MotionTrajectory({ style, opacity = 1 }: Props) {
+export function MotionTrajectory({ colors, style, opacity = 1 }: Props) {
   return (
     <View pointerEvents="none" style={[styles.wrap, style]}>
       <Svg height="100%" viewBox="0 0 300 400" width="100%">
@@ -18,7 +19,7 @@ export function MotionTrajectory({ style, opacity = 1 }: Props) {
           d="M40,430 C40,300 140,230 220,150"
           fill="none"
           opacity={0.16 * opacity}
-          stroke={colors.accent}
+          stroke={colors.accentStrong}
           strokeLinecap="round"
           strokeWidth={1.25}
         />
@@ -26,7 +27,7 @@ export function MotionTrajectory({ style, opacity = 1 }: Props) {
           d="M110,430 C110,320 150,270 190,230"
           fill="none"
           opacity={0.08 * opacity}
-          stroke={colors.accent}
+          stroke={colors.accentStrong}
           strokeLinecap="round"
           strokeWidth={1}
         />
