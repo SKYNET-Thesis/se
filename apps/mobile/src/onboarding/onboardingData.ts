@@ -47,7 +47,11 @@ export const ONBOARDING_SLIDES: readonly OnboardingSlide[] = [
   }
 ] as const;
 
-export const BRAND_MARK = "OMNIARM";
+// SkyNex = the platform/app; SO-ARM101 (below, per-slide) is the current
+// hardware it drives. Rendered once, on the first slide only — see
+// OnboardingScreen's SlidePage — so the app never reads as "SkyNex IS
+// SO-ARM101."
+export const BRAND_MARK = "SkyNex";
 export const CTA_CONTINUE = "Tiếp tục";
 export const CTA_SKIP = "Bỏ qua";
 export const CTA_START = "Bắt đầu";

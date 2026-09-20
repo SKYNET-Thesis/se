@@ -10,10 +10,11 @@ import {
   TriangleAlert,
   Unplug
 } from "lucide-react-native";
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { ScreenHeader } from "../components/ScreenHeader";
-import { colors, font, radius, spacing, type } from "../theme";
+import { useAppTheme } from "../ThemeContext";
+import { font, radius, spacing, ThemeColors, type } from "../theme";
 
 type ArmRole = "follower" | "leader";
 
@@ -56,13 +57,18 @@ type Tone = "ok" | "caution" | "danger" | "neutral";
 
 // Same tone vocabulary as StatusScreen/HomeScreen so connection state reads
 // consistently across the whole app: lime = good, amber = caution, red =
-// blocking error, muted gray = nothing to report yet.
-const toneColor: Record<Tone, string> = {
-  ok: colors.accent,
-  caution: colors.caution,
-  danger: colors.danger,
-  neutral: colors.textLo
-};
+// blocking error, muted gray = nothing to report yet. Built from the live
+// theme (not a module constant) so it follows Light/Dark; "ok" uses
+// accentStrong since this tone paints bare text/dot fills directly on a
+// surface, where plain accent reads almost invisibly on Light.
+function buildToneColor(colors: ThemeColors): Record<Tone, string> {
+  return {
+    ok: colors.accentStrong,
+    caution: colors.caution,
+    danger: colors.danger,
+    neutral: colors.textSecondary
+  };
+}
 
 const ROLE_LABEL: Record<ArmRole, "Follower" | "Leader"> = {
   follower: "Follower",
@@ -90,12 +96,17 @@ const linkStatusLabel: Record<LinkState["kind"], string> = {
   error: "Lỗi kết nối"
 };
 
-const linkStatusColor: Record<LinkState["kind"], string> = {
-  idle: colors.textLo,
-  connecting: colors.caution,
-  connected: colors.accent,
-  error: colors.danger
-};
+// "connected" is unreachable in practice (the statusDot call site special-
+// cases connected before consulting this map) but is still kept correct/
+// theme-aware rather than left stale, in case another caller reads it later.
+function buildLinkStatusColor(colors: ThemeColors): Record<LinkState["kind"], string> {
+  return {
+    idle: colors.textSecondary,
+    connecting: colors.caution,
+    connected: colors.accentStrong,
+    error: colors.danger
+  };
+}
 
 // theme.ts tops out at radius.card (16). Matches the larger, softer corner
 // Home/Status already established for this app's "rich card" surfaces —
@@ -131,6 +142,10 @@ function describeScan(scanState: ScanState): { tone: Tone; title: string; detail
 }
 
 export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBack, onContinue, onOpenTeleop }: Props) {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const toneColor = useMemo(() => buildToneColor(colors), [colors]);
+  const linkStatusColor = useMemo(() => buildLinkStatusColor(colors), [colors]);
   const [scanState, setScanState] = useState<ScanState>({ kind: "idle" });
   const [slots, setSlots] = useState<Record<ArmRole, ArmSlot>>({
     follower: createSlot("follower"),
@@ -229,7 +244,8 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
   const canOpenTeleop = bothConnected && !emergencyStopped;
   const ports = scanState.kind === "found" ? scanState.ports : [];
   const scanDisabled = emergencyStopped || scanState.kind === "scanning";
-  const scanContentColor = scanState.kind === "scanning" ? colors.caution : scanDisabled ? colors.textLo : colors.accentText;
+  const scanContentColor =
+    scanState.kind === "scanning" ? colors.caution : scanDisabled ? colors.textSecondary : colors.accentForeground;
 
   // Roles that are picked, non-conflicting, and not already mid-flight — what
   // the single "Kết nối" CTA below actually acts on. Per-card connect/retry
@@ -343,9 +359,11 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
       </View>
 
       <ArmSlotCard
+        colors={colors}
         conflict={conflict}
         disabled={emergencyStopped}
         fontsReady={fontsReady}
+        linkStatusColor={linkStatusColor}
         onConnect={() => handleConnect("follower")}
         onDisconnect={() => handleDisconnect("follower")}
         onSelectPort={(portId) => handleSelectPort("follower", portId)}
@@ -353,12 +371,15 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
         ports={ports}
         scanState={scanState}
         slot={slots.follower}
+        styles={styles}
       />
 
       <ArmSlotCard
+        colors={colors}
         conflict={conflict}
         disabled={emergencyStopped}
         fontsReady={fontsReady}
+        linkStatusColor={linkStatusColor}
         onConnect={() => handleConnect("leader")}
         onDisconnect={() => handleDisconnect("leader")}
         onSelectPort={(portId) => handleSelectPort("leader", portId)}
@@ -366,6 +387,7 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
         ports={ports}
         scanState={scanState}
         slot={slots.leader}
+        styles={styles}
       />
 
       {bothConnected ? (
@@ -383,7 +405,7 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
               pressed && canContinue && styles.pressed
             ]}
           >
-            <Check color={canContinue ? colors.accentText : colors.textLo} size={19} />
+            <Check color={canContinue ? colors.accentForeground : colors.textSecondary} size={19} />
             <Text style={[styles.continueText, !canContinue && styles.continueTextDisabled, font("display", fontsReady)]}>
               Tiếp tục: Hiệu chỉnh
             </Text>
@@ -402,7 +424,7 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
               pressed && canOpenTeleop && styles.pressed
             ]}
           >
-            <Hand color={canOpenTeleop ? colors.textHi : colors.textLo} size={19} />
+            <Hand color={canOpenTeleop ? colors.textPrimary : colors.textSecondary} size={19} />
             <Text style={[styles.teleopText, !canOpenTeleop && styles.continueTextDisabled, font("display", fontsReady)]}>
               Tiếp tục: Teleop
             </Text>
@@ -423,7 +445,7 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
               pressed && canMasterConnect && styles.pressed
             ]}
           >
-            <Cable color={canMasterConnect ? colors.accentText : colors.textLo} size={19} />
+            <Cable color={canMasterConnect ? colors.accentForeground : colors.textSecondary} size={19} />
             <Text
               style={[styles.continueText, !canMasterConnect && styles.continueTextDisabled, font("display", fontsReady)]}
             >
@@ -439,6 +461,7 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
 }
 
 function ArmSlotCard({
+  colors,
   slot,
   ports,
   scanState,
@@ -446,10 +469,13 @@ function ArmSlotCard({
   conflict,
   disabled,
   fontsReady,
+  linkStatusColor,
   onSelectPort,
   onConnect,
-  onDisconnect
+  onDisconnect,
+  styles
 }: {
+  colors: ThemeColors;
   slot: ArmSlot;
   ports: PortInfo[];
   scanState: ScanState;
@@ -457,9 +483,11 @@ function ArmSlotCard({
   conflict: boolean;
   disabled: boolean;
   fontsReady: boolean;
+  linkStatusColor: Record<LinkState["kind"], string>;
   onSelectPort: (portId: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  styles: ReturnType<typeof createStyles>;
 }) {
   const role = slot.role;
   const label = ROLE_LABEL[role];
@@ -480,7 +508,7 @@ function ArmSlotCard({
           <View
             style={[
               styles.statusDot,
-              { backgroundColor: connected ? colors.accentText : linkStatusColor[slot.link.kind] }
+              { backgroundColor: connected ? colors.accentForeground : linkStatusColor[slot.link.kind] }
             ]}
           />
           <Text
@@ -505,7 +533,8 @@ function ArmSlotCard({
         locked,
         disabled,
         fontsReady,
-        onSelectPort
+        onSelectPort,
+        styles
       })}
 
       {slotConflict && (
@@ -518,11 +547,13 @@ function ArmSlotCard({
       )}
 
       {renderSlotAction({
+        colors,
         slot,
         canConnect,
         fontsReady,
         onConnect,
-        onDisconnect
+        onDisconnect,
+        styles
       })}
     </View>
   );
@@ -536,7 +567,8 @@ function renderPortArea({
   locked,
   disabled,
   fontsReady,
-  onSelectPort
+  onSelectPort,
+  styles
 }: {
   scanState: ScanState;
   ports: PortInfo[];
@@ -546,6 +578,7 @@ function renderPortArea({
   disabled: boolean;
   fontsReady: boolean;
   onSelectPort: (portId: string) => void;
+  styles: ReturnType<typeof createStyles>;
 }) {
   if (scanState.kind === "idle") {
     return (
@@ -610,17 +643,21 @@ function renderPortArea({
 }
 
 function renderSlotAction({
+  colors,
   slot,
   canConnect,
   fontsReady,
   onConnect,
-  onDisconnect
+  onDisconnect,
+  styles
 }: {
+  colors: ThemeColors;
   slot: ArmSlot;
   canConnect: boolean;
   fontsReady: boolean;
   onConnect: () => void;
   onDisconnect: () => void;
+  styles: ReturnType<typeof createStyles>;
 }) {
   switch (slot.link.kind) {
     case "idle":
@@ -652,7 +689,7 @@ function renderSlotAction({
       return (
         <View style={styles.connectedRow}>
           <View style={styles.connectedInfo}>
-            <CircleCheck color={colors.accent} size={16} />
+            <CircleCheck color={colors.accentStrong} size={16} />
             <Text style={[styles.connectedText, font("mono", fontsReady)]}>
               {slot.link.jointCount} khớp đã xác nhận
             </Text>
@@ -663,7 +700,7 @@ function renderSlotAction({
             onPress={onDisconnect}
             style={({ pressed }) => [styles.disconnectButton, pressed && styles.pressed]}
           >
-            <Unplug color={colors.textHi} size={15} />
+            <Unplug color={colors.textPrimary} size={15} />
             <Text style={[styles.disconnectText, font("display", fontsReady)]}>Ngắt</Text>
           </Pressable>
         </View>
@@ -681,7 +718,7 @@ function renderSlotAction({
             onPress={onConnect}
             style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}
           >
-            <RefreshCw color={colors.textHi} size={15} />
+            <RefreshCw color={colors.textPrimary} size={15} />
             <Text style={[styles.retryText, font("display", fontsReady)]}>Thử lại</Text>
           </Pressable>
         </View>
@@ -689,349 +726,355 @@ function renderSlotAction({
   }
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: colors.bg,
-    flex: 1
-  },
-  content: {
-    gap: spacing.lg,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.xxxl
-  },
-  stoppedBanner: {
-    alignItems: "flex-start",
-    backgroundColor: colors.surface2,
-    borderLeftColor: colors.danger,
-    borderLeftWidth: 3,
-    borderRadius: radius.button,
-    flexDirection: "row",
-    gap: spacing.sm,
-    padding: spacing.md
-  },
-  stoppedText: {
-    ...type.body,
-    color: colors.textHi,
-    flex: 1
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: radius.round
-  },
+function createStyles(colors: ThemeColors) {
+  return StyleSheet.create({
+    screen: {
+      backgroundColor: colors.background,
+      flex: 1
+    },
+    content: {
+      gap: spacing.lg,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.xxxl
+    },
+    stoppedBanner: {
+      alignItems: "flex-start",
+      backgroundColor: colors.surface,
+      borderColor: colors.danger,
+      borderRadius: CARD_RADIUS_OUTER,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.sm,
+      padding: spacing.md
+    },
+    stoppedText: {
+      ...type.body,
+      color: colors.textPrimary,
+      flex: 1
+    },
+    dot: {
+      width: 10,
+      height: 10,
+      borderRadius: radius.round
+    },
 
-  // Device discovery hero
-  heroCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: CARD_RADIUS_OUTER,
-    padding: spacing.lg,
-    gap: spacing.md
-  },
-  heroTop: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.xs
-  },
-  heroLabel: {
-    ...type.title,
-    flexShrink: 1
-  },
-  heroDetail: {
-    ...type.small,
-    color: colors.textLo
-  },
-  heroDetailDanger: {
-    color: colors.danger
-  },
-  scanButton: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: radius.round,
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "center",
-    minHeight: 56
-  },
-  scanButtonDisabled: {
-    backgroundColor: colors.surface2,
-    opacity: 0.58
-  },
-  scanButtonBusy: {
-    backgroundColor: colors.surface2,
-    borderColor: colors.caution,
-    borderWidth: 1
-  },
-  scanButtonText: {
-    ...type.label,
-    color: colors.accentText
-  },
-  scanButtonTextDisabled: {
-    color: colors.textLo
-  },
-  scanButtonTextBusy: {
-    color: colors.caution
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: CARD_RADIUS_OUTER,
-    gap: spacing.lg,
-    padding: spacing.lg
-  },
-  cardDanger: {
-    borderColor: colors.danger,
-    borderWidth: 1
-  },
-  cardHeader: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: spacing.md,
-    justifyContent: "space-between"
-  },
-  cardHeaderLeft: {
-    flex: 1,
-    minWidth: 0
-  },
-  cardTitle: {
-    ...type.title,
-    color: colors.textHi
-  },
-  cardHint: {
-    ...type.body,
-    color: colors.textLo,
-    marginTop: spacing.xxs
-  },
-  statusPill: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderRadius: radius.round,
-    flexDirection: "row",
-    flexShrink: 0,
-    gap: spacing.xs,
-    minHeight: 34,
-    paddingHorizontal: spacing.sm
-  },
-  statusPillConnected: {
-    backgroundColor: colors.accent
-  },
-  statusDot: {
-    borderRadius: radius.status,
-    height: 8,
-    width: 8
-  },
-  statusText: {
-    ...type.label,
-    color: colors.textHi
-  },
-  statusTextCaution: {
-    color: colors.caution
-  },
-  statusTextDanger: {
-    color: colors.danger
-  },
-  statusTextConnected: {
-    color: colors.accentText
-  },
-  portPlaceholder: {
-    ...type.body,
-    color: colors.textLo
-  },
-  portPlaceholderDanger: {
-    ...type.body,
-    color: colors.danger
-  },
-  portRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm
-  },
-  portChip: {
-    backgroundColor: colors.surface2,
-    borderColor: colors.surface2,
-    borderRadius: CARD_RADIUS_INNER,
-    borderWidth: 1,
-    flexBasis: "47%",
-    flexGrow: 1,
-    gap: spacing.xxs,
-    minHeight: 64,
-    padding: spacing.md
-  },
-  portChipSelected: {
-    backgroundColor: colors.surface,
-    borderColor: colors.textHi
-  },
-  portChipTaken: {
-    borderColor: colors.caution
-  },
-  portChipDisabled: {
-    opacity: 0.58
-  },
-  portPath: {
-    ...type.mono,
-    color: colors.textHi
-  },
-  portPathSelected: {
-    color: colors.textHi
-  },
-  portVendor: {
-    ...type.small,
-    color: colors.textLo
-  },
-  portVendorSelected: {
-    color: colors.textHi
-  },
-  portTakenText: {
-    ...type.small,
-    color: colors.caution,
-    marginTop: 2
-  },
-  conflictRow: {
-    alignItems: "flex-start",
-    backgroundColor: colors.surface2,
-    borderRadius: CARD_RADIUS_INNER,
-    flexDirection: "row",
-    gap: spacing.xs,
-    padding: spacing.sm
-  },
-  conflictText: {
-    ...type.small,
-    color: colors.danger,
-    flex: 1
-  },
-  actionButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.round,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 52
-  },
-  actionButtonDisabled: {
-    opacity: 0.52
-  },
-  actionButtonBusy: {
-    backgroundColor: colors.surface2,
-    borderColor: colors.caution,
-    borderWidth: 1
-  },
-  actionButtonText: {
-    ...type.label,
-    color: colors.textHi
-  },
-  actionButtonTextDisabled: {
-    color: colors.textLo
-  },
-  actionButtonTextBusy: {
-    ...type.label,
-    color: colors.caution
-  },
-  connectedRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "space-between"
-  },
-  connectedInfo: {
-    alignItems: "center",
-    flex: 1,
-    flexDirection: "row",
-    gap: spacing.xs,
-    minWidth: 0
-  },
-  connectedText: {
-    color: colors.textHi
-  },
-  disconnectButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.round,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.xs,
-    minHeight: 44,
-    paddingHorizontal: spacing.sm
-  },
-  disconnectText: {
-    ...type.label,
-    color: colors.textHi
-  },
-  errorRow: {
-    gap: spacing.sm
-  },
-  errorInfo: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    gap: spacing.xs
-  },
-  errorText: {
-    ...type.small,
-    color: colors.danger,
-    flex: 1
-  },
-  retryButton: {
-    alignItems: "center",
-    alignSelf: "flex-start",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.round,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.xs,
-    minHeight: 44,
-    paddingHorizontal: spacing.sm
-  },
-  retryText: {
-    ...type.label,
-    color: colors.textHi
-  },
-  continueGroup: {
-    gap: spacing.sm
-  },
-  continueButton: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: radius.round,
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "center",
-    minHeight: 56
-  },
-  continueButtonDisabled: {
-    backgroundColor: colors.surface2
-  },
-  continueText: {
-    ...type.label,
-    color: colors.accentText
-  },
-  continueTextDisabled: {
-    color: colors.textLo
-  },
-  teleopButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface2,
-    borderColor: colors.border,
-    borderRadius: radius.round,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.sm,
-    justifyContent: "center",
-    minHeight: 52
-  },
-  teleopText: {
-    ...type.label,
-    color: colors.textHi
-  },
-  continueHint: {
-    ...type.small,
-    color: colors.textLo,
-    textAlign: "center"
-  },
-  pressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }]
-  }
-});
+    // Device discovery hero — the page's LEVEL-1 "current important state"
+    // element, so it gets borderStrong while the ArmSlotCards below (LEVEL-2
+    // "available surface") keep the plain border. Not a general card rule.
+    heroCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.borderStrong,
+      borderWidth: 1,
+      borderRadius: CARD_RADIUS_OUTER,
+      padding: spacing.lg,
+      gap: spacing.md
+    },
+    heroTop: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: spacing.xs
+    },
+    heroLabel: {
+      ...type.title,
+      flexShrink: 1
+    },
+    heroDetail: {
+      ...type.small,
+      color: colors.textSecondary
+    },
+    heroDetailDanger: {
+      color: colors.danger
+    },
+    scanButton: {
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: radius.round,
+      flexDirection: "row",
+      gap: spacing.sm,
+      justifyContent: "center",
+      minHeight: 56
+    },
+    scanButtonDisabled: {
+      backgroundColor: colors.surfaceSecondary,
+      opacity: 0.58
+    },
+    scanButtonBusy: {
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.caution,
+      borderWidth: 1
+    },
+    scanButtonText: {
+      ...type.label,
+      color: colors.accentForeground
+    },
+    scanButtonTextDisabled: {
+      color: colors.textSecondary
+    },
+    scanButtonTextBusy: {
+      color: colors.caution
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: CARD_RADIUS_OUTER,
+      borderWidth: 1,
+      gap: spacing.lg,
+      padding: spacing.lg
+    },
+    cardDanger: {
+      borderColor: colors.danger,
+      borderWidth: 1
+    },
+    cardHeader: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: spacing.md,
+      justifyContent: "space-between"
+    },
+    cardHeaderLeft: {
+      flex: 1,
+      minWidth: 0
+    },
+    cardTitle: {
+      ...type.title,
+      color: colors.textPrimary
+    },
+    cardHint: {
+      ...type.body,
+      color: colors.textSecondary,
+      marginTop: spacing.xxs
+    },
+    statusPill: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.round,
+      flexDirection: "row",
+      flexShrink: 0,
+      gap: spacing.xs,
+      minHeight: 34,
+      paddingHorizontal: spacing.sm
+    },
+    statusPillConnected: {
+      backgroundColor: colors.accent
+    },
+    statusDot: {
+      borderRadius: radius.status,
+      height: 8,
+      width: 8
+    },
+    statusText: {
+      ...type.label,
+      color: colors.textPrimary
+    },
+    statusTextCaution: {
+      color: colors.caution
+    },
+    statusTextDanger: {
+      color: colors.danger
+    },
+    statusTextConnected: {
+      color: colors.accentForeground
+    },
+    portPlaceholder: {
+      ...type.body,
+      color: colors.textSecondary
+    },
+    portPlaceholderDanger: {
+      ...type.body,
+      color: colors.danger
+    },
+    portRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm
+    },
+    portChip: {
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.surfaceSecondary,
+      borderRadius: CARD_RADIUS_INNER,
+      borderWidth: 1,
+      flexBasis: "47%",
+      flexGrow: 1,
+      gap: spacing.xxs,
+      minHeight: 64,
+      padding: spacing.md
+    },
+    portChipSelected: {
+      backgroundColor: colors.surface,
+      borderColor: colors.textPrimary
+    },
+    portChipTaken: {
+      borderColor: colors.caution
+    },
+    portChipDisabled: {
+      opacity: 0.58
+    },
+    portPath: {
+      ...type.mono,
+      color: colors.textPrimary
+    },
+    portPathSelected: {
+      color: colors.textPrimary
+    },
+    portVendor: {
+      ...type.small,
+      color: colors.textSecondary
+    },
+    portVendorSelected: {
+      color: colors.textPrimary
+    },
+    portTakenText: {
+      ...type.small,
+      color: colors.caution,
+      marginTop: 2
+    },
+    conflictRow: {
+      alignItems: "flex-start",
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: CARD_RADIUS_INNER,
+      flexDirection: "row",
+      gap: spacing.xs,
+      padding: spacing.sm
+    },
+    conflictText: {
+      ...type.small,
+      color: colors.danger,
+      flex: 1
+    },
+    actionButton: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderRadius: radius.round,
+      borderWidth: 1,
+      justifyContent: "center",
+      minHeight: 52
+    },
+    actionButtonDisabled: {
+      opacity: 0.52
+    },
+    actionButtonBusy: {
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.caution,
+      borderWidth: 1
+    },
+    actionButtonText: {
+      ...type.label,
+      color: colors.textPrimary
+    },
+    actionButtonTextDisabled: {
+      color: colors.textSecondary
+    },
+    actionButtonTextBusy: {
+      ...type.label,
+      color: colors.caution
+    },
+    connectedRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: spacing.sm,
+      justifyContent: "space-between"
+    },
+    connectedInfo: {
+      alignItems: "center",
+      flex: 1,
+      flexDirection: "row",
+      gap: spacing.xs,
+      minWidth: 0
+    },
+    connectedText: {
+      color: colors.textPrimary
+    },
+    disconnectButton: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderRadius: radius.round,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.xs,
+      minHeight: 44,
+      paddingHorizontal: spacing.sm
+    },
+    disconnectText: {
+      ...type.label,
+      color: colors.textPrimary
+    },
+    errorRow: {
+      gap: spacing.sm
+    },
+    errorInfo: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: spacing.xs
+    },
+    errorText: {
+      ...type.small,
+      color: colors.danger,
+      flex: 1
+    },
+    retryButton: {
+      alignItems: "center",
+      alignSelf: "flex-start",
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderRadius: radius.round,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.xs,
+      minHeight: 44,
+      paddingHorizontal: spacing.sm
+    },
+    retryText: {
+      ...type.label,
+      color: colors.textPrimary
+    },
+    continueGroup: {
+      gap: spacing.sm
+    },
+    continueButton: {
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: radius.round,
+      flexDirection: "row",
+      gap: spacing.sm,
+      justifyContent: "center",
+      minHeight: 56
+    },
+    continueButtonDisabled: {
+      backgroundColor: colors.surfaceSecondary
+    },
+    continueText: {
+      ...type.label,
+      color: colors.accentForeground
+    },
+    continueTextDisabled: {
+      color: colors.textSecondary
+    },
+    teleopButton: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceSecondary,
+      borderColor: colors.border,
+      borderRadius: radius.round,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.sm,
+      justifyContent: "center",
+      minHeight: 52
+    },
+    teleopText: {
+      ...type.label,
+      color: colors.textPrimary
+    },
+    continueHint: {
+      ...type.small,
+      color: colors.textSecondary,
+      textAlign: "center"
+    },
+    pressed: {
+      opacity: 0.85,
+      transform: [{ scale: 0.98 }]
+    }
+  });
+}

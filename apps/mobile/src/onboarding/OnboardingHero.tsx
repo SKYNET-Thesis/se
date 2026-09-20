@@ -6,26 +6,64 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, StyleProp, StyleSheet, View, ViewStyle } from "react-native";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { colors } from "../theme";
 
 // Dedicated onboarding hero model. Kept independent from Home's arm.glb /
 // ArmModelViewer — same native GLB-loading mechanism, but this viewer is
-// decorative-only (no gestures, no diagnostic markers, auto-rotating).
+// decorative-only (no gestures, no diagnostic markers): it holds a fixed
+// 3/4 pose and idles with a subtle sway + float, rather than spinning.
 const modelAsset = require("../../assets/models/SO-Arm101.glb");
 
 type Props = {
   reduceMotion?: boolean;
   style?: StyleProp<ViewStyle>;
+  // Theme-aware colors, passed down rather than read via a hook so this
+  // WebGL-heavy component stays decoupled from ThemeContext — same pattern
+  // as ArmModelViewer's color props. Default to the pre-migration Dark
+  // values so any other, not-yet-updated caller keeps rendering unchanged.
+  groundShadowColor?: string;
+  fallbackBackgroundColor?: string;
 };
 
 // Same sphere-based fit as Home's ArmModelViewer. The sphere is
-// rotation-invariant, so the robot stays clear of the frame while yawing.
+// rotation-invariant, so the robot stays clear of the frame regardless of
+// yaw — more headroom than the small idle sway below actually needs, but
+// it's shared, tested framing math and not worth diverging from.
 const CAMERA_FIT_MARGIN = 1.2;
-const YAW_SPEED = 0.12; // radians/second — slow continuous turntable
-const INITIAL_YAW = -0.42;
-// Fixed lean, radians — applied once, never animated (only rotation.y
-// turns per frame). Small on purpose: the pivot is the bounding sphere's
-// center, not the feet, so a larger tilt would visibly drift the base.
+// The hero holds this angle — a flattering 3/4 view of both arms — and
+// only ever sways a little around it, never spins past it.
+const BASE_YAW = -0.42;
+// A sine wave's velocity is zero at both extremes, which is exactly what
+// an ease-in-out turnaround feels like — no separate easing curve needed,
+// and it loops perfectly since sin() is already periodic.
+const YAW_SWAY_AMPLITUDE = THREE.MathUtils.degToRad(12);
+const YAW_SWAY_PERIOD = 7; // seconds for one full left–right–left cycle
+// Subtle vertical breathing, a few px on screen. Deliberately not a clean
+// multiple of YAW_SWAY_PERIOD so the combined sway+float motion doesn't
+// resettle into an obviously mechanical repeating pattern.
+const FLOAT_PERIOD = 5.2; // seconds
+const FLOAT_AMPLITUDE_RATIO = 0.012; // fraction of the model's bounding radius
+
+// Cheapest possible "tech" light effect: instead of adding a light (extra
+// per-pixel lighting cost on a 21MB model already carrying two other
+// animations), just swing the existing lime rim light's position back and
+// forth along an arc each frame — one Vector3.set, no new draw calls, no
+// new shader uniforms. As it moves, different edges catch/lose the rim
+// highlight, reading as a slow lime sweep across the surface without ever
+// touching the white key/fill that carries the base lighting.
+// Distance/height/azimuth below reconstruct the light's original fixed
+// position (-4, 2, -3) as polar coordinates, so the sweep's rest phase
+// (sin = 0) looks identical to the pre-animation lighting.
+const LIME_SWEEP_RADIUS = Math.hypot(-4, -3);
+const LIME_SWEEP_BASE_ANGLE = Math.atan2(-3, -4);
+const LIME_SWEEP_HEIGHT = 2;
+const LIME_SWEEP_ARC = THREE.MathUtils.degToRad(55); // swing each side of the base angle
+// Deliberately not 7 (yaw sway) or 5.2 (float) so the three animations
+// drift in and out of phase instead of resetting together on a beat.
+const LIME_SWEEP_PERIOD = 6.4; // seconds
+
+// Fixed lean, radians — applied once, never animated. Small on purpose:
+// the pivot is the bounding sphere's center, not the feet, so a larger
+// tilt would visibly drift the base.
 const STATIC_PITCH_TILT = -0.05;
 const GLB_MAGIC = 0x46546c67;
 const GLB_VERSION = 2;
@@ -315,8 +353,8 @@ function fitCameraToBoundingSphere(camera: THREE.PerspectiveCamera, boundingRadi
   return fitDistance;
 }
 
-function addGroundShadow(scene: THREE.Scene, boundingRadius: number, floorY: number) {
-  const shadowColor = new THREE.Color(colors.surface2);
+function addGroundShadow(scene: THREE.Scene, boundingRadius: number, floorY: number, groundShadowColor: string) {
+  const shadowColor = new THREE.Color(groundShadowColor);
   [
     { radius: boundingRadius * 0.5, opacity: 0.4 },
     { radius: boundingRadius * 0.32, opacity: 0.28 }
@@ -404,9 +442,14 @@ async function loadGltfModel(asset: Asset): Promise<{ scene: THREE.Object3D }> {
   });
 }
 
-export function OnboardingHero({ reduceMotion = false, style }: Props) {
+export function OnboardingHero({
+  reduceMotion = false,
+  style,
+  groundShadowColor = "#1F1F24",
+  fallbackBackgroundColor = "#0F0F12"
+}: Props) {
   const frameRef = useRef<number | null>(null);
-  const yawRef = useRef(INITIAL_YAW);
+  const elapsedRef = useRef(0);
   const lastTickRef = useRef<number | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -427,11 +470,11 @@ export function OnboardingHero({ reduceMotion = false, style }: Props) {
         const camera = new THREE.PerspectiveCamera(38, width / height, 0.1, 100);
 
         const group = new THREE.Group();
-        // A small fixed forward-lean (independent of the animated yaw
+        // A small fixed forward-lean (independent of the animated sway
         // below) counters the model's resting pose reading as "head
         // drooping down" — it lifts the upper body without disturbing
-        // the yaw turntable or the feet's contact point much.
-        group.rotation.set(STATIC_PITCH_TILT, yawRef.current, 0);
+        // the sway or the feet's contact point much.
+        group.rotation.set(STATIC_PITCH_TILT, BASE_YAW, 0);
         scene.add(group);
 
         // Lower ambient than the diagnostic viewer's flat 1.2 so the
@@ -466,30 +509,58 @@ export function OnboardingHero({ reduceMotion = false, style }: Props) {
         fitCameraToBoundingSphere(camera, boundingRadius);
 
         const floorY = box.min.y - center.y - boundingRadius * 0.02;
-        addGroundShadow(scene, boundingRadius, floorY);
+        addGroundShadow(scene, boundingRadius, floorY, groundShadowColor);
+
+        const floatAmplitude = boundingRadius * FLOAT_AMPLITUDE_RATIO;
 
         const render = (time: number) => {
           frameRef.current = requestAnimationFrame(render);
 
           if (!reduceMotion) {
-            const last = lastTickRef.current ?? time;
-            const delta = (time - last) / 1000;
+            // `last === null` only on this loop's very first tick — skip
+            // the delta there instead of measuring it against an rAF
+            // timestamp from a manual "time 0" kickoff. Mixing a fake 0
+            // with the real (time-since-page-load) clock rAF actually
+            // uses would otherwise produce one enormous first delta and
+            // snap the sway to a random phase instead of starting at rest.
+            const last = lastTickRef.current;
             lastTickRef.current = time;
-            yawRef.current += delta * YAW_SPEED;
-            group.rotation.y = yawRef.current;
+            if (last !== null) {
+              elapsedRef.current += (time - last) / 1000;
+            }
+
+            const yawPhase = (elapsedRef.current / YAW_SWAY_PERIOD) * Math.PI * 2;
+            group.rotation.y = BASE_YAW + Math.sin(yawPhase) * YAW_SWAY_AMPLITUDE;
+
+            const floatPhase = (elapsedRef.current / FLOAT_PERIOD) * Math.PI * 2;
+            group.position.y = Math.sin(floatPhase) * floatAmplitude;
+
+            const sweepPhase = (elapsedRef.current / LIME_SWEEP_PERIOD) * Math.PI * 2;
+            const sweepAngle = LIME_SWEEP_BASE_ANGLE + Math.sin(sweepPhase) * LIME_SWEEP_ARC;
+            rim.position.set(
+              Math.cos(sweepAngle) * LIME_SWEEP_RADIUS,
+              LIME_SWEEP_HEIGHT,
+              Math.sin(sweepAngle) * LIME_SWEEP_RADIUS
+            );
           }
 
           renderer.render(scene, camera);
           gl.endFrameEXP();
         };
 
-        render(0);
+        // One immediate static render at the resting pose (elapsedRef is
+        // still 0), then hand off to rAF for the animated loop — keeps
+        // the very first frame on-screen without an extra fake timestamp
+        // polluting the delta math above.
+        renderer.render(scene, camera);
+        gl.endFrameEXP();
+        frameRef.current = requestAnimationFrame(render);
       } catch (error) {
         console.warn("Failed to load SO-Arm101.glb", error);
         setFailed(true);
       }
     },
-    [reduceMotion]
+    [groundShadowColor, reduceMotion]
   );
 
   useEffect(
@@ -500,7 +571,7 @@ export function OnboardingHero({ reduceMotion = false, style }: Props) {
   );
 
   if (failed) {
-    return <View style={[styles.fallback, style]} />;
+    return <View style={[styles.fallback, { backgroundColor: fallbackBackgroundColor }, style]} />;
   }
 
   return (
@@ -518,7 +589,6 @@ const styles = StyleSheet.create({
     flex: 1
   },
   fallback: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: colors.bg
+    ...StyleSheet.absoluteFill
   }
 });

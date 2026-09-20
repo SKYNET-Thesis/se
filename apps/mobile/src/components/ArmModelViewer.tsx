@@ -32,6 +32,13 @@ type Props = {
   softFloor?: boolean;
   selectedFault?: number | null;
   onFaultSelect?: (index: number) => void;
+  // Fired around the underlying PanResponder gesture (drag-to-rotate or
+  // pinch-to-zoom) so a host screen can react to the user actively handling
+  // the model — e.g. lifting a presentation-mode crop that assumes the
+  // camera's default/canonical framing. Purely a notification: this
+  // component's own camera/fit/scale behavior is unchanged either way.
+  onInteractionStart?: () => void;
+  onInteractionEnd?: () => void;
 };
 
 type Point = { x: number; y: number };
@@ -210,7 +217,9 @@ export function ArmModelViewer({
   showFaults = !compact,
   softFloor = false,
   selectedFault = null,
-  onFaultSelect
+  onFaultSelect,
+  onInteractionStart,
+  onInteractionEnd
 }: Props) {
   const frameRef = useRef<number | null>(null);
   const groupRef = useRef<THREE.Group | null>(null);
@@ -289,6 +298,7 @@ export function ArmModelViewer({
             distance: distanceBetweenTouches(event),
             zoom: zoomRef.current
           };
+          onInteractionStart?.();
         },
         onPanResponderMove: (event, gesture) => {
           const group = groupRef.current;
@@ -310,11 +320,17 @@ export function ArmModelViewer({
           }
           projectFaults();
         },
-        onPanResponderRelease: projectFaults,
-        onPanResponderTerminate: projectFaults,
+        onPanResponderRelease: () => {
+          projectFaults();
+          onInteractionEnd?.();
+        },
+        onPanResponderTerminate: () => {
+          projectFaults();
+          onInteractionEnd?.();
+        },
         onPanResponderTerminationRequest: () => true
       }),
-    [projectFaults]
+    [projectFaults, onInteractionStart, onInteractionEnd]
   );
 
   const onLayout = useCallback(
