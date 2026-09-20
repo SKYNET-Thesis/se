@@ -121,6 +121,75 @@ export function TaskCard({ fontsReady, isFavorite, onPress, onToggleFavorite, ta
   );
 }
 
+type TaskGridTileProps = {
+  fontsReady: boolean;
+  isFavorite: boolean;
+  onPress: () => void;
+  onToggleFavorite: () => void;
+  task: Task;
+};
+
+function shouldRenderGridImage(imageUrl?: string) {
+  return !!imageUrl && !/placehold|placeholder|dummyimage/i.test(imageUrl);
+}
+
+// Discovery-only tile for the Tasks library grid (2-column, square-ish) —
+// image/icon + status chip + favorite, name below. Deliberately excludes
+// description and a "Xem" affordance: TaskDetailScreen still owns all of
+// that once a tile is tapped, this only has to help browsing.
+export function TaskGridTile({ fontsReady, isFavorite, onPress, onToggleFavorite, task }: TaskGridTileProps) {
+  const { colors } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const Icon = getTaskIcon(task.icon);
+
+  return (
+    <View style={styles.gridTile}>
+      <Pressable
+        accessibilityLabel={`Xem tác vụ ${task.name}`}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [styles.gridTilePressable, pressed && styles.pressed]}
+      >
+        <View style={styles.gridVisual}>
+          {shouldRenderGridImage(task.imageUrl) ? (
+            <Image
+              accessibilityIgnoresInvertColors
+              resizeMode="cover"
+              source={{ uri: task.imageUrl }}
+              style={styles.gridImage}
+            />
+          ) : (
+            <Icon color={colors.textPrimary} size={30} strokeWidth={1.6} />
+          )}
+
+          <View style={styles.gridChipOverlay}>
+            <TaskStatusChip fontsReady={fontsReady} size="sm" status={task.status} />
+          </View>
+        </View>
+
+        <Text numberOfLines={1} style={[styles.gridTileName, font("display", fontsReady)]}>
+          {task.name}
+        </Text>
+      </Pressable>
+
+      <Pressable
+        accessibilityLabel={isFavorite ? `Bỏ yêu thích ${task.name}` : `Yêu thích ${task.name}`}
+        accessibilityRole="button"
+        accessibilityState={{ selected: isFavorite }}
+        hitSlop={8}
+        onPress={onToggleFavorite}
+        style={({ pressed }) => [styles.gridFavoriteButton, pressed && styles.pressed]}
+      >
+        <Heart
+          color={isFavorite ? colors.accentStrong : colors.textPrimary}
+          fill={isFavorite ? colors.accentStrong : "none"}
+          size={15}
+        />
+      </Pressable>
+    </View>
+  );
+}
+
 type CompactTaskCardProps = {
   fontsReady: boolean;
   onPress: () => void;
@@ -245,6 +314,56 @@ function createStyles(colors: ThemeColors) {
     compactName: {
       ...type.label,
       color: colors.textPrimary
+    },
+    // Grid tile (Tasks library, 2-column). No border/fill of its own beyond
+    // `surface` — it sits inside TasksScreen's `surfaceSecondary` shell, the
+    // same "recessed shell containing elevated cards" pairing already used
+    // by StatusScreen's armShell/armCard and Connect/Teleop's gateShell/
+    // gateChip, just applied to a tile grid instead of a row of chips.
+    gridTile: {
+      backgroundColor: colors.surface,
+      borderRadius: CARD_RADIUS_INNER,
+      flexBasis: "47%",
+      flexGrow: 1,
+      padding: spacing.sm
+    },
+    gridTilePressable: {
+      gap: spacing.xs
+    },
+    gridVisual: {
+      alignItems: "center",
+      aspectRatio: 1,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: CARD_RADIUS_INNER - 4,
+      justifyContent: "center",
+      overflow: "hidden",
+      width: "100%"
+    },
+    gridImage: {
+      height: "100%",
+      width: "100%"
+    },
+    gridChipOverlay: {
+      left: spacing.xs,
+      position: "absolute",
+      top: spacing.xs
+    },
+    gridTileName: {
+      ...type.bodyStrong,
+      color: colors.textPrimary
+    },
+    gridFavoriteButton: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: radius.round,
+      borderWidth: 1,
+      height: 32,
+      justifyContent: "center",
+      position: "absolute",
+      right: spacing.xs,
+      top: spacing.xs,
+      width: 32
     }
   });
 }

@@ -42,6 +42,12 @@ function AppShell() {
   // mounted above the whole navigator and has no navigation prop of its own.
   const navigationRef = useNavigationContainerRef<RootTabParamList>();
   const openAccountSettings = () => navigationRef.current?.navigate("Settings");
+  // Single source of truth for E-STOP activation — GlobalChrome's button and
+  // Phone Teleop's fullscreen overlay button (the only other place a user
+  // can be actively driving the robot with no other E-STOP control on
+  // screen) both call this same setter instead of each owning their own
+  // "stopped" state.
+  const activateEmergencyStop = () => setEmergencyStopped(true);
 
   useEffect(() => {
     // A previous Phone Teleop session may have left the OS in landscape after a
@@ -132,7 +138,7 @@ function AppShell() {
           emergencyStopped={emergencyStopped}
           fontsReady={fontsReady}
           isHome={activeRouteName === "HomeMain"}
-          onEmergencyStop={() => setEmergencyStopped(true)}
+          onEmergencyStop={activateEmergencyStop}
           onOpenAccount={openAccountSettings}
           onResetEmergencyStop={requestResetEmergencyStop}
         />
@@ -142,6 +148,7 @@ function AppShell() {
             fontsReady={fontsReady}
             navigationRef={navigationRef}
             onActiveRouteChange={setActiveRouteName}
+            onEmergencyStop={activateEmergencyStop}
             reduceMotion={reduceMotion}
           />
         </View>

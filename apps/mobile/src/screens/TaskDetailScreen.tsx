@@ -1,10 +1,12 @@
 import { ArrowRight, ChevronLeft, Heart, TriangleAlert } from "lucide-react-native";
-import { ReactElement, useEffect, useMemo, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ReactElement, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { HeroStage } from "../components/HeroStage";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { getTaskIcon } from "../components/TaskCard";
 import { TaskStatusChip } from "../components/TaskStatusChip";
+import { Toast } from "../components/Toast";
 import { useAppTheme } from "../ThemeContext";
 import { getTaskById, Task, TaskStatus } from "../data/tasks";
 import { getFavorites, toggleFavorite } from "../services/favoritesStorage";
@@ -15,15 +17,6 @@ type Props = {
   taskId: string;
   onBack: () => void;
 };
-
-// Mock imageUrl values are placehold.co text-on-flat-color placeholders, not
-// real task photography. FeaturedTaskCard already treats these as "no real
-// image yet" on Home; matching that here keeps a task from ever showing a
-// lorem-ipsum-looking placeholder as if it were real media. Swap for a real
-// check once the media pipeline exists — the icon fallback path stays.
-function hasRealImage(imageUrl?: string) {
-  return !!imageUrl && !/placehold|placeholder|dummyimage/i.test(imageUrl);
-}
 
 type TaskFact = { label: string; value: string };
 
@@ -43,20 +36,32 @@ function buildTaskFacts(task: Task): TaskFact[] {
     .map(([label, value]) => ({ label, value }));
 }
 
-// Hero height depends on whether there's real media to fill it. Real
-// image/video earns an immersive, near-square frame; the icon fallback gets
-// a visibly shorter frame so it reads as a deliberate emblem composition,
-// not a giant empty placeholder waiting for content that doesn't exist yet.
-const HERO_ASPECT_MEDIA = 1; // height ≈ width — immersive, editorial
-const HERO_ASPECT_FALLBACK = 0.78; // height ≈ width * 0.78 — compact, intentional
-// Fixed-opacity bands approximating a top-to-bottom fade, since this app has
-// no gradient dependency. The last band lands at full opacity (1) so it
-// terminates exactly at the page background color instead of stopping short
-// and leaving a visible seam at the hero/body boundary.
-const HERO_FADE_OPACITIES = [0.04, 0.1, 0.2, 0.34, 0.52, 0.74, 1];
-// Fraction of hero height the fade occupies — kept modest so it never eats
-// into the fallback emblem's own breathing room in the now-shorter hero.
-const HERO_FADE_RATIO = 0.2;
+// One target frame size — ~45-50% of the viewport height — regardless of
+// whether the fallback emblem or a real future photo/video fills it. A
+// prepared showcase frame shouldn't visibly change proportions the day real
+// SO-ARM101 media replaces the placeholder; the old media-vs-fallback split
+// (a tall aspect-1 frame for media, a short 0.78 one for the icon) would
+// have made that swap look like a redesign instead of just new content
+// dropping into the same stage. Ratio + clamp verified against real
+// renders (Playwright boundingBox against the status card's actual top
+// edge) on both 375x812 and 430x932, not derived from this constant alone.
+const HERO_HEIGHT_RATIO = 0.47;
+const HERO_MIN_HEIGHT = 320;
+const HERO_MAX_HEIGHT = 460;
+// Fraction of hero height the fade occupies — sized to comfortably hold the
+// "SO-ARM101" + task-name caption HeroStage overlays at the bottom of it
+// (see the HeroStage call below), not just the hero/body seam it used to be
+// tuned for alone.
+const HERO_FADE_RATIO = 0.34;
+
+// "Chạy tác vụ" execution feedback state machine. No backend/VLA endpoint
+// exists yet (see the TODO below), so `starting` is driven by a simulated
+// delay and always resolves to `success` — `error` is wired through the
+// button/toast rendering now so the only future change is what sets it.
+type TaskExecutionState = "idle" | "starting" | "success" | "error";
+
+const EXECUTION_STARTING_DELAY_MS = 900;
+const EXECUTION_TOAST_DURATION_MS = 2600;
 
 export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
   const { colors } = useAppTheme();
@@ -64,8 +69,12 @@ export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
   // undefined = still loading, null = id doesn't match any task.
   const [task, setTask] = useState<Task | null | undefined>(undefined);
   const [isFavorite, setIsFavorite] = useState(false);
-  const { width: windowWidth } = useWindowDimensions();
+  const [executionState, setExecutionState] = useState<TaskExecutionState>("idle");
+  const [toastVisible, setToastVisible] = useState(false);
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const startingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -82,9 +91,33 @@ export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
     };
   }, [taskId]);
 
+  useEffect(
+    () => () => {
+      if (startingTimeoutRef.current) clearTimeout(startingTimeoutRef.current);
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    },
+    []
+  );
+
   const handleToggleFavorite = () => {
     setIsFavorite((prev) => !prev);
     void toggleFavorite(taskId).then((ids) => setIsFavorite(ids.includes(taskId)));
+  };
+
+  // Simulated execution: no VLA/task-execution backend exists yet, so this
+  // just proves out the interaction (loading → confirmed feedback → idle)
+  // against a fake delay. Swapping the setTimeout below for the real
+  // request — and setting `error` on failure — is the only future change;
+  // the button/toast already render every state correctly.
+  const handleRunTask = () => {
+    if (executionState === "starting") return;
+
+    setExecutionState("starting");
+    startingTimeoutRef.current = setTimeout(() => {
+      setExecutionState("success");
+      setToastVisible(true);
+      toastTimeoutRef.current = setTimeout(() => setToastVisible(false), EXECUTION_TOAST_DURATION_MS);
+    }, EXECUTION_STARTING_DELAY_MS);
   };
 
   if (task === undefined) {
@@ -112,8 +145,10 @@ export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
   }
 
   const Icon = getTaskIcon(task.icon);
-  const hasHeroMedia = hasRealImage(task.imageUrl) || Boolean(task.videoUrl);
-  const heroHeight = Math.round(windowWidth * (hasHeroMedia ? HERO_ASPECT_MEDIA : HERO_ASPECT_FALLBACK));
+  const heroHeight = Math.min(
+    HERO_MAX_HEIGHT,
+    Math.max(HERO_MIN_HEIGHT, Math.round(windowHeight * HERO_HEIGHT_RATIO))
+  );
   const heroEmblemSize = Math.min(200, Math.round(windowWidth * 0.42));
   const heroIconSize = Math.round(heroEmblemSize * 0.46);
   const heroFadeHeight = Math.round(heroHeight * HERO_FADE_RATIO);
@@ -124,126 +159,167 @@ export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
   const chapters = buildChapters(task, fontsReady, styles);
 
   return (
-    <ScrollView
-      accessibilityLabel={`Màn hình chi tiết tác vụ ${task.name}`}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-      style={styles.screen}
-    >
-      <View style={[styles.hero, { height: heroHeight }]}>
-        {hasRealImage(task.imageUrl) ? (
-          <Image
-            accessibilityIgnoresInvertColors
-            resizeMode="cover"
-            source={{ uri: task.imageUrl }}
-            style={styles.heroImage}
+    <View style={styles.screenWrap}>
+      <ScrollView
+        accessibilityLabel={`Màn hình chi tiết tác vụ ${task.name}`}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        style={styles.screen}
+      >
+        {/* Cinematic hero first — media dominates, with "SO-ARM101" and the
+            task name overlaid inside it (HeroStage's caption slot) instead
+            of as a separate text block above the visual. Back/favorite
+            float on top of the stage, same overlay pattern this app already
+            uses elsewhere, legible against any future real photo via
+            HeroStage's own top scrim. */}
+        <View style={styles.heroWrap}>
+          <HeroStage
+            emblemIcon={Icon}
+            emblemSize={heroEmblemSize}
+            fadeHeight={heroFadeHeight}
+            fontsReady={fontsReady}
+            height={heroHeight}
+            iconSize={heroIconSize}
+            imageUrl={task.imageUrl}
+            overline="SO-ARM101"
+            title={task.name}
           />
-        ) : (
-          <View style={styles.heroFallback}>
-            <View style={[styles.heroEmblem, { height: heroEmblemSize, width: heroEmblemSize }]}>
-              <Icon color={colors.textPrimary} size={heroIconSize} strokeWidth={1.5} />
-            </View>
+
+          <Pressable
+            accessibilityLabel="Quay lại"
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={onBack}
+            style={({ pressed }) => [
+              styles.heroButton,
+              styles.heroButtonLeft,
+              { top: insets.top + spacing.sm },
+              pressed && styles.pressed
+            ]}
+          >
+            <ChevronLeft color={colors.textPrimary} size={22} />
+          </Pressable>
+
+          <Pressable
+            accessibilityLabel={isFavorite ? "Bỏ yêu thích" : "Yêu thích"}
+            accessibilityRole="button"
+            accessibilityState={{ selected: isFavorite }}
+            hitSlop={8}
+            onPress={handleToggleFavorite}
+            style={({ pressed }) => [
+              styles.heroButton,
+              styles.heroButtonRight,
+              { top: insets.top + spacing.sm },
+              pressed && styles.pressed
+            ]}
+          >
+            <Heart
+              color={isFavorite ? colors.accentStrong : colors.textPrimary}
+              fill={isFavorite ? colors.accentStrong : "none"}
+              size={20}
+            />
+          </Pressable>
+        </View>
+
+        <View style={styles.body}>
+          {/* Premium status card — task context (status, name, one short
+              description), not a dashboard readout. Repeats the task name
+              in a smaller, secondary weight; the hero already said it once,
+              large. */}
+          <View style={styles.statusCard}>
+            <TaskStatusChip fontsReady={fontsReady} size="md" status={task.status} />
+            <Text style={[styles.statusCardTitle, font("display", fontsReady)]}>{task.name}</Text>
+            <Text style={[styles.statusCardDescription, font("body", fontsReady)]}>{task.description}</Text>
           </View>
-        )}
 
-        <View pointerEvents="none" style={[styles.heroFade, { height: heroFadeHeight }]}>
-          {HERO_FADE_OPACITIES.map((opacity, index) => (
-            <View key={index} style={[styles.heroFadeBand, { opacity }]} />
-          ))}
-        </View>
-
-        <Pressable
-          accessibilityLabel="Quay lại"
-          accessibilityRole="button"
-          hitSlop={8}
-          onPress={onBack}
-          style={({ pressed }) => [
-            styles.heroButton,
-            styles.heroButtonLeft,
-            { top: insets.top + spacing.sm },
-            pressed && styles.pressed
-          ]}
-        >
-          <ChevronLeft color={colors.textPrimary} size={22} />
-        </Pressable>
-
-        <Pressable
-          accessibilityLabel={isFavorite ? "Bỏ yêu thích" : "Yêu thích"}
-          accessibilityRole="button"
-          accessibilityState={{ selected: isFavorite }}
-          hitSlop={8}
-          onPress={handleToggleFavorite}
-          style={({ pressed }) => [
-            styles.heroButton,
-            styles.heroButtonRight,
-            { top: insets.top + spacing.sm },
-            pressed && styles.pressed
-          ]}
-        >
-          <Heart
-            color={isFavorite ? colors.accentStrong : colors.textPrimary}
-            fill={isFavorite ? colors.accentStrong : "none"}
-            size={20}
+          <ExecutionAvailability
+            colors={colors}
+            executionState={executionState}
+            fontsReady={fontsReady}
+            onRunTask={handleRunTask}
+            status={task.status}
+            styles={styles}
           />
-        </Pressable>
-      </View>
 
-      <View style={styles.body}>
-        <View style={styles.identity}>
-          <Text style={[styles.title, font("display", fontsReady)]}>{task.name}</Text>
-          <TaskStatusChip fontsReady={fontsReady} size="md" status={task.status} />
+          {taskFacts.length > 0 && (
+            <>
+              <View style={styles.divider} />
+              <QuickFacts columns={factColumns} facts={taskFacts} fontsReady={fontsReady} styles={styles} />
+            </>
+          )}
+
+          {chapters.length > 0 && (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.chapters}>{chapters}</View>
+            </>
+          )}
         </View>
+      </ScrollView>
 
-        <ExecutionAvailability colors={colors} fontsReady={fontsReady} status={task.status} styles={styles} />
-
-        <Text style={[styles.description, font("body", fontsReady)]}>{task.description}</Text>
-
-        {taskFacts.length > 0 && (
-          <>
-            <View style={styles.divider} />
-            <QuickFacts columns={factColumns} facts={taskFacts} fontsReady={fontsReady} styles={styles} />
-          </>
-        )}
-
-        {chapters.length > 0 && (
-          <>
-            <View style={styles.divider} />
-            <View style={styles.chapters}>{chapters}</View>
-          </>
-        )}
-      </View>
-    </ScrollView>
+      <Toast
+        colors={colors}
+        fontsReady={fontsReady}
+        subtitle="Robot đang chuẩn bị"
+        title="Đã gửi tác vụ"
+        visible={toastVisible}
+      />
+    </View>
   );
 }
 
 // READY gets the one dominant lime action. TRAINING/COMING_SOON never show a
 // fake-disabled version of it — status affects execution, not discoverability,
 // so those states still surface as plain availability copy, not a dead CTA.
+//
+// The READY button itself now runs through `executionState`
+// (idle/starting/success/error — see TaskExecutionState above): pressing it
+// is no longer a silent no-op. There is still no VLA/task-execution backend,
+// so "starting" resolves via a simulated delay owned by the parent screen —
+// this component only renders whichever state it's given.
 function ExecutionAvailability({
   colors,
+  executionState,
   fontsReady,
+  onRunTask,
   status,
   styles
 }: {
   colors: ThemeColors;
+  executionState: TaskExecutionState;
   fontsReady: boolean;
+  onRunTask: () => void;
   status: TaskStatus;
   styles: ReturnType<typeof createStyles>;
 }) {
   if (status === "ready") {
+    const isStarting = executionState === "starting";
+    const isError = executionState === "error";
+    const label = isStarting ? "Đang gửi lệnh…" : isError ? "Thử lại" : "Chạy tác vụ";
+
     return (
       <Pressable
-        accessibilityHint="Chưa nối VLA — hành động này hiện chưa có tác dụng"
-        accessibilityLabel="Chạy tác vụ"
+        accessibilityHint={isStarting ? undefined : "Gửi lệnh chạy tác vụ tới robot"}
+        accessibilityLabel={isStarting ? "Đang gửi lệnh chạy tác vụ" : label}
         accessibilityRole="button"
-        // TODO(VLA): wire real task execution once the backend/VLA
-        // endpoint exists. Intentionally a no-op placeholder for now.
-        onPress={() => undefined}
-        style={({ pressed }) => [styles.runButton, pressed && styles.pillPressed]}
+        accessibilityState={{ busy: isStarting, disabled: isStarting }}
+        disabled={isStarting}
+        onPress={onRunTask}
+        style={({ pressed }) => [
+          styles.runButton,
+          isStarting && styles.runButtonBusy,
+          pressed && !isStarting && styles.pillPressed
+        ]}
       >
-        <Text style={[styles.runButtonText, font("display", fontsReady)]}>Chạy tác vụ</Text>
+        <Text style={[styles.runButtonText, font("display", fontsReady)]}>{label}</Text>
         <View style={styles.runButtonIcon}>
-          <ArrowRight color={colors.accent} size={18} />
+          {isStarting ? (
+            <ActivityIndicator color={colors.accent} size="small" />
+          ) : isError ? (
+            <TriangleAlert color={colors.danger} size={18} />
+          ) : (
+            <ArrowRight color={colors.accent} size={18} />
+          )}
         </View>
       </Pressable>
     );
@@ -458,6 +534,12 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.background,
       flex: 1
     },
+    // Wraps the ScrollView so Toast (a sibling, absolutely positioned) is
+    // pinned to the screen's own bounds instead of the scrollable content —
+    // otherwise it would scroll away with the page instead of floating.
+    screenWrap: {
+      flex: 1
+    },
     loadingHeader: {
       paddingHorizontal: spacing.xl,
       paddingTop: spacing.lg
@@ -476,38 +558,12 @@ function createStyles(colors: ThemeColors) {
       color: colors.textSecondary,
       textAlign: "center"
     },
-    hero: {
-      backgroundColor: colors.surfaceSecondary,
-      overflow: "hidden",
-      width: "100%"
-    },
-    heroImage: {
-      height: "100%",
-      width: "100%"
-    },
-    heroFallback: {
-      alignItems: "center",
-      flex: 1,
-      justifyContent: "center"
-    },
-    heroEmblem: {
-      alignItems: "center",
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderRadius: radius.round,
-      borderWidth: 1,
-      justifyContent: "center"
-    },
-    heroFade: {
-      bottom: 0,
-      flexDirection: "column",
-      left: 0,
-      position: "absolute",
-      right: 0
-    },
-    heroFadeBand: {
-      backgroundColor: colors.background,
-      flex: 1
+    // Positions back/favorite as overlays on top of HeroStage — same
+    // pattern this app already uses (see TasksScreen's own hero) — instead
+    // of a separate toolbar row preceding the visual. The hero is the first
+    // thing on screen now, so these float directly on it.
+    heroWrap: {
+      position: "relative"
     },
     heroButton: {
       alignItems: "center",
@@ -529,16 +585,23 @@ function createStyles(colors: ThemeColors) {
     body: {
       gap: spacing.lg,
       paddingHorizontal: spacing.xl,
-      paddingTop: spacing.lg
+      paddingTop: spacing.xl
     },
-    identity: {
-      gap: spacing.sm
+    // Task context, not a dashboard readout — one card, no per-field
+    // borders/pills beyond the status chip it already reuses.
+    statusCard: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: radius.card,
+      borderWidth: 1,
+      gap: spacing.sm,
+      padding: spacing.lg
     },
-    title: {
-      ...type.display,
+    statusCardTitle: {
+      ...type.title,
       color: colors.textPrimary
     },
-    description: {
+    statusCardDescription: {
       ...type.body,
       color: colors.textSecondary
     },
@@ -548,7 +611,7 @@ function createStyles(colors: ThemeColors) {
       width: "100%"
     },
     factsGrid: {
-      gap: spacing.md
+      gap: spacing.lg
     },
     factsRow: {
       flexDirection: "row",
@@ -558,12 +621,20 @@ function createStyles(colors: ThemeColors) {
       flex: 1,
       gap: spacing.xs
     },
+    // Uppercase + tracked-out, same micro-label idiom TasksScreen's own
+    // hero metadata line already uses — reads as a product spec sheet
+    // rather than a form's field labels.
     factLabel: {
       ...type.small,
-      color: colors.textSecondary
+      color: colors.textSecondary,
+      letterSpacing: 0.5,
+      textTransform: "uppercase"
     },
+    // Medium weight, not bodyStrong — this is now a supporting technical
+    // detail below the status card and hero, not content competing with
+    // them for attention.
     factValue: {
-      ...type.bodyStrong,
+      ...type.body,
       color: colors.textPrimary
     },
     chapters: {
@@ -588,7 +659,7 @@ function createStyles(colors: ThemeColors) {
       lineHeight: 24
     },
     requirementsList: {
-      gap: spacing.sm
+      gap: spacing.md
     },
     requirementRow: {
       flexDirection: "row",
@@ -606,13 +677,16 @@ function createStyles(colors: ThemeColors) {
       color: colors.textPrimary,
       flex: 1
     },
+    // More vertical room per step (gap + paddingVertical both up from the
+    // previous, tighter pass) — a numbered task flow to scan at a glance,
+    // not a dense documentation list.
     stepsList: {
-      gap: spacing.xs
+      gap: spacing.sm
     },
     stepRow: {
       flexDirection: "row",
       gap: spacing.md,
-      paddingVertical: spacing.sm
+      paddingVertical: spacing.md
     },
     stepIndex: {
       ...type.mono,
@@ -649,6 +723,12 @@ function createStyles(colors: ThemeColors) {
       minHeight: 60,
       paddingHorizontal: spacing.lg,
       paddingVertical: spacing.md
+    },
+    // Kept on the same accent fill as idle (not `surfaceSecondary`, this
+    // app's usual "disabled" treatment) — it's temporarily busy, not
+    // unavailable, so it should still read as the same action in progress.
+    runButtonBusy: {
+      opacity: 0.85
     },
     runButtonText: {
       ...type.title,

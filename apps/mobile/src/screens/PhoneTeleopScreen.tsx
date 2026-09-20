@@ -1,4 +1,4 @@
-import { Camera, CircleAlert, CircleCheck, Hand, Radio, RotateCcw, ShieldAlert, Wifi, WifiOff } from "lucide-react-native";
+import { AlertTriangle, Camera, CircleAlert, CircleCheck, Hand, Radio, RotateCcw, ShieldAlert, Wifi, WifiOff } from "lucide-react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { DeviceMotion } from "expo-sensors";
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -23,6 +23,13 @@ type Props = {
   emergencyStopped: boolean;
   fontsReady: boolean;
   onBack: () => void;
+  // Fires the same App.tsx-owned E-STOP activation GlobalChrome's own
+  // button calls. Needed here specifically because the fullscreen Motion +
+  // Camera modal below (motionFullscreen) is a full-bleed overlay that
+  // visually covers GlobalChrome entirely — without this, a user actively
+  // driving the robot in that mode would have no E-STOP control on screen
+  // at all. See the fullscreen Modal's JSX for the visual entry point.
+  onEmergencyStop: () => void;
 };
 
 type InputMode = "pad" | "motion";
@@ -31,7 +38,7 @@ type TrackingState = "ready" | "tracking" | "limited" | "lost";
 const PAD_HEIGHT = 220;
 const GRIPPER_DEAD_ZONE = 0.1;
 
-export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Props) {
+export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmergencyStop }: Props) {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [serverHost, setServerHost] = useState("192.168.1.100");
@@ -428,6 +435,38 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack }: Prop
               </Pressable>
             </>
           )}
+
+          {/*
+            Always rendered, in both the permission-prompt and live-feed
+            branches above, and last in this View so it stacks on top of
+            everything else here — this fullscreen modal is the one surface
+            that fully covers GlobalChrome, so it needs its own E-STOP entry
+            point. Same activation callback as GlobalChrome's button (see
+            the onEmergencyStop prop); no separate stopped state.
+          */}
+          <Pressable
+            accessibilityHint={emergencyStopped ? undefined : "Dừng chuyển động toàn hệ thống ngay lập tức"}
+            accessibilityLabel={emergencyStopped ? "Hệ thống đang E-STOP" : "Kích hoạt E-STOP"}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: emergencyStopped }}
+            disabled={emergencyStopped}
+            hitSlop={8}
+            onPress={onEmergencyStop}
+            style={({ pressed }) => [
+              styles.fullscreenEstop,
+              emergencyStopped && styles.fullscreenEstopActive,
+              pressed && !emergencyStopped && styles.pressed
+            ]}
+          >
+            {emergencyStopped ? (
+              <AlertTriangle color={colors.dangerForeground} size={16} />
+            ) : (
+              <ShieldAlert color={colors.dangerForeground} size={16} />
+            )}
+            <Text style={[styles.fullscreenEstopText, font("display", fontsReady)]}>
+              {emergencyStopped ? "ĐÃ DỪNG" : "E-STOP"}
+            </Text>
+          </Pressable>
         </View>
       </Modal>
     </ScrollView>
@@ -509,7 +548,22 @@ function createStyles(colors: ThemeColors) {
     // "success surface" token exists yet) rather than invented ad hoc here.
     statusPillOk: { backgroundColor: "#263516" }, statusPillMuted: { backgroundColor: colors.surfaceSecondary },
     statusPillText: { color: colors.textSecondary, fontSize: 10 }, inputRow: { flexDirection: "row", gap: spacing.xs },
-    input: { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, color: colors.textPrimary, minHeight: 46, paddingHorizontal: spacing.sm }, hostInput: { flex: 1 }, portInput: { width: 92 }, transportButton: { alignItems: "center", backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, justifyContent: "center", minWidth: 48 }, transportButtonActive: { borderColor: colors.accentStrong }, transportText: { color: colors.textSecondary, fontSize: 10 },
+    input: { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, color: colors.textPrimary, minHeight: 46, paddingHorizontal: spacing.sm },
+    // flex:1 alone isn't enough here: react-native-web compiles this row to
+    // real CSS flexbox, where a flex item's default min-width is `auto`
+    // (its own content size), not 0 — so without an explicit minWidth:0,
+    // hostInput refused to shrink below the width of its placeholder/value
+    // text and pushed transportButton/connectButton past the card's right
+    // edge at narrower widths (~375-430px). minWidth:0 lets it actually
+    // shrink to fill only the space left after its fixed-width siblings;
+    // TextInput scrolls its own content horizontally when narrower than
+    // the value, same as any native text field, so nothing is lost.
+    hostInput: { flex: 1, minWidth: 0 },
+    // Was 92 — comfortably oversized for a port number (max 5 digits).
+    // Narrower here is what actually gives hostInput enough room to stay
+    // legible instead of merely "not clipping" at 375-430px.
+    portInput: { width: 64 },
+    transportButton: { alignItems: "center", backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, justifyContent: "center", minWidth: 48 }, transportButtonActive: { borderColor: colors.accentStrong }, transportText: { color: colors.textSecondary, fontSize: 10 },
     connectButton: { alignItems: "center", backgroundColor: colors.accent, borderRadius: radius.button, justifyContent: "center", minWidth: 82, paddingHorizontal: spacing.sm }, disconnectButton: { backgroundColor: colors.surfaceSecondary, borderColor: colors.danger, borderWidth: 1 }, connectText: { color: colors.accentForeground, fontSize: 13 },
     stateCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: spacing.md, padding: spacing.md }, stateMain: { alignItems: "center", flexDirection: "row", gap: spacing.sm }, stateDot: { borderRadius: radius.round, height: 10, width: 10 }, stateCopy: { flex: 1 }, stateTitle: { color: colors.textPrimary, fontSize: 14, lineHeight: 20 }, accentText: { color: colors.accentStrong }, stateMetrics: { borderTopColor: colors.border, borderTopWidth: 1, flexDirection: "row", gap: spacing.xxxl, paddingTop: spacing.sm }, metricLabel: { color: colors.textSecondary, fontSize: 10 }, metricValue: { fontSize: 12, lineHeight: 18 },
     modeRow: { flexDirection: "row", gap: spacing.sm }, modeButton: { alignItems: "center", backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, flex: 1, flexDirection: "row", gap: spacing.xs, justifyContent: "center", minHeight: 48, paddingHorizontal: spacing.xs }, modeButtonActive: { backgroundColor: colors.accent, borderColor: colors.accent }, modeText: { color: colors.textSecondary, fontSize: 12 }, modeTextActive: { color: colors.accentForeground },
@@ -530,6 +584,14 @@ function createStyles(colors: ThemeColors) {
     // The fullscreen motion+camera modal is a full-bleed live AR/camera
     // HUD — pinned dark throughout (see the comment above the Modal JSX).
     motionFullscreen: { backgroundColor: "#000", flex: 1 }, fullscreenHoldArea: { flex: 1 }, fullscreenOverlay: { alignItems: "center", bottom: 0, justifyContent: "center", left: 0, position: "absolute", right: 0, top: 0 }, fullscreenTracking: { backgroundColor: "#0008", color: darkColors.textPrimary, fontSize: 11, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }, fullscreenHint: { backgroundColor: "#0009", bottom: 112, color: darkColors.textPrimary, fontSize: 13, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, position: "absolute" }, fullscreenPermission: { alignItems: "center", flex: 1, gap: spacing.xs, justifyContent: "center" }, fullscreenPermissionTitle: { color: darkColors.textPrimary, fontSize: 14, marginTop: spacing.sm }, fullscreenBack: { backgroundColor: "#111c", borderColor: darkColors.textPrimary, borderRadius: radius.button, borderWidth: 1, left: spacing.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, position: "absolute", top: spacing.xl }, fullscreenBackText: { color: darkColors.textPrimary, fontSize: 13 }, fullscreenGripper: { alignItems: "center", backgroundColor: colors.accent, borderRadius: radius.button, bottom: spacing.xl, flexDirection: "row", gap: spacing.xs, justifyContent: "center", left: spacing.lg, minHeight: 54, paddingHorizontal: spacing.md, position: "absolute", right: spacing.lg }, fullscreenGripperText: { color: colors.accentForeground, fontSize: 13 },
+    // Same danger/dangerForeground pairing GlobalChrome's own E-STOP button
+    // uses — the one other place on screen a user can trigger it while this
+    // fullscreen overlay hides GlobalChrome entirely. Placed above every
+    // other fullscreen child (last in JSX = topmost) so it's never covered
+    // by the camera feed or the hold-to-control area.
+    fullscreenEstop: { alignItems: "center", backgroundColor: colors.danger, borderRadius: radius.button, flexDirection: "row", gap: spacing.xxs, minHeight: 44, paddingHorizontal: spacing.sm, position: "absolute", right: spacing.md, top: spacing.xl },
+    fullscreenEstopActive: { opacity: 0.9 },
+    fullscreenEstopText: { color: colors.dangerForeground, fontSize: 13, fontWeight: "700" },
     actionsRow: { flexDirection: "row", gap: spacing.sm }, secondaryButton: { alignItems: "center", backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, flex: 1, flexDirection: "row", gap: spacing.xs, justifyContent: "center", minHeight: 48 }, stopButton: { alignItems: "center", backgroundColor: colors.danger, borderRadius: radius.button, flex: 1, flexDirection: "row", gap: spacing.xs, justifyContent: "center", minHeight: 48 }, secondaryText: { color: colors.textPrimary, fontSize: 12 }, stopText: { color: colors.dangerForeground }, speedCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: spacing.sm, padding: spacing.md }, speedValue: { color: colors.accentStrong, fontSize: 14 }, speedTrack: { backgroundColor: colors.border, height: 6, position: "relative" }, speedFill: { backgroundColor: colors.accent, height: 6, left: 0, position: "absolute", top: 0 }, speedPoint: { backgroundColor: colors.textSecondary, borderRadius: radius.round, height: 14, marginLeft: -7, marginTop: -4, position: "absolute", width: 14, zIndex: 2 }, speedPointActive: { backgroundColor: colors.accentStrong }, speedLabels: { flexDirection: "row", justifyContent: "space-between" }, notice: { alignItems: "flex-start", backgroundColor: "#2e2819", borderColor: darkColors.caution, borderRadius: radius.button, borderWidth: 1, flexDirection: "row", gap: spacing.xs, padding: spacing.sm }, noticeText: { color: darkColors.textPrimary, flex: 1, fontSize: 12 }, disabled: { opacity: 0.45 }, pressed: { opacity: 0.78 }
   });
 }

@@ -85,6 +85,12 @@ type AppNavigatorProps = {
   // GlobalChrome, which is mounted above this whole navigator and has no
   // navigation prop of its own.
   navigationRef: RefObject<NavigationContainerRef<RootTabParamList> | null>;
+  // Same activation callback GlobalChrome's own E-STOP button calls —
+  // threaded only as far as Phone Teleop's fullscreen overlay, which is the
+  // one surface that visually covers GlobalChrome and would otherwise leave
+  // a user with no E-STOP control while potentially driving the robot live.
+  // Not a new state source: App.tsx still owns `emergencyStopped` alone.
+  onEmergencyStop: () => void;
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -128,6 +134,7 @@ export function AppNavigator({
   fontsReady,
   navigationRef,
   onActiveRouteChange,
+  onEmergencyStop,
   reduceMotion
 }: AppNavigatorProps) {
   const { colors: themeColors } = useAppTheme();
@@ -206,6 +213,7 @@ export function AppNavigator({
             <ControlStackScreen
               emergencyStopped={emergencyStopped}
               fontsReady={fontsReady}
+              onEmergencyStop={onEmergencyStop}
               reduceMotion={reduceMotion}
             />
           )}
@@ -374,8 +382,9 @@ function TasksStackScreen({ fontsReady }: Pick<AppNavigatorProps, "fontsReady">)
 function ControlStackScreen({
   emergencyStopped,
   fontsReady,
+  onEmergencyStop,
   reduceMotion
-}: Pick<AppNavigatorProps, "emergencyStopped" | "fontsReady" | "reduceMotion">) {
+}: Pick<AppNavigatorProps, "emergencyStopped" | "fontsReady" | "onEmergencyStop" | "reduceMotion">) {
   const { colors: themeColors } = useAppTheme();
 
   return (
@@ -444,6 +453,7 @@ function ControlStackScreen({
           <PhoneTeleopScreen
             emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
+            onEmergencyStop={onEmergencyStop}
             onBack={() => {
               if (route.params?.from === "home") {
                 navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Home");

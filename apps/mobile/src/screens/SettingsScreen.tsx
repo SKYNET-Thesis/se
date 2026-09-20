@@ -1,5 +1,5 @@
-import { ChevronRight, User } from "lucide-react-native";
-import { useMemo } from "react";
+import { Check, ChevronRight, Moon, Sun, User } from "lucide-react-native";
+import { ComponentType, ReactNode, useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useAppTheme } from "../ThemeContext";
 import { font, radius, spacing, ThemeColors, ThemeMode, type } from "../theme";
@@ -7,6 +7,8 @@ import { font, radius, spacing, ThemeColors, ThemeMode, type } from "../theme";
 type Props = {
   fontsReady: boolean;
 };
+
+type IconComponent = ComponentType<{ color?: string; size?: number; strokeWidth?: number }>;
 
 // Account management lives HERE, inside Settings — the Home avatar is only
 // a shortcut into this screen, never a profile system of its own. This
@@ -24,103 +26,134 @@ export function SettingsScreen({ fontsReady }: Props) {
     >
       <Text style={[styles.pageTitle, font("display", fontsReady)]}>Cài đặt</Text>
 
-      <AccountRow colors={colors} fontsReady={fontsReady} styles={styles} />
-
-      <View style={styles.divider} />
+      <View style={styles.section}>
+        <Text style={[styles.sectionTitle, font("display", fontsReady)]}>Tài khoản</Text>
+        <View style={styles.group}>
+          <SettingsRow
+            accessibilityHint="Quản lý tài khoản"
+            accessibilityLabel="Tài khoản"
+            accessibilityRole="button"
+            colors={colors}
+            fontsReady={fontsReady}
+            Icon={User}
+            onPress={() => {
+              // TODO(account): route to real auth/account management once a
+              // backend exists. No fake login/register flow in the meantime.
+            }}
+            right={<ChevronRight color={colors.textSecondary} size={20} />}
+            styles={styles}
+            subtitle="Chưa đăng nhập"
+            title="Tài khoản"
+          />
+        </View>
+      </View>
 
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, font("display", fontsReady)]}>Giao diện</Text>
-        <AppearanceControl colors={colors} mode={mode} onChange={setMode} styles={styles} />
+        <AppearanceGroup colors={colors} fontsReady={fontsReady} mode={mode} onChange={setMode} styles={styles} />
       </View>
     </ScrollView>
   );
 }
 
-function AccountRow({
+// Same LEFT icon / CENTER text / RIGHT accessory grammar as the account row
+// above — a plain radiogroup of two full-width rows, not the old segmented
+// control. Selection reads from the checkmark alone (see SettingsRow's
+// `right` prop below), never from filling the row with accent.
+function AppearanceGroup({
   colors,
   fontsReady,
-  styles
-}: {
-  colors: ThemeColors;
-  fontsReady: boolean;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <Pressable
-      accessibilityHint="Chưa có tài khoản đăng nhập"
-      accessibilityLabel="Tài khoản, chưa đăng nhập. Quản lý tài khoản"
-      accessibilityRole="button"
-      onPress={() => {
-        // TODO(account): route to real auth/account management once a
-        // backend exists. No fake login/register flow in the meantime.
-      }}
-      style={({ pressed }) => [styles.accountRow, pressed && styles.pressed]}
-    >
-      <View style={styles.accountAvatar}>
-        <User color={colors.textSecondary} size={20} strokeWidth={2} />
-      </View>
-
-      <View style={styles.accountText}>
-        <Text style={[styles.accountTitle, font("display", fontsReady)]}>Tài khoản</Text>
-        <Text style={[styles.accountSubtitle, font("body", fontsReady)]}>Chưa đăng nhập</Text>
-        <View style={styles.accountLinkRow}>
-          <Text style={[styles.accountLink, font("display", fontsReady)]}>Quản lý tài khoản</Text>
-          <ChevronRight color={colors.accentStrong} size={14} />
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
-function AppearanceControl({
-  colors,
   mode,
   onChange,
   styles
 }: {
   colors: ThemeColors;
+  fontsReady: boolean;
   mode: ThemeMode;
   onChange: (mode: ThemeMode) => void;
   styles: ReturnType<typeof createStyles>;
 }) {
+  const options: { icon: IconComponent; label: string; value: ThemeMode }[] = [
+    { icon: Sun, label: "Sáng", value: "light" },
+    { icon: Moon, label: "Tối", value: "dark" }
+  ];
+
   return (
-    <View accessibilityRole="tablist" style={styles.segmented}>
-      <SegmentButton
-        active={mode === "light"}
-        label="Sáng"
-        onPress={() => onChange("light")}
-        styles={styles}
-      />
-      <SegmentButton
-        active={mode === "dark"}
-        label="Tối"
-        onPress={() => onChange("dark")}
-        styles={styles}
-      />
+    <View accessibilityRole="radiogroup" style={styles.group}>
+      {options.map((option, index) => {
+        const selected = mode === option.value;
+        return (
+          <View key={option.value}>
+            {index > 0 && <View style={styles.rowDivider} />}
+            <SettingsRow
+              accessibilityLabel={option.label}
+              accessibilityRole="radio"
+              accessibilityState={{ selected, checked: selected }}
+              colors={colors}
+              fontsReady={fontsReady}
+              Icon={option.icon}
+              onPress={() => onChange(option.value)}
+              right={selected ? <Check color={colors.accentStrong} size={20} strokeWidth={2.5} /> : null}
+              styles={styles}
+              title={option.label}
+            />
+          </View>
+        );
+      })}
     </View>
   );
 }
 
-function SegmentButton({
-  active,
-  label,
+// Shared row primitive: icon chip left, title (+ optional subtitle) center,
+// a fixed-width accessory slot right. Both the account row and the two
+// theme rows are built from this so they read as one visual language —
+// only what fills `right` (chevron vs. checkmark) tells them apart.
+function SettingsRow({
+  accessibilityHint,
+  accessibilityLabel,
+  accessibilityRole,
+  accessibilityState,
+  colors,
+  fontsReady,
+  Icon,
   onPress,
-  styles
+  right,
+  styles,
+  subtitle,
+  title
 }: {
-  active: boolean;
-  label: string;
+  accessibilityHint?: string;
+  accessibilityLabel: string;
+  accessibilityRole: "button" | "radio";
+  accessibilityState?: { selected?: boolean; checked?: boolean };
+  colors: ThemeColors;
+  fontsReady: boolean;
+  Icon: IconComponent;
   onPress: () => void;
+  right?: ReactNode;
   styles: ReturnType<typeof createStyles>;
+  subtitle?: string;
+  title: string;
 }) {
   return (
     <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active }}
+      accessibilityHint={accessibilityHint}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole={accessibilityRole}
+      accessibilityState={accessibilityState}
       onPress={onPress}
-      style={({ pressed }) => [styles.segment, active && styles.segmentActive, pressed && !active && styles.pressed]}
+      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
     >
-      <Text style={[styles.segmentLabel, active && styles.segmentLabelActive]}>{label}</Text>
+      <View style={styles.rowIcon}>
+        <Icon color={colors.textSecondary} size={20} strokeWidth={2} />
+      </View>
+
+      <View style={styles.rowText}>
+        <Text style={[styles.rowLabel, font("display", fontsReady)]}>{title}</Text>
+        {subtitle && <Text style={[styles.rowSubtitle, font("body", fontsReady)]}>{subtitle}</Text>}
+      </View>
+
+      <View style={styles.rowAccessory}>{right}</View>
     </Pressable>
   );
 }
@@ -141,13 +174,39 @@ function createStyles(colors: ThemeColors) {
       ...type.title,
       color: colors.textPrimary
     },
-    accountRow: {
-      alignItems: "flex-start",
+    section: {
+      gap: spacing.sm
+    },
+    sectionTitle: {
+      ...type.bodyStrong,
+      color: colors.textPrimary
+    },
+    // One shared grouped surface per section — rows inside share this
+    // border/radius and are separated by a plain 1px divider, never nested
+    // cards of their own.
+    group: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: radius.card,
+      borderWidth: 1,
+      overflow: "hidden"
+    },
+    row: {
+      alignItems: "center",
       flexDirection: "row",
       gap: spacing.md,
-      minHeight: 64
+      minHeight: 64,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm
     },
-    accountAvatar: {
+    rowDivider: {
+      backgroundColor: colors.border,
+      height: 1
+    },
+    // Same chip treatment for every row's leading icon — the account
+    // avatar and the Sun/Moon glyphs all sit in this, which is what makes
+    // the two sections read as one grammar rather than two components.
+    rowIcon: {
       alignItems: "center",
       backgroundColor: colors.surfaceSecondary,
       borderColor: colors.border,
@@ -157,65 +216,24 @@ function createStyles(colors: ThemeColors) {
       justifyContent: "center",
       width: 44
     },
-    accountText: {
+    rowText: {
       flex: 1,
-      gap: 2,
-      paddingTop: 2
+      gap: 2
     },
-    accountTitle: {
+    rowLabel: {
       ...type.bodyStrong,
       color: colors.textPrimary
     },
-    accountSubtitle: {
+    rowSubtitle: {
       ...type.small,
       color: colors.textSecondary
     },
-    accountLinkRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 2,
-      marginTop: spacing.xxs
-    },
-    accountLink: {
-      ...type.label,
-      color: colors.accentStrong
-    },
-    divider: {
-      backgroundColor: colors.border,
-      height: 1
-    },
-    section: {
-      gap: spacing.sm
-    },
-    sectionTitle: {
-      ...type.bodyStrong,
-      color: colors.textPrimary
-    },
-    segmented: {
-      backgroundColor: colors.surfaceSecondary,
-      borderColor: colors.border,
-      borderRadius: radius.button,
-      borderWidth: 1,
-      flexDirection: "row",
-      gap: 4,
-      padding: 4
-    },
-    segment: {
-      alignItems: "center",
-      borderRadius: radius.button - 2,
-      flex: 1,
+    // Fixed width so a selected row's checkmark never shifts the label
+    // column relative to its unselected sibling.
+    rowAccessory: {
+      alignItems: "flex-end",
       justifyContent: "center",
-      minHeight: 40
-    },
-    segmentActive: {
-      backgroundColor: colors.accent
-    },
-    segmentLabel: {
-      ...type.label,
-      color: colors.textSecondary
-    },
-    segmentLabelActive: {
-      color: colors.accentForeground
+      width: 24
     },
     pressed: {
       opacity: 0.78
