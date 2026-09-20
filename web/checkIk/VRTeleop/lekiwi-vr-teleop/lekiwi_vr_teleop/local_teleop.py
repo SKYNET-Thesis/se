@@ -108,13 +108,14 @@ def run_local_so101(
         print("Offline simulation is active. Add --real --robot-port /dev/... only after testing.", flush=True)
 
     last_tick = time.perf_counter()
+    last_status = 0.0
     try:
         robot.connect()
         observation = robot.get_observation()
         arm.seed(observation)
         relay.start()
         print(f"VR panel READY: {relay.operator_url}?hand={config.arm.hand}", flush=True)
-        logger.info("Follower seeded; waiting for fresh Quest tracking and clutch")
+        logger.info("Follower seeded; waiting for fresh phone/Quest tracking and clutch")
 
         while True:
             started = time.perf_counter()
@@ -124,6 +125,12 @@ def run_local_so101(
                 observation = robot.get_observation()
                 snapshot = state.snapshot()
                 fresh = snapshot.is_fresh(config.input_timeout_s)
+                if started - last_status >= 1.0:
+                    status = state.status()
+                    logger.info("Input owner=%s frames=%s fresh=%s stopped=%s controller=%s",
+                                status["owner"], status["framesReceived"], fresh,
+                                status["stopped"], status["controllers"].get(config.arm.hand))
+                    last_status = started
                 if fresh:
                     target = arm.compute(
                         snapshot.controller(config.arm.hand), observation, dt_s=dt_s
@@ -182,4 +189,7 @@ def run_local_so101(
             logger.warning("Could not send final hold: %s", exc)
         relay.stop()
         if robot.is_connected:
-            robot.disconnect()
+            try:
+                robot.disconnect()
+            except Exception:
+                logger.exception("Follower cleanup failed; check motor power/connection before restarting")

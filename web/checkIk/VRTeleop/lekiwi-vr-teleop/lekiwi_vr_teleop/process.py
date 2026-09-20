@@ -1,9 +1,8 @@
-"""The standalone ``vr_lekiwi`` process boundary.
+"""The CHECKIK-managed ``vr_lekiwi`` process boundary.
 
-Ticket 02 deliberately stops after fake follower startup and pose seeding.  The HTTPS
-relay, readiness handshake, and health endpoint belong to Ticket 03.  Keeping this module
-small makes the process configuration independently testable and keeps CHECKIK state out of
-the operator process.
+CHECKIK supplies only explicit, assigned follower ports and calibration identities. The
+process owns the VRTeleop relay, pose-seeded clutch/IK loop and follower cleanup; fake
+followers remain available solely for deterministic offline tests.
 """
 
 from __future__ import annotations
@@ -12,17 +11,20 @@ import argparse
 import json
 import logging
 import signal
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import FrameType
 from typing import Callable
 
-from .config import RelayConfig
+from .arm import ArmController, HoldLatch
+from .config import ARM_MOTORS, ArmConfig, RelayConfig
 from .follower_adapter import (
     ArmMode,
     DualSO101FollowerRobot,
     FakeSOFollower,
     FollowerFactory,
+    make_real_follower,
 )
 from .relay import Relay
 from .state import XRState
@@ -43,10 +45,14 @@ class ProcessConfig:
     key: Path
     relay_port: int
     relay_host: str = "127.0.0.1"
+    real: bool = False
 
 
 class FakeVRLeKiwiSession:
-    """A connected fake session with the measured startup pose captured."""
+    """A connected session with the measured startup pose captured.
+
+    The historical name is retained for test/API compatibility; the robot can be real.
+    """
 
     def __init__(self, robot: DualSO101FollowerRobot, seed_observation: dict[str, object]) -> None:
         self.robot = robot
@@ -63,11 +69,12 @@ class FakeVRLeKiwiSession:
 
 @dataclass
 class ReadyVRLeKiwiRuntime:
-    """A fully initialized offline process runtime and its readiness payload."""
+    """A fully initialized relay/control runtime and its readiness payload."""
 
     session: FakeVRLeKiwiSession
     relay: Relay
     config: ProcessConfig
+    state: XRState
 
     @property
     def readiness(self) -> dict[str, object]:
@@ -95,7 +102,7 @@ class ReadyVRLeKiwiRuntime:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="vr_lekiwi",
-        description="Start the VR LeKiwi process against deterministic fake followers.",
+        description="Start the VR LeKiwi process against explicitly assigned followers.",
     )
     parser.add_argument(
         "--mode",
@@ -131,6 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="127.0.0.1",
         help="Bind address for the relay; use 0.0.0.0 for phone access on the LAN.",
     )
+    parser.add_argument("--real", action="store_true", help="Open the explicitly assigned SO-101 followers.")
     return parser
 
 
@@ -164,6 +172,7 @@ def parse_process_args(argv: list[str] | None = None) -> ProcessConfig:
         key=args.key,
         relay_port=args.relay_port,
         relay_host=args.relay_host,
+        real=args.real,
     )
 
 
@@ -171,7 +180,7 @@ def start_fake_session(
     config: ProcessConfig,
     follower_factory: FollowerFactory | None = None,
 ) -> FakeVRLeKiwiSession:
-    """Connect selected fake followers and capture each selected measured pose."""
+    """Connect selected followers and capture each selected measured pose."""
     factory = follower_factory or (lambda spec: FakeSOFollower(spec.port, spec.device_id))
     robot = DualSO101FollowerRobot(
         mode=config.mode,
@@ -198,6 +207,8 @@ def start_ready_runtime(
     relay_factory: Callable[..., Relay] = Relay,
 ) -> ReadyVRLeKiwiRuntime:
     """Connect, seed, listen and return the runtime only after all are ready."""
+    if config.real and follower_factory is None:
+        follower_factory = make_real_follower
     session = start_fake_session(config, follower_factory)
     relay: Relay | None = None
     try:
@@ -218,7 +229,7 @@ def start_ready_runtime(
         )
         relay.start()
         relay.health_check()
-        return ReadyVRLeKiwiRuntime(session, relay, config)
+        return ReadyVRLeKiwiRuntime(session, relay, config, state)
     except Exception:
         if relay is not None:
             try:
@@ -230,7 +241,7 @@ def start_ready_runtime(
 
 
 def run(config: ProcessConfig) -> None:
-    """Keep the fake process alive until shutdown after the readiness handshake."""
+    """Run the checked VRTeleop clutch/IK loop against assigned followers."""
     runtime = start_ready_runtime(config)
     print(
         "VR_LEKIWI_READY "
@@ -244,13 +255,61 @@ def run(config: ProcessConfig) -> None:
         stopped = True
 
     previous = signal.signal(signal.SIGTERM, stop)
+    controllers = {
+        arm: ArmController(ArmConfig(hand=arm, prefix=f"{arm}_arm_"))
+        for arm in runtime.session.active_arms
+    }
+    holds = {arm: HoldLatch() for arm in runtime.session.active_arms}
+    observation = runtime.session.robot.get_observation()
+    for arm, controller in controllers.items():
+        controller.seed(_arm_observation(observation, arm))
+    last_tick = time.perf_counter()
     try:
         signal.signal(signal.SIGINT, stop)
         while not stopped:
-            signal.pause()
+            started = time.perf_counter()
+            dt_s = started - last_tick
+            last_tick = started
+            try:
+                observation = runtime.session.robot.get_observation()
+                snapshot = runtime.state.snapshot()
+                fresh = snapshot.is_fresh(0.25)
+                action: dict[str, float] = {}
+                telemetry: dict[str, object] = {}
+                for arm, controller in controllers.items():
+                    measured = _arm_observation(observation, arm)
+                    if fresh:
+                        target = controller.compute(snapshot.controller(arm), measured, dt_s=dt_s)
+                    else:
+                        controller.release()
+                        target = None
+                    command = holds[arm].resolve(target, measured)
+                    action.update({f"{arm}_arm_{key}": value for key, value in command.items()})
+                    telemetry[arm] = {
+                        "engaged": controller.engaged,
+                        "joints": {name: round(float(measured[f"{name}.pos"]), 1) for name in ARM_MOTORS},
+                        "jointsTarget": {name: round(float(command[f"{name}.pos"]), 1) for name in ARM_MOTORS},
+                        **controller.diagnostics(),
+                    }
+                runtime.session.robot.send_action(action)
+                runtime.relay.publish_telemetry({"robotConnected": True, "driver": "real" if config.real else "fake", "inputFresh": fresh, "arms": telemetry, "error": None})
+            except Exception as exc:
+                for controller in controllers.values():
+                    controller.release()
+                runtime.state.trigger_stop()
+                runtime.relay.publish_telemetry({"robotConnected": False, "error": str(exc)})
+                LOGGER.exception("VR LeKiwi control tick failed; STOP has been latched")
+            time.sleep(max(1 / 30 - (time.perf_counter() - started), 0.0))
     finally:
         signal.signal(signal.SIGTERM, previous)
         runtime.close()
+
+
+def _arm_observation(observation: dict[str, object], arm: str) -> dict[str, float]:
+    return {
+        f"{name}.pos": float(observation[f"{arm}_arm_{name}.pos"])
+        for name in ARM_MOTORS
+    }
 
 
 def main() -> None:
