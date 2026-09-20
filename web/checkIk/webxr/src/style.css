@@ -1,0 +1,36 @@
+:root {
+  color: #e8fff0;
+  background: #07110b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; overflow: hidden; }
+#app { position: fixed; z-index: 2; width: 100%; padding: 18px; pointer-events: none; }
+h1 { margin: 0 0 8px; font-size: 22px; }
+.warning { color: #ffd166; }
+.controllers { display: flex; gap: 12px; }
+pre {
+  min-width: 330px;
+  padding: 12px;
+  border: 1px solid #356b46;
+  border-radius: 8px;
+  background: rgba(0, 20, 8, 0.82);
+  line-height: 1.45;
+}
+canvas { display: block; }
+button { pointer-events: auto !important; }
+
+#xr-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 2147483647;
+  padding: 12px 18px;
+  border: 1px solid #65e28a;
+  border-radius: 8px;
+  color: #07110b;
+  background: #65e28a;
+  font: 700 14px ui-monospace, monospace;
+  cursor: pointer;
+}

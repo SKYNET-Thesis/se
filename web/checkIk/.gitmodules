@@ -1,0 +1,4 @@
+[submodule "VRTeleop"]
+	path = VRTeleop
+	url = https://github.com/leduc121/VR_Teleop.git
+	branch = feature/vr-lekiwi-integration
