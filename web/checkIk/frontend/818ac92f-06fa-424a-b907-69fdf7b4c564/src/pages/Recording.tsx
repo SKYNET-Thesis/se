@@ -5,12 +5,11 @@ import { Card, CardHeader } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Badge, SideBadge, SimulatedBadge } from '../components/ui/Badge';
 import { CameraFeedCard } from '../components/cameras/CameraFeedCard';
-import { ObservationRail } from '../components/cameras/ObservationRail';
 import { JointTelemetryList } from '../components/robotics/JointTelemetryList';
 import { useLab } from '../contexts/LabContext';
 import { useArmPairReadiness } from '../hooks/useLabDerived';
 import { formatDuration } from '../lib/format';
-
+import { selectRequiredRecordingCameras } from '../lib/recordingCameras.js';
 type ArmConfig = 'left' | 'right' | 'dual' | 'vr';
 
 export function Recording() {
@@ -50,7 +49,7 @@ export function Recording() {
   }, []);
 
   const dataset = datasets.find((d) => d.id === activeDatasetId)!;
-  const onlineCams = cameras.filter((c) => c.connection === 'connected' && selectedCameraIds.includes(c.id));
+  const { wristCamera, headCamera, onlineCount, ready: camerasReady } = selectRequiredRecordingCameras(cameras);
 
   useEffect(() => {
     if (state !== 'recording') return;
@@ -73,9 +72,10 @@ export function Recording() {
   pairs[armConfig === 'left' ? 'left' : 'right'].reason;
 
   const formReady = Boolean(taskDescription.trim()) && Number(episodeTarget) > 0 && Number(episodeDuration) > 0;
-  const configReady = robotReady && formReady;
-  const blockedReason = !robotReady ? robotBlockedReason : !taskDescription.trim() ? 'Enter a task description before recording.' : 'Check the episode parameters.';
-  const estStorageMb = Math.round(ms / 1000 * onlineCams.length * 1.8 + ms / 1000 * 0.2);
+  const configReady = robotReady && formReady && camerasReady;
+  const blockedReason = !robotReady ? robotBlockedReason : !camerasReady ? 'Connect one wrist camera and one head camera before recording.' : !taskDescription.trim() ? 'Enter a task description before recording.' : 'Check the episode parameters.';
+  const captureCameras = [wristCamera, headCamera].filter((camera): camera is NonNullable<typeof camera> => camera !== null);
+  const estStorageMb = Math.round(ms / 1000 * captureCameras.length * 1.8 + ms / 1000 * 0.2);
 
   return (
     <div className="data-page recording-page mx-auto max-w-[100rem] space-y-6">
@@ -89,8 +89,8 @@ export function Recording() {
         <div className="space-y-4">
           <Card>
             <CardHeader
-              title="Live capture"
-              description={`${onlineCams.length} camera streams · ${armConfig === 'dual' ? 'both arms' : armConfig === 'vr' ? 'VR input' : `${armConfig} arm`}`}
+              title="Live episode capture"
+              description={`${onlineCount}/2 camera streams online · ${armConfig === 'dual' ? 'both arms' : armConfig === 'vr' ? 'VR input' : `${armConfig} arm`}`}
               actions={
               state === 'recording' ?
               <Badge tone="danger" withIcon={false}>
@@ -101,9 +101,17 @@ export function Recording() {
 
               } />
             
-            <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3">
-              {onlineCams.map((c) =>
-              <CameraFeedCard key={c.id} camera={c} />
+            <div className="grid gap-3 p-5 sm:grid-cols-2">
+              {captureCameras.map((camera, index) =>
+              <div key={camera.id} className="space-y-2">
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-xs font-semibold tracking-wide text-ink2">{index === 0 ? 'WRIST VIEW' : 'HEAD VIEW'}</span>
+                    <span className={camera.connection === 'connected' ? 'text-xs font-medium text-ok' : 'text-xs font-medium text-danger'}>
+                      {camera.connection === 'connected' ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+                  <CameraFeedCard camera={camera} large />
+                </div>
               )}
             </div>
             <div className="grid gap-4 border-t border-line p-5 lg:grid-cols-2">
@@ -130,7 +138,21 @@ export function Recording() {
         </div>
 
         <div className="space-y-4">
-          <ObservationRail cameras={cameras} title="Recording observation" />
+          <Card className="px-5 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold text-ink">Camera readiness</h2>
+                <p className="mt-1 text-xs text-ink2">Both feeds must be online before recording can start.</p>
+              </div>
+              <div className="flex gap-2">
+                {[['Wrist', wristCamera], ['Head', headCamera]].map(([label, camera]) =>
+                <span key={label as string} className={camera?.connection === 'connected' ? 'rounded-lg border border-ok/40 bg-ok/10 px-2.5 py-1 text-xs font-medium text-ok' : 'rounded-lg border border-danger/40 bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger'}>
+                    {label as string} · {camera?.connection === 'connected' ? 'Online' : 'Offline'}
+                  </span>
+                )}
+              </div>
+            </div>
+          </Card>
           <Card>
             <CardHeader title="Recorder" />
             <div className="p-5">
@@ -168,7 +190,7 @@ export function Recording() {
                       setState('idle');
                       saveRecordedEpisode(dataset.id, {
                         durationSec: Math.max(1, Math.round(ms / 1000)),
-                        cameras: onlineCams.length,
+                        cameras: captureCameras.length,
                         vr: vrRecorded || armConfig === 'vr',
                         arms: armConfig === 'left' || armConfig === 'right' ? armConfig : 'dual',
                         notes: `${taskDescription}${notes ? ` — ${notes}` : ''}`
@@ -178,7 +200,7 @@ export function Recording() {
                         message: `Episode ${dataset.episodes + 1} saved to ${dataset.name} (${formatDuration(ms)})`,
                         severity: 'success'
                       });
-                      toast({ title: 'Episode saved', detail: dataset.name, tone: 'success' });
+                      toast({ title: 'Episode saved locally', detail: dataset.name, tone: 'success' });
                     }}>
                     
                       Save episode
@@ -194,7 +216,7 @@ export function Recording() {
                 <span className="text-ink">
                   {armConfig === 'dual' ? 'both arms' : armConfig === 'vr' ? 'VR control input' : `${armConfig} arm only`}
                 </span>{' '}
-                plus <span className="text-ink">{onlineCams.length} camera streams</span>.
+                  {onlineCount}/2 required camera streams online
               </p>
               <div className="mt-4 space-y-1.5">
                 <label htmlFor="notes" className="block text-sm font-medium text-ink2">Session notes</label>
