@@ -21,6 +21,58 @@ pre {
 canvas { display: block; }
 button { pointer-events: auto !important; }
 
+/* Existing CHECKIK dark technical palette; no automatic UI motion. */
+.gesture-mode {
+  height: 100dvh;
+  overflow: auto;
+  background: #07110b;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  gap: 8px;
+  pointer-events: auto !important;
+}
+.gesture-mode h1 { padding-right: 220px; font-size: 20px; margin: 0; }
+.gesture-mode > p { margin: 0; font-size: 12px; color: #abbcaf; }
+.gesture-mode > .warning { color: #ffd166; }
+.gesture-mode > #socket-status,
+.gesture-mode > #model-status,
+.gesture-mode > #environment-status,
+.gesture-mode > .controllers { display: none; }
+.gesture-surface { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; min-height: 0; align-items: start; }
+.gesture-surface[hidden] { display: none; }
+.gesture-camera { min-width: 0; }
+.gesture-camera-heading { display: flex; justify-content: space-between; gap: 16px; padding: 16px 0 12px; color: #abbcaf; font-size: 12px; }
+#gesture-camera-canvas { background: #101b16; border: 1px solid #356b46; }
+#gesture-camera-canvas canvas { width: 100%; height: auto; cursor: crosshair; }
+.gesture-camera > p { color: #abbcaf; font-size: 13px; line-height: 1.6; max-width: 75ch; }
+.gesture-rail { border-left: 1px solid #356b46; padding: 16px 0 16px 20px; }
+.gesture-rail h2 { font-size: 20px; margin: 0 0 18px; }
+#gesture-phase { color: #65e28a; font-size: 18px; min-height: 2.6em; margin: 0 0 18px; }
+.gesture-rail dl { display: grid; grid-template-columns: 105px minmax(0, 1fr); gap: 12px 8px; font-size: 13px; }
+.gesture-rail dt { color: #abbcaf; }
+.gesture-rail dd { margin: 0; overflow-wrap: anywhere; }
+.gesture-selection { border-top: 1px solid #356b46; margin-top: 22px; padding-top: 8px; font-size: 14px; }
+#gesture-preview { font-size: 13px; line-height: 1.7; }
+#gesture-reason { color: #ffd166; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; min-height: 3em; }
+.gesture-rail button { width: 100%; min-height: 48px; margin-bottom: 10px; padding: 12px; border: 1px solid #65e28a; border-radius: 4px; background: #65e28a; color: #07110b; font: 700 13px ui-monospace, monospace; cursor: pointer; white-space: nowrap; }
+.gesture-rail #gesture-cancel,
+.gesture-rail #gesture-reset { background: #101b16; color: #e8fff0; border-color: #62776a; }
+.gesture-rail button:hover:not(:disabled) { outline: 2px solid #e8fff0; outline-offset: 2px; }
+.gesture-rail button:focus-visible { outline: 3px solid #e8fff0; outline-offset: 3px; }
+.gesture-rail button:active:not(:disabled) { transform: translateY(1px); }
+.gesture-rail button:disabled { background: #293e31; color: #abbcaf; border-color: #62776a; cursor: default; }
+.gesture-safety-note { color: #abbcaf; font-size: 11px; line-height: 1.6; }
+@media (max-width: 767px) {
+  #app.gesture-mode { padding: 14px; }
+  .gesture-mode h1 { padding-right: 0; padding-top: 58px; font-size: 18px; }
+  .gesture-surface { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .gesture-rail { border-left: 0; border-top: 1px solid #356b46; padding: 16px 0; }
+  #gesture-phase { min-height: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gesture-rail button:active:not(:disabled) { transform: none; }
+}
+
 #xr-toggle {
   position: fixed;
   top: 20px;
