@@ -7,6 +7,7 @@ import {
   initialGesturePickSelection, applyPinch, shouldAcceptPinch,
   reconcileGesturePickSelection, gesturePickAvailability,
   usableGestureDetections, hitTestDetection, gestureObservationNow, restartGestureSelection,
+  gesturePosePayload, gestureFrameTiming, drawGestureFrameTiming,
 } from "./gesturePick.js";
 import "./style.css";
 
@@ -329,6 +330,8 @@ gestureSurface.innerHTML = `
   </section>`;
 document.querySelector("#app").appendChild(gestureSurface);
 document.querySelector("#app").classList.add("gesture-mode");
+document.querySelector("h1").textContent = "SO-101 / Gesture pick and place";
+document.querySelector(".warning").textContent = "Select on the overhead camera, review the task, then explicitly confirm guarded motion.";
 const gestureElements = Object.fromEntries([
   "phase", "calibration", "camera-health", "motion", "follower", "object", "box", "preview", "reason", "confirm", "cancel", "reset", "frame-age",
 ].map((name) => [name, document.querySelector("#gesture-" + name)]));
@@ -405,16 +408,11 @@ function applyGestureSnapshot(snapshot) {
     gestureServerTime = gestureStatus.updatedAt;
     gestureServerTimeReceived = gestureLastPoll;
   }
-  const selectionMode = gestureStatus.configured === true;
-  document.querySelector("h1").textContent = selectionMode ? "SO-101 / Gesture pick and place" : "SO-101 WebXR Virtual Teleoperation";
-  document.querySelector("#app").classList.toggle("gesture-mode", selectionMode);
-  document.querySelector(".warning").textContent = selectionMode
-    ? "Select on the overhead camera, review the task, then explicitly confirm guarded motion."
-    : "Hold side Grip to move; front Trigger closes the normally-open gripper.";
-  gestureSurface.hidden = !selectionMode;
-  cameraPanel.visible = selectionMode;
-  taskRail.visible = selectionMode;
-  panel.visible = !selectionMode;
+  // This Quest surface stays selection-only, including unconfigured/error states.
+  gestureSurface.hidden = false;
+  cameraPanel.visible = true;
+  taskRail.visible = true;
+  panel.visible = false;
   if (gestureStatus.cameraPath !== cameraPath) {
     cameraPath = gestureStatus.cameraPath;
     cameraStreamReady = false;
@@ -522,8 +520,7 @@ function drawGestureRail() {
   gestureElements.cancel.disabled = !gestureStatus?.configured || terminal;
   gestureElements.reset.hidden = !terminal;
   gestureElements.reset.disabled = gestureBusy || gestureStatus?.running;
-  const age = gestureStatus?.frameObservedAt == null ? null : gestureNow() - gestureStatus.frameObservedAt;
-  gestureElements["frame-age"].textContent = age != null && age >= 0 ? "FRAME AGE " + age.toFixed(1) + " s" : "NO FRAME";
+  gestureElements["frame-age"].textContent = gestureFrameTiming(gestureStatus, gestureNow());
   const lines = ["PICK AND PLACE", prompt, "Calibration: " + gestureElements.calibration.textContent, "Camera: " + gestureElements["camera-health"].textContent, "Motion: " + gestureElements.motion.textContent, "Follower: " + gestureElements.follower.textContent, object.label, object.point, box.label, box.point, phase === "executing" ? "Stage: " + (gestureSelection.stage ?? "preflight") : "Fixed top-down grasp", reason];
   const signature = JSON.stringify([lines, availability.canConfirm, gestureBusy, terminal, phase]);
   if (signature === railSignature) return;
@@ -586,6 +583,8 @@ function drawGestureCamera(now) {
       cameraContext.fillText(tag.kind.toUpperCase() + " #" + tag.tagId, x - width / 2 + 5, y - height / 2 - 7);
     }
   }
+  // This canvas is the native VR camera texture, not just the desktop label.
+  drawGestureFrameTiming(cameraContext, cameraCanvas.width, gestureStatus, gestureNow());
   cameraTexture.needsUpdate = true;
 }
 
@@ -720,9 +719,8 @@ renderer.setAnimationLoop(() => {
   drawGestureRail();
   updateGestureInput(now);
   if (socket?.readyState === WebSocket.OPEN && now - lastSendTime >= 1000 / 60) {
-    const handPayload = (state) => ({
+    const handPayload = (state) => gesturePosePayload({
       connected: state.connected,
-      enabled: state.connected && state.squeeze >= 0.5 && !gestureStatus?.configured,
       position: state.position.toArray(),
       rotation: state.rotation.toArray(),
       trigger: state.trigger,

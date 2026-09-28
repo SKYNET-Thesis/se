@@ -1,6 +1,31 @@
 // Selection-only state. The dashboard remains authoritative for motion and tasks.
 export const MAX_OBSERVATION_AGE_S = 0.5;
 
+export function gesturePosePayload(state) {
+  return {
+    connected: state.connected, enabled: false,
+    position: state.position, rotation: state.rotation,
+    trigger: state.trigger, grip: state.grip,
+  };
+}
+
+export function gestureFrameTiming(status, now) {
+  const observed = status?.frameObservedAt;
+  if (!status?.cameraAvailable || !Number.isFinite(observed) || !Number.isFinite(now) || now < observed) return "NO FRAME";
+  const age = now - observed;
+  return "FRAME AGE " + age.toFixed(1) + " s" + (age > MAX_OBSERVATION_AGE_S ? " / STALE" : "");
+}
+
+export function drawGestureFrameTiming(context, width, status, now) {
+  context.save();
+  context.fillStyle = "#07110b";
+  context.fillRect(0, 0, width, 40);
+  context.fillStyle = "#e8fff0";
+  context.font = "24px monospace";
+  context.fillText(gestureFrameTiming(status, now), 16, 28);
+  context.restore();
+}
+
 export function initialGesturePickSelection() {
   return { phase: "selecting-object", selection: {}, taskId: null, stage: null, reason: null };
 }

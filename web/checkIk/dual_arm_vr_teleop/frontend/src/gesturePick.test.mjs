@@ -4,6 +4,7 @@ import {
   initialGesturePickSelection, applyPinch, shouldAcceptPinch,
   reconcileGesturePickSelection, gesturePickAvailability, hitTestDetection,
   gestureObservationNow, restartGestureSelection,
+  gesturePosePayload, drawGestureFrameTiming,
 } from "./gesturePick.js";
 
 test("pinch selects an object, then a box, then opens preview without execution", () => {
@@ -14,6 +15,51 @@ test("pinch selects an object, then a box, then opens preview without execution"
   assert.equal(preview.phase, "preview");
   assert.deepEqual(preview.selection, { objectTagId: 7, boxTagId: 22 });
   assert.deepEqual(initial.selection, {});
+});
+
+test("the actual Quest proxy forwards only allow-listed route/method pairs", async () => {
+  const config = (await import("../vite.config.js")).default;
+  assert.equal(config.server.cors, false);
+  const bypass = config.server.proxy["/api"].bypass;
+  assert.equal(typeof bypass, "function");
+  for (const [method, url] of [
+    ["GET", "/api/status"], ["GET", "/api/gesture-pick/status"],
+    ["GET", "/api/gesture-pick/detections"], ["GET", "/api/cameras/stream?path=%2Fdev%2Fvideo0"],
+    ["POST", "/api/gesture-pick/select"], ["POST", "/api/gesture-pick/confirm"], ["POST", "/api/gesture-pick/cancel"],
+  ]) assert.equal(bypass({ method, url }), undefined, method + " " + url);
+  for (const [method, url] of [
+    ["POST", "/api/unlock"], ["POST", "/api/ports/assign"], ["POST", "/api/tasks/calibrate"],
+    ["POST", "/api/tasks/vr-real"], ["GET", "/api/unlock"], ["POST", "/api/status"],
+    ["GET", "/api/gesture-pick/select"], ["PUT", "/api/gesture-pick/confirm"],
+    ["DELETE", "/api/gesture-pick/cancel"], ["POST", "/api/cameras/stream"],
+    ["OPTIONS", "/api/status"], ["HEAD", "/api/status"], ["GET", "/api/health"],
+    ["POST", "/api/gesture-pick/select/../unlock"], ["POST", "/api/gesture-pick/select/extra"],
+  ]) assert.equal(bypass({ method, url }), false, method + " " + url);
+});
+
+test("Quest controller telemetry is permanently disarmed regardless of status or UI mode", () => {
+  const pose = { connected: true, position: [0, 1.4, -0.4], rotation: [0, 0, 0, 1], trigger: 1, grip: 1 };
+  for (const status of [null, { configured: false }, { configured: true }]) {
+    for (const railActive of [true, false]) {
+      const payload = gesturePosePayload({ ...pose, enabled: true, status, railActive });
+      assert.equal(payload.enabled, false);
+      assert.deepEqual(payload.position, [0, 1.4, -0.4]);
+      assert.equal(payload.trigger, 1);
+    }
+  }
+});
+
+test("camera texture timing draws fresh, stale and missing frame state for native VR", () => {
+  for (const [status, now, expected] of [
+    [{ cameraAvailable: true, frameObservedAt: 100 }, 100.1, "FRAME AGE 0.1 s"],
+    [{ cameraAvailable: true, frameObservedAt: 100 }, 102, "FRAME AGE 2.0 s / STALE"],
+    [{ cameraAvailable: false, frameObservedAt: null }, 100, "NO FRAME"],
+  ]) {
+    const drawn = [];
+    const context = { save() {}, restore() {}, fillRect() {}, fillText(text) { drawn.push(text); } };
+    drawGestureFrameTiming(context, 1280, status, now);
+    assert.deepEqual(drawn, [expected]);
+  }
 });
 
 test("freshness uses acknowledged dashboard time plus local elapsed, independent of headset clock", () => {
