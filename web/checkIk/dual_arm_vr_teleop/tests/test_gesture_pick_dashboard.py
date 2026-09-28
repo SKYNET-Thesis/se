@@ -74,11 +74,14 @@ def rig(tmp_path, monkeypatch):
             DetectedTag(tag_id=22, kind="box", image_center=(50.0, 50.0),
                         robot_point=(0.2, 0.2, 0.1), observed_at=10.0)]
     followers = []
+    rig = SimpleNamespace(tags=tags, followers=followers, follower_profile=follower_profile,
+                          config=config, follower_setup=lambda _: None)
 
     def factory(side, port, should_cancel):
         assert (side, port) == ("right", "/dev/ttyACM7")
         follower = Follower(should_cancel)
         followers.append(follower)
+        rig.follower_setup(follower)
         return follower
 
     controller = dashboard.Controller(
@@ -89,8 +92,8 @@ def rig(tmp_path, monkeypatch):
     controller.state["assignments"]["right-follower"] = "/dev/ttyACM7"
     monkeypatch.setattr(controller, "ports", lambda: [{"path": "/dev/ttyACM7", "present": True}])
     monkeypatch.setattr(controller, "cameras", lambda: [])
-    yield SimpleNamespace(controller=controller, tags=tags, followers=followers,
-                          follower_profile=follower_profile, config=config)
+    rig.controller = controller
+    yield rig
     controller.stop()
 
 
@@ -99,7 +102,7 @@ def preview(rig):
     assert controller.gesture_pick_select({"kind": "object", "tagId": 7})["phase"] == "selecting-box"
     state = controller.gesture_pick_select({"kind": "box", "tagId": 22})
     assert state["phase"] == "preview"
-    assert rig.followers[0].commands == []
+    assert rig.followers == []
     return state["taskId"]
 
 
@@ -142,7 +145,7 @@ def test_confirmation_requires_both_object_and_box(rig):
 
 
 @pytest.mark.parametrize("missing", ["assignment", "calibration", "availability"])
-def test_preview_requires_selected_follower_readiness_before_constructing_it(rig, monkeypatch, missing):
+def test_confirmation_requires_selected_follower_readiness_before_constructing_it(rig, monkeypatch, missing):
     controller = rig.controller
     controller.gesture_pick_select({"kind": "object", "tagId": 7})
     if missing == "assignment":
@@ -151,8 +154,9 @@ def test_preview_requires_selected_follower_readiness_before_constructing_it(rig
         rig.follower_profile.unlink()
     else:
         monkeypatch.setattr(controller, "ports", lambda: [])
+    state = controller.gesture_pick_select({"kind": "box", "tagId": 22})
     with pytest.raises(ValueError, match="readiness"):
-        controller.gesture_pick_select({"kind": "box", "tagId": 22})
+        controller.gesture_pick_confirm(state["taskId"])
     assert rig.followers == []
 
 
@@ -207,7 +211,7 @@ def test_confirmation_runs_once_and_requires_matching_preview_id(rig):
     task_id = preview(rig)
     with pytest.raises(ValueError, match="task"):
         rig.controller.gesture_pick_confirm("unrelated")
-    assert rig.followers[0].commands == []
+    assert rig.followers == []
     rig.controller.gesture_pick_confirm(task_id)
     state = finish(rig.controller)
     assert state["phase"] == "succeeded"
@@ -223,7 +227,7 @@ def test_readiness_is_rechecked_at_confirmation(rig, monkeypatch):
     monkeypatch.setattr(rig.controller, "ports", lambda: [])
     with pytest.raises(ValueError, match="readiness"):
         rig.controller.gesture_pick_confirm(task_id)
-    assert rig.followers[0].commands == []
+    assert rig.followers == []
 
 
 def test_managed_task_blocks_gesture_preview_before_follower_construction(rig):
@@ -255,7 +259,8 @@ def test_gesture_preview_blocks_every_managed_start(rig, monkeypatch):
 ])
 def test_stop_and_estop_cancel_before_next_execution_stage(rig, method, reason, latched):
     task_id = preview(rig)
-    rig.followers[0].after_move = lambda: getattr(rig.controller, method)()
+    rig.follower_setup = lambda follower: setattr(
+        follower, "after_move", lambda: getattr(rig.controller, method)())
     rig.controller.gesture_pick_confirm(task_id)
     state = finish(rig.controller)
     assert state["phase"] == "held"
@@ -272,7 +277,7 @@ def test_cancelled_blocking_move_keeps_ownership_until_it_returns(rig, monkeypat
         started.set()
         assert released.wait(2)
 
-    rig.followers[0].after_move = blocking_move
+    rig.follower_setup = lambda follower: setattr(follower, "after_move", blocking_move)
     rig.controller.gesture_pick_confirm(task_id)
     assert started.wait(2)
     rig.controller.gesture_pick_cancel()
@@ -322,7 +327,7 @@ def test_http_routes_return_sanitized_state_and_explicit_preview_flow(api, rig):
     assert status == 200
     state = payload["gesturePick"]["status"]
     assert state["phase"] == "preview"
-    assert rig.followers[0].commands == []
+    assert rig.followers == []
     assert api("/api/gesture-pick/confirm", {"taskId": state["taskId"]})[0] == 200
     assert finish(rig.controller)["phase"] == "succeeded"
     assert api("/api/gesture-pick/cancel", {})[0] == 200
@@ -413,19 +418,23 @@ def test_assignment_cannot_change_a_reserved_gesture_follower(rig):
 
 
 def test_cleanup_failure_remains_visible_and_keeps_exclusive_ownership(rig):
-    preview(rig)
-    disconnect = rig.followers[0].disconnect
+    task_id = preview(rig)
 
     def unavailable_bus():
         raise OSError("private /dev/ttyACM7 error")
 
-    rig.followers[0].disconnect = unavailable_bus
-    state = rig.controller.gesture_pick_cancel()
+    def setup(follower):
+        follower.disconnect = unavailable_bus
+        follower.after_move = rig.controller.gesture_pick_cancel
+
+    rig.follower_setup = setup
+    rig.controller.gesture_pick_confirm(task_id)
+    state = finish(rig.controller)
     assert "release failed" in state["reason"]
     assert "/dev/ttyACM7" not in json.dumps(state)
     with pytest.raises(ValueError, match="gesture-pick"):
         rig.controller._start("find-port", ["unused"])
-    rig.followers[0].disconnect = disconnect
+    rig.followers[0].disconnect = Follower.disconnect.__get__(rig.followers[0], Follower)
     rig.controller.stop()
     assert rig.controller.gesture_pick.active is False
 
@@ -436,7 +445,7 @@ def test_adapter_failure_does_not_expose_serial_paths_in_public_status(rig):
     def adapter_error():
         raise RuntimeError("device /dev/ttyACM7 at /tmp/private-profile.json")
 
-    rig.followers[0].after_move = adapter_error
+    rig.follower_setup = lambda follower: setattr(follower, "after_move", adapter_error)
     rig.controller.gesture_pick_confirm(task_id)
     state = finish(rig.controller)
     assert state["phase"] == "failed"
@@ -559,7 +568,7 @@ def test_estop_during_blocking_command_is_held_even_before_cancel_delivery(rig):
             raise RuntimeError("actuator command interrupted")
         pytest.fail("the actuator command guard must observe E-stop")
 
-    rig.followers[0].move_joints = interrupted_move
+    rig.follower_setup = lambda follower: setattr(follower, "move_joints", interrupted_move)
     rig.controller.gesture_pick_confirm(task_id)
     state = finish(rig.controller)
     assert state["phase"] == "held"
@@ -578,12 +587,16 @@ def test_failed_real_factory_cleanup_cannot_release_partial_follower_ownership(r
             assert robot_id == "my_awesome_bimanual_follower_right"
             self.model = model
             self.robot = SimpleNamespace(config=SimpleNamespace(disable_torque_on_disconnect=True),
-                                         is_calibrated=True)
+                                         is_calibrated=True, cameras={},
+                                         bus=SimpleNamespace(connect=self.open_bus))
             self.is_connected = True
             self.fail_release = True
             failed.append(self)
 
         def connect(self):
+            pytest.fail("the default factory must not call RobotController.connect")
+
+        def open_bus(self):
             raise OSError("connection interrupted after opening the bus")
 
         def disconnect(self):
@@ -595,6 +608,10 @@ def test_failed_real_factory_cleanup_cannot_release_partial_follower_ownership(r
     rig.controller.gesture_pick._factory = rig.controller._gesture_pick_follower
     rig.controller.gesture_pick_select({"kind": "object", "tagId": 7})
     state = rig.controller.gesture_pick_select({"kind": "box", "tagId": 22})
+    assert state["phase"] == "preview"
+    assert failed == []
+    rig.controller.gesture_pick_confirm(state["taskId"])
+    state = finish(rig.controller)
     assert state["phase"] == "failed"
     assert "release failed" in state["reason"]
     assert rig.controller.gesture_pick.active is True
@@ -602,4 +619,230 @@ def test_failed_real_factory_cleanup_cannot_release_partial_follower_ownership(r
         rig.controller._start("find-port", ["unused"])
     failed[0].fail_release = False
     rig.controller.stop()
+    assert rig.controller.gesture_pick.active is False
+
+
+@pytest.mark.parametrize("mode", ["ready", "motion-disabled", "offline"])
+def test_logical_preview_never_constructs_or_connects_a_follower(rig, mode):
+    if mode == "motion-disabled":
+        rig.controller.enable_motion = False
+    elif mode == "offline":
+        rig.controller.offline = True
+    rig.controller.gesture_pick_select({"kind": "object", "tagId": 7})
+    state = rig.controller.gesture_pick_select({"kind": "box", "tagId": 22})
+    assert state["phase"] == "preview"
+    assert state["taskId"]
+    assert rig.followers == []
+    assert rig.controller.gesture_pick.executor is None
+    rig.controller.gesture_pick_cancel()
+    assert rig.controller.gesture_pick.active is False
+    assert rig.followers == []
+
+
+@pytest.mark.parametrize("stop", ["gesture_pick_cancel", "stop", "emergency_stop"])
+def test_one_cancel_at_preview_completion_releases_the_reservation(rig, monkeypatch, stop):
+    session = rig.controller.gesture_pick
+    build = session._build_preview
+    returned, resume = threading.Event(), threading.Event()
+    results = []
+
+    def paused_build(*args):
+        task = build(*args)
+        returned.set()
+        assert resume.wait(2)
+        return task
+
+    monkeypatch.setattr(session, "_build_preview", paused_build)
+    rig.controller.gesture_pick_select({"kind": "object", "tagId": 7})
+    selecting = threading.Thread(target=lambda: results.append(
+        rig.controller.gesture_pick_select({"kind": "box", "tagId": 22})))
+    selecting.start()
+    assert returned.wait(2)
+    getattr(rig.controller, stop)()
+    resume.set()
+    selecting.join(timeout=2)
+    assert not selecting.is_alive()
+    assert results[0]["phase"] == "held"
+    assert session.active is False
+    assert session._previewing is False
+    assert session._follower is None
+    assert rig.followers == []
+
+
+def _real_adapter_with_fake_bus(*, after_connect=lambda _: None, after_read=lambda _: None, torque=1):
+    from lerobot.robots.so_follower import SO101Follower
+    from robot.controller import RobotController
+
+    events = []
+    stopped = threading.Event()
+
+    class Bus:
+        is_connected = False
+        is_calibrated = True
+        motors = {"shoulder_pan": None, "gripper": None}
+
+        def connect(self):
+            events.append("handshake")
+            self.is_connected = True
+            after_connect(stopped)
+
+        def read(self, register, motor, *, normalize):
+            assert (register, normalize) == ("Torque_Enable", False)
+            events.append((register, motor))
+            after_read(stopped)
+            return torque
+
+        def disconnect(self, disable_torque):
+            assert disable_torque is False
+            events.append("close-bus")
+            self.is_connected = False
+
+    raw = SO101Follower.__new__(SO101Follower)
+    raw.id = "fake-only"
+    raw.bus = Bus()
+    raw.cameras = {}
+    raw.config = SimpleNamespace(disable_torque_on_disconnect=True)
+    raw.configure = lambda: pytest.fail("gesture acquisition must never configure motors or change torque")
+    controller = RobotController.__new__(RobotController)
+    controller.model = SO101Kinematics(ROOT / "so101_new_calib.urdf")
+    controller.robot = raw
+    return dashboard.GuardedGestureFollower(controller, stopped.is_set), raw, stopped, events
+
+
+def test_confirmed_adapter_acquisition_uses_read_only_bus_lifecycle():
+    follower, raw, _, events = _real_adapter_with_fake_bus(after_connect=lambda _: None,
+                                                          after_read=lambda _: None)
+    try:
+        follower.connect()
+        assert follower.is_connected
+        assert events == ["handshake", ("Torque_Enable", "shoulder_pan"),
+                          ("Torque_Enable", "gripper")]
+    finally:
+        follower.disconnect()
+    assert events[-1] == "close-bus"
+    assert not raw.bus.is_connected
+
+
+@pytest.mark.parametrize("cancel_at", ["handshake", "torque-read"])
+def test_cancellation_during_acquisition_prevents_later_lifecycle_operations(cancel_at):
+    follower, raw, _, events = _real_adapter_with_fake_bus(
+        after_connect=lambda event: event.set() if cancel_at == "handshake" else None,
+        after_read=lambda event: event.set() if cancel_at == "torque-read" else None,
+    )
+    try:
+        with pytest.raises(RuntimeError, match="cancel"):
+            follower.connect()
+    finally:
+        follower.disconnect()
+    want = ["handshake", "close-bus"] if cancel_at == "handshake" else [
+        "handshake", ("Torque_Enable", "shoulder_pan"), "close-bus"]
+    assert events == want
+    assert not raw.bus.is_connected
+
+
+def test_acquisition_refuses_to_enable_previously_disabled_torque():
+    follower, raw, _, events = _real_adapter_with_fake_bus(
+        after_connect=lambda _: None, after_read=lambda _: None, torque=0)
+    try:
+        with pytest.raises(ValueError, match="torque"):
+            follower.connect()
+    finally:
+        follower.disconnect()
+    assert events == ["handshake", ("Torque_Enable", "shoulder_pan"), "close-bus"]
+    assert not raw.bus.is_connected
+
+
+def test_camera_discovery_compares_resolved_device_identity(rig, monkeypatch, tmp_path):
+    device, alias = tmp_path / "video0", tmp_path / "stable-camera"
+    device.touch()
+    alias.symlink_to(device)
+    rig.controller.gesture_pick.config = rig.config.model_copy(update={"camera_path": str(alias)})
+    monkeypatch.setattr(dashboard.glob, "glob", lambda _: [str(device)])
+
+    def forbidden_probe(*_, **__):
+        pytest.fail("an alias of the configured capture must never be probed independently")
+
+    monkeypatch.setattr(dashboard.subprocess, "run", forbidden_probe)
+    cameras = dashboard.Controller.cameras(rig.controller)
+    assert [camera["path"] for camera in cameras] == [str(alias)]
+
+
+def test_camera_stream_alias_routes_to_the_shared_capture(api, rig, monkeypatch, tmp_path):
+    device, alias = tmp_path / "video0", tmp_path / "stable-camera"
+    device.touch()
+    alias.symlink_to(device)
+    rig.controller.gesture_pick.config = rig.config.model_copy(update={"camera_path": str(alias)})
+    routed = []
+
+    def stream(handler, session):
+        routed.append(session)
+        handler._json(200, {"sharedCapture": True})
+
+    monkeypatch.setattr(dashboard.Handler, "_gesture_camera_stream", stream)
+    code, result = api(f"/api/cameras/stream?path={device}")
+    assert (code, result) == (200, {"sharedCapture": True})
+    assert routed == [rig.controller.gesture_pick]
+
+
+def test_cancelled_preview_cannot_acquire_a_follower_on_later_confirmation(rig):
+    task_id = preview(rig)
+    state = rig.controller.gesture_pick_cancel()
+    assert state["phase"] == "held"
+    assert rig.controller.gesture_pick_confirm(task_id)["phase"] == "held"
+    assert rig.followers == []
+    assert rig.controller.gesture_pick._follower is None
+    assert rig.controller.gesture_pick.active is False
+
+
+def test_cancel_during_confirmed_acquisition_releases_exactly_after_the_factory_returns(rig):
+    task_id = preview(rig)
+    acquired, resume = threading.Event(), threading.Event()
+
+    def blocked_acquisition(follower):
+        acquired.set()
+        assert resume.wait(2)
+
+    rig.follower_setup = blocked_acquisition
+    rig.controller.gesture_pick_confirm(task_id)
+    assert acquired.wait(2)
+    rig.controller.gesture_pick_cancel()
+    assert rig.controller.gesture_pick.active is True
+    assert rig.followers[0].is_connected is True
+    with pytest.raises(ValueError, match="gesture-pick"):
+        rig.controller._start("find-port", ["unused"])
+    resume.set()
+    state = finish(rig.controller)
+    assert state["phase"] == "held"
+    assert state["reason"] == "operator_cancelled"
+    assert rig.followers[0].commands == []
+    assert rig.followers[0].is_connected is False
+    assert rig.controller.gesture_pick.active is False
+
+
+def test_default_confirm_factory_cancels_real_follower_handshake_without_configuration(rig, monkeypatch):
+    import robot.controller
+
+    follower, raw, _, events = _real_adapter_with_fake_bus(
+        after_connect=lambda _: rig.controller.emergency_stop(), after_read=lambda _: None)
+    built = []
+    controller = follower.controller
+    controller.connect = lambda: pytest.fail("RobotController.connect/configure is forbidden")
+
+    def construct(model, *, port, robot_id):
+        assert (port, robot_id) == ("/dev/ttyACM7", "my_awesome_bimanual_follower_right")
+        built.append(controller)
+        return controller
+
+    monkeypatch.setattr(robot.controller, "RobotController", construct)
+    rig.controller.gesture_pick._factory = rig.controller._gesture_pick_follower
+    task_id = preview(rig)
+    assert built == []
+    rig.controller.gesture_pick_confirm(task_id)
+    state = finish(rig.controller)
+    assert built == [controller]
+    assert state["phase"] == "held"
+    assert state["reason"] == "estop"
+    assert events == ["handshake", "close-bus"]
+    assert raw.bus.is_connected is False
+    assert rig.controller.gesture_pick._follower is None
     assert rig.controller.gesture_pick.active is False

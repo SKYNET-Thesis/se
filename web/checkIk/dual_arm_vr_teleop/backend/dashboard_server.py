@@ -149,6 +149,7 @@ class GuardedGestureFollower:
 
     def __init__(self, controller, should_cancel):
         self.controller = controller
+        self._should_cancel = should_cancel
         self.model = controller.model
         # Hold the last servo target when releasing serial ownership, rather
         # than allowing an unsupported arm to fall when the task is cancelled.
@@ -158,6 +159,31 @@ class GuardedGestureFollower:
     @property
     def is_connected(self):
         return self.controller.is_connected
+
+    def connect(self):
+        """Open an already-configured bus without changing motor/torque state.
+
+        LeRobot follower.connect() calls configure(), including torque changes;
+        gesture-pick deliberately uses only the bus's read-only handshake.
+        """
+        robot = self.controller.robot
+        if robot.cameras:
+            raise ValueError("gesture follower must not own additional cameras")
+        if self._should_cancel():
+            raise RuntimeError("gesture-pick acquisition cancelled")
+        robot.bus.connect()
+        if self._should_cancel():
+            raise RuntimeError("gesture-pick acquisition cancelled")
+        if not robot.bus.is_calibrated:
+            raise ValueError("follower calibration is not ready")
+        for motor in robot.bus.motors:
+            if self._should_cancel():
+                raise RuntimeError("gesture-pick acquisition cancelled")
+            torque = robot.bus.read("Torque_Enable", motor, normalize=False)
+            if self._should_cancel():
+                raise RuntimeError("gesture-pick acquisition cancelled")
+            if torque != 1:
+                raise ValueError("follower torque must already be enabled before gesture confirmation")
 
     def get_joint_positions(self):
         return self.controller.get_joint_positions()
@@ -198,6 +224,9 @@ class GesturePickDashboard:
         self._frame_at = None
         self._reason = None
         self._phase = "idle"
+        self._stage = None
+        self._task = None
+        self._cancel_reason = None
         self._selection = {}
         self.executor = None
         self._follower = None
@@ -215,8 +244,9 @@ class GesturePickDashboard:
             self._reason = "table calibration required for configured camera"
 
     def stopped(self):
-        if (self.owner._estopping.is_set() or self.owner.state.get("latchedMotionLock")) and self.executor:
-            self.executor.cancel("estop")
+        estopped = self.owner._estopping.is_set() or self.owner.state.get("latchedMotionLock")
+        if self.executor and (estopped or self._cancelled.is_set()):
+            self.executor.cancel("estop" if estopped else self._cancel_reason or "cancelled")
         return (self._cancelled.is_set() or self.owner.state.get("latchedMotionLock", False)
                 or self.owner._estopping.is_set()
                 or not self.owner.enable_motion or self.owner.offline)
@@ -300,9 +330,12 @@ class GesturePickDashboard:
             if state and state.phase.value == "failed":
                 reason = "follower or detection adapter failed"
             reason = self._cleanup_error or reason
-            return {"configured": True, "phase": state.phase.value if state else self._phase,
-                    "taskId": state.task_id if state else None,
-                    "stage": state.stage if state else None,
+            phase = state.phase.value if state else self._phase
+            if self._phase == "executing" and phase == "preview":
+                phase = "executing"
+            return {"configured": True, "phase": phase,
+                    "taskId": state.task_id if state else self._task.task_id if self._task else None,
+                    "stage": state.stage if state else self._stage,
                     "reason": reason,
                     "updatedAt": state.updated_at if state else float(self._clock()),
                     "selection": dict(self._selection), "followerSide": self.config.follower_side,
@@ -325,10 +358,17 @@ class GesturePickDashboard:
             self._cleanup_error = None
             self.active = False
 
-    def select(self, data):
-        from backend.gesture_pick.executor import PickPlaceExecutor
+    def _build_preview(self, object_tag_id, box_tag_id):
         from backend.gesture_pick.models import PickPlaceTask
 
+        visible = {tag.tag_id for tag in self.usable_detections()}
+        if not {object_tag_id, box_tag_id} <= visible:
+            raise ValueError("object and box must remain uniquely visible for preview")
+        return PickPlaceTask(object_tag_id=object_tag_id, box_tag_id=box_tag_id,
+                             follower_side=self.config.follower_side,
+                             requested_at=float(self._clock()))
+
+    def select(self, data):
         if not isinstance(data, dict) or set(data) != {"kind", "tagId"}:
             raise ValueError("selection accepts only kind and tagId")
         kind, tag_id = data["kind"], data["tagId"]
@@ -340,7 +380,8 @@ class GesturePickDashboard:
                 raise ValueError("gesture-pick executing or preview active; cancel it first")
             if self.calibration is None:
                 raise ValueError("table calibration required for configured camera")
-            if kind == "box" and "objectTagId" not in self._selection:
+            if kind == "box" and ("objectTagId" not in self._selection
+                                  or self._phase != "selecting-box"):
                 raise ValueError("select an object before a box")
         if not any(tag.tag_id == tag_id for tag in self.usable_detections()):
             raise ValueError("select a unique currently visible configured tag")
@@ -349,55 +390,83 @@ class GesturePickDashboard:
                 raise ValueError("gesture-pick executing or preview active; cancel it first")
             if kind == "object":
                 self._selection = {"objectTagId": tag_id}
+                self._task = None
                 self.executor = None
+                self._stage = None
+                self._cancel_reason = None
                 self._phase, self._reason = "selecting-box", None
                 self._cancelled.clear()
                 return self.status()
-            self.owner._gesture_pick_authorize()
             self.owner._require_exclusive_task()
             self._selection["boxTagId"] = tag_id
             self.active = self._previewing = True
-            self._cancelled.clear()
+            selected_object = self._selection["objectTagId"]
+        task = None
         try:
-            self._follower = self._factory(self.config.follower_side,
-                self.owner.state["assignments"][f"{self.config.follower_side}-follower"], self.stopped)
-            if not self._follower.is_connected:
-                raise ValueError("configured follower is disconnected")
-            task = PickPlaceTask(object_tag_id=self._selection["objectTagId"],
-                                 box_tag_id=tag_id, follower_side=self.config.follower_side,
-                                 requested_at=float(self._clock()))
-            self.executor = PickPlaceExecutor(self._follower, self.config, self.calibration,
-                self.observations, clock=self._clock, should_cancel=self.stopped,
-                is_estopped=lambda: bool(self.owner.state.get("latchedMotionLock")))
-            state = self.executor.preview(task)
-            if state.phase.is_terminal:
-                self._release()
-        except Exception:
-            self._phase, self._reason = "failed", "configured follower unavailable"
-            self._release()
+            task = self._build_preview(selected_object, tag_id)
         finally:
-            self._previewing = False
+            # Publish the preview and hand off cancellation cleanup atomically.
+            # A cancel delivered after the immutable task was built must win.
+            with self.owner.lock:
+                self._previewing = False
+                if self._cancelled.is_set():
+                    self._phase, self._reason = "held", self._cancel_reason or "cancelled"
+                    self._release()
+                elif task is None:
+                    self._release()
+                else:
+                    self._task = task
+                    self._phase, self._reason = "preview", None
         return self.status()
 
     def confirm(self, task_id):
+        from backend.gesture_pick.executor import PickPlaceExecutor
+
         with self.owner.lock:
             self.owner._gesture_pick_authorize()
             if not isinstance(task_id, str) or not task_id.strip():
                 raise ValueError("taskId must identify the preview")
-            if self.executor is None or set(self._selection) != {"objectTagId", "boxTagId"}:
+            if self._task is None or set(self._selection) != {"objectTagId", "boxTagId"}:
                 raise ValueError("select both an object and a box before confirmation")
-            state = self.executor.status()
-            if task_id != state.task_id:
+            if task_id != self._task.task_id:
                 raise ValueError("taskId must match the current preview task")
-            if state.phase.is_terminal or self._worker and self._worker.is_alive():
+            if (self._phase in {"held", "failed", "succeeded"}
+                    or self.executor and self.executor.status().phase.is_terminal
+                    or self._worker and self._worker.is_alive()):
                 return self.status()
             self.owner._require_exclusive_task(allow_gesture=True)
-            if not self.active or self._follower is None or not self._follower.is_connected:
-                raise ValueError("configured follower is disconnected")
+            if not self.active or self._previewing:
+                raise ValueError("task preview is not ready")
+            task = self._task
+            port = self.owner.state["assignments"][f"{self.config.follower_side}-follower"]
+            self._phase, self._stage = "executing", "connecting"
 
             def execute():
                 try:
-                    self.executor.confirm(task_id)
+                    with self.owner.lock:
+                        self.owner._gesture_pick_authorize()
+                        if self.stopped():
+                            raise RuntimeError("acquisition cancelled")
+                    self._follower = self._factory(self.config.follower_side, port, self.stopped)
+                    if self.stopped():
+                        raise RuntimeError("acquisition cancelled")
+                    if not self._follower.is_connected:
+                        raise ValueError("configured follower is disconnected")
+                    self.executor = PickPlaceExecutor(self._follower, self.config, self.calibration,
+                        self.observations, clock=self._clock, should_cancel=self.stopped,
+                        is_estopped=lambda: bool(self.owner.state.get("latchedMotionLock")))
+                    state = self.executor.preview(task)
+                    if not state.phase.is_terminal:
+                        self.executor.confirm(task_id)
+                except Exception:
+                    with self.owner.lock:
+                        if self.stopped():
+                            reason = ("estop" if self.owner._estopping.is_set()
+                                      or self.owner.state.get("latchedMotionLock")
+                                      else self._cancel_reason or "cancelled")
+                            self._phase, self._reason = "held", reason
+                        else:
+                            self._phase, self._reason = "failed", "configured follower unavailable"
                 finally:
                     self._release()
 
@@ -407,6 +476,7 @@ class GesturePickDashboard:
 
     def cancel(self, reason):
         # Set the actuator guard before waiting on executor/controller locks.
+        self._cancel_reason = reason
         self._cancelled.set()
         if self.executor:
             self.executor.cancel(reason)
@@ -470,7 +540,7 @@ class Controller:
         # Retain the resource before connect: even a partially successful
         # connection must stay owned if later connection/cleanup steps fail.
         self.gesture_pick._follower = follower
-        follower.controller.connect()
+        follower.connect()
         if not follower.is_connected or not follower.controller.robot.is_calibrated:
             raise ValueError("follower connection/calibration is not ready")
         return follower
@@ -552,9 +622,11 @@ class Controller:
 
     def cameras(self) -> list[dict[str, Any]]:
         configured_path = self.gesture_pick.config.camera_path if self.gesture_pick else None
+        configured_identity = Path(configured_path).resolve() if configured_path else None
         # The configured camera has one shared capture for detection and MJPEG;
         # probing it in a second process can steal its frames or fail with EBUSY.
-        paths = tuple(sorted(path for path in glob.glob("/dev/video*") if path != configured_path))
+        paths = tuple(sorted(path for path in glob.glob("/dev/video*")
+                             if Path(path).resolve() != configured_identity))
         if paths != self._camera_signature:
             self._camera_signature = paths
             self._camera_cache = []
@@ -1276,7 +1348,8 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/cameras/stream":
             camera_path = parse_qs(parsed.query).get("path", [""])[0]
             session = self.controller.gesture_pick
-            if session and camera_path == session.config.camera_path:
+            if (session and camera_path
+                    and Path(camera_path).resolve() == Path(session.config.camera_path).resolve()):
                 self._gesture_camera_stream(session)
                 return
             available = {camera["path"] for camera in self.controller.cameras()}
