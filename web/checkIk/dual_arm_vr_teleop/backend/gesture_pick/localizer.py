@@ -59,4 +59,9 @@ class AprilTagLocalizer:
                 image_center=tuple(map(float, centre)), robot_point=tuple(map(float, point)),
                 observed_at=float(observed_at),
             ))
+        # Conversion and detection can consume the frame's remaining lifetime.
+        now = self._clock()
+        if (not math.isfinite(now)
+                or not 0 <= now - observed_at <= self.config.max_tag_age_s):
+            return []
         return detections

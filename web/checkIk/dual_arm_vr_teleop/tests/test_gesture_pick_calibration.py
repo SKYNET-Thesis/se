@@ -33,6 +33,22 @@ def test_homography_maps_table_corners_and_rejects_outside_points():
         calibration.image_to_robot_table((101, 50))
 
 
+@pytest.mark.parametrize("point", [
+    (-0.000001, 50), (100.000001, 50), (50, -0.000001), (50, 100.000001),
+])
+def test_points_immediately_outside_each_image_boundary_are_rejected(point):
+    with pytest.raises(ValueError, match="outside"):
+        make_calibration().image_to_robot_table(point)
+
+
+@pytest.mark.parametrize("point", [
+    (-0.00000001, 0.5, 0), (1.00000001, 0.5, 0),
+    (0.5, -0.00000001, 0), (0.5, 1.00000001, 0),
+])
+def test_points_immediately_outside_robot_footprint_are_rejected(point):
+    assert not make_calibration().contains_robot_point(point)
+
+
 def test_projective_mapping_and_robot_table_height():
     calibration = make_calibration(
         image_points=[[0, 0], [100, 0], [80, 100], [20, 100]], table_z=0.12,
@@ -71,8 +87,11 @@ def test_saved_calibration_has_stable_identity_and_camera_binding(tmp_path):
     restored = TableCalibration.load(path, camera_path="/dev/video-test")
     assert restored.calibration_id == calibration.calibration_id
     assert np.allclose(restored.image_to_robot_table((50, 50)), [0.5, 0.5, 0.12])
-    assert make_calibration(camera_path="/dev/other").calibration_id != calibration.calibration_id
+    assert make_calibration(camera_path="/dev/other", table_z=0.12).calibration_id != calibration.calibration_id
     assert make_calibration(table_z=0.2).calibration_id != calibration.calibration_id
+    assert make_calibration(
+        image_points=[[1, 0], [100, 0], [100, 100], [0, 100]], table_z=0.12,
+    ).calibration_id != calibration.calibration_id
     with pytest.raises(ValueError, match="camera"):
         TableCalibration.load(path, camera_path="/dev/other")
     data = json.loads(path.read_text())

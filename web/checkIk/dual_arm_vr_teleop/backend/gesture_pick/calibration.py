@@ -27,9 +27,14 @@ def _corners(points, label):
 
 
 def _inside(point, corners):
-    # Boundary points belong to the calibrated table.
-    return cv2.pointPolygonTest(np.asarray(corners, dtype=np.float32),
-                                tuple(map(float, point)), False) >= 0
+    # Zero geometric tolerance: include the boundary, but never expand the
+    # footprint with an epsilon. Preserve float64 inputs instead of rounding
+    # near-boundary outside points onto the polygon through float32 conversion.
+    corners = np.asarray(corners, dtype=np.float64)
+    edges = np.roll(corners, -1, axis=0) - corners
+    offsets = np.asarray(point, dtype=np.float64) - corners
+    cross = edges[:, 0] * offsets[:, 1] - edges[:, 1] * offsets[:, 0]
+    return bool(np.all(cross >= 0) or np.all(cross <= 0))
 
 
 @dataclass(frozen=True)

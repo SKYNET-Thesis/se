@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -22,7 +23,7 @@ def marker_frame(dictionary_name="DICT_APRILTAG_36h11", ids=(7, 8, 9)):
     return frame
 
 
-def make_localizer(dictionary="DICT_APRILTAG_36h11", now=10.0, table_right=600):
+def make_localizer(dictionary="DICT_APRILTAG_36h11", now=10.0, table_right=600, clock=None):
     from backend.gesture_pick.calibration import TableCalibration
     from backend.gesture_pick.localizer import AprilTagLocalizer
 
@@ -33,7 +34,7 @@ def make_localizer(dictionary="DICT_APRILTAG_36h11", now=10.0, table_right=600):
         robot_points=[[0, 0], [table_right / 1000, 0], [table_right / 1000, 0.2], [0, 0.2]],
         camera_path=config.camera_path, table_z=0.12,
     )
-    return AprilTagLocalizer(config, calibration, clock=lambda: now)
+    return AprilTagLocalizer(config, calibration, clock=clock or (lambda: now))
 
 
 def test_localizer_maps_only_known_ids_to_robot_table():
@@ -59,6 +60,21 @@ def test_localizer_rejects_stale_future_or_invalid_observation_time(observed_at)
 
 def test_freshness_boundary_is_inclusive():
     assert len(make_localizer().detect(marker_frame(), observed_at=9.5)) == 2
+
+
+def test_localizer_rejects_frame_that_expires_during_real_detection(monkeypatch):
+    current_time = [10.0]
+    localizer = make_localizer(clock=lambda: current_time[0])
+    real_detector = localizer._detector
+
+    def detect_and_advance_clock(frame):
+        result = real_detector.detectMarkers(frame)
+        current_time[0] = 10.1
+        return result
+
+    # Keep actual OpenCV image processing; wrap only its elapsed-time boundary.
+    monkeypatch.setattr(localizer, "_detector", SimpleNamespace(detectMarkers=detect_and_advance_clock))
+    assert localizer.detect(marker_frame(), observed_at=9.5) == []
 
 
 def test_localizer_uses_configured_dictionary_and_does_not_retain_lost_tags():
