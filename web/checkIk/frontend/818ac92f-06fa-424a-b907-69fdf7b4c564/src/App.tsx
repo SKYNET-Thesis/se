@@ -18,6 +18,7 @@ import { Inference } from './pages/Inference';
 import { Integrations } from './pages/Integrations';
 import { Settings } from './pages/Settings';
 import { Overview } from './pages/Overview';
+import { GesturePick } from './pages/GesturePick';
 
 export function App() {
   return (
@@ -32,6 +33,7 @@ export function App() {
             <Route path="/teleoperation" element={<Teleoperation />} />
             <Route path="/dual-arm" element={<DualArm />} />
             <Route path="/vr" element={<VRControl />} />
+            <Route path="/gesture-pick" element={<GesturePick />} />
             <Route path="/cameras" element={<Cameras />} />
             <Route path="/recording" element={<Recording />} />
             <Route path="/datasets" element={<DatasetLibrary />} />

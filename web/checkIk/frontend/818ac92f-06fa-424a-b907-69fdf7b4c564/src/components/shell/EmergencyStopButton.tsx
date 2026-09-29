@@ -4,7 +4,7 @@ import { useLab } from '../../contexts/LabContext';
 import { cx } from '../../lib/format';
 import { Button } from '../ui/Button';
 
-export function EmergencyStopButton({ compact = false }: {compact?: boolean;}) {
+export function EmergencyStopButton({ compact = false, allowReset = true }: {compact?: boolean;allowReset?: boolean;}) {
   const { estop, triggerEStop, resetEStop } = useLab();
   const [confirming, setConfirming] = useState(false);
 
@@ -21,9 +21,9 @@ export function EmergencyStopButton({ compact = false }: {compact?: boolean;}) {
           <OctagonXIcon className="h-4 w-4" />
           E-STOP ACTIVE
         </span>
-        <Button size={compact ? 'sm' : 'md'} icon={RotateCcwIcon} onClick={resetEStop}>
+        {allowReset ? <Button size={compact ? 'sm' : 'md'} icon={RotateCcwIcon} onClick={resetEStop}>
           Reset
-        </Button>
+        </Button> : null}
       </div>);
 
   }

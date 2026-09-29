@@ -5,6 +5,7 @@ import { XIcon } from 'lucide-react';
 import { SidebarNavigation } from '../components/shell/SidebarNavigation';
 import { WorkspaceHeader } from '../components/shell/WorkspaceHeader';
 import { ToastHost } from '../components/shell/ToastHost';
+import { allowMotionReset } from '../lib/gesturePickMonitor.js';
 
 export function AppShell() {
   const [navOpen, setNavOpen] = useState(false);
@@ -61,7 +62,7 @@ export function AppShell() {
       </AnimatePresence>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <WorkspaceHeader onOpenNav={() => setNavOpen(true)} />
+        <WorkspaceHeader onOpenNav={() => setNavOpen(true)} monitoringOnly={!allowMotionReset(location.pathname)} />
         <main className="app-main flex-1 bg-bg px-4 py-6 lg:px-8 lg:py-10">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div

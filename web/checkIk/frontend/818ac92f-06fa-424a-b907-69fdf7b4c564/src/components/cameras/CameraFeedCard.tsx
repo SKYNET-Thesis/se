@@ -9,12 +9,13 @@ import { BACKEND_URL } from '../../lib/backend';
 export function CameraFeedCard({
   camera,
   large = false,
+  readOnly = false,
   onFocus
 
 
 
 
-}: {camera: CameraDevice;large?: boolean;onFocus?: () => void;}) {
+}: {camera: CameraDevice;large?: boolean;readOnly?: boolean;onFocus?: () => void;}) {
   const { reconnectCamera, session } = useLab();
   const online = camera.connection === 'connected';
   const recording = session?.recording ?? camera.recording;
@@ -33,11 +34,11 @@ export function CameraFeedCard({
             <CameraOffIcon className="h-5 w-5 text-faint" />
             <p className="text-sm font-medium text-ink2">No signal</p>
             <p className="text-xs text-faint">
-              {camera.source} is not streaming. Check the USB cable, then rescan video devices.
+              {readOnly ? 'The configured overhead camera is unavailable. Check its connection and camera configuration.' : `${camera.source} is not streaming. Check the USB cable, then rescan video devices.`}
             </p>
-            <Button size="sm" onClick={() => reconnectCamera(camera.id)}>
+            {!readOnly ? <Button size="sm" onClick={() => reconnectCamera(camera.id)}>
               Reconnect
-            </Button>
+            </Button> : null}
           </div>
         }
 
