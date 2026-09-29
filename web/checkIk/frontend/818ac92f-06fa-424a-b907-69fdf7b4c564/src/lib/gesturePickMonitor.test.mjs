@@ -100,6 +100,26 @@ test('the monitoring route cannot expose the shared header motion-lock reset', (
   assert.equal(allowMotionReset('/vr'), true);
 });
 
+test('case-insensitive monitor route aliases cannot expose Reset', () => {
+  for (const pathname of ['/GESTURE-PICK', '/Gesture-Pick', '/GESTURE-PICK/']) {
+    assert.equal(allowMotionReset(pathname), false, pathname);
+  }
+  assert.equal(allowMotionReset('/WORKSPACE'), true);
+  assert.equal(allowMotionReset('/VR'), true);
+});
+
+test('URL-decoded monitor route aliases cannot expose Reset', () => {
+  for (const pathname of ['/gesture%2Dpick', '/Gesture%2dpick', '/%67esture-pick', '/gesture%2Dpick/']) {
+    assert.equal(allowMotionReset(pathname), false, pathname);
+  }
+  assert.equal(allowMotionReset('/%77orkspace'), true);
+});
+
+test('malformed URL encoding fails closed for the Reset policy', () => {
+  assert.equal(allowMotionReset('/gesture-pick/%'), false);
+  assert.equal(allowMotionReset('/%'), false);
+});
+
 test('does not describe an initial placeholder as last known dashboard status', () => {
   const result = deriveGesturePickMonitor({ status: { phase: 'idle' }, detections: [] }, undefined,
     { online: false, now: 100 });

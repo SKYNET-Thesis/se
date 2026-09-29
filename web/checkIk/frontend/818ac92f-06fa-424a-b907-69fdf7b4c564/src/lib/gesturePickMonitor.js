@@ -6,7 +6,14 @@ const phaseLabels = {
 };
 
 export function allowMotionReset(pathname) {
-  return pathname !== '/gesture-pick' && !pathname.startsWith('/gesture-pick/');
+  let canonicalPath;
+  try {
+    // Match the router's decoded, case-insensitive monitor aliases.
+    canonicalPath = decodeURIComponent(pathname).toLowerCase();
+  } catch {
+    return false;
+  }
+  return canonicalPath !== '/gesture-pick' && !canonicalPath.startsWith('/gesture-pick/');
 }
 
 function fresh(observedAt, now) {
