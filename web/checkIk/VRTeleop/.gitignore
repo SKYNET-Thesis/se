@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+.venv/
+venv/
+
+# Local TLS certificates and private keys
+*.pem
+certs/
+
+# Local configuration and editor files
+.env
+.env.*
+.idea/
+.vscode/
+.DS_Store
+

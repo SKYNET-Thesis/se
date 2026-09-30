@@ -1,9 +1,8 @@
-"""Fake follower adapter contract for the VR LeKiwi integration.
+"""Explicit SO-101 follower adapter for the CHECKIK-managed VR runtime.
 
-Ticket 01 deliberately keeps this boundary offline.  The adapter owns the selected
-left/right followers and translates the arm-prefixed wire shape used by the control loop
-to each follower's local SO-101 joint keys.  A later ticket may provide a real follower
-factory; this module does not discover or open serial hardware.
+The adapter never discovers a serial device: CHECKIK supplies the assigned port and the
+stable calibration identity for every selected arm. Fake followers remain available for
+offline tests; real followers are opened only by the explicit real factory.
 """
 
 from __future__ import annotations
@@ -73,8 +72,26 @@ class FakeSOFollower:
 FollowerFactory = Callable[[FollowerSpec], Follower]
 
 
+def make_real_follower(spec: FollowerSpec) -> Follower:
+    """Construct one calibrated local follower without serial auto-discovery."""
+    # Lazy import keeps fake/offline tests independent from hardware dependencies.
+    from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
+
+    return SO101Follower(
+        SO101FollowerConfig(
+            port=spec.port,
+            id=spec.device_id,
+            use_degrees=True,
+            disable_torque_on_disconnect=True,
+            # ArmController owns command-rate/following-error safety. A second,
+            # unobserved LeRobot clamp would desynchronise its command anchors.
+            max_relative_target=None,
+        )
+    )
+
+
 class DualSO101FollowerRobot:
-    """Manage explicitly selected fake left/right followers as one robot boundary."""
+    """Manage explicitly selected fake or real left/right followers as one boundary."""
 
     def __init__(
         self,

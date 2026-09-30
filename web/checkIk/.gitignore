@@ -1,0 +1,75 @@
+# ---------------------------------------------------------------------------
+# Unity projects and generated player builds
+#
+# Unity development is kept in its own repository. Do not embed that repository
+# or its multi-gigabyte Windows/Linux builds in checkIkForVR.
+# ---------------------------------------------------------------------------
+/buildvr_repo/
+/unity_build/
+/unity_assets/
+/EditorBuildSettings*.asset
+/SampleScene*.unity
+/SampleScene*.unity.meta
+
+# One-off Unity editor helpers and generated Gaussian/panorama conversion data.
+/tools/*.cs
+/tools/cubemap_to_panorama.py
+/tools/ply_mesh_to_glb.py
+/tools/render_gaussian_panorama.py
+/webxr/public/assets/command_center_360_hq.jpg
+/webxr/public/assets/gaussian_faces/
+
+# Unity-generated directories, wherever a project is copied into this repo.
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Bb]uild/
+**/[Bb]uilds/
+**/[Ll]ogs/
+**/[Uu]ser[Ss]ettings/
+**/[Mm]emoryCaptures/
+**/[Rr]ecordings/
+
+# Generated IDE/project files from Unity.
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity/OS crash and temporary files.
+sysinfo.txt
+*.stacktrace
+crashlytics-build.properties
+
+# Frontend dependencies and generated bundles. Source and lockfiles remain
+# tracked and are sufficient to reproduce these directories.
+**/node_modules/
+**/dist/
+**/dist-ssr/
+
+# Local caches and Python bytecode.
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+**/*.egg-info/
+
+# Local TLS credentials and runtime-generated state.
+**/*-key.pem
+**/*-cert.pem
+**/*.key
+**/*.crt
+**/runtime/*.json
+
+# Editors and desktop metadata.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

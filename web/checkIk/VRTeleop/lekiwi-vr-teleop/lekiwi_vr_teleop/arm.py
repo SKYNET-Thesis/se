@@ -172,7 +172,7 @@ class ArmController:
         # operator's wrist. XRHand already reports a palm point built from wrist joints;
         # applying the controller compensation there invents translation whenever the
         # palm rotates and makes a lift look like a reach/dive.
-        if controller.kind != "hand":
+        if controller.kind == "controller":
             position = position - self.config.hand_pivot_m * forward_axis(orientation)
         engaged = controller.tracked and controller.squeeze > self.config.clutch_threshold
 
@@ -196,7 +196,7 @@ class ArmController:
             self._ready = False
 
         assert self._hand is not None and self._commanded_tool is not None
-        if controller.kind == "hand" and not self.config.track_hand_orientation:
+        if controller.kind in ("hand", "phone") and not self.config.track_hand_orientation:
             pitch_offset, roll_offset = 0.0, 0.0
         else:
             pitch_offset, roll_offset = self._hand.offsets(orientation)
@@ -219,6 +219,10 @@ class ArmController:
         self._pitch_error_deg = pose.pitch_error_deg
 
         joints = self._limit(pose.as_dict(), observation, rate_scale)
+        # Phone buttons are explicit absolute targets; VR soft takeover would
+        # otherwise prevent an initially closed gripper from opening.
+        if controller.kind == "phone":
+            self._gripper_taken = True
         joints["gripper"] = self._gripper_target(controller.trigger, observation, rate_scale)
         self._commanded = dict(joints)
         # Re-derive the commanded tool position from the joints actually commanded, so the

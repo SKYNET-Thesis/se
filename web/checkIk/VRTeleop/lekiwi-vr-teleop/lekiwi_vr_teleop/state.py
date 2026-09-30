@@ -175,7 +175,9 @@ class XRState:
             self._phone_last_at = now
             dt = 0.05 if previous is None else float(np.clip(now - previous, 0.01, 0.1))
             self._phone_gripper_trigger = float(np.clip(self._phone_gripper_trigger - pose.gripperVelocity * dt, 0.0, 1.0))
-            tracked = pose.trackingState != "lost" and pose.enabled
+            if pose.gripperClosed is not None:
+                self._phone_gripper_trigger = float(pose.gripperClosed)
+            tracked = pose.trackingState == "tracking" and pose.enabled
             self._controllers[self._phone_hand] = ControllerState(
                 position=phone_position(pose.position),
                 orientation=phone_orientation(pose.quaternion),

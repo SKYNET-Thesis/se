@@ -10,7 +10,13 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.omniarm.se"
+      "bundleIdentifier": "com.omniarm.se",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "OmniArm cần truy cập mạng nội bộ để kết nối tới robot trên laptop.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
     },
     "android": {
       "package": "com.omniarm.se",
