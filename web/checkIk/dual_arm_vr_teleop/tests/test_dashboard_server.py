@@ -51,6 +51,16 @@ class DashboardControllerTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.controller.start_leader_teleop("ENABLE MOTION")
 
+    def test_estop_latch_blocks_every_real_motion_entry_point(self):
+        self.controller.enable_motion = True
+        self.controller.emergency_stop()
+        with self.assertRaises(PermissionError):
+            self.controller.start_leader_teleop("ENABLE MOTION")
+        with self.assertRaises(PermissionError):
+            self.controller.start_single_leader_teleop("ENABLE MOTION", "left")
+        with self.assertRaises(PermissionError):
+            self.controller.start_vr_real("ENABLE VR MOTION", 0.45, arm="left")
+
     def test_estop_lock_survives_and_unlock_requires_readiness_check(self):
         self.controller.emergency_stop()
         self.assertTrue(self.controller.snapshot()["backend"]["latchedMotionLock"])

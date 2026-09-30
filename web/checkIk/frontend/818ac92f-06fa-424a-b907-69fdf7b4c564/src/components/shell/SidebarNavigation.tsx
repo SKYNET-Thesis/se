@@ -19,6 +19,7 @@ const sections: { title: string; icon: Item['icon']; items: Item[] }[] = [
   { title: 'Control', icon: SlidersHorizontalIcon, items: [
     { to: '/dual-arm', label: 'Leader Control', icon: SlidersHorizontalIcon },
     { to: '/vr', label: 'VR Control', icon: GlassesIcon },
+    { to: '/gesture-pick', label: 'Gesture Pick Monitor', icon: BoxesIcon },
   ]},
   { title: 'Data', icon: DatabaseIcon, items: [
     { to: '/recording', label: 'Recording', icon: VideoIcon },

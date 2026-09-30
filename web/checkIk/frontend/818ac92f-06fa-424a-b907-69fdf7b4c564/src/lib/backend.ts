@@ -29,6 +29,38 @@ export interface BackendTask {
   };
 }
 
+export interface GesturePickDetection {
+  tagId: number;
+  kind: 'object' | 'box';
+  imageCenter: [number, number];
+  robotPoint: [number, number, number];
+  observedAt: number;
+  confidence: number;
+  visible: boolean;
+}
+
+export interface GesturePickTaskState {
+  configured: boolean;
+  phase: 'idle' | 'selecting-object' | 'selecting-box' | 'preview' | 'executing' | 'succeeded' | 'held' | 'failed';
+  taskId: string | null;
+  stage: string | null;
+  reason: string | null;
+  updatedAt?: number;
+  selection: { objectTagId?: number; boxTagId?: number };
+  followerSide: 'left' | 'right' | null;
+  cameraPath: string | null;
+  calibrationValid: boolean;
+  cameraAvailable: boolean;
+  frameObservedAt: number | null;
+  frameSize?: [number, number] | null;
+  running: boolean;
+}
+
+export interface GesturePickSnapshot {
+  status: GesturePickTaskState;
+  detections: GesturePickDetection[];
+}
+
 export interface BackendSnapshot {
   backend: {
     name: string;
@@ -42,6 +74,7 @@ export interface BackendSnapshot {
   devices: Array<Partial<RobotDevice> & Pick<RobotDevice, 'id'>>;
   cameras: Array<{ path: string; connection: string; resolution: string | null; fps: number | null }>;
   task: BackendTask | null;
+  gesturePick?: GesturePickSnapshot;
   readiness?: {
     mode: string;
     activeArms: string[];
@@ -69,7 +102,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const backend = {
-  status: () => request<BackendSnapshot>('/api/status'),
+  status: (signal?: AbortSignal) => request<BackendSnapshot>('/api/status', { signal }),
+  cancelGesturePick: (signal?: AbortSignal) => request<BackendSnapshot>('/api/gesture-pick/cancel', {
+    method: 'POST', body: '{}', signal,
+  }),
   post: (path: string, body: Record<string, unknown> = {}) =>
     request<BackendSnapshot>(path, { method: 'POST', body: JSON.stringify(body) }),
 };

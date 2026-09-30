@@ -1,0 +1,11 @@
+{
+  "camera_path": "/dev/video*",
+  "tag_dictionary": "DICT_APRILTAG_36h11",
+  "tags": {
+    "7": "object",
+    "8": "box"
+  },
+  "follower_side": "right",
+  "calibration_path": null,
+  "max_tag_age_s": 0.5
+}
