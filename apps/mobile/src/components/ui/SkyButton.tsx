@@ -6,10 +6,16 @@ import { SkyNexColors, useSkyNexTokens } from "../../design-system/tokens";
 import { SkyText } from "./SkyText";
 
 export type SkyButtonVariant = "primary" | "secondary" | "danger";
+// "lg" is the hero action size (Home's readiness CTA). Like an iOS large
+// control, it grows in height and padding only — the label keeps the same
+// restrained action text as "md" rather than jumping to headline size,
+// which read as a game button rather than a product action.
+export type SkyButtonSize = "md" | "lg";
 
 export type SkyButtonProps = Omit<PressableProps, "children" | "style"> & {
   children: ReactNode;
   variant?: SkyButtonVariant;
+  size?: SkyButtonSize;
   loading?: boolean;
   fontsReady?: boolean;
   style?: StyleProp<ViewStyle>;
@@ -29,6 +35,7 @@ export function SkyButton({
   disabled = false,
   fontsReady = true,
   loading = false,
+  size = "md",
   style,
   variant = "primary",
   ...rest
@@ -36,8 +43,13 @@ export function SkyButton({
   const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const inactive = Boolean(disabled) || loading;
-  const foreground =
-    variant === "primary" ? colors.onAccent : variant === "danger" ? colors.onDanger : colors.textPrimary;
+  const foreground = disabled
+    ? colors.textSecondary
+    : variant === "primary"
+      ? colors.onAccent
+      : variant === "danger"
+        ? colors.onDanger
+        : colors.textPrimary;
 
   return (
     <Pressable
@@ -48,6 +60,7 @@ export function SkyButton({
       disabled={inactive}
       style={({ pressed }) => [
         styles.base,
+        size === "lg" && styles.large,
         styles[variant],
         disabled && styles.disabled,
         pressed && !inactive && styles.pressed,
@@ -80,6 +93,10 @@ function createStyles(colors: SkyNexColors) {
       minHeight: 52,
       paddingHorizontal: space.lg
     },
+    large: {
+      minHeight: 56,
+      paddingHorizontal: space.xl
+    },
     primary: {
       backgroundColor: colors.accent,
       borderColor: colors.accent
@@ -92,12 +109,16 @@ function createStyles(colors: SkyNexColors) {
       backgroundColor: colors.statusDanger,
       borderColor: colors.statusDanger
     },
-    // Same pressed/disabled opacities the existing screens already use.
     pressed: {
       opacity: 0.78
     },
+    // Unavailable reads as a neutral surface with secondary text — the same
+    // treatment Home's original primary pill used — not a faded fill, which
+    // turns lime into a muddy olive on Dark. Applies to every variant so a
+    // disabled action never looks like a dimmed version of itself.
     disabled: {
-      opacity: 0.52
+      backgroundColor: colors.surfaceRaised,
+      borderColor: colors.border
     }
   });
 }

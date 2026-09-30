@@ -1,14 +1,19 @@
-import { ArrowRight, Bot, Cable, Camera, ChevronRight, Check, Hand, Radio, RotateCcw, ShieldAlert, TriangleAlert } from "lucide-react-native";
-import { useFocusEffect, useIsFocused } from "@react-navigation/native";
+import { ArrowRight, Bot, Check, Radio, ShieldAlert, TriangleAlert } from "lucide-react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArmModelViewer } from "../components/ArmModelViewer";
 import { FeaturedTaskCard } from "../components/FeaturedTaskCard";
-import { useAppTheme } from "../ThemeContext";
+import { HomeToolsList } from "../components/home/HomeToolsList";
+import { RobotHero } from "../components/home/RobotHero";
+import { RobotReadinessCard } from "../components/home/RobotReadinessCard";
+import { SkySection, SkyText } from "../components/ui";
+import { getRobotSummary, RobotSummary as HomeRobotSummary } from "../data/robot";
 import { getTasks, Task } from "../data/tasks";
+import { layout } from "../design-system/spacing";
+import { useSkyNexTokens } from "../design-system/tokens";
 import { getFavorites, toggleFavorite } from "../services/favoritesStorage";
 import { font, radius, spacing, ThemeColors, ThemeMode, type } from "../theme";
+import { useAppTheme } from "../ThemeContext";
 
 export type HomeRoute = "connect" | "calibrate" | "teleop" | "phone-teleop" | "camera";
 type HomeDataState =
@@ -41,6 +46,8 @@ type Props = {
   onOpenTasksLibrary: () => void;
 };
 
+// Mock for the (currently unmounted) HomeStatusSummary dashboard panel only.
+// The live Home reads robot state from data/robot.ts.
 const mockHomeState: HomeDataState = {
   kind: "success",
   robot: {
@@ -55,67 +62,14 @@ const mockHomeState: HomeDataState = {
   }
 };
 
-// The primary pill's label follows the robot's actual readiness gate, so the
-// one action worth thumb-reach always matches what the operator needs next.
-const PRIMARY_LABEL: Record<HomeRoute, string> = {
-  connect: "Kết nối",
-  calibrate: "Hiệu chỉnh",
-  teleop: "Điều khiển",
-  "phone-teleop": "Phone Teleop",
-  camera: "Camera"
-};
+// Routes that move the robot are locked while E-STOP is active; Connect and
+// Camera stay available. Same rule Home has always applied.
+const MOTION_ROUTES: readonly HomeRoute[] = ["calibrate", "teleop", "phone-teleop"];
 
-const SECONDARY_LABEL: Record<HomeRoute, string> = {
-  connect: "Connect",
-  calibrate: "Calibrate",
-  teleop: "Teleop",
-  "phone-teleop": "Phone",
-  camera: "Camera"
-};
-
-function renderRouteIcon(route: HomeRoute, color: string, size: number) {
-  switch (route) {
-    case "connect":
-      return <Cable color={color} size={size} />;
-    case "calibrate":
-      return <RotateCcw color={color} size={size} />;
-    case "teleop":
-      return <Hand color={color} size={size} />;
-    case "phone-teleop":
-      return <Hand color={color} size={size} />;
-    case "camera":
-      return <Camera color={color} size={size} />;
-  }
-}
-
-// GlobalChrome (single row) and the bottom tab bar are fixed heights that
-// live outside this screen; sizing the hero against the space actually left
-// after them keeps the title/subtitle visually tied to the thumb-zone CTAs.
-const CHROME_HEIGHT = 64;
-const TAB_BAR_HEIGHT = 64;
-const HERO_FILL_RATIO = 0.63;
-const MIN_HERO_HEIGHT = 320;
-
-// Idle/presentation Home is a static pose shot, not a live workspace: the
-// 3D camera (ArmModelViewer's fitCameraToBoundingSphere) centers the robot
-// in its canvas with a fixed fit margin, leaving empty canvas space above
-// it. In presentation mode we crop that dead band off the top via an
-// overflow-hidden viewport — the inner hero block still measures out at
-// the full, unchanged heroHeight (so ArmModelViewer never resizes and the
-// robot never rescales), it's just shifted up and the surplus clipped from
-// view. The crop amount is capped well below the empty band so the robot's
-// own silhouette is never touched, only genuinely empty canvas.
-// The moment Home drives live/real-time robot poses (isRobotMotionActive),
-// the crop must be lifted entirely — a raised arm has to be able to use
-// the full vertical workspace without hitting a clipped edge.
-const HERO_PRESENTATION_CROP = 104;
-
-// theme.ts tops out at radius.card (16) — the CTA cluster's "rich card" look
-// calls for a deliberately larger, softer corner than the rest of the app's
-// thin-bordered surfaces, so these are scoped to this cluster only.
-const CARD_RADIUS_OUTER = 24;
-const CARD_RADIUS_INNER = 20;
-
+// Home V2 — "your robot companion is ready": identity (RobotHero), readiness
+// and the single next action (RobotReadinessCard), what it can do (Skills),
+// then operator tools. This screen owns data loading and the E-STOP route
+// rule; the sections below it are presentation only.
 export function HomeScreen({
   emergencyStopped,
   fontsReady,
@@ -126,57 +80,28 @@ export function HomeScreen({
   onOpenTasksLibrary,
   reduceMotion
 }: Props) {
-  const { colors, mode } = useAppTheme();
-  const styles = useMemo(() => createStyles(colors, mode), [colors, mode]);
-  const robot = mockHomeState.kind === "success" ? mockHomeState.robot : null;
+  const { colors } = useSkyNexTokens();
+  const [summary, setSummary] = useState<HomeRobotSummary | null>(null);
   const [featuredTasks, setFeaturedTasks] = useState<Task[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
-  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
 
-  // Theme mode Settings switches while Home sits unfocused in the background
-  // (the only place theme changes now happen) collapses this tab's layout to
-  // 0×0 — remounting ArmModelViewer right then bakes a zero-size GL context
-  // that never recovers, even once the tab is visible again and its layout
-  // is back to normal. Deferring which mode the remount key reflects until
-  // Home is actually focused again avoids that trap without touching
-  // ArmModelViewer itself: the hero keeps showing its last-mounted colors
-  // while backgrounded (invisible anyway) and only remounts once this
-  // screen has real layout to mount into.
-  const isFocused = useIsFocused();
-  const [armViewerMode, setArmViewerMode] = useState(mode);
-  useEffect(() => {
-    if (isFocused) setArmViewerMode(mode);
-  }, [isFocused, mode]);
-
-  // The presentation crop assumes the model sits at its canonical/default
-  // orientation. Once the user drags/pinches the hero, the arm can rotate
-  // into the crop band and get clipped, so any manual interaction disables
-  // the crop for the rest of this Home mount — there's no reset/recenter
-  // signal from ArmModelViewer to know when the view is canonical again, so
-  // re-enabling the crop mid-session would risk clipping a still-rotated
-  // pose. isHeroInteracting covers the live gesture; hasUserAdjustedHero
-  // latches that off-state once the gesture ends.
-  const [isHeroInteracting, setIsHeroInteracting] = useState(false);
-  const [hasUserAdjustedHero, setHasUserAdjustedHero] = useState(false);
-  const handleHeroInteractionStart = useCallback(() => {
-    setIsHeroInteracting(true);
-    setHasUserAdjustedHero(true);
-  }, []);
-  const handleHeroInteractionEnd = useCallback(() => {
-    setIsHeroInteracting(false);
-  }, []);
-
-  const availableHeight = windowHeight - insets.top - insets.bottom - CHROME_HEIGHT - TAB_BAR_HEIGHT;
-  const heroHeight = Math.max(MIN_HERO_HEIGHT, Math.round(availableHeight * HERO_FILL_RATIO));
   const featuredCardWidth = Math.min(320, Math.max(284, Math.round(windowWidth * 0.74)));
   const featuredCardHeight = windowWidth < 390 ? 196 : 204;
-  // Full, uncropped workspace once Home drives live/real-time robot poses or
-  // the user is/has been manually rotating the model; compact cropped
-  // presentation pose only for the untouched, canonical idle view. See
-  // HERO_PRESENTATION_CROP.
-  const showFullHero = isRobotMotionActive || isHeroInteracting || hasUserAdjustedHero;
-  const heroTopCrop = showFullHero ? 0 : HERO_PRESENTATION_CROP;
+
+  // Re-resolved whenever E-STOP flips. The previous summary stays on screen
+  // until the new one lands, so the card never blanks out mid-toggle.
+  useEffect(() => {
+    let mounted = true;
+
+    getRobotSummary({ emergencyStopped }).then((next) => {
+      if (mounted) setSummary(next);
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [emergencyStopped]);
 
   useEffect(() => {
     let mounted = true;
@@ -209,194 +134,110 @@ export function HomeScreen({
     void toggleFavorite(taskId).then(setFavoriteIds);
   };
 
-  const primaryRoute: HomeRoute = !robot?.connected ? "connect" : !robot?.calibrated ? "calibrate" : "teleop";
-  const isRouteDisabled = (route: HomeRoute) =>
-    (route === "calibrate" || route === "teleop" || route === "phone-teleop") && emergencyStopped;
-  const secondaryRoutes = (["connect", "calibrate", "teleop", "phone-teleop", "camera"] as HomeRoute[]).filter(
-    (route) => route !== primaryRoute
-  );
+  const disabledRoutes = emergencyStopped ? MOTION_ROUTES : [];
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.screenContent, { minHeight: availableHeight }]}
+      contentContainerStyle={homeStyles.screenContent}
       showsVerticalScrollIndicator={false}
-      style={styles.screen}
+      style={[homeStyles.screen, { backgroundColor: colors.background }]}
     >
-      <FeaturedTasksStrip
-        cardHeight={featuredCardHeight}
-        cardWidth={featuredCardWidth}
-        colors={colors}
-        favoriteIds={favoriteIds}
+      <RobotHero
         fontsReady={fontsReady}
-        onOpenTask={onOpenTask}
-        onOpenTasksLibrary={onOpenTasksLibrary}
-        onToggleFavorite={handleToggleFeaturedFavorite}
-        styles={styles}
-        tasks={featuredTasks}
+        headline={summary?.headline ?? ""}
+        isRobotMotionActive={isRobotMotionActive}
+        name={summary?.name ?? "SO-ARM101"}
+        reduceMotion={reduceMotion}
       />
 
-      <View
-        style={[
-          styles.heroViewport,
-          {
-            height: heroHeight - heroTopCrop,
-            overflow: heroTopCrop > 0 ? "hidden" : "visible"
-          }
-        ]}
-      >
-        <View style={[styles.hero, { height: heroHeight, marginTop: -heroTopCrop }]}>
-          <View style={styles.modelSlot}>
-            <ArmModelViewer
-              // ArmModelViewer bakes accentColor/backgroundColor/floorColor
-              // into the GL scene once, at context-creation time, and never
-              // re-applies them on prop changes (its render loop repaints
-              // the same scene object every frame — see WebGL onContextCreate
-              // internals, not touched here). Keying on theme mode forces a
-              // full unmount/remount on Light/Dark switch instead, which is
-              // the external, non-invasive way to get a correctly colored
-              // scene without changing ArmModelViewer itself.
-              key={`arm-viewer-${armViewerMode}`}
-              accentColor={colors.accent}
-              // Canvas fill matches the page background exactly, in both
-              // modes — an earlier attempt used surfaceSecondary here for a
-              // Light-only "stage," but that read as a rectangular media
-              // placeholder box, not a subtle grounding. Blending the canvas
-              // into the page (no seam, no box) is what actually gives the
-              // robot presence without a card. Dark is unaffected since it
-              // was always `background` here.
-              backgroundColor={colors.background}
-              compact
-              floorColor={colors.surfaceSecondary}
-              onInteractionEnd={handleHeroInteractionEnd}
-              onInteractionStart={handleHeroInteractionStart}
-              reduceMotion={reduceMotion}
-              showFaults={false}
-              softFloor
-            />
-          </View>
-
-          <View style={styles.heroCopy}>
-            <Text style={[styles.robotName, font("display", fontsReady)]}>{robot?.name ?? "SO-ARM101"}</Text>
-            <Text style={[styles.robotSubtitle, font("body", fontsReady)]}>
-              {robot?.model ?? "Robot song tay"}, vận hành trực tiếp
-            </Text>
-
-            {/*
-              Secondary, restrained robot-context entry — must never compete
-              with E-STOP or the primary CTA below. See StatusScreen's
-              HomeStack route: this is the only way in now that Status isn't
-              a bottom tab.
-            */}
-            <Pressable
-              accessibilityHint="Xem trạng thái SO-ARM101"
-              accessibilityLabel="Trạng thái"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={onOpenStatus}
-              style={({ pressed }) => [styles.statusLink, pressed && styles.pressed]}
-            >
-              <Text style={[styles.statusLinkText, font("display", fontsReady)]}>Trạng thái</Text>
-              <ChevronRight color={colors.accentStrong} size={14} />
-            </Pressable>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.ctaCluster}>
-        <PrimaryPill
-          colors={colors}
-          disabled={isRouteDisabled(primaryRoute)}
+      {summary && (
+        <RobotReadinessCard
           fontsReady={fontsReady}
-          label={PRIMARY_LABEL[primaryRoute]}
-          onPress={() => onOpenRoute(primaryRoute)}
-          styles={styles}
+          onCalibrate={() => onOpenRoute("calibrate")}
+          onConnect={() => onOpenRoute("connect")}
+          onOpenSkill={onOpenTask}
+          onOpenSkillsLibrary={onOpenTasksLibrary}
+          onOpenStatus={onOpenStatus}
+          summary={summary}
         />
+      )}
 
-        <View style={styles.secondaryShell}>
-          <View style={styles.secondaryRow}>
-            {secondaryRoutes.map((route) => (
-              <SecondaryAction
-                colors={colors}
-                disabled={isRouteDisabled(route)}
+      {featuredTasks.length > 0 && (
+        <SkySection
+          action={
+            <Pressable
+              accessibilityLabel="Xem tất cả kỹ năng"
+              accessibilityRole="button"
+              // Sits on the title line, so it takes no extra height — the
+              // slop brings the touch target to ≥44pt instead.
+              hitSlop={{ bottom: 12, left: 8, right: 8, top: 12 }}
+              onPress={onOpenTasksLibrary}
+              style={({ pressed }) => [homeStyles.seeAll, pressed && homeStyles.pressed]}
+            >
+              <SkyText fontsReady={fontsReady} style={{ color: colors.accentInk }} variant="status">
+                Xem tất cả
+              </SkyText>
+              <ArrowRight color={colors.accentInk} size={15} />
+            </Pressable>
+          }
+          fontsReady={fontsReady}
+          subtitle="Chọn một kỹ năng để bắt đầu"
+          title="Skills"
+        >
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={homeStyles.featuredRow}
+            decelerationRate="fast"
+            snapToInterval={featuredCardWidth + spacing.md}
+            snapToAlignment="start"
+          >
+            {featuredTasks.map((task) => (
+              <FeaturedTaskCard
+                cardHeight={featuredCardHeight}
+                cardWidth={featuredCardWidth}
                 fontsReady={fontsReady}
-                icon={(color) => renderRouteIcon(route, color, 19)}
-                key={route}
-                label={SECONDARY_LABEL[route]}
-                onPress={() => onOpenRoute(route)}
-                styles={styles}
+                isFavorite={favoriteIds.includes(task.id)}
+                key={task.id}
+                onPress={() => onOpenTask(task.id)}
+                onToggleFavorite={() => handleToggleFeaturedFavorite(task.id)}
+                task={task}
               />
             ))}
-          </View>
-        </View>
-      </View>
+          </ScrollView>
+        </SkySection>
+      )}
+
+      <SkySection fontsReady={fontsReady} subtitle="Điều khiển và thiết lập robot" title="Tools">
+        <HomeToolsList disabledRoutes={disabledRoutes} fontsReady={fontsReady} onOpenRoute={onOpenRoute} />
+      </SkySection>
     </ScrollView>
   );
 }
 
-function FeaturedTasksStrip({
-  cardHeight,
-  cardWidth,
-  colors,
-  favoriteIds,
-  fontsReady,
-  onOpenTask,
-  onOpenTasksLibrary,
-  onToggleFavorite,
-  styles,
-  tasks
-}: {
-  cardHeight: number;
-  cardWidth: number;
-  colors: ThemeColors;
-  favoriteIds: string[];
-  fontsReady: boolean;
-  onOpenTask: (taskId: string) => void;
-  onOpenTasksLibrary: () => void;
-  onToggleFavorite: (taskId: string) => void;
-  styles: ReturnType<typeof createStyles>;
-  tasks: Task[];
-}) {
-  if (!tasks.length) return null;
-
-  return (
-    <View style={styles.featuredSection}>
-      <View style={styles.featuredHeader}>
-        <Text style={[styles.featuredTitle, font("display", fontsReady)]}>Tác vụ nổi bật</Text>
-        <Pressable
-          accessibilityLabel="Xem tất cả tác vụ"
-          accessibilityRole="button"
-          onPress={onOpenTasksLibrary}
-          style={({ pressed }) => [styles.featuredLink, pressed && styles.pressed]}
-        >
-          <Text style={[styles.featuredLinkText, font("display", fontsReady)]}>Xem tất cả</Text>
-          <ArrowRight color={colors.accentStrong} size={15} />
-        </Pressable>
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.featuredRow}
-        decelerationRate="fast"
-        snapToInterval={cardWidth + spacing.md}
-        snapToAlignment="start"
-      >
-        {tasks.map((task) => (
-          <FeaturedTaskCard
-            cardHeight={cardHeight}
-            cardWidth={cardWidth}
-            fontsReady={fontsReady}
-            isFavorite={favoriteIds.includes(task.id)}
-            key={task.id}
-            onPress={() => onOpenTask(task.id)}
-            onToggleFavorite={() => onToggleFavorite(task.id)}
-            task={task}
-          />
-        ))}
-      </ScrollView>
-    </View>
-  );
-}
+const homeStyles = StyleSheet.create({
+  screen: {
+    flex: 1
+  },
+  screenContent: {
+    gap: layout.sectionGap,
+    paddingBottom: layout.sectionGap,
+    paddingHorizontal: layout.screenGutter,
+    paddingTop: spacing.lg
+  },
+  featuredRow: {
+    gap: spacing.sm,
+    paddingRight: layout.screenGutter
+  },
+  seeAll: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.xxs
+  },
+  pressed: {
+    opacity: 0.78
+  }
+});
 
 export function HomeStatusSummary({
   emergencyStopped,
@@ -585,148 +426,9 @@ function StatePanel({
   );
 }
 
-function PrimaryPill({
-  colors,
-  label,
-  disabled,
-  fontsReady,
-  onPress,
-  styles
-}: {
-  colors: ThemeColors;
-  label: string;
-  disabled: boolean;
-  fontsReady: boolean;
-  onPress: () => void;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  const [focused, setFocused] = useState(false);
-
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onBlur={() => setFocused(false)}
-      onFocus={() => setFocused(true)}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.primaryPill,
-        disabled && styles.primaryPillDisabled,
-        focused && styles.focused,
-        pressed && !disabled && styles.pillPressed
-      ]}
-    >
-      <Text
-        style={[styles.primaryPillText, disabled && styles.primaryPillTextDisabled, font("display", fontsReady)]}
-      >
-        {label}
-      </Text>
-      <View style={[styles.primaryPillIcon, disabled && styles.primaryPillIconDisabled]}>
-        <ArrowRight color={disabled ? colors.textSecondary : colors.accent} size={18} />
-      </View>
-    </Pressable>
-  );
-}
-
-function SecondaryAction({
-  colors,
-  label,
-  icon,
-  disabled,
-  fontsReady,
-  onPress,
-  styles
-}: {
-  colors: ThemeColors;
-  label: string;
-  icon: (color: string) => ReactNode;
-  disabled: boolean;
-  fontsReady: boolean;
-  onPress: () => void;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  const [focused, setFocused] = useState(false);
-
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onBlur={() => setFocused(false)}
-      onFocus={() => setFocused(true)}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.secondaryCard,
-        disabled && styles.secondaryCardDisabled,
-        focused && styles.focused,
-        pressed && !disabled && styles.pillPressed
-      ]}
-    >
-      <View style={[styles.secondaryIcon, disabled && styles.secondaryIconDisabled]}>
-        {icon(disabled ? colors.textSecondary : colors.textPrimary)}
-      </View>
-      <Text style={[styles.secondaryLabel, disabled && styles.secondaryLabelDisabled, font("display", fontsReady)]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
+// Styles for the retained HomeStatusSummary dashboard panel above.
 function createStyles(colors: ThemeColors, mode: ThemeMode) {
   return StyleSheet.create({
-    screen: {
-      backgroundColor: colors.background,
-      flex: 1
-    },
-    screenContent: {
-      paddingTop: spacing.lg,
-      paddingHorizontal: spacing.xl
-    },
-    heroViewport: {
-      width: "100%"
-    },
-    hero: {
-      width: "100%"
-    },
-    modelSlot: {
-      flex: 1,
-      width: "100%"
-    },
-    heroCopy: {
-      alignItems: "center",
-      gap: spacing.xxs,
-      paddingTop: spacing.sm
-    },
-    robotName: {
-      ...type.display,
-      color: colors.textPrimary,
-      letterSpacing: 0,
-      textAlign: "center"
-    },
-    robotSubtitle: {
-      ...type.body,
-      color: colors.textSecondary,
-      textAlign: "center"
-    },
-    // Deliberately a plain text+chevron row, not a pill/card/CTA — this is
-    // a secondary affordance and must read as subordinate to E-STOP and the
-    // primary CTA below. minHeight + hitSlop keep the tap target ≥44pt
-    // despite the small visual footprint.
-    statusLink: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 2,
-      marginTop: spacing.xxs,
-      minHeight: 32,
-      paddingHorizontal: spacing.xs
-    },
-    statusLinkText: {
-      ...type.label,
-      color: colors.accentStrong
-    },
     statusPanel: {
       backgroundColor: colors.surface,
       borderColor: colors.border,
@@ -828,128 +530,6 @@ function createStyles(colors: ThemeColors, mode: ThemeMode) {
     },
     stateValueDanger: {
       color: colors.danger
-    },
-    ctaCluster: {
-      gap: spacing.lg,
-      paddingBottom: spacing.lg,
-      paddingTop: spacing.xs
-    },
-    featuredSection: {
-      gap: spacing.sm,
-      marginBottom: spacing.lg
-    },
-    featuredHeader: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: spacing.md,
-      justifyContent: "space-between"
-    },
-    // Light-only: a small dedicated bump over type.bodyStrong (15px) so
-    // this section entrance reads a touch clearer, without jumping all the
-    // way to type.title (24px). Dark keeps the original size exactly —
-    // this polish pass is Light-only, so the bump is gated on mode rather
-    // than applied globally through a typography-system change.
-    featuredTitle: {
-      ...type.bodyStrong,
-      color: colors.textPrimary,
-      ...(mode === "light" ? { fontSize: 17, lineHeight: 23 } : null)
-    },
-    featuredLink: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: spacing.xxs,
-      minHeight: 36,
-      paddingLeft: spacing.sm
-    },
-    featuredLinkText: {
-      ...type.label,
-      color: colors.accentStrong
-    },
-    featuredRow: {
-      gap: spacing.sm,
-      paddingRight: spacing.xl
-    },
-    primaryPill: {
-      alignItems: "center",
-      backgroundColor: colors.accent,
-      borderRadius: CARD_RADIUS_OUTER,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      minHeight: 68,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-      width: "100%"
-    },
-    primaryPillDisabled: {
-      backgroundColor: colors.surfaceSecondary
-    },
-    primaryPillText: {
-      ...type.title,
-      color: colors.accentForeground
-    },
-    primaryPillTextDisabled: {
-      color: colors.textSecondary
-    },
-    primaryPillIcon: {
-      alignItems: "center",
-      backgroundColor: colors.accentForeground,
-      borderRadius: radius.round,
-      height: 40,
-      justifyContent: "center",
-      width: 40
-    },
-    primaryPillIconDisabled: {
-      backgroundColor: colors.surface
-    },
-    secondaryShell: {
-      backgroundColor: colors.surfaceSecondary,
-      borderRadius: CARD_RADIUS_OUTER,
-      padding: spacing.sm
-    },
-    secondaryRow: {
-      flexDirection: "row",
-      gap: spacing.sm
-    },
-    secondaryCard: {
-      alignItems: "center",
-      backgroundColor: colors.surface,
-      borderRadius: CARD_RADIUS_INNER,
-      flex: 1,
-      gap: spacing.xs,
-      paddingHorizontal: spacing.xs,
-      paddingVertical: spacing.md
-    },
-    secondaryCardDisabled: {
-      opacity: 0.58
-    },
-    secondaryIcon: {
-      alignItems: "center",
-      backgroundColor: colors.background,
-      borderRadius: radius.round,
-      height: 44,
-      justifyContent: "center",
-      width: 44
-    },
-    secondaryIconDisabled: {
-      opacity: 0.7
-    },
-    secondaryLabel: {
-      ...type.label,
-      color: colors.textPrimary
-    },
-    secondaryLabelDisabled: {
-      color: colors.textSecondary
-    },
-    focused: {
-      borderColor: colors.accentStrong,
-      borderWidth: 2
-    },
-    pillPressed: {
-      opacity: 0.85,
-      transform: [{ scale: 0.98 }]
-    },
-    pressed: {
-      opacity: 0.78
     }
   });
 }

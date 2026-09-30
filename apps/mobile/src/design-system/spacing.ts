@@ -17,6 +17,9 @@ export const layout = {
   screenGutter: spacing.xl,
   sectionGap: spacing.xl,
   cardPadding: spacing.md,
+  // Pairs with corner.productCard (24): the larger corner needs more inset
+  // so content doesn't crowd the curve.
+  productCardPadding: spacing.lg,
   stackGap: spacing.sm,
   inlineGap: spacing.xs,
   hairlineGap: spacing.xxs

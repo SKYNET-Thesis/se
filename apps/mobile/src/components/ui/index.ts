@@ -1,5 +1,5 @@
 export { SkyButton } from "./SkyButton";
-export type { SkyButtonProps, SkyButtonVariant } from "./SkyButton";
+export type { SkyButtonProps, SkyButtonSize, SkyButtonVariant } from "./SkyButton";
 export { SkyCard } from "./SkyCard";
 export type { SkyCardProps } from "./SkyCard";
 export { SkySection } from "./SkySection";
