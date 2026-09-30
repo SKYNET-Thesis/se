@@ -1,0 +1,309 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// NHÓM A: THƯƠNG MẠI
+// ==========================================
+
+model Lead {
+  id                String         @id @default(uuid())
+  full_name         String
+  email             String
+  phone             String?
+  organization_name String?
+  lead_type         String?        
+  segment_interest  String?
+  use_case          String?
+  message           String?
+  source            String?
+  status            String         @default("new") 
+  created_at        DateTime       @default(now())
+
+  demo_bookings     DemoBooking[]
+  organizations     Organization[]
+}
+
+model DemoBooking {
+  id                String    @id @default(uuid())
+  lead_id           String
+  lead              Lead      @relation(fields: [lead_id], references: [id])
+  scheduled_at      DateTime?
+  format            String?   
+  status            String    @default("pending") 
+  assigned_admin_id String?
+  assigned_admin    User?     @relation(fields: [assigned_admin_id], references: [id])
+  notes             String?
+}
+
+// ==========================================
+// NHÓM B: ĐỊNH DANH VÀ PHÂN QUYỀN
+// ==========================================
+
+model Organization {
+  id                     String    @id @default(uuid())
+  name                   String
+  type                   String    
+  segment                String?   
+  status                 String    @default("active")
+  contract_start         DateTime?
+  contract_end           DateTime?
+  converted_from_lead_id String?
+  converted_from_lead    Lead?     @relation(fields: [converted_from_lead_id], references: [id])
+  
+  memberships            Membership[]
+  robots                 Robot[]
+  ai_models              AIModel[]
+  org_entitlements       OrgEntitlement[]
+  licenses               License[]
+  control_sessions       ControlSession[]
+  audit_logs             AuditLog[]
+}
+
+model User {
+  id             String    @id @default(uuid())
+  email          String    @unique
+  password_hash  String
+  full_name      String
+  status         String    @default("active")
+  signup_method  String    
+  last_login_at  DateTime?
+  created_at     DateTime  @default(now())
+
+  memberships    Membership[]
+  demo_bookings  DemoBooking[] 
+  app_installations AppInstallation[]
+  api_keys       ApiKey[]
+  audit_logs     AuditLog[]
+}
+
+model Role {
+  id                        String    @id @default(uuid())
+  name                      String
+  scope                     String    
+  default_safety_profile_id String?   
+  default_safety_profile    SafetyProfile? @relation("RoleDefaultSafety", fields: [default_safety_profile_id], references: [id])
+
+  role_permissions          RolePermission[]
+  memberships               Membership[]
+}
+
+model Permission {
+  id               String    @id @default(uuid())
+  code             String    @unique 
+
+  role_permissions RolePermission[]
+}
+
+model RolePermission {
+  role_id       String
+  permission_id String
+  
+  role          Role       @relation(fields: [role_id], references: [id])
+  permission    Permission @relation(fields: [permission_id], references: [id])
+
+  @@id([role_id, permission_id])
+}
+
+model Membership {
+  id                String    @id @default(uuid())
+  user_id           String
+  organization_id   String
+  role_id           String
+  safety_profile_id String?   
+  status            String    @default("active")
+
+  user              User         @relation(fields: [user_id], references: [id])
+  organization      Organization @relation(fields: [organization_id], references: [id])
+  role              Role         @relation(fields: [role_id], references: [id])
+  safety_profile    SafetyProfile? @relation("MembershipSafety", fields: [safety_profile_id], references: [id])
+
+  user_assignments  UserAssignment[]
+  control_sessions  ControlSession[]
+
+  @@unique([user_id, organization_id]) 
+}
+
+// ==========================================
+// NHÓM C: TÀI NGUYÊN VÀ CẤP QUYỀN 2 TẦNG
+// ==========================================
+
+model Robot {
+  id                    String    @id @default(uuid())
+  serial_no             String    @unique
+  name                  String
+  model                 String
+  firmware_version      String?
+  status                String    @default("available") // available / in_use / maintenance
+  owner_organization_id String?
+  notes                 String?
+
+  owner_organization    Organization? @relation(fields: [owner_organization_id], references: [id])
+  licenses              License[]
+  control_sessions      ControlSession[]
+}
+
+model AIModel {
+  id                    String    @id @default(uuid())
+  name                  String
+  version               String
+  description           String?
+  file_uri              String
+  owner_type            String    // system / organization / developer
+  owner_organization_id String?
+  visibility            String    // public / private
+  status                String    @default("active")
+
+  owner_organization    Organization? @relation(fields: [owner_organization_id], references: [id])
+  control_sessions      ControlSession[]
+}
+
+model ControlMode {
+  id          String    @id @default(uuid())
+  code        String    @unique // manual / ai / vr / remote
+  description String?
+
+  control_sessions ControlSession[]
+}
+
+// Tầng 1: System Admin cấp tài nguyên cho Tổ chức
+model OrgEntitlement {
+  id              String    @id @default(uuid())
+  organization_id String
+  resource_type   String    // robot / model / mode
+  resource_id     String    
+  seats           Int       @default(1)
+  valid_from      DateTime?
+  valid_to        DateTime?
+
+  organization    Organization @relation(fields: [organization_id], references: [id])
+  user_assignments UserAssignment[]
+}
+
+// Tầng 2: Chia tài nguyên cho từng thành viên trong Tổ chức
+model UserAssignment {
+  id              String    @id @default(uuid())
+  membership_id   String
+  entitlement_id  String
+
+  membership      Membership     @relation(fields: [membership_id], references: [id])
+  entitlement     OrgEntitlement @relation(fields: [entitlement_id], references: [id])
+}
+
+model SafetyProfile {
+  id                   String    @id @default(uuid())
+  name                 String
+  max_speed_pct        Int       @default(100)
+  workspace_limit      Json?     
+  max_session_minutes  Int?
+  require_estop_ack    Boolean   @default(false)
+  allowed_modes        Json?     // Array of mode codes
+
+  roles                Role[]       @relation("RoleDefaultSafety")
+  memberships          Membership[] @relation("MembershipSafety")
+  control_sessions     ControlSession[]
+}
+
+// ==========================================
+// NHÓM D & E: LICENSE, APP & DEVELOPER
+// ==========================================
+
+model License {
+  id              String    @id @default(uuid())
+  organization_id String
+  robot_id        String?
+  license_key     String    @unique
+  plan            String
+  status          String    @default("active")
+  issued_at       DateTime  @default(now())
+  expires_at      DateTime?
+
+  organization    Organization @relation(fields: [organization_id], references: [id])
+  robot           Robot?       @relation(fields: [robot_id], references: [id])
+  app_installations AppInstallation[]
+}
+
+model AppInstallation {
+  id                  String    @id @default(uuid())
+  user_id             String
+  license_id          String
+  machine_fingerprint String
+  os                  String?
+  app_version         String?
+  last_seen_at        DateTime  @default(now())
+
+  user                User      @relation(fields: [user_id], references: [id])
+  license             License   @relation(fields: [license_id], references: [id])
+  control_sessions    ControlSession[]
+}
+
+model ApiKey {
+  id          String    @id @default(uuid())
+  user_id     String
+  key_hash    String
+  scopes      Json?
+  expires_at  DateTime?
+  revoked_at  DateTime?
+
+  user        User      @relation(fields: [user_id], references: [id])
+}
+
+// ==========================================
+// NHÓM F: VẬN HÀNH (LOGGING)
+// ==========================================
+
+model ControlSession {
+  id                String    @id @default(uuid())
+  membership_id     String
+  organization_id   String
+  robot_id          String
+  mode_id           String
+  model_id          String?
+  safety_profile_id String
+  installation_id   String
+  started_at        DateTime  @default(now())
+  ended_at          DateTime?
+  end_reason        String?   // completed / emergency_stop / error / timeout
+  summary           Json?
+  log_file_uri      String?
+
+  membership        Membership      @relation(fields: [membership_id], references: [id])
+  organization      Organization    @relation(fields: [organization_id], references: [id])
+  robot             Robot           @relation(fields: [robot_id], references: [id])
+  mode              ControlMode     @relation(fields: [mode_id], references: [id])
+  model             AIModel?        @relation(fields: [model_id], references: [id])
+  safety_profile    SafetyProfile   @relation(fields: [safety_profile_id], references: [id])
+  installation      AppInstallation @relation(fields: [installation_id], references: [id])
+  
+  session_events    SessionEvent[]
+}
+
+model SessionEvent {
+  id          String    @id @default(uuid())
+  session_id  String
+  event_type  String    // estop / mode_change / error / limit_hit
+  severity    String
+  payload     Json?
+  occurred_at DateTime  @default(now())
+
+  session     ControlSession @relation(fields: [session_id], references: [id])
+}
+
+model AuditLog {
+  id              String    @id @default(uuid())
+  actor_user_id   String
+  organization_id String
+  action          String
+  target_type     String
+  target_id       String
+  ip_address      String?
+  created_at      DateTime  @default(now())
+
+  actor           User         @relation(fields: [actor_user_id], references: [id])
+  organization    Organization @relation(fields: [organization_id], references: [id])
+}
