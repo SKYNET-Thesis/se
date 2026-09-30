@@ -32,7 +32,7 @@ export function FeaturedTaskCard({
   return (
     <View style={[styles.card, { height: cardHeight, width: cardWidth }]}>
       <Pressable
-        accessibilityLabel={`${task.name}, ${TASK_STATUS_LABEL[task.status]}. Xem chi tiết tác vụ`}
+        accessibilityLabel={`${task.name}, ${TASK_STATUS_LABEL[task.status]}. Xem chi tiết kỹ năng`}
         accessibilityRole="button"
         onPress={onPress}
         style={({ pressed }) => [styles.cardBody, pressed && styles.pressed]}

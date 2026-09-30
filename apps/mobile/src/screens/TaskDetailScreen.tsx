@@ -8,14 +8,20 @@ import { getTaskIcon } from "../components/TaskCard";
 import { TaskStatusChip } from "../components/TaskStatusChip";
 import { Toast } from "../components/Toast";
 import { useAppTheme } from "../ThemeContext";
+import { getRobotSummary, RobotSummary } from "../data/robot";
 import { getTaskById, Task, TaskStatus } from "../data/tasks";
 import { getFavorites, toggleFavorite } from "../services/favoritesStorage";
 import { font, radius, spacing, ThemeColors, type } from "../theme";
 
 type Props = {
+  // Owned by App.tsx; the same flag Home's readiness is resolved from, so
+  // both screens always agree on whether the robot may move.
+  emergencyStopped: boolean;
   fontsReady: boolean;
   taskId: string;
   onBack: () => void;
+  onCalibrate: () => void;
+  onConnect: () => void;
 };
 
 type TaskFact = { label: string; value: string };
@@ -63,7 +69,7 @@ type TaskExecutionState = "idle" | "starting" | "success" | "error";
 const EXECUTION_STARTING_DELAY_MS = 900;
 const EXECUTION_TOAST_DURATION_MS = 2600;
 
-export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
+export function TaskDetailScreen({ emergencyStopped, fontsReady, taskId, onBack, onCalibrate, onConnect }: Props) {
   const { colors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   // undefined = still loading, null = id doesn't match any task.
@@ -71,6 +77,10 @@ export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
   const [isFavorite, setIsFavorite] = useState(false);
   const [executionState, setExecutionState] = useState<TaskExecutionState>("idle");
   const [toastVisible, setToastVisible] = useState(false);
+  // Robot readiness from the single source Home also uses (data/robot.ts).
+  // null only until the first resolve; the previous value stays on screen
+  // while E-STOP flips, so the CTA never blanks out mid-toggle.
+  const [robot, setRobot] = useState<RobotSummary | null>(null);
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const startingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,6 +101,32 @@ export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
     };
   }, [taskId]);
 
+  useEffect(() => {
+    let mounted = true;
+
+    getRobotSummary({ emergencyStopped }).then((next) => {
+      if (mounted) setRobot(next);
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, [emergencyStopped]);
+
+  // E-STOP (or any loss of readiness) must also abort a start that is
+  // already in flight — otherwise the pending timeout would still report
+  // "Đã bắt đầu kỹ năng" after the robot was stopped. Checked against the
+  // raw flag too, so the abort doesn't wait for the async summary.
+  const robotReady = robot?.readiness === "ready" && !emergencyStopped;
+  useEffect(() => {
+    if (robotReady) return;
+    if (startingTimeoutRef.current) {
+      clearTimeout(startingTimeoutRef.current);
+      startingTimeoutRef.current = null;
+    }
+    setExecutionState((prev) => (prev === "starting" ? "idle" : prev));
+  }, [robotReady]);
+
   useEffect(
     () => () => {
       if (startingTimeoutRef.current) clearTimeout(startingTimeoutRef.current);
@@ -110,7 +146,9 @@ export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
   // request — and setting `error` on failure — is the only future change;
   // the button/toast already render every state correctly.
   const handleRunTask = () => {
-    if (executionState === "starting") return;
+    // The CTA is already gated on readiness; this is the last-line guard so
+    // no code path can start a skill on an unready or stopped robot.
+    if (executionState === "starting" || !robotReady) return;
 
     setExecutionState("starting");
     startingTimeoutRef.current = setTimeout(() => {
@@ -138,7 +176,7 @@ export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
         </View>
         <View style={styles.notFound}>
           <TriangleAlert color={colors.caution} size={22} />
-          <Text style={[styles.notFoundText, font("body", fontsReady)]}>Tác vụ này không còn tồn tại.</Text>
+          <Text style={[styles.notFoundText, font("body", fontsReady)]}>Kỹ năng này không còn tồn tại.</Text>
         </View>
       </View>
     );
@@ -161,7 +199,7 @@ export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
   return (
     <View style={styles.screenWrap}>
       <ScrollView
-        accessibilityLabel={`Màn hình chi tiết tác vụ ${task.name}`}
+        accessibilityLabel={`Màn hình chi tiết kỹ năng ${task.name}`}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         style={styles.screen}
@@ -236,7 +274,11 @@ export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
             colors={colors}
             executionState={executionState}
             fontsReady={fontsReady}
+            onCalibrate={onCalibrate}
+            onConnect={onConnect}
             onRunTask={handleRunTask}
+            robot={robot}
+            skillName={task.name}
             status={task.status}
             styles={styles}
           />
@@ -261,79 +303,144 @@ export function TaskDetailScreen({ fontsReady, taskId, onBack }: Props) {
         colors={colors}
         fontsReady={fontsReady}
         subtitle="Robot đang chuẩn bị"
-        title="Đã gửi tác vụ"
+        title="Đã bắt đầu kỹ năng"
         visible={toastVisible}
       />
     </View>
   );
 }
 
-// READY gets the one dominant lime action. TRAINING/COMING_SOON never show a
-// fake-disabled version of it — status affects execution, not discoverability,
-// so those states still surface as plain availability copy, not a dead CTA.
+// Two gates, in order:
+// 1. The SKILL's own status. TRAINING/COMING_SOON never show a fake-disabled
+//    CTA — status affects execution, not discoverability, so those surface
+//    as plain availability copy.
+// 2. The ROBOT's readiness (data/robot.ts — the same resolver Home's
+//    readiness card uses). A ready skill on an unready robot shows the one
+//    action that unblocks it (connect / calibrate), or — under E-STOP — a
+//    visibly unavailable button plus the reason. Only a ready robot gets
+//    "Bắt đầu {skill}".
 //
-// The READY button itself now runs through `executionState`
-// (idle/starting/success/error — see TaskExecutionState above): pressing it
-// is no longer a silent no-op. There is still no VLA/task-execution backend,
-// so "starting" resolves via a simulated delay owned by the parent screen —
-// this component only renders whichever state it's given.
+// The start itself runs through `executionState` (idle/starting/success/
+// error). There is still no execution backend, so "starting" resolves via a
+// simulated delay owned by the parent screen — this component only renders
+// whichever state it's given.
 function ExecutionAvailability({
   colors,
   executionState,
   fontsReady,
+  onCalibrate,
+  onConnect,
   onRunTask,
+  robot,
+  skillName,
   status,
   styles
 }: {
   colors: ThemeColors;
   executionState: TaskExecutionState;
   fontsReady: boolean;
+  onCalibrate: () => void;
+  onConnect: () => void;
   onRunTask: () => void;
+  robot: RobotSummary | null;
+  skillName: string;
   status: TaskStatus;
   styles: ReturnType<typeof createStyles>;
 }) {
-  if (status === "ready") {
-    const isStarting = executionState === "starting";
-    const isError = executionState === "error";
-    const label = isStarting ? "Đang gửi lệnh…" : isError ? "Thử lại" : "Chạy tác vụ";
+  if (status !== "ready") {
+    const isTraining = status === "training";
 
     return (
-      <Pressable
-        accessibilityHint={isStarting ? undefined : "Gửi lệnh chạy tác vụ tới robot"}
-        accessibilityLabel={isStarting ? "Đang gửi lệnh chạy tác vụ" : label}
-        accessibilityRole="button"
-        accessibilityState={{ busy: isStarting, disabled: isStarting }}
-        disabled={isStarting}
-        onPress={onRunTask}
-        style={({ pressed }) => [
-          styles.runButton,
-          isStarting && styles.runButtonBusy,
-          pressed && !isStarting && styles.pillPressed
-        ]}
-      >
-        <Text style={[styles.runButtonText, font("display", fontsReady)]}>{label}</Text>
-        <View style={styles.runButtonIcon}>
-          {isStarting ? (
-            <ActivityIndicator color={colors.accent} size="small" />
-          ) : isError ? (
-            <TriangleAlert color={colors.danger} size={18} />
-          ) : (
-            <ArrowRight color={colors.accent} size={18} />
-          )}
-        </View>
-      </Pressable>
+      <View style={styles.availabilityRow}>
+        <TriangleAlert color={isTraining ? colors.caution : colors.textSecondary} size={16} />
+        <Text style={[styles.availabilityText, font("body", fontsReady)]}>
+          {isTraining ? "Chưa thể bắt đầu kỹ năng này" : "Kỹ năng này chưa hỗ trợ thực thi"}
+        </Text>
+      </View>
     );
   }
 
-  const isTraining = status === "training";
+  // Readiness resolves within a tick of mounting; render nothing rather
+  // than a CTA that might briefly offer a start the robot can't take.
+  if (!robot) return null;
+
+  if (robot.readiness !== "ready") {
+    const blocked = robot.readiness === "stopped";
+    const action =
+      robot.readiness === "offline"
+        ? { label: "Kết nối robot", hint: "Mở màn hình kết nối", onPress: onConnect }
+        : robot.readiness === "needs-calibration"
+          ? { label: "Hiệu chỉnh", hint: "Mở màn hình hiệu chỉnh", onPress: onCalibrate }
+          : { label: "E-STOP đang bật", hint: "Không khả dụng khi E-STOP đang bật", onPress: undefined };
+
+    return (
+      <View style={styles.readinessBlock}>
+        {/* The reason, from the same copy Home shows for this state. */}
+        <View style={styles.availabilityRow}>
+          <TriangleAlert color={blocked ? colors.danger : colors.caution} size={16} />
+          <Text style={[styles.availabilityText, font("body", fontsReady)]}>{robot.message}</Text>
+        </View>
+
+        <Pressable
+          accessibilityHint={action.hint}
+          accessibilityLabel={action.label}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: blocked }}
+          disabled={blocked}
+          onPress={action.onPress}
+          style={({ pressed }) => [
+            styles.runButton,
+            blocked && styles.runButtonBlocked,
+            pressed && !blocked && styles.pillPressed
+          ]}
+        >
+          <Text
+            numberOfLines={1}
+            style={[styles.runButtonText, blocked && styles.runButtonTextBlocked, font("display", fontsReady)]}
+          >
+            {action.label}
+          </Text>
+          {!blocked && (
+            <View style={styles.runButtonIcon}>
+              <ArrowRight color={colors.accent} size={18} />
+            </View>
+          )}
+        </Pressable>
+      </View>
+    );
+  }
+
+  const isStarting = executionState === "starting";
+  const isError = executionState === "error";
+  const label = isStarting ? "Đang gửi lệnh…" : isError ? "Thử lại" : `Bắt đầu ${skillName}`;
 
   return (
-    <View style={styles.availabilityRow}>
-      <TriangleAlert color={isTraining ? colors.caution : colors.textSecondary} size={16} />
-      <Text style={[styles.availabilityText, font("body", fontsReady)]}>
-        {isTraining ? "Chưa thể chạy tác vụ này" : "Tác vụ này chưa hỗ trợ thực thi"}
+    <Pressable
+      accessibilityHint={isStarting ? undefined : "Gửi lệnh bắt đầu kỹ năng tới robot"}
+      accessibilityLabel={isStarting ? "Đang gửi lệnh bắt đầu kỹ năng" : label}
+      accessibilityRole="button"
+      accessibilityState={{ busy: isStarting, disabled: isStarting }}
+      disabled={isStarting}
+      onPress={onRunTask}
+      style={({ pressed }) => [
+        styles.runButton,
+        isStarting && styles.runButtonBusy,
+        pressed && !isStarting && styles.pillPressed
+      ]}
+    >
+      <Text numberOfLines={1} style={[styles.runButtonText, font("display", fontsReady)]}>
+        {label}
       </Text>
-    </View>
+      <View style={styles.runButtonIcon}>
+        {isStarting ? (
+          <ActivityIndicator color={colors.accent} size="small" />
+        ) : isError ? (
+          <TriangleAlert color={colors.danger} size={18} />
+        ) : (
+          <ArrowRight color={colors.accent} size={18} />
+        )}
+      </View>
+    </Pressable>
   );
 }
 
@@ -729,6 +836,17 @@ function createStyles(colors: ThemeColors) {
     // unavailable, so it should still read as the same action in progress.
     runButtonBusy: {
       opacity: 0.85
+    },
+    // E-STOP: visibly unavailable on the app's neutral "disabled" surface —
+    // never a dimmed lime, which would still read as the go action.
+    runButtonBlocked: {
+      backgroundColor: colors.surfaceSecondary
+    },
+    runButtonTextBlocked: {
+      color: colors.textSecondary
+    },
+    readinessBlock: {
+      gap: spacing.md
     },
     runButtonText: {
       ...type.title,

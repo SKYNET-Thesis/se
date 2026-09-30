@@ -80,7 +80,7 @@ export function TaskCard({ fontsReady, isFavorite, onPress, onToggleFavorite, ta
   return (
     <View style={styles.card}>
       <Pressable
-        accessibilityLabel={`Xem tác vụ ${task.name}`}
+        accessibilityLabel={`Xem kỹ năng ${task.name}`}
         accessibilityRole="button"
         onPress={onPress}
         style={({ pressed }) => [pressed && styles.pressed]}
@@ -145,7 +145,7 @@ export function TaskGridTile({ fontsReady, isFavorite, onPress, onToggleFavorite
   return (
     <View style={styles.gridTile}>
       <Pressable
-        accessibilityLabel={`Xem tác vụ ${task.name}`}
+        accessibilityLabel={`Xem kỹ năng ${task.name}`}
         accessibilityRole="button"
         onPress={onPress}
         style={({ pressed }) => [styles.gridTilePressable, pressed && styles.pressed]}
@@ -204,7 +204,7 @@ export function CompactTaskCard({ fontsReady, onPress, task }: CompactTaskCardPr
 
   return (
     <Pressable
-      accessibilityLabel={`Mở tác vụ ${task.name}`}
+      accessibilityLabel={`Mở kỹ năng ${task.name}`}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.compactCard, pressed && styles.pressed]}

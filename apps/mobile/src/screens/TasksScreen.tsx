@@ -156,7 +156,7 @@ export function TasksScreen({ fontsReady, onBack, onOpenTask }: Props) {
           {visibleTasks.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={[styles.emptyText, font("body", fontsReady)]}>
-                {filter === "favorites" ? "Chưa có tác vụ yêu thích." : "Chưa có tác vụ nào."}
+                {filter === "favorites" ? "Chưa có kỹ năng yêu thích." : "Chưa có kỹ năng nào."}
               </Text>
             </View>
           ) : (

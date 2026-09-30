@@ -113,9 +113,9 @@ const MOCK_TASKS: readonly Task[] = [
       "Nhận diện nguyên liệu và dụng cụ",
       "Thực hiện các thao tác theo trình tự",
       "Di chuyển hoặc xử lý nguyên liệu",
-      "Hoàn tất bước nấu theo tác vụ"
+      "Hoàn tất các bước nấu"
     ],
-    expectedOutcome: "Các bước thao tác được thực hiện theo trình tự đã định nghĩa cho tác vụ."
+    expectedOutcome: "Các bước thao tác được thực hiện theo trình tự đã định nghĩa cho kỹ năng."
   },
   {
     id: "task-organize",

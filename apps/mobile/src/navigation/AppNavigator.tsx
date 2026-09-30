@@ -206,7 +206,7 @@ export function AppNavigator({
         </Tab.Screen>
 
         <Tab.Screen name={SkyNexTabs.SKILLS} options={{ tabBarLabel: SkyNexTabLabels.SKILLS }}>
-          {() => <TasksStackScreen fontsReady={fontsReady} />}
+          {() => <TasksStackScreen emergencyStopped={emergencyStopped} fontsReady={fontsReady} />}
         </Tab.Screen>
 
         <Tab.Screen name={SkyNexTabs.ROBOT} options={{ tabBarLabel: SkyNexTabLabels.ROBOT }}>
@@ -264,6 +264,7 @@ function HomeStackScreen({
       <HomeStack.Screen name="TaskDetail">
         {({ navigation, route }: NativeStackScreenProps<HomeStackParamList, "TaskDetail">) => (
           <TaskDetailScreen
+            emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
             onBack={() => {
               if (navigation.canGoBack()) {
@@ -272,6 +273,16 @@ function HomeStackScreen({
               }
               navigation.navigate("HomeMain");
             }}
+            // `from: "home"` makes Calibrate's back return to the Home tab,
+            // whose stack still has this detail on top.
+            onCalibrate={() =>
+              navigation
+                .getParent<BottomTabNavigationProp<RootTabParamList>>()
+                ?.navigate("Control", { screen: "Calibrate", params: { from: "home" } })
+            }
+            onConnect={() =>
+              navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Control", { screen: "Connect" })
+            }
             taskId={route.params.taskId}
           />
         )}
@@ -340,7 +351,7 @@ function HomeMainScreen({
   );
 }
 
-function TasksStackScreen({ fontsReady }: Pick<AppNavigatorProps, "fontsReady">) {
+function TasksStackScreen({ emergencyStopped, fontsReady }: Pick<AppNavigatorProps, "emergencyStopped" | "fontsReady">) {
   const { colors: themeColors } = useAppTheme();
 
   return (
@@ -364,6 +375,7 @@ function TasksStackScreen({ fontsReady }: Pick<AppNavigatorProps, "fontsReady">)
       <TaskStack.Screen name="TaskDetail">
         {({ navigation, route }: NativeStackScreenProps<TaskStackParamList, "TaskDetail">) => (
           <TaskDetailScreen
+            emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
             onBack={() => {
               if (navigation.canGoBack()) {
@@ -372,6 +384,12 @@ function TasksStackScreen({ fontsReady }: Pick<AppNavigatorProps, "fontsReady">)
               }
               navigation.navigate("TasksList");
             }}
+            onCalibrate={() =>
+              navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Control", { screen: "Calibrate" })
+            }
+            onConnect={() =>
+              navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Control", { screen: "Connect" })
+            }
             taskId={route.params.taskId}
           />
         )}
