@@ -8,9 +8,11 @@ import { font, radius, spacing, ThemeColors, type } from "../theme";
 // Single source of truth for the Vietnamese status word — read by the chip
 // below, and also imported directly by screens that need the word alone
 // (e.g. building an accessibilityLabel like "<name>, <status>").
+// The `training` key is the legacy status name (data/tasks.ts); the product
+// word the user sees is "Đang học" — the robot is learning this skill.
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   ready: "Sẵn sàng",
-  training: "Đang huấn luyện",
+  training: "Đang học",
   coming_soon: "Sắp có"
 };
 
