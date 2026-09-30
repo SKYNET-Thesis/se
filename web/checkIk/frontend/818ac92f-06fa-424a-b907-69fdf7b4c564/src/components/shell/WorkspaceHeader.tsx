@@ -85,7 +85,7 @@ function WorkspaceSelector() {
 
 }
 
-export function WorkspaceHeader({ onOpenNav }: {onOpenNav: () => void;}) {
+export function WorkspaceHeader({ onOpenNav, monitoringOnly = false }: {onOpenNav: () => void;monitoringOnly?: boolean;}) {
   const { theme, toggleTheme, session } = useLab();
   const elapsed = useSessionClock();
 
@@ -100,7 +100,7 @@ export function WorkspaceHeader({ onOpenNav }: {onOpenNav: () => void;}) {
         <MenuIcon className="h-4 w-4" />
       </button>
 
-      <WorkspaceSelector />
+      <div className={monitoringOnly ? 'hidden min-w-0 sm:block' : undefined}><WorkspaceSelector /></div>
 
       <div className="hidden md:flex items-center gap-2 rounded-lg border border-line bg-subtle px-3 h-9">
         <span
@@ -138,7 +138,7 @@ export function WorkspaceHeader({ onOpenNav }: {onOpenNav: () => void;}) {
           <UserIcon className="h-4 w-4" />
           <span className="hidden lg:inline">m.okafor</span>
         </button>
-        <EmergencyStopButton compact />
+        <EmergencyStopButton compact allowReset={!monitoringOnly} />
       </div>
     </header>);
 

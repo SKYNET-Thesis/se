@@ -13,11 +13,13 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import math
 import os
 import re
 import signal
 import socket
 import ssl
+import sys
 import subprocess
 import threading
 import time
@@ -31,6 +33,7 @@ from urllib.request import Request, urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 VR_LEKIWI_ROOT = ROOT.parent / "VRTeleop" / "lekiwi-vr-teleop"
 STATE_FILE = ROOT / "runtime" / "dashboard_state.json"
 TELEMETRY_FILE = ROOT / "runtime" / "leader_telemetry.json"
@@ -125,15 +128,449 @@ class ManagedTask:
     last_error: str | None = None
 
 
+class _GuardedGestureRobot:
+    """Check cancellation immediately before every underlying actuator write."""
+
+    def __init__(self, robot, should_cancel):
+        self._robot = robot
+        self._should_cancel = should_cancel
+
+    def __getattr__(self, name):
+        return getattr(self._robot, name)
+
+    def send_action(self, action):
+        if self._should_cancel():
+            raise RuntimeError("gesture-pick cancelled before actuator command")
+        return self._robot.send_action(action)
+
+
+class GuardedGestureFollower:
+    """Adapt the existing blocking controller without dropping grasp orientation."""
+
+    def __init__(self, controller, should_cancel):
+        self.controller = controller
+        self._should_cancel = should_cancel
+        self.model = controller.model
+        # Hold the last servo target when releasing serial ownership, rather
+        # than allowing an unsupported arm to fall when the task is cancelled.
+        controller.robot.config.disable_torque_on_disconnect = False
+        controller.robot = _GuardedGestureRobot(controller.robot, should_cancel)
+
+    @property
+    def is_connected(self):
+        return self.controller.is_connected
+
+    def connect(self):
+        """Open an already-configured bus without changing motor/torque state.
+
+        LeRobot follower.connect() calls configure(), including torque changes;
+        gesture-pick deliberately uses only the bus's read-only handshake.
+        """
+        robot = self.controller.robot
+        if robot.cameras:
+            raise ValueError("gesture follower must not own additional cameras")
+        if self._should_cancel():
+            raise RuntimeError("gesture-pick acquisition cancelled")
+        robot.bus.connect()
+        if self._should_cancel():
+            raise RuntimeError("gesture-pick acquisition cancelled")
+        if not robot.bus.is_calibrated:
+            raise ValueError("follower calibration is not ready")
+        for motor in robot.bus.motors:
+            if self._should_cancel():
+                raise RuntimeError("gesture-pick acquisition cancelled")
+            torque = robot.bus.read("Torque_Enable", motor, normalize=False)
+            if self._should_cancel():
+                raise RuntimeError("gesture-pick acquisition cancelled")
+            if torque != 1:
+                raise ValueError("follower torque must already be enabled before gesture confirmation")
+
+    def get_joint_positions(self):
+        return self.controller.get_joint_positions()
+
+    def solve_end_effector(self, position, *, initial_q, target_rotation):
+        from robot.ik import solve_ik
+
+        return solve_ik(self.model, position, initial_q=initial_q,
+                        target_rotation=target_rotation)
+
+    def move_joints(self, target_q, **kwargs):
+        return self.controller.move_joints(target_q, **kwargs)
+
+    def disconnect(self):
+        self.controller.disconnect()
+
+
+class GesturePickDashboard:
+    """Configured camera and executor lifecycle behind the controller's gate."""
+
+    def __init__(self, owner, config, follower_factory, detections, clock):
+        from backend.gesture_pick.calibration import TableCalibration
+        from backend.gesture_pick.localizer import AprilTagLocalizer
+
+        self.owner = owner
+        self.config = config
+        self._factory = follower_factory
+        self._source = detections
+        self._clock = clock
+        self._source_lock = threading.RLock()
+        self._capture = None
+        self._camera_closed = False
+        self._frame_size = None
+        self._cleanup_error = None
+        self.calibration = None
+        self._localizer = None
+        self._camera_available = False
+        self._frame_at = None
+        self._reason = None
+        self._phase = "idle"
+        self._stage = None
+        self._task = None
+        self._cancel_reason = None
+        self._selection = {}
+        self.executor = None
+        self._follower = None
+        self._worker = None
+        self._previewing = False
+        self.active = False
+        self._cancelled = threading.Event()
+        try:
+            if not config.calibration_path:
+                raise ValueError("table calibration required")
+            self.calibration = TableCalibration.load(config.calibration_path,
+                                                      camera_path=config.camera_path)
+            self._localizer = AprilTagLocalizer(config, self.calibration, clock=clock)
+        except (OSError, ValueError, KeyError, TypeError):
+            self._reason = "table calibration required for configured camera"
+
+    def stopped(self):
+        estopped = self.owner._estopping.is_set() or self.owner.state.get("latchedMotionLock")
+        if self.executor and (estopped or self._cancelled.is_set()):
+            self.executor.cancel("estop" if estopped else self._cancel_reason or "cancelled")
+        return (self._cancelled.is_set() or self.owner.state.get("latchedMotionLock", False)
+                or self.owner._estopping.is_set()
+                or not self.owner.enable_motion or self.owner.offline)
+
+    def camera_frame(self):
+        import cv2
+
+        with self._source_lock:
+            if self._camera_closed:
+                raise ValueError("configured camera is closed")
+            if self._capture is None:
+                self._capture = cv2.VideoCapture(self.config.camera_path)
+                self._capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                self._capture.set(cv2.CAP_PROP_FPS, 30)
+            ok, frame = self._capture.read()
+            captured_at = float(self._clock())
+            self._camera_available = bool(ok)
+            self._frame_at = captured_at if ok else None
+            if not ok:
+                self._capture.release()
+                self._capture = None
+                raise ValueError("configured camera unavailable")
+            self._frame_size = [int(frame.shape[1]), int(frame.shape[0])]
+            return frame, captured_at
+
+    def close_camera(self):
+        with self._source_lock:
+            self._camera_closed = True
+            if self._capture is not None:
+                self._capture.release()
+                self._capture = None
+            self._camera_available = False
+            self._frame_at = None
+
+    def observations(self):
+        from backend.gesture_pick.models import DetectedTag
+
+        if self.calibration is None:
+            return []
+        try:
+            with self._source_lock:
+                if self._source is None:
+                    frame, captured_at = self.camera_frame()
+                    tags = self._localizer.detect(frame, captured_at)
+                else:
+                    tags = list(self._source())
+                    self._camera_available = True
+                    self._frame_at = max((tag.observed_at for tag in tags), default=None)
+                return [tag for tag in tags if isinstance(tag, DetectedTag)]
+        except Exception:
+            self._camera_available = False
+            self._frame_at = None
+            return []
+
+    def usable_detections(self):
+        tags = self.observations()
+        now = float(self._clock())
+        if not math.isfinite(now) or now < 0:
+            return []
+        counts = {}
+        for tag in tags:
+            counts[tag.tag_id] = counts.get(tag.tag_id, 0) + 1
+        return [tag for tag in tags if counts[tag.tag_id] == 1
+                and self.config.tags.get(tag.tag_id) == tag.kind and tag.visible
+                and 0 <= now - tag.observed_at <= self.config.max_tag_age_s
+                and self.calibration.contains_robot_point(tag.robot_point)
+                and abs(tag.robot_point[2] - self.calibration.table_z) <= 1e-9]
+
+    def detections(self):
+        return [{"tagId": tag.tag_id, "kind": tag.kind,
+                 "imageCenter": list(tag.image_center), "robotPoint": list(tag.robot_point),
+                 "observedAt": tag.observed_at, "confidence": tag.confidence,
+                 "visible": tag.visible} for tag in self.usable_detections()]
+
+    def status(self):
+        with self.owner.lock:
+            state = self.executor.status() if self.executor else None
+            reason = state.reason if state else self._reason
+            if state and state.phase.value == "failed":
+                reason = "follower or detection adapter failed"
+            reason = self._cleanup_error or reason
+            phase = state.phase.value if state else self._phase
+            if self._phase == "executing" and phase == "preview":
+                phase = "executing"
+            return {"configured": True, "phase": phase,
+                    "taskId": state.task_id if state else self._task.task_id if self._task else None,
+                    "stage": state.stage if state else self._stage,
+                    "reason": reason,
+                    "updatedAt": state.updated_at if state else float(self._clock()),
+                    "selection": dict(self._selection), "followerSide": self.config.follower_side,
+                    "cameraPath": self.config.camera_path,
+                    "calibrationValid": self.calibration is not None,
+                    "cameraAvailable": self._camera_available, "frameObservedAt": self._frame_at,
+                    "frameSize": self._frame_size,
+                    "running": bool(self._worker and self._worker.is_alive())}
+
+    def _release(self):
+        with self.owner.lock:
+            if self._follower is not None:
+                try:
+                    self._follower.disconnect()
+                except Exception:
+                    # Retain ownership until a later Stop can release the bus.
+                    self._cleanup_error = "follower release failed; stop before starting another task"
+                    return
+                self._follower = None
+            self._cleanup_error = None
+            self.active = False
+
+    def _build_preview(self, object_tag_id, box_tag_id):
+        from backend.gesture_pick.models import PickPlaceTask
+
+        visible = {tag.tag_id for tag in self.usable_detections()}
+        if not {object_tag_id, box_tag_id} <= visible:
+            raise ValueError("object and box must remain uniquely visible for preview")
+        return PickPlaceTask(object_tag_id=object_tag_id, box_tag_id=box_tag_id,
+                             follower_side=self.config.follower_side,
+                             requested_at=float(self._clock()))
+
+    def select(self, data):
+        if not isinstance(data, dict) or set(data) != {"kind", "tagId"}:
+            raise ValueError("selection accepts only kind and tagId")
+        kind, tag_id = data["kind"], data["tagId"]
+        if (not isinstance(kind, str) or kind not in {"object", "box"}
+                or type(tag_id) is not int or self.config.tags.get(tag_id) != kind):
+            raise ValueError("select a configured object or box tag")
+        with self.owner.lock:
+            if self.active:
+                raise ValueError("gesture-pick executing or preview active; cancel it first")
+            if self.calibration is None:
+                raise ValueError("table calibration required for configured camera")
+            if kind == "box" and ("objectTagId" not in self._selection
+                                  or self._phase != "selecting-box"):
+                raise ValueError("select an object before a box")
+        if not any(tag.tag_id == tag_id for tag in self.usable_detections()):
+            raise ValueError("select a unique currently visible configured tag")
+        with self.owner.lock:
+            if self.active:
+                raise ValueError("gesture-pick executing or preview active; cancel it first")
+            if kind == "object":
+                self._selection = {"objectTagId": tag_id}
+                self._task = None
+                self.executor = None
+                self._stage = None
+                self._cancel_reason = None
+                self._phase, self._reason = "selecting-box", None
+                self._cancelled.clear()
+                return self.status()
+            self.owner._require_exclusive_task()
+            self._selection["boxTagId"] = tag_id
+            self.active = self._previewing = True
+            selected_object = self._selection["objectTagId"]
+        task = None
+        try:
+            task = self._build_preview(selected_object, tag_id)
+        finally:
+            # Publish the preview and hand off cancellation cleanup atomically.
+            # A cancel delivered after the immutable task was built must win.
+            with self.owner.lock:
+                self._previewing = False
+                if self._cancelled.is_set():
+                    self._phase, self._reason = "held", self._cancel_reason or "cancelled"
+                    self._release()
+                elif task is None:
+                    self._release()
+                else:
+                    self._task = task
+                    self._phase, self._reason = "preview", None
+        return self.status()
+
+    def confirm(self, task_id):
+        from backend.gesture_pick.executor import PickPlaceExecutor
+
+        with self.owner.lock:
+            self.owner._gesture_pick_authorize()
+            if not isinstance(task_id, str) or not task_id.strip():
+                raise ValueError("taskId must identify the preview")
+            if self._task is None or set(self._selection) != {"objectTagId", "boxTagId"}:
+                raise ValueError("select both an object and a box before confirmation")
+            if task_id != self._task.task_id:
+                raise ValueError("taskId must match the current preview task")
+            if (self._phase in {"held", "failed", "succeeded"}
+                    or self.executor and self.executor.status().phase.is_terminal
+                    or self._worker and self._worker.is_alive()):
+                return self.status()
+            self.owner._require_exclusive_task(allow_gesture=True)
+            if not self.active or self._previewing:
+                raise ValueError("task preview is not ready")
+            task = self._task
+            port = self.owner.state["assignments"][f"{self.config.follower_side}-follower"]
+            self._phase, self._stage = "executing", "connecting"
+
+            def execute():
+                try:
+                    with self.owner.lock:
+                        self.owner._gesture_pick_authorize()
+                        if self.stopped():
+                            raise RuntimeError("acquisition cancelled")
+                    self._follower = self._factory(self.config.follower_side, port, self.stopped)
+                    if self.stopped():
+                        raise RuntimeError("acquisition cancelled")
+                    if not self._follower.is_connected:
+                        raise ValueError("configured follower is disconnected")
+                    self.executor = PickPlaceExecutor(self._follower, self.config, self.calibration,
+                        self.observations, clock=self._clock, should_cancel=self.stopped,
+                        is_estopped=lambda: bool(self.owner.state.get("latchedMotionLock")))
+                    state = self.executor.preview(task)
+                    if not state.phase.is_terminal:
+                        self.executor.confirm(task_id)
+                except Exception:
+                    with self.owner.lock:
+                        if self.stopped():
+                            reason = ("estop" if self.owner._estopping.is_set()
+                                      or self.owner.state.get("latchedMotionLock")
+                                      else self._cancel_reason or "cancelled")
+                            self._phase, self._reason = "held", reason
+                        else:
+                            self._phase, self._reason = "failed", "configured follower unavailable"
+                finally:
+                    self._release()
+
+            self._worker = threading.Thread(target=execute, name="gesture-pick", daemon=True)
+            self._worker.start()
+            return self.status()
+
+    def cancel(self, reason):
+        # Set the actuator guard before waiting on executor/controller locks.
+        self._cancel_reason = reason
+        self._cancelled.set()
+        if self.executor:
+            self.executor.cancel(reason)
+        else:
+            self._phase, self._reason = "held", reason
+        if not self._previewing and not (self._worker and self._worker.is_alive()):
+            self._release()
+        return self.status()
+
+
 class Controller:
-    def __init__(self, enable_motion: bool, offline: bool = True) -> None:
+    def __init__(self, enable_motion: bool, offline: bool = True, *,
+                 gesture_pick_config=None, gesture_pick_follower_factory=None,
+                 gesture_pick_detections=None, gesture_pick_clock=time.time) -> None:
         self.enable_motion = enable_motion
         self.offline = offline
         self.state = load_state()
         self.task: ManagedTask | None = None
         self.lock = threading.RLock()
+        self._estopping = threading.Event()
         self._camera_signature: tuple[str, ...] = ()
         self._camera_cache: list[dict[str, Any]] = []
+        self.gesture_pick = None
+        if gesture_pick_config is not None:
+            from backend.gesture_pick.config import GesturePickConfig, load_config
+
+            config = (gesture_pick_config if isinstance(gesture_pick_config, GesturePickConfig)
+                      else load_config(gesture_pick_config))
+            self.gesture_pick = GesturePickDashboard(self, config,
+                gesture_pick_follower_factory or self._gesture_pick_follower,
+                gesture_pick_detections, gesture_pick_clock)
+
+    def _require_motion_unlatched(self):
+        if self._estopping.is_set() or self.state.get("latchedMotionLock"):
+            raise PermissionError("motion is latched by E-stop; unlock and re-check readiness first")
+
+    def _require_exclusive_task(self, *, allow_gesture=False):
+        if self.task and self.task.process.poll() is None:
+            raise ValueError(f"task {self.task.kind} is already running")
+        if not allow_gesture and self.gesture_pick and self.gesture_pick.active:
+            raise ValueError("gesture-pick task already owns the follower")
+
+    def _gesture_pick_authorize(self):
+        if not self.enable_motion or self.offline:
+            raise PermissionError("gesture-pick motion requires --hardware and --enable-motion")
+        self._require_motion_unlatched()
+        if self.gesture_pick is None:
+            raise ValueError("gesture-pick configuration required")
+        readiness = self.readiness_check(f"{self.gesture_pick.config.follower_side}-only")
+        if not readiness["ready"]:
+            raise ValueError(f"gesture-pick readiness check failed: {readiness}")
+
+    def _gesture_pick_follower(self, side, port, should_cancel):
+        from robot.controller import RobotController
+        from robot.kinematics import SO101Kinematics
+
+        self._gesture_pick_authorize()
+        follower = GuardedGestureFollower(RobotController(
+            SO101Kinematics(ROOT / "so101_new_calib.urdf"), port=port,
+            robot_id=f"my_awesome_bimanual_follower_{side}"), should_cancel)
+        # Retain the resource before connect: even a partially successful
+        # connection must stay owned if later connection/cleanup steps fail.
+        self.gesture_pick._follower = follower
+        follower.connect()
+        if not follower.is_connected or not follower.controller.robot.is_calibrated:
+            raise ValueError("follower connection/calibration is not ready")
+        return follower
+
+    def gesture_pick_status(self):
+        if self.gesture_pick:
+            return self.gesture_pick.status()
+        return {"configured": False, "phase": "idle", "taskId": None, "stage": None,
+                "reason": "gesture-pick configuration required", "selection": {},
+                "followerSide": None, "cameraPath": None, "calibrationValid": False,
+                "cameraAvailable": False, "frameObservedAt": None, "running": False}
+
+    def gesture_pick_detections(self):
+        tags = self.gesture_pick.detections() if self.gesture_pick else []
+        status = self.gesture_pick_status()
+        return {"detections": tags, "cameraPath": status["cameraPath"],
+                "calibrationValid": status["calibrationValid"],
+                "cameraAvailable": status["cameraAvailable"], "frameObservedAt": status["frameObservedAt"]}
+
+    def gesture_pick_select(self, data):
+        if self.gesture_pick is None:
+            raise ValueError("gesture-pick configuration required")
+        return self.gesture_pick.select(data)
+
+    def gesture_pick_confirm(self, task_id):
+        self._gesture_pick_authorize()
+        return self.gesture_pick.confirm(task_id)
+
+    def gesture_pick_cancel(self):
+        return self.gesture_pick.cancel("operator_cancelled") if self.gesture_pick else self.gesture_pick_status()
 
     def ports(self) -> list[dict[str, Any]]:
         paths = sorted(set(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*")))
@@ -184,23 +621,32 @@ class Controller:
         return result
 
     def cameras(self) -> list[dict[str, Any]]:
-        paths = tuple(sorted(glob.glob("/dev/video*")))
-        if paths == self._camera_signature:
-            return self._camera_cache
-        self._camera_signature = paths
-        self._camera_cache = []
-        if not paths:
-            return []
-        try:
-            probe = subprocess.run(
-                [str(LEROBOT_BIN / "python3"), str(ROOT / "backend" / "camera_worker.py"), "probe", *paths],
-                capture_output=True, text=True, timeout=max(5, len(paths) * 3),
-            )
-            if probe.returncode == 0:
-                self._camera_cache = json.loads(probe.stdout)
-        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+        configured_path = self.gesture_pick.config.camera_path if self.gesture_pick else None
+        configured_identity = Path(configured_path).resolve() if configured_path else None
+        # The configured camera has one shared capture for detection and MJPEG;
+        # probing it in a second process can steal its frames or fail with EBUSY.
+        paths = tuple(sorted(path for path in glob.glob("/dev/video*")
+                             if Path(path).resolve() != configured_identity))
+        if paths != self._camera_signature:
+            self._camera_signature = paths
             self._camera_cache = []
-        return self._camera_cache
+            if paths:
+                try:
+                    probe = subprocess.run(
+                        [str(LEROBOT_BIN / "python3"), str(ROOT / "backend" / "camera_worker.py"), "probe", *paths],
+                        capture_output=True, text=True, timeout=max(5, len(paths) * 3),
+                    )
+                    if probe.returncode == 0:
+                        self._camera_cache = json.loads(probe.stdout)
+                except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+                    self._camera_cache = []
+        result = list(self._camera_cache)
+        if self.gesture_pick:
+            width, height = self.gesture_pick._frame_size or [1280, 720]
+            result.append({"path": configured_path,
+                           "connection": "connected" if self.gesture_pick._camera_available else "offline",
+                           "resolution": f"{width}×{height}", "fps": 30})
+        return result
 
     def rescan_cameras(self) -> None:
         self._camera_signature = ()
@@ -229,6 +675,7 @@ class Controller:
             }
 
     def snapshot(self) -> dict[str, Any]:
+        gesture_detections = self.gesture_pick_detections()
         telemetry = None
         try:
             telemetry = json.loads(TELEMETRY_FILE.read_text())
@@ -251,9 +698,17 @@ class Controller:
             "task": self.task_status(),
             "readiness": self.readiness_check((self.task_status() or {}).get("mode") or "dual-arm"),
             "telemetry": telemetry,
+            "gesturePick": {"status": self.gesture_pick_status(),
+                            "detections": gesture_detections["detections"]},
         }
 
     def assign(self, device_id: str, port: str | None, reassign: bool = False) -> None:
+        with self.lock:
+            if self.gesture_pick and self.gesture_pick.active:
+                raise ValueError("gesture-pick owns the follower; cancel before changing assignments")
+            self._assign(device_id, port, reassign)
+
+    def _assign(self, device_id: str, port: str | None, reassign: bool = False) -> None:
         if device_id not in DEVICE_IDS:
             raise ValueError("unknown device id")
         if port is not None and not port.startswith(("/dev/ttyACM", "/dev/ttyUSB")):
@@ -269,8 +724,9 @@ class Controller:
 
     def _start(self, kind: str, command: list[str], calibration: dict[str, Any] | None = None) -> None:
         with self.lock:
-            if self.task and self.task.process.poll() is None:
-                raise ValueError(f"task {self.task.kind} is already running")
+            self._require_exclusive_task()
+            if kind in {"vr-real", "leader-teleop"} or kind.startswith("single-teleop-"):
+                self._require_motion_unlatched()
             process = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,
@@ -321,14 +777,12 @@ class Controller:
         arms = self._selected_vr_arms(mode)
         if not self.enable_motion or self.offline:
             raise PermissionError("VR LeKiwi motion requires --hardware and --enable-motion")
-        if self.state.get("latchedMotionLock"):
-            raise PermissionError("motion is latched by E-stop; unlock and re-check readiness first")
+        self._require_motion_unlatched()
         readiness = self.readiness_check(mode)
         if not readiness["ready"]:
             raise ValueError(f"VR LeKiwi readiness check failed: {readiness}")
         with self.lock:
-            if self.task and self.task.process.poll() is None:
-                raise ValueError(f"task {self.task.kind} is already running")
+            self._require_exclusive_task()
         relay_port = relay_port or self._available_local_port()
         if not 1 <= relay_port <= 65535:
             raise ValueError("relay port must be between 1 and 65535")
@@ -350,6 +804,8 @@ class Controller:
         if not VUER_CERT.exists() or not VUER_KEY.exists():
             raise ValueError("VR LeKiwi certificate/key is missing; provide explicit relay TLS files")
         with self.lock:
+            self._require_exclusive_task()
+            self._require_motion_unlatched()
             process = subprocess.Popen(
                 command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True,
@@ -541,6 +997,7 @@ class Controller:
     ) -> None:
         if not self.enable_motion or confirmation != "ENABLE VR MOTION":
             raise PermissionError("real VR motion is locked; start with --enable-motion and confirm")
+        self._require_motion_unlatched()
         if arm not in {"left", "right"}:
             raise ValueError("arm must be left or right")
         device_id = f"{arm}-follower"
@@ -641,6 +1098,7 @@ class Controller:
     ) -> None:
         if not self.enable_motion or confirmation != "ENABLE MOTION":
             raise PermissionError("real motion is locked; start server with --enable-motion and confirm")
+        self._require_motion_unlatched()
         if profile not in {"exhibition", "project"}:
             raise ValueError("profile must be exhibition or project")
         ports = self.state["assignments"]
@@ -698,6 +1156,7 @@ class Controller:
     ) -> None:
         if not self.enable_motion or confirmation != "ENABLE MOTION":
             raise PermissionError("real motion is locked; start server with --enable-motion and confirm")
+        self._require_motion_unlatched()
         if side not in {"left", "right"}:
             raise ValueError("side must be left or right")
         if profile not in {"exhibition", "project"}:
@@ -752,7 +1211,9 @@ class Controller:
         time.sleep(0.25)
         self.start_single_leader_teleop(confirmation, side, profile, zero_jump=True)
 
-    def stop(self) -> None:
+    def stop(self, *, reason="operator_stop") -> None:
+        if self.gesture_pick:
+            self.gesture_pick.cancel(reason)
         with self.lock:
             task = self.task
             if not task:
@@ -776,7 +1237,8 @@ class Controller:
 
     def emergency_stop(self) -> None:
         """Stop the active task and persist a lock across process termination."""
-        self.stop()
+        self._estopping.set()
+        self.stop(reason="estop")
         with self.lock:
             self.state["latchedMotionLock"] = True
             save_state(self.state)
@@ -814,6 +1276,8 @@ class Controller:
                 self.state["latchedMotionLock"] = True
                 save_state(self.state)
             raise ValueError(f"readiness re-check failed: {checks}")
+        with self.lock:
+            self._estopping.clear()
         return checks
 
 
@@ -836,20 +1300,58 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
-        return json.loads(self.rfile.read(length) or b"{}")
+        body = json.loads(self.rfile.read(length) or b"{}")
+        if not isinstance(body, dict):
+            raise ValueError("request body must be a JSON object")
+        return body
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self._json(HTTPStatus.NO_CONTENT, {})
+
+    def _gesture_camera_stream(self, session):
+        import cv2
+
+        try:
+            frame, _ = session.camera_frame()
+        except (ValueError, OSError):
+            self._json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "configured camera unavailable"})
+            return
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        try:
+            while True:
+                ok, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok:
+                    payload = jpeg.tobytes()
+                    self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                                     + str(len(payload)).encode() + b"\r\n\r\n" + payload + b"\r\n")
+                    self.wfile.flush()
+                time.sleep(1 / 30)
+                frame, _ = session.camera_frame()
+        except (BrokenPipeError, ConnectionResetError, ValueError, OSError):
+            pass
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/api/status":
             self._json(HTTPStatus.OK, self.controller.snapshot())
+        elif path == "/api/gesture-pick/status":
+            self._json(HTTPStatus.OK, self.controller.gesture_pick_status())
+        elif path == "/api/gesture-pick/detections":
+            self._json(HTTPStatus.OK, self.controller.gesture_pick_detections())
         elif path == "/api/health":
             self._json(HTTPStatus.OK, {"ok": True})
         elif path == "/api/cameras/stream":
             camera_path = parse_qs(parsed.query).get("path", [""])[0]
+            session = self.controller.gesture_pick
+            if (session and camera_path
+                    and Path(camera_path).resolve() == Path(session.config.camera_path).resolve()):
+                self._gesture_camera_stream(session)
+                return
             available = {camera["path"] for camera in self.controller.cameras()}
             if camera_path not in available:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "camera is not available"})
@@ -883,7 +1385,17 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             data = self._body()
-            if path == "/api/ports/assign":
+            if path == "/api/gesture-pick/select":
+                self.controller.gesture_pick_select(data)
+            elif path == "/api/gesture-pick/confirm":
+                if set(data) != {"taskId"}:
+                    raise ValueError("confirmation accepts only taskId")
+                self.controller.gesture_pick_confirm(data["taskId"])
+            elif path == "/api/gesture-pick/cancel":
+                if data:
+                    raise ValueError("cancellation accepts no parameters")
+                self.controller.gesture_pick_cancel()
+            elif path == "/api/ports/assign":
                 self.controller.assign(
                     data.get("deviceId", ""), data.get("port"), bool(data.get("reassign", False))
                 )
@@ -947,13 +1459,16 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--enable-motion", action="store_true")
+    parser.add_argument("--gesture-pick-config", type=Path,
+                        help="Explicit local overhead-camera, tag and follower configuration.")
     parser.add_argument(
         "--hardware",
         action="store_true",
         help="Enable assigned hardware checks and real VR LeKiwi follower startup.",
     )
     args = parser.parse_args()
-    Handler.controller = Controller(enable_motion=args.enable_motion, offline=not args.hardware)
+    Handler.controller = Controller(enable_motion=args.enable_motion, offline=not args.hardware,
+                                    gesture_pick_config=args.gesture_pick_config)
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"SO-101 dashboard API: http://{args.host}:{args.port}")
     print("REAL MOTION:", "UNLOCKED" if args.enable_motion else "LOCKED")
@@ -963,6 +1478,8 @@ def main() -> None:
         pass
     finally:
         Handler.controller.stop()
+        if Handler.controller.gesture_pick:
+            Handler.controller.gesture_pick.close_camera()
         server.server_close()
 
 

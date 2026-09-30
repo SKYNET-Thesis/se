@@ -178,3 +178,53 @@ bridge on port 8765. The WebXR page reports `REAL ROBOT` after its first valid
 packet. Left Grip controls only the left follower, right Grip controls only the
 right follower, and each front Trigger closes that side's gripper. Use **Stop**
 or **Emergency Stop** before closing the dashboard.
+
+## Gesture-directed pick and place (Phase 1)
+
+Quest can select a configured AprilTag object and destination on the fixed
+overhead-camera panel, review the task, and explicitly confirm one guarded
+follower sequence. The laptop dashboard's `/gesture-pick` page provides
+monitoring and Cancel. Follow the
+[operator guide and supervised acceptance checklist](../../../docs/guides/gesture-pick-phase-1.md)
+before hardware trials.
+
+Selection and preview are follower-free, including with motion/hardware flags
+disabled. They use camera/table calibration and fresh tags, reserve the task
+slot, and do not connect, preflight, configure, calibrate or arm a follower.
+Only matching explicit confirmation can acquire the follower and run measured
+IK preflight. Do not start another worker or VR bridge during a gesture task.
+
+Before hardware confirmation, the selected follower must already be calibrated,
+configured for the existing position-control workflow, safely supported or held,
+and torque-enabled on every motor through supervised setup. Gesture acquisition
+uses a read-only bus handshake and torque checks; it does not enable torque.
+Release preserves torque and the last servo target. The assigned port, saved
+calibration, readiness, exclusive ownership and E-stop gates still apply.
+
+Run the synthetic-camera/fake-follower checks from this directory first:
+
+```bash
+python -m pytest tests/test_gesture_pick_models.py tests/test_gesture_pick_calibration.py tests/test_gesture_pick_localizer.py tests/test_gesture_pick_executor.py tests/test_gesture_pick_dashboard.py tests/test_gesture_pick_offline.py -q
+node --test frontend/src/gesturePick.test.mjs
+npm --prefix frontend run build
+```
+
+Use a local configuration based on `gesture_pick_config.example.json`, with an
+exact camera path, printed tag IDs and a measured table calibration. Keep local
+JSON in ignored `runtime/`. Recalibrate whenever camera framing, table or follower
+placement changes. For a motion-locked selection rehearsal:
+
+```bash
+python backend/dashboard_server.py --gesture-pick-config runtime/gesture-pick.json
+```
+
+Only after the guide's readiness checks and supervised arming prerequisites:
+
+```bash
+python backend/dashboard_server.py --gesture-pick-config runtime/gesture-pick.json --enable-motion --hardware
+```
+
+Keep the low-speed defaults (3 degrees/second), clear the workspace, and keep a
+human at E-stop throughout. Stop immediately on unexpected movement. `succeeded`
+means the command sequence finished, not that a secure grasp or correct placement
+was verified. Phase 1 must not be used unattended.
