@@ -26,6 +26,7 @@ import { TasksScreen } from "../screens/TasksScreen";
 import { TeleopScreen } from "../screens/TeleopScreen";
 import { font, radius, spacing, type, ThemeColors } from "../theme";
 import { useAppTheme } from "../ThemeContext";
+import { SkyNexTabLabels, SkyNexTabs } from "./navigationContract";
 
 enableScreens();
 
@@ -194,7 +195,7 @@ export function AppNavigator({
           }
         })}
       >
-        <Tab.Screen name="Home" options={{ tabBarLabel: "Trang chủ" }}>
+        <Tab.Screen name={SkyNexTabs.HOME} options={{ tabBarLabel: SkyNexTabLabels.HOME }}>
           {() => (
             <HomeStackScreen
               emergencyStopped={emergencyStopped}
@@ -204,11 +205,11 @@ export function AppNavigator({
           )}
         </Tab.Screen>
 
-        <Tab.Screen name="Tasks" options={{ tabBarLabel: "Tác vụ" }}>
+        <Tab.Screen name={SkyNexTabs.SKILLS} options={{ tabBarLabel: SkyNexTabLabels.SKILLS }}>
           {() => <TasksStackScreen fontsReady={fontsReady} />}
         </Tab.Screen>
 
-        <Tab.Screen name="Control" options={{ tabBarLabel: "Điều khiển" }}>
+        <Tab.Screen name={SkyNexTabs.ROBOT} options={{ tabBarLabel: SkyNexTabLabels.ROBOT }}>
           {() => (
             <ControlStackScreen
               emergencyStopped={emergencyStopped}
@@ -219,11 +220,11 @@ export function AppNavigator({
           )}
         </Tab.Screen>
 
-        <Tab.Screen name="Camera" options={{ tabBarLabel: "Camera" }}>
+        <Tab.Screen name={SkyNexTabs.VISION} options={{ tabBarLabel: SkyNexTabLabels.VISION }}>
           {(props) => <CameraTabScreen {...props} fontsReady={fontsReady} />}
         </Tab.Screen>
 
-        <Tab.Screen name="Settings" options={{ tabBarLabel: "Cài đặt" }}>
+        <Tab.Screen name={SkyNexTabs.PROFILE} options={{ tabBarLabel: SkyNexTabLabels.PROFILE }}>
           {() => <SettingsScreen fontsReady={fontsReady} />}
         </Tab.Screen>
       </Tab.Navigator>
