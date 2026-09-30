@@ -37,7 +37,11 @@ export function skyNexColors(c: ThemeColors) {
     onSelected: c.controlStrongForeground,
 
     statusReady: c.accentStrong,
+    // Same lime family as ready — StatusBadge separates the two by icon and
+    // label, never by color alone.
+    statusRunning: c.accentStrong,
     statusWarning: c.caution,
+    statusOffline: c.textSecondary,
     statusDanger: c.danger,
     onDanger: c.dangerForeground
   } as const;
