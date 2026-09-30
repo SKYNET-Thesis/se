@@ -201,8 +201,7 @@ export function TrainingSetup() {
       </Step>
         </div>
         <aside className="training-observation-column">
-          <ObservationRail cameras={cameras} title="Training observation" />
-          <p className="training-observation-note">Verify overhead and wrist framing before launching a run. Camera metadata is kept with the selected dataset.</p>
+          <ObservationRail cameras={cameras} title="Training observation" footer="Verify overhead and wrist framing before launching a run. Camera metadata is kept with the selected dataset." />
         </aside>
       </div>
     </div>);
