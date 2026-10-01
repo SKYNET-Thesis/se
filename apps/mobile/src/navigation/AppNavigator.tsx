@@ -366,7 +366,6 @@ function TasksStackScreen({ emergencyStopped, fontsReady }: Pick<AppNavigatorPro
         {({ navigation }: NativeStackScreenProps<TaskStackParamList, "TasksList">) => (
           <TasksScreen
             fontsReady={fontsReady}
-            onBack={() => navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Home")}
             onOpenTask={(taskId) => navigation.navigate("TaskDetail", { taskId })}
           />
         )}

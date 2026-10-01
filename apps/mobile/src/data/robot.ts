@@ -61,6 +61,18 @@ export function resolveReadiness(connected: boolean, calibrated: boolean, emerge
   return "ready";
 }
 
+// The ONE rule for "the skill SkyNex suggests": the first ready skill.
+// Home's readiness CTA (via getRobotSummary) and the Skills screen's hero
+// both read it from here, so the two screens can never feature different
+// skills. Never a learning / coming-soon skill.
+function pickSuggestedTask(tasks: Task[]): Task | null {
+  return tasks.find((task) => task.status === "ready") ?? null;
+}
+
+export async function getSuggestedSkillId(): Promise<string | null> {
+  return pickSuggestedTask(await getTasks())?.id ?? null;
+}
+
 export async function getRobotSummary({ emergencyStopped }: { emergencyStopped: boolean }): Promise<RobotSummary> {
   const tasks = await getTasks();
   const readiness = resolveReadiness(MOCK_ROBOT.connected, MOCK_ROBOT.calibrated, emergencyStopped);
@@ -71,6 +83,6 @@ export async function getRobotSummary({ emergencyStopped }: { emergencyStopped: 
     status: READINESS_STATUS[readiness],
     headline: READINESS_HEADLINE[readiness],
     message: READINESS_MESSAGE[readiness],
-    suggestedSkill: tasks.find((task) => task.status === "ready") ?? null
+    suggestedSkill: pickSuggestedTask(tasks)
   };
 }
