@@ -3,11 +3,11 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext";
+import { AuthNavigator } from "../auth/AuthNavigator";
 import { OnboardingScreen } from "../onboarding/OnboardingScreen";
 import { hasCompletedOnboarding } from "../services/onboardingStorage";
 import { appFontSources } from "../theme";
 import { useAppTheme } from "../ThemeContext";
-import { AuthEntryPlaceholder } from "./AuthEntryPlaceholder";
 import { BootScreen } from "./BootScreen";
 import { resolveEntryPhase } from "./entryPhase";
 import { MainShell } from "./MainShell";
@@ -79,7 +79,7 @@ export function AppEntry({ emergencyStopped, onEmergencyStop, onResetEmergencySt
         />
       )}
 
-      {phase === "auth" && <AuthEntryPlaceholder fontsReady={fontsReady} />}
+      {phase === "auth" && <AuthNavigator fontsReady={fontsReady} />}
 
       {phase === "app" && (
         <MainShell
