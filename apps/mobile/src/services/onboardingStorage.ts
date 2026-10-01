@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { DEV_FORCE_ONBOARDING } from "../devConfig";
 
 // Bumping this forces onboarding to show again for everyone on next launch
 // (e.g. a future redesign) without needing a migration step.
@@ -6,13 +7,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 // persisted version 1 from an earlier onboarding pass.
 export const ONBOARDING_VERSION = 2;
 
+// Legacy "omniarm." prefix kept on purpose: renaming the key would show
+// onboarding again to everyone who has already completed it.
 const STORAGE_KEY = "omniarm.onboardingVersion";
-
-// Dev-only override: flip to true to force the intro to show on every
-// launch while testing it, without clearing AsyncStorage or reinstalling
-// the app. Guarded by `__DEV__` below so a forgotten `true` can never ship
-// in a release build.
-export const DEV_FORCE_ONBOARDING = true;
 
 
 export function hasSeenCurrentOnboarding(raw: string | null): boolean {
@@ -21,6 +18,7 @@ export function hasSeenCurrentOnboarding(raw: string | null): boolean {
 }
 
 export async function hasCompletedOnboarding(): Promise<boolean> {
+  // Dev-only override, see devConfig.ts.
   if (__DEV__ && DEV_FORCE_ONBOARDING) return false;
 
   try {

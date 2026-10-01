@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "OmniArm SE",
+    "name": "SkyNex",
     "slug": "omniarm-se",
     "version": "0.1.0",
     "orientation": "default",
@@ -12,7 +12,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.omniarm.se",
       "infoPlist": {
-        "NSLocalNetworkUsageDescription": "OmniArm cần truy cập mạng nội bộ để kết nối tới robot trên laptop.",
+        "NSLocalNetworkUsageDescription": "SkyNex cần truy cập mạng nội bộ để kết nối tới robot trên laptop.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         }
@@ -32,7 +32,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Cho phép OmniArm dùng camera để quan sát robot."
+          "cameraPermission": "Cho phép SkyNex dùng camera để quan sát robot."
         }
       ],
       "expo-asset",
@@ -41,14 +41,14 @@
       [
         "expo-sensors",
         {
-          "motionPermission": "Cho phép OmniArm đọc chuyển động điện thoại để điều khiển robot."
+          "motionPermission": "Cho phép SkyNex đọc chuyển động điện thoại để điều khiển robot."
         }
       ],
       "expo-status-bar",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#111211"
+          "backgroundColor": "#0F0F12"
         }
       ]
     ],

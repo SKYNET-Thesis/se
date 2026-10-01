@@ -6,6 +6,10 @@ type ThemeContextValue = {
   mode: ThemeMode;
   colors: ThemeColors;
   setMode: (mode: ThemeMode) => void;
+  // False until the persisted choice has been read (or the read failed and
+  // fell back). The entry gate waits on it so the first visible frame is
+  // already in the user's theme — no Dark→Light (or reverse) flash.
+  ready: boolean;
 };
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -21,6 +25,7 @@ type ThemeProviderProps = {
 
 export function ThemeProvider({ children, initialMode = "dark" }: ThemeProviderProps) {
   const [mode, setModeState] = useState<ThemeMode>(initialMode);
+  const [ready, setReady] = useState(false);
   // Persisted read resolves after first paint; guards against that resolve
   // clobbering a mode the user has already picked in the meantime.
   const userHasChosenRef = useRef(false);
@@ -29,7 +34,9 @@ export function ThemeProvider({ children, initialMode = "dark" }: ThemeProviderP
     let mounted = true;
 
     getStoredThemeMode().then((stored) => {
-      if (mounted && !userHasChosenRef.current) setModeState(stored);
+      if (!mounted) return;
+      if (!userHasChosenRef.current) setModeState(stored);
+      setReady(true);
     });
 
     return () => {
@@ -47,9 +54,10 @@ export function ThemeProvider({ children, initialMode = "dark" }: ThemeProviderP
     () => ({
       mode,
       colors: themePalettes[mode],
-      setMode
+      setMode,
+      ready
     }),
-    [mode]
+    [mode, ready]
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

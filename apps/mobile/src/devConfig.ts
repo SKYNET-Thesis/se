@@ -13,3 +13,14 @@ import { ThemeMode } from "./theme";
 // The Home avatar no longer touches theme at all; it navigates to
 // Settings > Tài khoản (see GlobalChrome.tsx / App.tsx).
 export const DEV_INITIAL_THEME_MODE: ThemeMode = "dark";
+
+// Dev/QA-only entry-flow overrides. Independent of each other, so each part
+// of the entry flow can be exercised on its own. Both are read only behind
+// `__DEV__` (see services/onboardingStorage.ts and services/authStorage.ts),
+// so a forgotten `true` can never change a release build.
+//
+// Show onboarding on every launch, whatever was stored.
+export const DEV_FORCE_ONBOARDING = true;
+// Start every launch signed out (ignore a stored "continue without an
+// account" choice), so the auth entry is reachable without clearing storage.
+export const DEV_FORCE_AUTH_ENTRY = false;

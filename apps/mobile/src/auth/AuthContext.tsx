@@ -1,0 +1,63 @@
+import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { clearStoredAuthMode, getStoredAuthMode, setStoredAuthMode } from "../services/authStorage";
+import { AuthStatus } from "./types";
+
+type AuthContextValue = {
+  status: AuthStatus;
+  // "Tiếp tục không cần tài khoản". Takes effect immediately; persisting is
+  // best-effort in the background.
+  continueAsGuest: () => void;
+  // Back to the auth entry (never to onboarding). Only clears the auth
+  // choice — E-STOP and every other app state are owned elsewhere and are
+  // not touched.
+  signOut: () => void;
+};
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+// Owns the app's auth status. There is no sign-in yet: when a backend
+// exists, an authService will move status to "signedIn" from here — screens
+// never set it themselves.
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [status, setStatus] = useState<AuthStatus>("checking");
+
+  useEffect(() => {
+    let mounted = true;
+
+    getStoredAuthMode().then((stored) => {
+      if (!mounted) return;
+      // Only fill in the initial value: a choice made while the read was in
+      // flight must not be overwritten by it.
+      setStatus((current) => (current === "checking" ? (stored === "guest" ? "guest" : "signedOut") : current));
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      status,
+      continueAsGuest: () => {
+        setStatus("guest");
+        void setStoredAuthMode("guest");
+      },
+      signOut: () => {
+        setStatus("signedOut");
+        void clearStoredAuthMode();
+      }
+    }),
+    [status]
+  );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth() must be called within an <AuthProvider>");
+  }
+  return ctx;
+}
