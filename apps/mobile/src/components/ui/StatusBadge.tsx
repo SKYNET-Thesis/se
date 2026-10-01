@@ -33,6 +33,10 @@ export type StatusBadgeProps = Omit<ViewProps, "children"> & {
   status: RobotStatus;
   // Overrides the default product word, e.g. for a more specific state.
   label?: string;
+  // Overrides the default glyph when a caller maps its own meaning onto a
+  // status tone (e.g. a skill that is "learning" uses the warning tone but
+  // not the warning triangle). Color still comes from `status`.
+  icon?: typeof Check;
   fontsReady?: boolean;
 };
 
@@ -40,11 +44,11 @@ export type StatusBadgeProps = Omit<ViewProps, "children"> & {
 // neutral pill shell, signal carried by the icon color, label always shown
 // so status never depends on color alone. Deliberately never lime-filled —
 // a filled accent is reserved for the screen's primary action.
-export function StatusBadge({ fontsReady = true, label, status, style, ...rest }: StatusBadgeProps) {
+export function StatusBadge({ fontsReady = true, icon, label, status, style, ...rest }: StatusBadgeProps) {
   const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const text = label ?? STATUS_LABEL[status];
-  const Icon = STATUS_ICON[status];
+  const Icon = icon ?? STATUS_ICON[status];
 
   return (
     <View accessibilityLabel={text} accessibilityRole="text" {...rest} style={[styles.badge, style]}>
