@@ -4,10 +4,11 @@ import { useMemo } from "react";
 import { font, type } from "../theme";
 import { useAppTheme } from "../ThemeContext";
 import { AuthPlaceholderScreen } from "./screens/AuthPlaceholderScreen";
+import { LoginScreen } from "./screens/LoginScreen";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
 
-// Route names are the FINAL ones; only the screens behind Login and SignUp
-// are temporary placeholders for now.
+// Route names are the FINAL ones; only the screen behind SignUp is still a
+// temporary placeholder.
 export type AuthStackParamList = {
   Welcome: undefined;
   Login: undefined;
@@ -70,8 +71,16 @@ export function AuthNavigator({ fontsReady }: { fontsReady: boolean }) {
             />
           )}
         </AuthStack.Screen>
-        <AuthStack.Screen name="Login" options={{ title: "Đăng nhập" }}>
-          {() => <AuthPlaceholderScreen fontsReady={fontsReady} />}
+        {/* Draws its own back control so the keyboard handling can own the
+            whole screen (no native header height to offset). */}
+        <AuthStack.Screen name="Login" options={{ headerShown: false }}>
+          {({ navigation }) => (
+            <LoginScreen
+              fontsReady={fontsReady}
+              onBack={() => navigation.goBack()}
+              onCreateAccount={() => navigation.navigate("SignUp")}
+            />
+          )}
         </AuthStack.Screen>
         <AuthStack.Screen name="SignUp" options={{ title: "Tạo tài khoản" }}>
           {() => <AuthPlaceholderScreen fontsReady={fontsReady} />}

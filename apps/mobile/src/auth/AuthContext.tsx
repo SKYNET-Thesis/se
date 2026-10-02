@@ -1,5 +1,6 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { clearStoredAuthMode, getStoredAuthMode, setStoredAuthMode } from "../services/authStorage";
+import { SignInResult, signInWithEmail } from "../services/authService";
 import { AuthStatus } from "./types";
 
 type AuthContextValue = {
@@ -11,6 +12,10 @@ type AuthContextValue = {
   // choice — E-STOP and every other app state are owned elsewhere and are
   // not touched.
   signOut: () => void;
+  // Account sign-in through the authService boundary. Today it always
+  // resolves "unavailable" and the status does not change; when a real
+  // backend answers ok, this is where status becomes "signedIn".
+  signInWithEmail: (email: string, password: string) => Promise<SignInResult>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -46,7 +51,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut: () => {
         setStatus("signedOut");
         void clearStoredAuthMode();
-      }
+      },
+      signInWithEmail: (email, password) => signInWithEmail(email.trim(), password)
     }),
     [status]
   );
