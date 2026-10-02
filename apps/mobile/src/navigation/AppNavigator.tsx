@@ -35,9 +35,10 @@ enableScreens();
 // and are also entered directly from Home / Skill Detail.
 type ControlStackParamList = {
   RobotHub: undefined;
-  // `from: "hub"` means Back returns to the hub; without it Back keeps its
-  // original Home destination for entries from Home / Skill Detail.
-  Connect: { from?: "hub" } | undefined;
+  // `from: "hub"` / `"teleop"` means Back returns to that screen; without it
+  // Back keeps its original Home destination for entries from Home / Skill
+  // Detail.
+  Connect: { from?: "hub" | "teleop" } | undefined;
   Calibrate: { from?: "home" | "connect" } | undefined;
   Teleop: { from?: "home" | "connect" } | undefined;
   PhoneTeleop: { from?: "home" } | undefined;
@@ -462,7 +463,7 @@ function ControlStackScreen({
             emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
             onBack={() => {
-              if (route.params?.from === "hub" && navigation.canGoBack()) {
+              if (route.params?.from && navigation.canGoBack()) {
                 navigation.goBack();
                 return;
               }
@@ -500,6 +501,8 @@ function ControlStackScreen({
           <TeleopScreen
             emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
+            onCalibrate={() => navigation.navigate("Calibrate")}
+            onConnect={() => navigation.navigate("Connect", { from: "teleop" })}
             onBack={() => {
               if (route.params?.from === "home") {
                 returnHome(navigation);

@@ -75,6 +75,10 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
   const nativeQuaternionRef = useRef({ x: 0, y: 0, z: 0, w: 1 });
   const referenceNativeQuaternionRef = useRef({ x: 0, y: 0, z: 0, w: 1 });
   const sessionIdRef = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  // Latest E-STOP for the 50ms pose sender, read at send time — not the
+  // value captured when the interval was created.
+  const emergencyStoppedRef = useRef(emergencyStopped);
+  emergencyStoppedRef.current = emergencyStopped;
 
   const canControl = connected && !emergencyStopped && tracking !== "lost";
   const active = canControl && controlHeld;
@@ -154,6 +158,15 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
     setTracking(pose.trackingState);
     nativeQuaternionRef.current = pose.quaternion;
   };
+
+  // E-STOP tells the server explicitly, the same way releasing the hold
+  // does, instead of relying on the server noticing the pose stream stopped.
+  useEffect(() => {
+    if (!emergencyStopped) return;
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: "control_disabled", protocolVersion: 1, reason: "emergency_stop" }));
+    }
+  }, [emergencyStopped]);
 
   useEffect(() => {
     if (emergencyStopped || !connected || tracking === "lost") {
@@ -275,6 +288,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
   useEffect(() => {
     if (!active || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return undefined;
     const timer = setInterval(() => {
+      if (emergencyStoppedRef.current) return;
       const timestampNs = Date.now() * 1e6;
       socketRef.current?.send(JSON.stringify({
         type: "phone_pose",
