@@ -8,9 +8,15 @@ type AuthContextValue = {
   // "Tiếp tục không cần tài khoản". Takes effect immediately; persisting is
   // best-effort in the background.
   continueAsGuest: () => void;
-  // Back to the auth entry (never to onboarding). Only clears the auth
-  // choice — E-STOP and every other app state are owned elsewhere and are
-  // not touched.
+  // Back to the auth entry (Welcome; never onboarding). One exit for both
+  // states the Main App can be in:
+  //   guest    → forgets the "continue without an account" choice
+  //   signedIn → (future) will also end the real session through the
+  //              authService boundary — not implemented until real tokens
+  //              exist, so there is nothing to delete yet.
+  // Either way the status becomes "signedOut" and AppEntry swaps the Main
+  // App for the auth flow. Only the auth choice is touched — E-STOP and
+  // every other app state are owned elsewhere.
   signOut: () => void;
   // Account sign-in through the authService boundary. Today it always
   // resolves "unavailable" and the status does not change; when a real

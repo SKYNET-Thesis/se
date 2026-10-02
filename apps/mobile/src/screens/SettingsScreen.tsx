@@ -1,6 +1,7 @@
-import { Check, ChevronRight, Moon, Sun, User } from "lucide-react-native";
+import { Check, ChevronRight, LogIn, LogOut, Moon, Sun, User } from "lucide-react-native";
 import { ComponentType, ReactNode, useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useAuth } from "../auth/AuthContext";
 import { useAppTheme } from "../ThemeContext";
 import { font, radius, spacing, ThemeColors, ThemeMode, type } from "../theme";
 
@@ -28,24 +29,7 @@ export function SettingsScreen({ fontsReady }: Props) {
 
       <View style={styles.section}>
         <Text style={[styles.sectionTitle, font("display", fontsReady)]}>Tài khoản</Text>
-        <View style={styles.group}>
-          <SettingsRow
-            accessibilityHint="Quản lý tài khoản"
-            accessibilityLabel="Tài khoản"
-            accessibilityRole="button"
-            colors={colors}
-            fontsReady={fontsReady}
-            Icon={User}
-            onPress={() => {
-              // TODO(account): route to real auth/account management once a
-              // backend exists. No fake login/register flow in the meantime.
-            }}
-            right={<ChevronRight color={colors.textSecondary} size={20} />}
-            styles={styles}
-            subtitle="Chưa đăng nhập"
-            title="Tài khoản"
-          />
-        </View>
+        <AccountGroup colors={colors} fontsReady={fontsReady} styles={styles} />
       </View>
 
       <View style={styles.section}>
@@ -56,7 +40,58 @@ export function SettingsScreen({ fontsReady }: Props) {
   );
 }
 
-// Same LEFT icon / CENTER text / RIGHT accessory grammar as the account row
+// What the account section says depends only on the auth status — no
+// profile data is invented. Leaving (guest) or signing out only changes that
+// status: AppEntry then swaps the whole Main App for the auth flow on its
+// own, so nothing here navigates, and back can never return to Settings.
+// E-STOP lives above that gate (App.tsx) and is untouched by it.
+function AccountGroup({
+  colors,
+  fontsReady,
+  styles
+}: {
+  colors: ThemeColors;
+  fontsReady: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const { signOut, status } = useAuth();
+
+  // The Main App only mounts for "guest" or "signedIn". A real signed-in
+  // session doesn't exist yet: when it does, its name/email (if the backend
+  // provides them) replace the generic line below — never placeholders.
+  // Signing out of a real account may then warrant a confirmation step;
+  // leaving guest needs none (nothing is stored, and guest is one tap away
+  // on Welcome).
+  const signedIn = status === "signedIn";
+
+  return (
+    <View style={styles.group}>
+      <SettingsRow
+        colors={colors}
+        fontsReady={fontsReady}
+        Icon={User}
+        styles={styles}
+        subtitle={signedIn ? undefined : "Bạn đang sử dụng SkyNex mà không cần tài khoản."}
+        title={signedIn ? "Đã đăng nhập" : "Không dùng tài khoản"}
+      />
+      <View style={styles.rowDivider} />
+      <SettingsRow
+        accessibilityHint={signedIn ? undefined : "Mở màn hình chào mừng để đăng nhập hoặc tạo tài khoản"}
+        accessibilityLabel={signedIn ? "Đăng xuất" : "Đăng nhập hoặc tạo tài khoản"}
+        accessibilityRole="button"
+        colors={colors}
+        fontsReady={fontsReady}
+        Icon={signedIn ? LogOut : LogIn}
+        onPress={signOut}
+        right={<ChevronRight color={colors.textSecondary} size={20} />}
+        styles={styles}
+        title={signedIn ? "Đăng xuất" : "Đăng nhập hoặc tạo tài khoản"}
+      />
+    </View>
+  );
+}
+
+// Same LEFT icon / CENTER text / RIGHT accessory grammar as the account rows
 // above — a plain radiogroup of two full-width rows, not the old segmented
 // control. Selection reads from the checkmark alone (see SettingsRow's
 // `right` prop below), never from filling the row with accent.
@@ -105,9 +140,10 @@ function AppearanceGroup({
 }
 
 // Shared row primitive: icon chip left, title (+ optional subtitle) center,
-// a fixed-width accessory slot right. Both the account row and the two
-// theme rows are built from this so they read as one visual language —
-// only what fills `right` (chevron vs. checkmark) tells them apart.
+// a fixed-width accessory slot right. The account rows and the two theme
+// rows are built from this so they read as one visual language — only what
+// fills `right` (chevron vs. checkmark) tells them apart. Without `onPress`
+// it is a plain information row (no button role, no press feedback).
 function SettingsRow({
   accessibilityHint,
   accessibilityLabel,
@@ -123,27 +159,20 @@ function SettingsRow({
   title
 }: {
   accessibilityHint?: string;
-  accessibilityLabel: string;
-  accessibilityRole: "button" | "radio";
+  accessibilityLabel?: string;
+  accessibilityRole?: "button" | "radio";
   accessibilityState?: { selected?: boolean; checked?: boolean };
   colors: ThemeColors;
   fontsReady: boolean;
   Icon: IconComponent;
-  onPress: () => void;
+  onPress?: () => void;
   right?: ReactNode;
   styles: ReturnType<typeof createStyles>;
   subtitle?: string;
   title: string;
 }) {
-  return (
-    <Pressable
-      accessibilityHint={accessibilityHint}
-      accessibilityLabel={accessibilityLabel}
-      accessibilityRole={accessibilityRole}
-      accessibilityState={accessibilityState}
-      onPress={onPress}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-    >
+  const content = (
+    <>
       <View style={styles.rowIcon}>
         <Icon color={colors.textSecondary} size={20} strokeWidth={2} />
       </View>
@@ -154,6 +183,27 @@ function SettingsRow({
       </View>
 
       <View style={styles.rowAccessory}>{right}</View>
+    </>
+  );
+
+  if (!onPress) {
+    return (
+      <View accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title} accessible style={styles.row}>
+        {content}
+      </View>
+    );
+  }
+
+  return (
+    <Pressable
+      accessibilityHint={accessibilityHint}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole={accessibilityRole}
+      accessibilityState={accessibilityState}
+      onPress={onPress}
+      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+    >
+      {content}
     </Pressable>
   );
 }
