@@ -18,3 +18,26 @@ export function validateEmail(email: string): string | null {
 export function validatePassword(password: string): string | null {
   return password.length === 0 ? "Vui lòng nhập mật khẩu." : null;
 }
+
+// Create Account only. The confirmation exists purely to catch typing
+// mistakes on the client — it is never sent anywhere.
+export function validatePasswordConfirmation(password: string, confirmation: string): string | null {
+  if (confirmation.length === 0) return "Vui lòng xác nhận mật khẩu.";
+  if (confirmation !== password) return "Mật khẩu xác nhận chưa khớp.";
+  return null;
+}
+
+export function validateDisplayName(name: string): string | null {
+  return name.trim().length === 0 ? "Vui lòng nhập tên của bạn." : null;
+}
+
+// The picker only offers real, non-future days, so the one thing left to
+// check is that a date was chosen at all.
+export function validateBirthDate(isoDate: string | null): string | null {
+  return isoDate ? null : "Vui lòng chọn ngày sinh.";
+}
+
+// "Không muốn trả lời" is a valid answer; only "nothing chosen" is not.
+export function validateGender(gender: string | null): string | null {
+  return gender ? null : "Vui lòng chọn một lựa chọn.";
+}

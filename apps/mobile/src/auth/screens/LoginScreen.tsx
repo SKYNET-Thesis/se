@@ -1,21 +1,8 @@
-import { ChevronLeft, Info } from "lucide-react-native";
-import { useMemo, useRef, useState } from "react";
-import {
-  AccessibilityInfo,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { SkyButton, SkyText } from "../../components/ui";
-import { corner } from "../../design-system/radius";
-import { layout, space } from "../../design-system/spacing";
-import { SkyNexColors, useSkyNexTokens } from "../../design-system/tokens";
+import { useRef, useState } from "react";
+import { AccessibilityInfo, TextInput, View } from "react-native";
+import { SkyButton } from "../../components/ui";
 import { useAuth } from "../AuthContext";
+import { AuthFormLayout, authFormStyles, AuthNotice } from "../components/AuthFormLayout";
 import { AuthTextField, PasswordVisibilityToggle } from "../components/AuthTextField";
 import { validateEmail, validatePassword } from "../validation";
 
@@ -35,18 +22,9 @@ const NO_ERRORS: FieldErrors = { email: null, password: null };
 const UNAVAILABLE_MESSAGE =
   "Đăng nhập bằng tài khoản chưa khả dụng. Bạn có thể quay lại và chọn “Tiếp tục không cần tài khoản”.";
 
-// Wide phones and tablets keep a comfortable form measure instead of
-// stretching fields edge to edge.
-const FORM_MAX_WIDTH = 480;
-
-// "How do I access my existing account?" — focus and trust after Welcome's
-// emotion: no visual stage, no logo, one strong title, a calm form and one
-// dominant action. Nothing here can sign anyone in until a real account
-// backend exists (see services/authService.ts).
+// "How do I access my existing account?" Nothing here can sign anyone in
+// until a real account backend exists (see services/authService.ts).
 export function LoginScreen({ fontsReady, onBack, onCreateAccount }: Props) {
-  const { colors } = useSkyNexTokens();
-  const styles = useMemo(() => createStyles(colors), [colors]);
-  const insets = useSafeAreaInsets();
   const { signInWithEmail } = useAuth();
   const passwordRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
@@ -105,192 +83,69 @@ export function LoginScreen({ fontsReady, onBack, onCreateAccount }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.screen}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + space.md, paddingTop: insets.top + space.xs }
-        ]}
-        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.column}>
-          {/* Same back affordance the app uses elsewhere (TaskDetail): a
-              44pt chevron, announced in Vietnamese. Pops this auth stack. */}
-          <Pressable
-            accessibilityLabel="Quay lại"
-            accessibilityRole="button"
-            hitSlop={4}
-            onPress={onBack}
-            style={({ pressed }) => [styles.back, pressed && styles.pressed]}
-          >
-            <ChevronLeft color={colors.textPrimary} size={24} />
-          </Pressable>
-
-          <View style={styles.intro}>
-            <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="title">
-              Chào mừng trở lại
-            </SkyText>
-            <SkyText fontsReady={fontsReady} tone="secondary">
-              Đăng nhập để tiếp tục với SkyNex.
-            </SkyText>
-          </View>
-
-          <View style={styles.form}>
-            <AuthTextField
-              autoCapitalize="none"
-              autoComplete="email"
-              autoCorrect={false}
-              editable={!submitting}
-              error={errors.email}
-              fontsReady={fontsReady}
-              inputMode="email"
-              keyboardType="email-address"
-              label="Email"
-              onBlur={handleEmailBlur}
-              onChangeText={handleEmailChange}
-              onSubmitEditing={() => passwordRef.current?.focus()}
-              placeholder="ban@email.com"
-              ref={emailRef}
-              returnKeyType="next"
-              submitBehavior="submit"
-              textContentType="username"
-              value={email}
+    <AuthFormLayout
+      fontsReady={fontsReady}
+      footerActionLabel="Tạo tài khoản"
+      footerPrompt="Chưa có tài khoản?"
+      onBack={onBack}
+      onFooterAction={onCreateAccount}
+      subtitle="Đăng nhập để tiếp tục với SkyNex."
+      title="Chào mừng trở lại"
+    >
+      <View style={authFormStyles.form}>
+        <AuthTextField
+          autoCapitalize="none"
+          autoComplete="email"
+          autoCorrect={false}
+          editable={!submitting}
+          error={errors.email}
+          fontsReady={fontsReady}
+          inputMode="email"
+          keyboardType="email-address"
+          label="Email"
+          onBlur={handleEmailBlur}
+          onChangeText={handleEmailChange}
+          onSubmitEditing={() => passwordRef.current?.focus()}
+          placeholder="ban@email.com"
+          ref={emailRef}
+          returnKeyType="next"
+          submitBehavior="submit"
+          textContentType="username"
+          value={email}
+        />
+        <AuthTextField
+          autoCapitalize="none"
+          autoComplete="current-password"
+          autoCorrect={false}
+          editable={!submitting}
+          error={errors.password}
+          fontsReady={fontsReady}
+          label="Mật khẩu"
+          onChangeText={handlePasswordChange}
+          onSubmitEditing={handleSubmit}
+          ref={passwordRef}
+          returnKeyType="done"
+          rightAccessory={
+            <PasswordVisibilityToggle
+              disabled={submitting}
+              onToggle={() => setPasswordVisible((visible) => !visible)}
+              visible={passwordVisible}
             />
-            <AuthTextField
-              autoCapitalize="none"
-              autoComplete="current-password"
-              autoCorrect={false}
-              editable={!submitting}
-              error={errors.password}
-              fontsReady={fontsReady}
-              label="Mật khẩu"
-              onChangeText={handlePasswordChange}
-              onSubmitEditing={handleSubmit}
-              ref={passwordRef}
-              returnKeyType="done"
-              rightAccessory={
-                <PasswordVisibilityToggle
-                  disabled={submitting}
-                  onToggle={() => setPasswordVisible((visible) => !visible)}
-                  visible={passwordVisible}
-                />
-              }
-              secureTextEntry={!passwordVisible}
-              textContentType="password"
-              value={password}
-            />
-            {/* "Quên mật khẩu?" belongs here, right-aligned under the password
-                field — added only once a real reset flow exists. */}
-          </View>
+          }
+          secureTextEntry={!passwordVisible}
+          textContentType="password"
+          value={password}
+        />
+        {/* "Quên mật khẩu?" belongs here, right-aligned under the password
+            field — added only once a real reset flow exists. */}
+      </View>
 
-          <View style={styles.actions}>
-            <SkyButton fontsReady={fontsReady} loading={submitting} onPress={handleSubmit} size="lg">
-              Đăng nhập
-            </SkyButton>
-
-            {notice ? (
-              <View accessibilityLiveRegion="polite" style={styles.notice}>
-                <Info color={colors.textSecondary} size={18} />
-                <SkyText fontsReady={fontsReady} style={styles.noticeText} tone="secondary" variant="caption">
-                  {notice}
-                </SkyText>
-              </View>
-            ) : null}
-          </View>
-
-          {/* Social providers go here once they are real: a "hoặc" divider,
-              then "Tiếp tục với Google" / "Tiếp tục với Apple" as secondary
-              SkyButtons. Nothing is rendered until then. */}
-        </View>
-
-        {/* Pushed to the bottom on tall screens; follows the form on short
-            ones (the content scrolls rather than overlapping). */}
-        <View style={[styles.column, styles.footer]}>
-          <SkyText fontsReady={fontsReady} tone="secondary">
-            Chưa có tài khoản?
-          </SkyText>
-          <Pressable
-            accessibilityLabel="Tạo tài khoản"
-            accessibilityRole="button"
-            onPress={onCreateAccount}
-            style={({ pressed }) => [styles.footerAction, pressed && styles.pressed]}
-          >
-            <SkyText fontsReady={fontsReady} variant="sectionTitle">
-              Tạo tài khoản
-            </SkyText>
-          </Pressable>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <View style={authFormStyles.actions}>
+        <SkyButton fontsReady={fontsReady} loading={submitting} onPress={handleSubmit} size="lg">
+          Đăng nhập
+        </SkyButton>
+        {notice ? <AuthNotice fontsReady={fontsReady} message={notice} /> : null}
+      </View>
+    </AuthFormLayout>
   );
-}
-
-function createStyles(colors: SkyNexColors) {
-  return StyleSheet.create({
-    screen: {
-      backgroundColor: colors.background,
-      flex: 1
-    },
-    content: {
-      flexGrow: 1,
-      justifyContent: "space-between",
-      paddingHorizontal: layout.screenGutter
-    },
-    column: {
-      alignSelf: "center",
-      maxWidth: FORM_MAX_WIDTH,
-      width: "100%"
-    },
-    // Optically aligned with the text below it: the chevron's glyph, not its
-    // 44pt box, sits on the gutter.
-    back: {
-      alignItems: "center",
-      height: 44,
-      justifyContent: "center",
-      marginLeft: -space.sm,
-      width: 44
-    },
-    intro: {
-      gap: space.xs,
-      marginBottom: space.xxl,
-      marginTop: space.xxl
-    },
-    form: {
-      gap: space.lg
-    },
-    actions: {
-      gap: space.md,
-      marginTop: space.xxl
-    },
-    // Calm and neutral on purpose: this is information, not an error.
-    notice: {
-      alignItems: "flex-start",
-      backgroundColor: colors.surfaceRaised,
-      borderRadius: corner.card,
-      flexDirection: "row",
-      gap: space.sm,
-      padding: layout.cardPadding
-    },
-    noticeText: {
-      flexShrink: 1
-    },
-    footer: {
-      alignItems: "center",
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: space.xxs,
-      justifyContent: "center",
-      marginTop: space.xxl
-    },
-    footerAction: {
-      justifyContent: "center",
-      minHeight: 44,
-      paddingHorizontal: space.xxs
-    },
-    pressed: {
-      opacity: 0.7
-    }
-  });
 }

@@ -1,7 +1,7 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { clearStoredAuthMode, getStoredAuthMode, setStoredAuthMode } from "../services/authStorage";
-import { SignInResult, signInWithEmail } from "../services/authService";
-import { AuthStatus } from "./types";
+import { SignInResult, signInWithEmail, signUp, SignUpResult } from "../services/authService";
+import { AuthStatus, SignUpPayload } from "./types";
 
 type AuthContextValue = {
   status: AuthStatus;
@@ -16,6 +16,9 @@ type AuthContextValue = {
   // resolves "unavailable" and the status does not change; when a real
   // backend answers ok, this is where status becomes "signedIn".
   signInWithEmail: (email: string, password: string) => Promise<SignInResult>;
+  // Account creation through the same boundary. Today it always resolves
+  // "unavailable": no account is created and the status does not change.
+  signUp: (payload: SignUpPayload) => Promise<SignUpResult>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -52,7 +55,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus("signedOut");
         void clearStoredAuthMode();
       },
-      signInWithEmail: (email, password) => signInWithEmail(email.trim(), password)
+      signInWithEmail: (email, password) => signInWithEmail(email.trim(), password),
+      signUp: (payload) =>
+        signUp({
+          ...payload,
+          email: payload.email.trim(),
+          profile: { ...payload.profile, displayName: payload.profile.displayName.trim() }
+        })
     }),
     [status]
   );

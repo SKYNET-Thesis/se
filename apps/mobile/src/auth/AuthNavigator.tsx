@@ -1,14 +1,11 @@
 import { DarkTheme, DefaultTheme, NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useMemo } from "react";
-import { font, type } from "../theme";
 import { useAppTheme } from "../ThemeContext";
-import { AuthPlaceholderScreen } from "./screens/AuthPlaceholderScreen";
 import { LoginScreen } from "./screens/LoginScreen";
+import { SignUpScreen } from "./screens/SignUpScreen";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
 
-// Route names are the FINAL ones; only the screen behind SignUp is still a
-// temporary placeholder.
 export type AuthStackParamList = {
   Welcome: undefined;
   Login: undefined;
@@ -47,22 +44,14 @@ export function AuthNavigator({ fontsReady }: { fontsReady: boolean }) {
         initialRouteName="Welcome"
         screenOptions={{
           contentStyle: { backgroundColor: colors.background },
-          // Chevron only. Never the previous route's name — "Welcome" is an
-          // internal English route name, not UI copy; the Vietnamese title
-          // still names the control for screen readers.
-          headerBackButtonDisplayMode: "minimal",
-          headerBackTitle: "Quay lại",
-          headerShadowVisible: false,
-          headerStyle: { backgroundColor: colors.background },
-          headerTintColor: colors.textPrimary,
-          headerTitleStyle: {
-            fontFamily: font("display", fontsReady).fontFamily,
-            fontSize: type.bodyStrong.fontSize,
-            fontWeight: type.bodyStrong.fontWeight
-          }
+          // Every auth screen draws its own chrome: Welcome is full-bleed,
+          // and the account forms draw their own "Quay lại" chevron so their
+          // keyboard handling owns the whole screen (no native header height
+          // to offset). System back / swipe-back still pop this stack.
+          headerShown: false
         }}
       >
-        <AuthStack.Screen name="Welcome" options={{ headerShown: false }}>
+        <AuthStack.Screen name="Welcome">
           {({ navigation }) => (
             <WelcomeScreen
               fontsReady={fontsReady}
@@ -71,9 +60,7 @@ export function AuthNavigator({ fontsReady }: { fontsReady: boolean }) {
             />
           )}
         </AuthStack.Screen>
-        {/* Draws its own back control so the keyboard handling can own the
-            whole screen (no native header height to offset). */}
-        <AuthStack.Screen name="Login" options={{ headerShown: false }}>
+        <AuthStack.Screen name="Login">
           {({ navigation }) => (
             <LoginScreen
               fontsReady={fontsReady}
@@ -82,8 +69,17 @@ export function AuthNavigator({ fontsReady }: { fontsReady: boolean }) {
             />
           )}
         </AuthStack.Screen>
-        <AuthStack.Screen name="SignUp" options={{ title: "Tạo tài khoản" }}>
-          {() => <AuthPlaceholderScreen fontsReady={fontsReady} />}
+        <AuthStack.Screen name="SignUp">
+          {({ navigation }) => (
+            <SignUpScreen
+              fontsReady={fontsReady}
+              onBack={() => navigation.goBack()}
+              // popTo, not navigate: returns to a Login already below in the
+              // stack (Welcome → Login → SignUp), or replaces SignUp with Login
+              // when entered from Welcome — so Login/SignUp never pile up.
+              onLogin={() => navigation.popTo("Login")}
+            />
+          )}
         </AuthStack.Screen>
       </AuthStack.Navigator>
     </NavigationContainer>

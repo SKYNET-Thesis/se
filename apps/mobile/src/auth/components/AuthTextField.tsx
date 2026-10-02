@@ -1,4 +1,4 @@
-import { CircleAlert, Eye, EyeOff } from "lucide-react-native";
+import { CircleAlert, Eye, EyeOff, LucideIcon } from "lucide-react-native";
 import { forwardRef, ReactNode, useMemo, useState } from "react";
 import { Platform, Pressable, StyleSheet, TextInput, TextInputProps, TextStyle, View } from "react-native";
 import { SkyText } from "../../components/ui";
@@ -13,6 +13,8 @@ type Props = Omit<TextInputProps, "style" | "placeholderTextColor"> & {
   error?: string | null;
   // e.g. the password visibility toggle; sits inside the field, right side.
   rightAccessory?: ReactNode;
+  // e.g. a phone country prefix; sits inside the field, left side.
+  leftAccessory?: ReactNode;
   fontsReady?: boolean;
 };
 
@@ -21,7 +23,7 @@ type Props = Omit<TextInputProps, "style" | "placeholderTextColor"> & {
 // message. Kept small on purpose — the auth screens' field, not a form
 // library. The ref is the TextInput's, for next/done focus flow.
 export const AuthTextField = forwardRef<TextInput, Props>(function AuthTextField(
-  { editable = true, error, fontsReady = true, label, onBlur, onFocus, rightAccessory, ...inputProps },
+  { editable = true, error, fontsReady = true, label, leftAccessory, onBlur, onFocus, rightAccessory, ...inputProps },
   ref
 ) {
   const { colors } = useSkyNexTokens();
@@ -31,9 +33,7 @@ export const AuthTextField = forwardRef<TextInput, Props>(function AuthTextField
   return (
     <View style={styles.root}>
       {/* Hidden from screen readers: the input carries the same label. */}
-      <SkyText accessible={false} fontsReady={fontsReady} importantForAccessibility="no" variant="status">
-        {label}
-      </SkyText>
+      <FieldLabel fontsReady={fontsReady} label={label} />
 
       <View
         style={[
@@ -43,6 +43,7 @@ export const AuthTextField = forwardRef<TextInput, Props>(function AuthTextField
           !editable && styles.fieldDisabled
         ]}
       >
+        {leftAccessory}
         <TextInput
           {...inputProps}
           accessibilityLabel={label}
@@ -64,17 +65,93 @@ export const AuthTextField = forwardRef<TextInput, Props>(function AuthTextField
         {rightAccessory}
       </View>
 
-      {error ? (
-        <View accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.error}>
-          <CircleAlert color={colors.statusDanger} size={14} strokeWidth={2.25} />
-          <SkyText fontsReady={fontsReady} style={styles.errorText} variant="caption">
-            {error}
-          </SkyText>
-        </View>
-      ) : null}
+      <FieldError error={error} fontsReady={fontsReady} />
     </View>
   );
 });
+
+// A field that opens a picker instead of the keyboard (e.g. birth date).
+// Same label, frame, focus-less states and error line as AuthTextField, so
+// the two read as one family; the whole frame is one button.
+export function AuthPickerField({
+  accessibilityHint,
+  error,
+  fontsReady = true,
+  icon: Icon,
+  label,
+  onPress,
+  placeholder,
+  value
+}: {
+  label: string;
+  // Display text of the chosen value; empty shows the placeholder.
+  value: string;
+  placeholder: string;
+  onPress: () => void;
+  icon: LucideIcon;
+  error?: string | null;
+  accessibilityHint?: string;
+  fontsReady?: boolean;
+}) {
+  const { colors } = useSkyNexTokens();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  return (
+    <View style={styles.root}>
+      <FieldLabel fontsReady={fontsReady} label={label} />
+      <Pressable
+        accessibilityHint={error ?? accessibilityHint}
+        accessibilityLabel={value ? `${label}, ${value}` : label}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.field,
+          styles.pickerField,
+          Boolean(error) && styles.fieldError,
+          pressed && styles.pickerPressed
+        ]}
+      >
+        <SkyText
+          fontsReady={fontsReady}
+          numberOfLines={1}
+          style={styles.pickerValue}
+          tone={value ? "primary" : "secondary"}
+        >
+          {value || placeholder}
+        </SkyText>
+        <Icon color={colors.textSecondary} size={20} />
+      </Pressable>
+      <FieldError error={error} fontsReady={fontsReady} />
+    </View>
+  );
+}
+
+// Hidden from screen readers: the control carries the same label.
+function FieldLabel({ fontsReady, label }: { fontsReady: boolean; label: string }) {
+  return (
+    <SkyText accessible={false} fontsReady={fontsReady} importantForAccessibility="no" variant="status">
+      {label}
+    </SkyText>
+  );
+}
+
+// Shown under a field with an icon, so it never relies on color alone, and
+// announced as it appears.
+export function FieldError({ error, fontsReady }: { error?: string | null; fontsReady: boolean }) {
+  const { colors } = useSkyNexTokens();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
+  if (!error) return null;
+
+  return (
+    <View accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.error}>
+      <CircleAlert color={colors.statusDanger} size={14} strokeWidth={2.25} />
+      <SkyText fontsReady={fontsReady} style={styles.errorText} variant="caption">
+        {error}
+      </SkyText>
+    </View>
+  );
+}
 
 // Password visibility toggle for AuthTextField's rightAccessory. A full
 // 44pt target inside the field, not a tiny icon.
@@ -131,6 +208,18 @@ function createStyles(colors: SkyNexColors) {
     },
     fieldDisabled: {
       opacity: 0.6
+    },
+    // Picker fields have no inner TextInput; the frame's own right padding
+    // and the value's flex take its place.
+    pickerField: {
+      gap: space.sm,
+      paddingRight: layout.cardPadding
+    },
+    pickerPressed: {
+      opacity: 0.78
+    },
+    pickerValue: {
+      flex: 1
     },
     input: {
       ...type.body,
