@@ -31,8 +31,9 @@ const FORM_MAX_WIDTH = 480;
 
 // One question per screen for Create Account: back + a thin progress line
 // on top, the question as the screen's title, the step's inputs, and a
-// light forward action at the bottom (lifted above the keyboard on iOS;
-// Android resizes the window). Generous space on purpose — no card, no
+// light forward action at the bottom, lifted above the keyboard on both
+// platforms (see AuthFormLayout: edge-to-edge Android no longer resizes the
+// window for the keyboard). Generous space on purpose — no card, no
 // "Bước 3/7" chrome.
 export function AuthStepLayout({
   action,
@@ -50,7 +51,7 @@ export function AuthStepLayout({
   const insets = useSafeAreaInsets();
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.screen}>
+    <KeyboardAvoidingView behavior="padding" style={styles.screen}>
       <ScrollView
         contentContainerStyle={[
           styles.content,

@@ -28,9 +28,12 @@ const FORM_MAX_WIDTH = 480;
 // chevron, one strong title with a supporting line, the form, and a quiet
 // cross-link anchored at the bottom. No visual stage, no logo — focus and
 // trust after Welcome's emotion. Owns the keyboard handling so every auth
-// form behaves the same: the screen lifts above the keyboard on iOS (Android
-// resizes the window), taps on buttons work while it is open, and short
-// screens scroll instead of hiding an action.
+// form behaves the same: the screen lifts above the keyboard, taps on buttons
+// work while it is open, and short screens scroll instead of hiding an
+// action. "padding" on Android too: the app draws edge-to-edge
+// (edgeToEdgeEnabled, enforced on Android 15+), so the window no longer
+// shrinks for the keyboard (adjustResize) — without this the keyboard covered
+// the bottom actions on device.
 export function AuthFormLayout({
   children,
   fontsReady,
@@ -46,7 +49,7 @@ export function AuthFormLayout({
   const insets = useSafeAreaInsets();
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.screen}>
+    <KeyboardAvoidingView behavior="padding" style={styles.screen}>
       <ScrollView
         contentContainerStyle={[
           styles.content,

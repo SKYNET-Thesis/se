@@ -48,7 +48,9 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#0F0F12"
+          "backgroundColor": "#0F0F12",
+          "image": "./assets/brand/production/skynex-splash-mark.png",
+          "imageWidth": 160
         }
       ]
     ],
