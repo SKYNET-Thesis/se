@@ -1,4 +1,4 @@
-import { Activity, Check, TriangleAlert, WifiOff } from "lucide-react-native";
+import { Activity, Check, ShieldAlert, TriangleAlert, WifiOff } from "lucide-react-native";
 import { useMemo } from "react";
 import { StyleSheet, View, ViewProps } from "react-native";
 import { corner } from "../../design-system/radius";
@@ -6,12 +6,15 @@ import { space } from "../../design-system/spacing";
 import { SkyNexColors, SkyNexColorToken, useSkyNexTokens } from "../../design-system/tokens";
 import { SkyText } from "./SkyText";
 
-export type RobotStatus = "ready" | "running" | "warning" | "offline";
+// danger = E-STOP: red, never amber — amber stays for recoverable warnings
+// such as calibration.
+export type RobotStatus = "ready" | "running" | "warning" | "danger" | "offline";
 
 const STATUS_LABEL: Record<RobotStatus, string> = {
   ready: "Sẵn sàng",
   running: "Đang chạy",
   warning: "Cảnh báo",
+  danger: "E-STOP",
   offline: "Ngoại tuyến"
 };
 
@@ -19,6 +22,7 @@ const STATUS_ICON = {
   ready: Check,
   running: Activity,
   warning: TriangleAlert,
+  danger: ShieldAlert,
   offline: WifiOff
 } satisfies Record<RobotStatus, typeof Check>;
 
@@ -26,6 +30,7 @@ const STATUS_COLOR: Record<RobotStatus, SkyNexColorToken> = {
   ready: "statusReady",
   running: "statusRunning",
   warning: "statusWarning",
+  danger: "statusDanger",
   offline: "statusOffline"
 };
 

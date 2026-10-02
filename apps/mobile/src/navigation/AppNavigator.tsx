@@ -19,6 +19,7 @@ import { CameraScreen } from "../screens/CameraScreen";
 import { ConnectScreen } from "../screens/ConnectScreen";
 import { HomeRoute, HomeScreen } from "../screens/HomeScreen";
 import { PhoneTeleopScreen } from "../screens/PhoneTeleopScreen";
+import { RobotHubRoute, RobotHubScreen } from "../screens/RobotHubScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { StatusScreen } from "../screens/StatusScreen";
 import { TaskDetailScreen } from "../screens/TaskDetailScreen";
@@ -30,11 +31,18 @@ import { SkyNexTabLabels, SkyNexTabs } from "./navigationContract";
 
 enableScreens();
 
+// The Robot tab. RobotHub is its root; the rest keep their technical names
+// and are also entered directly from Home / Skill Detail.
 type ControlStackParamList = {
-  Connect: undefined;
+  RobotHub: undefined;
+  // `from: "hub"` means Back returns to the hub; without it Back keeps its
+  // original Home destination for entries from Home / Skill Detail.
+  Connect: { from?: "hub" } | undefined;
   Calibrate: { from?: "home" | "connect" } | undefined;
   Teleop: { from?: "home" | "connect" } | undefined;
   PhoneTeleop: { from?: "home" } | undefined;
+  // Same StatusScreen Home pushes on its own stack, here reached from the hub.
+  Status: undefined;
 };
 
 type TaskStackParamList = {
@@ -278,10 +286,10 @@ function HomeStackScreen({
             onCalibrate={() =>
               navigation
                 .getParent<BottomTabNavigationProp<RootTabParamList>>()
-                ?.navigate("Control", { screen: "Calibrate", params: { from: "home" } })
+                ?.navigate("Control", { screen: "Calibrate", initial: false, params: { from: "home" } })
             }
             onConnect={() =>
-              navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Control", { screen: "Connect" })
+              navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Control", { screen: "Connect", initial: false })
             }
             taskId={route.params.taskId}
           />
@@ -319,16 +327,16 @@ function HomeMainScreen({
     const parent = navigation.getParent<BottomTabNavigationProp<RootTabParamList>>();
     switch (route) {
       case "connect":
-        parent?.navigate("Control", { screen: "Connect" });
+        parent?.navigate("Control", { screen: "Connect", initial: false });
         break;
       case "calibrate":
-        parent?.navigate("Control", { screen: "Calibrate", params: { from: "home" } });
+        parent?.navigate("Control", { screen: "Calibrate", initial: false, params: { from: "home" } });
         break;
       case "teleop":
-        parent?.navigate("Control", { screen: "Teleop", params: { from: "home" } });
+        parent?.navigate("Control", { screen: "Teleop", initial: false, params: { from: "home" } });
         break;
       case "phone-teleop":
-        parent?.navigate("Control", { screen: "PhoneTeleop", params: { from: "home" } });
+        parent?.navigate("Control", { screen: "PhoneTeleop", initial: false, params: { from: "home" } });
         break;
       case "camera":
         parent?.navigate("Camera");
@@ -384,10 +392,10 @@ function TasksStackScreen({ emergencyStopped, fontsReady }: Pick<AppNavigatorPro
               navigation.navigate("TasksList");
             }}
             onCalibrate={() =>
-              navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Control", { screen: "Calibrate" })
+              navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Control", { screen: "Calibrate", initial: false })
             }
             onConnect={() =>
-              navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Control", { screen: "Connect" })
+              navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Control", { screen: "Connect", initial: false })
             }
             taskId={route.params.taskId}
           />
@@ -404,21 +412,62 @@ function ControlStackScreen({
   reduceMotion
 }: Pick<AppNavigatorProps, "emergencyStopped" | "fontsReady" | "onEmergencyStop" | "reduceMotion">) {
   const { colors: themeColors } = useAppTheme();
+  // Back to the Home tab for screens entered from Home, leaving the Robot
+  // tab on its hub — otherwise the next Robot-tab tap lands back in a stale
+  // controller instead of the hub.
+  const returnHome = (navigation: NativeStackScreenProps<ControlStackParamList>["navigation"]) => {
+    navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Home");
+    navigation.popToTop();
+  };
 
   return (
     <ControlStack.Navigator
-      initialRouteName="Connect"
+      initialRouteName="RobotHub"
       screenOptions={{
         contentStyle: { backgroundColor: themeColors.background },
         headerShown: false
       }}
     >
+      <ControlStack.Screen name="RobotHub">
+        {({ navigation }: NativeStackScreenProps<ControlStackParamList, "RobotHub">) => (
+          <RobotHubScreen
+            emergencyStopped={emergencyStopped}
+            fontsReady={fontsReady}
+            onOpenRoute={(route: RobotHubRoute) => {
+              switch (route) {
+                case "connect":
+                  navigation.navigate("Connect", { from: "hub" });
+                  break;
+                case "calibrate":
+                  navigation.navigate("Calibrate");
+                  break;
+                case "teleop":
+                  navigation.navigate("Teleop");
+                  break;
+                case "phone-teleop":
+                  navigation.navigate("PhoneTeleop");
+                  break;
+                case "status":
+                  navigation.navigate("Status");
+                  break;
+              }
+            }}
+          />
+        )}
+      </ControlStack.Screen>
+
       <ControlStack.Screen name="Connect">
-        {({ navigation }: NativeStackScreenProps<ControlStackParamList, "Connect">) => (
+        {({ navigation, route }: NativeStackScreenProps<ControlStackParamList, "Connect">) => (
           <ConnectScreen
             emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
-            onBack={() => navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Home")}
+            onBack={() => {
+              if (route.params?.from === "hub" && navigation.canGoBack()) {
+                navigation.goBack();
+                return;
+              }
+              returnHome(navigation);
+            }}
             onContinue={() => navigation.navigate("Calibrate", { from: "connect" })}
             onOpenTeleop={() => navigation.navigate("Teleop", { from: "connect" })}
             reduceMotion={reduceMotion}
@@ -433,14 +482,14 @@ function ControlStackScreen({
             fontsReady={fontsReady}
             onBack={() => {
               if (route.params?.from === "home") {
-                navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Home");
+                returnHome(navigation);
                 return;
               }
               if (navigation.canGoBack()) {
                 navigation.goBack();
                 return;
               }
-              navigation.navigate("Connect");
+              navigation.navigate("RobotHub");
             }}
           />
         )}
@@ -453,14 +502,14 @@ function ControlStackScreen({
             fontsReady={fontsReady}
             onBack={() => {
               if (route.params?.from === "home") {
-                navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Home");
+                returnHome(navigation);
                 return;
               }
               if (navigation.canGoBack()) {
                 navigation.goBack();
                 return;
               }
-              navigation.navigate("Connect");
+              navigation.navigate("RobotHub");
             }}
           />
         )}
@@ -474,14 +523,30 @@ function ControlStackScreen({
             onEmergencyStop={onEmergencyStop}
             onBack={() => {
               if (route.params?.from === "home") {
-                navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Home");
+                returnHome(navigation);
                 return;
               }
               if (navigation.canGoBack()) {
                 navigation.goBack();
                 return;
               }
-              navigation.navigate("Connect");
+              navigation.navigate("RobotHub");
+            }}
+          />
+        )}
+      </ControlStack.Screen>
+
+      <ControlStack.Screen name="Status">
+        {({ navigation }: NativeStackScreenProps<ControlStackParamList, "Status">) => (
+          <StatusScreen
+            emergencyStopped={emergencyStopped}
+            fontsReady={fontsReady}
+            onBack={() => {
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+                return;
+              }
+              navigation.navigate("RobotHub");
             }}
           />
         )}
@@ -498,7 +563,7 @@ function CameraTabScreen({
     <CameraScreen
       fontsReady={fontsReady}
       onBack={() => navigation.navigate("Home")}
-      onOpenManual={() => navigation.navigate("Control", { screen: "Teleop" })}
+      onOpenManual={() => navigation.navigate("Control", { screen: "Teleop", initial: false })}
     />
   );
 }

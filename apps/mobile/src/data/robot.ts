@@ -35,7 +35,7 @@ const MOCK_ROBOT = {
 
 const READINESS_STATUS: Record<RobotReadiness, RobotStatus> = {
   offline: "offline",
-  stopped: "warning",
+  stopped: "danger",
   "needs-calibration": "warning",
   ready: "ready"
 };
