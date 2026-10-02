@@ -763,7 +763,7 @@ function getStateDisplay(state: TeleopState, colors: ThemeColors, styles: Return
     case "controlling":
       return {
         caption: "Leader đang điều khiển Follower, jog Follower đã bật.",
-        icon: <CircleCheck color={colors.accentStrong} size={18} />,
+        icon: <CircleCheck color={colors.success} size={18} />,
         textStyle: styles.stateTitleOk,
         title: "Đang điều khiển"
       };
@@ -949,7 +949,7 @@ function createStyles(colors: ThemeColors) {
       color: colors.textSecondary
     },
     stateTitleOk: {
-      color: colors.accentStrong
+      color: colors.success
     },
     stateTitleCaution: {
       color: colors.caution
@@ -1048,7 +1048,7 @@ function createStyles(colors: ThemeColors) {
       width: 8
     },
     statusDotOk: {
-      backgroundColor: colors.accentStrong
+      backgroundColor: colors.success
     },
     gateCopy: {
       flex: 1,
@@ -1135,7 +1135,7 @@ function createStyles(colors: ThemeColors) {
       width: 8
     },
     healthDotOk: {
-      backgroundColor: colors.accentStrong
+      backgroundColor: colors.success
     },
     healthDotCaution: {
       backgroundColor: colors.caution

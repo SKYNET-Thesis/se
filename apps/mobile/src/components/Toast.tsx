@@ -39,7 +39,7 @@ export function Toast({ colors, fontsReady, subtitle, title, visible }: Props) {
       pointerEvents="none"
       style={[styles.toast, { opacity, transform: [{ translateY }] }]}
     >
-      <CircleCheck color={colors.accentStrong} size={18} />
+      <CircleCheck color={colors.success} size={18} />
       <View style={styles.text}>
         <Text style={[styles.title, font("display", fontsReady)]}>{title}</Text>
         {subtitle && <Text style={[styles.subtitle, font("body", fontsReady)]}>{subtitle}</Text>}

@@ -22,7 +22,7 @@ export const colors = {
   border: "#2A2A31",
   textHi: "#F3F2EE",
   textLo: "#9A9AA3",
-  accent: "#C6F24E",
+  accent: "#FF6700",
   accentText: "#12160A",
   danger: "#FF3B30",
   caution: "#F5A623"
@@ -35,15 +35,22 @@ export const colors = {
 // which raw hex do I use" — so a component migrated once automatically
 // renders correctly in both modes forever after.
 //
-// `accent` vs `accentStrong`: audited separately because plain lime
-// (#C6F24E) is fine as an ICON/TEXT color on the near-black Dark surfaces
-// (contrast ~14:1) but reads almost invisibly (~1.3:1) directly on Light's
-// white/near-white surfaces. `accent` stays the literal brand lime and is
-// only ever used as a FILLED background (paired with `accentForeground` on
-// top of it); `accentStrong` is what components use when lime needs to sit
-// as bare icon/text/border color directly against a surface — in Dark it
-// simply equals `accent` (zero visual change), in Light it's a deepened
-// olive-lime that keeps the same hue family but clears 4.5:1+.
+// Brand accent: Blaze Orange (#FF6700) — SkyNex's ACTION / brand colour.
+// It never means "ready" or "OK"; that is `success` (green). Danger stays
+// red, caution stays amber, offline stays neutral.
+//
+// `accent` vs `accentStrong`: `accent` is the literal brand orange and is
+// only ever used as a FILLED background, paired with `accentForeground`
+// (near-black, 6.3:1 — white would be 2.9:1). `accentStrong` is what
+// components use when the accent sits as bare icon/text/border colour
+// directly against a surface: in Dark it simply equals `accent` (5.6–6.6:1
+// on the dark surfaces); in Light it's a deepened orange of the same hue
+// (#B84A00, 4.6:1 on the page, 5.2:1 on white), because raw #FF6700 is only
+// 2.6–2.9:1 there.
+//
+// `success`: ready / connected / completed / OK. Green, on purpose a
+// different hue family from the orange brand, the red `danger` and the
+// amber `caution`, so state never reads as an action (or vice versa).
 //
 // `border` vs `borderStrong`: `border` is the default, restrained card
 // edge. `borderStrong` is reserved for a boundary that needs to read as
@@ -56,7 +63,7 @@ export const colors = {
 // structural anchor" pairing — a selected/active control that should read
 // as unmistakable without spending the brand lime on it (e.g. Tasks'
 // selected filter chip). In Dark these resolve to `surface`/`accent`,
-// i.e. exactly the surface-fill + lime-text treatment Dark already used
+// i.e. exactly the surface-fill + accent-text treatment Dark already used
 // for that same selected state, so reusing the token there is a zero-visual-
 // diff bridge, not a new Dark treatment.
 export type ThemeMode = "dark" | "light";
@@ -74,6 +81,7 @@ export type ThemeColors = {
   accentStrong: string;
   controlStrong: string;
   controlStrongForeground: string;
+  success: string;
   danger: string;
   dangerForeground: string;
   caution: string;
@@ -92,11 +100,12 @@ export const darkColors: ThemeColors = {
   borderStrong: "#2A2A31",
   textPrimary: "#F3F2EE",
   textSecondary: "#9A9AA3",
-  accent: "#C6F24E",
+  accent: "#FF6700",
   accentForeground: "#12160A",
-  accentStrong: "#C6F24E",
+  accentStrong: "#FF6700",
   controlStrong: "#17171B",
-  controlStrongForeground: "#C6F24E",
+  controlStrongForeground: "#FF6700",
+  success: "#30D158",
   danger: "#FF3B30",
   dangerForeground: "#0F0F12",
   caution: "#F5A623"
@@ -130,11 +139,12 @@ export const lightColors: ThemeColors = {
   borderStrong: "#A7A99D",
   textPrimary: "#16161A",
   textSecondary: "#5B5C63",
-  accent: "#C6F24E",
+  accent: "#FF6700",
   accentForeground: "#12160A",
-  accentStrong: "#4F6B12",
+  accentStrong: "#B84A00",
   controlStrong: "#232326",
   controlStrongForeground: "#F3F2EC",
+  success: "#1F7A3A",
   danger: "#C7261C",
   dangerForeground: "#FFFFFF",
   caution: "#875700"

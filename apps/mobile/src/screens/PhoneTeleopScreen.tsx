@@ -79,7 +79,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
   const canControl = connected && !emergencyStopped && tracking !== "lost";
   const active = canControl && controlHeld;
   const trackingLabel = { ready: "Sẵn sàng", tracking: "Đang tracking", limited: "Tracking giới hạn", lost: "Mất tracking" }[tracking];
-  const trackingColor = tracking === "tracking" ? colors.accentStrong : tracking === "limited" ? colors.caution : tracking === "lost" ? colors.danger : colors.textSecondary;
+  const trackingColor = tracking === "tracking" ? colors.success : tracking === "limited" ? colors.caution : tracking === "lost" ? colors.danger : colors.textSecondary;
 
   useEffect(() => {
     if (isPhoneARNativeAvailable) setMotionAvailable(true);
@@ -324,7 +324,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
             <Text style={[styles.caption, font("body", fontsReady)]}>Cùng Wi-Fi nội bộ · WebSocket</Text>
           </View>
           <View style={[styles.statusPill, connected ? styles.statusPillOk : styles.statusPillMuted]}>
-            {connected ? <Wifi color={colors.accent} size={14} /> : <WifiOff color={colors.textSecondary} size={14} />}
+            {connected ? <Wifi color={colors.success} size={14} /> : <WifiOff color={colors.textSecondary} size={14} />}
             {/* statusPillOk's background is a fixed dark tint (see createStyles) — its text stays pinned dark-safe rather than following the theme. */}
             <Text style={[styles.statusPillText, connected && { color: darkColors.textSecondary }, font("mono", fontsReady)]}>{connected ? "CONNECTED" : "OFFLINE"}</Text>
           </View>
@@ -349,7 +349,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
         </View>
         <View style={styles.stateMetrics}>
           <Metric label="TRACKING" value={trackingLabel} color={trackingColor} fontsReady={fontsReady} styles={styles} />
-          <Metric label="REFERENCE" value={referenceLatched ? "LATCHED" : "RECENTER"} color={referenceLatched ? colors.accentStrong : colors.caution} fontsReady={fontsReady} styles={styles} />
+          <Metric label="REFERENCE" value={referenceLatched ? "LATCHED" : "RECENTER"} color={referenceLatched ? colors.success : colors.caution} fontsReady={fontsReady} styles={styles} />
         </View>
       </View>
 

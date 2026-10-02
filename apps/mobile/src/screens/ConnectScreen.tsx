@@ -63,7 +63,7 @@ type Tone = "ok" | "caution" | "danger" | "neutral";
 // surface, where plain accent reads almost invisibly on Light.
 function buildToneColor(colors: ThemeColors): Record<Tone, string> {
   return {
-    ok: colors.accentStrong,
+    ok: colors.success,
     caution: colors.caution,
     danger: colors.danger,
     neutral: colors.textSecondary
@@ -103,7 +103,7 @@ function buildLinkStatusColor(colors: ThemeColors): Record<LinkState["kind"], st
   return {
     idle: colors.textSecondary,
     connecting: colors.caution,
-    connected: colors.accentStrong,
+    connected: colors.success,
     error: colors.danger
   };
 }
@@ -508,7 +508,7 @@ function ArmSlotCard({
           <View
             style={[
               styles.statusDot,
-              { backgroundColor: connected ? colors.accentForeground : linkStatusColor[slot.link.kind] }
+              { backgroundColor: linkStatusColor[slot.link.kind] }
             ]}
           />
           <Text
@@ -689,7 +689,7 @@ function renderSlotAction({
       return (
         <View style={styles.connectedRow}>
           <View style={styles.connectedInfo}>
-            <CircleCheck color={colors.accentStrong} size={16} />
+            <CircleCheck color={colors.success} size={16} />
             <Text style={[styles.connectedText, font("mono", fontsReady)]}>
               {slot.link.jointCount} khớp đã xác nhận
             </Text>
@@ -855,9 +855,9 @@ function createStyles(colors: ThemeColors) {
       minHeight: 34,
       paddingHorizontal: spacing.sm
     },
-    statusPillConnected: {
-      backgroundColor: colors.accent
-    },
+    // Connected is a STATUS, not an action: neutral pill + green dot/label
+    // (the dot already comes from linkStatusColor.connected).
+    statusPillConnected: {},
     statusDot: {
       borderRadius: radius.status,
       height: 8,
@@ -874,7 +874,7 @@ function createStyles(colors: ThemeColors) {
       color: colors.danger
     },
     statusTextConnected: {
-      color: colors.accentForeground
+      color: colors.success
     },
     portPlaceholder: {
       ...type.body,

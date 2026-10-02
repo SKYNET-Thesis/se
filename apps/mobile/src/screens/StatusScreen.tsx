@@ -18,7 +18,7 @@ type Tone = "ok" | "caution" | "danger" | "neutral";
 // on Light.
 function buildToneColor(colors: ThemeColors): Record<Tone, string> {
   return {
-    ok: colors.accentStrong,
+    ok: colors.success,
     caution: colors.caution,
     danger: colors.danger,
     neutral: colors.textSecondary

@@ -399,7 +399,7 @@ function ArmChecklist({
         return (
           <View key={role} style={styles.checklistItem}>
             {done ? (
-              <CircleCheck color={colors.accentStrong} size={16} />
+              <CircleCheck color={colors.success} size={16} />
             ) : (
               <Circle color={colors.textSecondary} size={16} />
             )}
@@ -514,7 +514,7 @@ function JointRow({
       <View style={styles.jointHeaderRow}>
         <View style={styles.jointNameRow}>
           {captured ? (
-            <CircleCheck color={colors.accentStrong} size={16} />
+            <CircleCheck color={colors.success} size={16} />
           ) : (
             <Circle color={colors.textSecondary} size={16} />
           )}
@@ -555,7 +555,7 @@ function CompletionPanel({
   return (
     <View style={styles.completionPanel}>
       <View style={styles.completionRow}>
-        <CircleCheck color={colors.accentStrong} size={18} />
+        <CircleCheck color={colors.success} size={18} />
         <Text style={[styles.completionText, font("body", fontsReady)]}>
           Đã lưu hiệu chỉnh cho {ROLE_LABEL[otherArm === "follower" ? "leader" : "follower"]}.
         </Text>
@@ -820,7 +820,7 @@ function createStyles(colors: ThemeColors) {
       borderColor: colors.caution
     },
     badgeCompleted: {
-      borderColor: colors.accentStrong
+      borderColor: colors.success
     },
     badgeDot: {
       backgroundColor: colors.textSecondary,
@@ -832,7 +832,7 @@ function createStyles(colors: ThemeColors) {
       backgroundColor: colors.caution
     },
     badgeDotCompleted: {
-      backgroundColor: colors.accentStrong
+      backgroundColor: colors.success
     },
     badgeText: {
       ...type.label,
@@ -842,7 +842,7 @@ function createStyles(colors: ThemeColors) {
       color: colors.caution
     },
     badgeTextCompleted: {
-      color: colors.accentStrong
+      color: colors.success
     },
     promptLine: {
       ...type.body,
@@ -888,7 +888,7 @@ function createStyles(colors: ThemeColors) {
       padding: spacing.md
     },
     jointCardDone: {
-      borderColor: colors.accentStrong
+      borderColor: colors.success
     },
     jointHeaderRow: {
       alignItems: "center",
@@ -964,7 +964,7 @@ function createStyles(colors: ThemeColors) {
     },
     completionPanel: {
       backgroundColor: colors.surface,
-      borderColor: colors.accentStrong,
+      borderColor: colors.success,
       borderRadius: CARD_RADIUS_OUTER,
       borderWidth: 1,
       gap: spacing.sm,

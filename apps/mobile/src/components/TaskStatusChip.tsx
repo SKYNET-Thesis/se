@@ -39,7 +39,7 @@ export function TaskStatusChip({ status, size = "md", fontsReady = true }: TaskS
   // surface, and bare lime is close to invisible against Light's near-white
   // surfaces (~1.3:1). accentStrong is the same lime family, deepened only
   // on Light; on Dark it equals accent exactly, so this chip is unchanged.
-  const iconColor = status === "ready" ? colors.accentStrong : status === "training" ? colors.caution : colors.textSecondary;
+  const iconColor = status === "ready" ? colors.success : status === "training" ? colors.caution : colors.textSecondary;
   const textColor = status === "coming_soon" ? colors.textSecondary : colors.textPrimary;
   const isSmall = size === "sm";
   const Icon = status === "ready" ? Check : status === "training" ? Clock : Circle;

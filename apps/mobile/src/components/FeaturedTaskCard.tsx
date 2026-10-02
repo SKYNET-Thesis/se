@@ -105,7 +105,7 @@ function TaskVisual({
 
   return (
     <View style={styles.fallbackVisual}>
-      <View style={[styles.iconPlate, ready && { borderColor: colors.accentStrong }]}>
+      <View style={[styles.iconPlate, ready && { borderColor: colors.success }]}>
         <Icon color={colors.textPrimary} size={48} strokeWidth={1.6} />
       </View>
     </View>

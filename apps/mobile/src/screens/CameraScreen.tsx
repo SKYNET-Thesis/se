@@ -45,7 +45,7 @@ const STATUS_LABEL: Record<StreamStatus, string> = {
 // invisibly on Light.
 function buildStatusColor(colors: ThemeColors): Record<StreamStatus, string> {
   return {
-    ready: colors.accentStrong,
+    ready: colors.success,
     caution: colors.caution,
     danger: colors.danger
   };

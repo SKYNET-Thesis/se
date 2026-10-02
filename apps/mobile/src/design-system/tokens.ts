@@ -27,19 +27,22 @@ export function skyNexColors(c: ThemeColors) {
     textPrimary: c.textPrimary,
     textSecondary: c.textSecondary,
 
-    // Brand lime as a FILL, with its paired foreground.
+    // Brand orange (action) as a FILL, with its paired near-black foreground.
     accent: c.accent,
     onAccent: c.accentForeground,
-    // Lime as bare icon/text/border on a surface (contrast-safe in Light).
+    // Brand orange as bare icon/text/border on a surface (deepened in Light
+    // for contrast). Action / selection / focus — never "ready".
     accentInk: c.accentStrong,
 
     selected: c.controlStrong,
     onSelected: c.controlStrongForeground,
 
-    statusReady: c.accentStrong,
-    // Same lime family as ready — StatusBadge separates the two by icon and
+    // Ready / OK is green (`success`), never the brand orange: green = the
+    // robot is fine, orange = something you can do.
+    statusReady: c.success,
+    // Same green family as ready — StatusBadge separates the two by icon and
     // label, never by color alone.
-    statusRunning: c.accentStrong,
+    statusRunning: c.success,
     statusWarning: c.caution,
     statusOffline: c.textSecondary,
     statusDanger: c.danger,

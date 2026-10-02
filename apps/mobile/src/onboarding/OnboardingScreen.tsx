@@ -122,6 +122,7 @@ export function OnboardingScreen({ fontsReady, reduceMotion, onComplete }: Props
             fallbackBackgroundColor={colors.background}
             groundShadowColor={colors.surfaceSecondary}
             reduceMotion={reduceMotion}
+            rimLightColor={colors.accent}
             style={StyleSheet.absoluteFill}
           />
 

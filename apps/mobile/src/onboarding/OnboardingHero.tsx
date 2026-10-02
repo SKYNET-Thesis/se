@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, StyleProp, StyleSheet, View, ViewStyle } from "react-native";
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { colors } from "../theme";
 
 // Dedicated onboarding hero model. Kept independent from Home's arm.glb /
 // ArmModelViewer — same native GLB-loading mechanism, but this viewer is
@@ -22,6 +23,9 @@ type Props = {
   // values so any other, not-yet-updated caller keeps rendering unchanged.
   groundShadowColor?: string;
   fallbackBackgroundColor?: string;
+  // Decorative back-light that edges the robot in the brand colour. Light
+  // only — the robot's own materials are never tinted.
+  rimLightColor?: string;
 };
 
 // Same sphere-based fit as Home's ArmModelViewer. The sphere is
@@ -446,7 +450,8 @@ export function OnboardingHero({
   reduceMotion = false,
   style,
   groundShadowColor = "#1F1F24",
-  fallbackBackgroundColor = "#0F0F12"
+  fallbackBackgroundColor = "#0F0F12",
+  rimLightColor = colors.accent
 }: Props) {
   const frameRef = useRef<number | null>(null);
   const elapsedRef = useRef(0);
@@ -485,7 +490,7 @@ export function OnboardingHero({
         key.position.set(4, 5, 5);
         const fill = new THREE.DirectionalLight(0xffffff, 0.45);
         fill.position.set(-3, -1, 3);
-        const rim = new THREE.DirectionalLight(0xc6f24e, 0.9);
+        const rim = new THREE.DirectionalLight(new THREE.Color(rimLightColor), 0.9);
         rim.position.set(-4, 2, -3);
         scene.add(ambient, key, fill, rim);
 
@@ -560,7 +565,7 @@ export function OnboardingHero({
         setFailed(true);
       }
     },
-    [groundShadowColor, reduceMotion]
+    [groundShadowColor, reduceMotion, rimLightColor]
   );
 
   useEffect(
