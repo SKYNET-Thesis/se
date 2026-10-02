@@ -1,5 +1,9 @@
-import { SpaceGrotesk_700Bold } from "@expo-google-fonts/space-grotesk";
-import { Manrope_500Medium } from "@expo-google-fonts/manrope";
+import {
+  BeVietnamPro_400Regular,
+  BeVietnamPro_500Medium,
+  BeVietnamPro_600SemiBold,
+  BeVietnamPro_700Bold
+} from "@expo-google-fonts/be-vietnam-pro";
 import { IBMPlexMono_400Regular, IBMPlexMono_600SemiBold } from "@expo-google-fonts/ibm-plex-mono";
 import { FontSource } from "expo-font";
 import { Platform, TextStyle } from "react-native";
@@ -159,12 +163,42 @@ export const radius = {
   round: 999
 } as const;
 
+// SkyNex typography: Be Vietnam Pro for all UI text — drawn for Vietnamese
+// first, so stacked diacritics (ệ, ộ, ợ, ừ…) sit naturally and never fall
+// back to another font mid-word — and IBM Plex Mono only where monospace
+// carries meaning (measurements, machine values, diagnostics).
+//
+// Each role is ONE real font file at ONE real weight. Custom fonts on
+// Android/web are registered one file per family name, so asking a file for
+// a weight it doesn't contain makes the platform fake it (synthetic bold).
+// font() therefore returns the family AND its matching weight together, and
+// the weight of a piece of text is chosen by picking its role — never by a
+// separate fontWeight on top.
+//   display     600 SemiBold — titles, section titles, buttons, labels, status
+//   displayBold 700 Bold     — the few hero headlines; selected-state emphasis
+//   bodyMedium  500 Medium   — body emphasis, quiet labels
+//   body        400 Regular  — running text, captions, input text
+//   mono        Plex 400     — technical values
+//   monoStrong  Plex 600     — emphasized technical values
 export const fontNames = {
-  display: "SpaceGrotesk",
-  body: "Manrope",
+  display: "BeVietnamPro-SemiBold",
+  displayBold: "BeVietnamPro-Bold",
+  bodyMedium: "BeVietnamPro-Medium",
+  body: "BeVietnamPro-Regular",
   mono: "IBMPlexMono",
   monoStrong: "IBMPlexMono-SemiBold"
 } as const;
+
+export type FontRole = keyof typeof fontNames;
+
+const fontWeights: Record<FontRole, NonNullable<TextStyle["fontWeight"]>> = {
+  display: "600",
+  displayBold: "700",
+  bodyMedium: "500",
+  body: "400",
+  mono: "400",
+  monoStrong: "600"
+};
 
 // Bundled as local app assets via @expo-google-fonts (no network fetch at
 // runtime). The previous version pulled these from raw.githubusercontent.com
@@ -173,64 +207,85 @@ export const fontNames = {
 // silently pinning the ENTIRE app to system fallback fonts with no visible
 // error. Local require()'d assets resolve from the bundle instead — no
 // network dependency, and Metro serves them as static files on web too, so
-// no extra @font-face/webpack setup is needed there.
+// no extra @font-face/webpack setup is needed there. If a file still fails
+// to load, AppEntry continues with the system fallbacks below.
 export const appFontSources: Record<string, FontSource> = {
-  SpaceGrotesk: SpaceGrotesk_700Bold,
-  Manrope: Manrope_500Medium,
+  "BeVietnamPro-Regular": BeVietnamPro_400Regular,
+  "BeVietnamPro-Medium": BeVietnamPro_500Medium,
+  "BeVietnamPro-SemiBold": BeVietnamPro_600SemiBold,
+  "BeVietnamPro-Bold": BeVietnamPro_700Bold,
   IBMPlexMono: IBMPlexMono_400Regular,
   "IBMPlexMono-SemiBold": IBMPlexMono_600SemiBold
 };
 
-const fallbackFonts = {
-  display: Platform.select({ ios: "Avenir Next", android: "sans-serif-medium", default: "system-ui" }),
-  body: Platform.select({ ios: "Avenir", android: "sans-serif", default: "system-ui" }),
+// Until fonts load (or if they fail), the platform's own UI font, which has
+// real weights, so the same role weights apply without synthesis.
+const fallbackFonts: Record<FontRole, string | undefined> = {
+  display: Platform.select({ ios: "System", android: "sans-serif", default: "system-ui" }),
+  displayBold: Platform.select({ ios: "System", android: "sans-serif", default: "system-ui" }),
+  bodyMedium: Platform.select({ ios: "System", android: "sans-serif", default: "system-ui" }),
+  body: Platform.select({ ios: "System", android: "sans-serif", default: "system-ui" }),
   mono: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
   monoStrong: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" })
-} as const;
+};
 
-export type FontRole = keyof typeof fontNames;
-
+// Family + weight for a role. Place it after any `type.*` spread in a style
+// array so the role's real weight wins.
+//
+// Web registers each bundled file as its own single-weight @font-face, so
+// asking it for 600 would make the browser embolden an already-SemiBold
+// file; there the file alone carries the weight ("400" = use it as drawn).
+// iOS resolves the family to that exact font, and Android gets the file's
+// own weight — so no platform synthesizes.
 export function font(role: FontRole, fontsReady = true): TextStyle {
+  if (!fontsReady) {
+    return { fontFamily: fallbackFonts[role], fontWeight: fontWeights[role] };
+  }
   return {
-    fontFamily: fontsReady ? fontNames[role] : fallbackFonts[role]
+    fontFamily: fontNames[role],
+    fontWeight: Platform.OS === "web" ? "400" : fontWeights[role]
   };
 }
 
+// Size steps. The weights here are what each step is designed at; text that
+// also applies font(role) gets the role's real file and weight instead (see
+// above). Line heights leave room for stacked Vietnamese diacritics on
+// capitals (Ể, Ộ, Ờ) at the large sizes.
 export const type = {
   display: {
     fontSize: 40,
-    lineHeight: 44,
+    lineHeight: 48,
     fontWeight: "700"
   },
   title: {
     fontSize: 24,
-    lineHeight: 30,
-    fontWeight: "700"
+    lineHeight: 32,
+    fontWeight: "600"
   },
   body: {
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: "500"
+    fontWeight: "400"
   },
   bodyStrong: {
     fontSize: 15,
     lineHeight: 22,
-    fontWeight: "700"
+    fontWeight: "600"
   },
   label: {
     fontSize: 13,
     lineHeight: 18,
-    fontWeight: "700"
+    fontWeight: "600"
   },
   small: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "500"
+    fontWeight: "400"
   },
   mono: {
     fontSize: 12,
     lineHeight: 16,
-    fontWeight: "600",
+    fontWeight: "400",
     fontVariant: ["tabular-nums"]
   }
 } satisfies Record<string, TextStyle>;

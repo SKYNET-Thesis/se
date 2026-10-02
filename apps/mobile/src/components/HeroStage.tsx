@@ -189,7 +189,7 @@ export function HeroStage({
           {overline && (
             <Text style={[styles.captionOverline, font("display", fontsReady)]}>{overline}</Text>
           )}
-          {title && <Text style={[styles.captionTitle, font("display", fontsReady)]}>{title}</Text>}
+          {title && <Text style={[styles.captionTitle, font("displayBold", fontsReady)]}>{title}</Text>}
           {subtitle && (
             <Text style={[styles.captionSubtitle, font("body", fontsReady)]}>{subtitle}</Text>
           )}

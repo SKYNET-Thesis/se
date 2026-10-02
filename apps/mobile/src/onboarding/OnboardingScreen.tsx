@@ -352,11 +352,14 @@ function createStyles(colors: ThemeColors) {
       color: colors.textPrimary,
       letterSpacing: 0.3
     },
+    // SemiBold, not Bold: at 46pt it already reads as the display weight, and
+    // Be Vietnam Pro Bold is wide enough that "SO-ARM101" would break at its
+    // hyphen on 360pt phones. Slightly tighter tracking for the same reason.
     title: {
       ...type.display,
       fontSize: 46,
       includeFontPadding: true,
-      letterSpacing: -0.5,
+      letterSpacing: -1,
       lineHeight: 62,
       paddingTop: spacing.xxs
     },

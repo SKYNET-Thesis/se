@@ -231,7 +231,13 @@ function FilterOption({
     >
       <View style={styles.filterOptionRow}>
         {Icon && <Icon color={tintColor} size={14} strokeWidth={2} />}
-        <Text style={[styles.filterOptionText, active && styles.filterOptionTextActive, font("display", fontsReady)]}>
+        <Text
+          style={[
+            styles.filterOptionText,
+            active && styles.filterOptionTextActive,
+            font(active ? "displayBold" : "bodyMedium", fontsReady)
+          ]}
+        >
           {label}
         </Text>
       </View>
@@ -299,12 +305,11 @@ function createStyles(colors: ThemeColors) {
     filterOptionText: {
       color: colors.textSecondary,
       fontSize: 14,
-      fontWeight: "500",
       lineHeight: 18
     },
     filterOptionTextActive: {
-      color: colors.accentStrong,
-      fontWeight: "700"
+      // Weight comes from the font role (Bold when active, Medium when not).
+      color: colors.accentStrong
     },
     // Rendered on both options at all times (transparent when inactive) —
     // that's what keeps the row's height identical regardless of which
