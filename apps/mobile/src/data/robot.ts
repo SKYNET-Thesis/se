@@ -54,6 +54,15 @@ const READINESS_MESSAGE: Record<RobotReadiness, string> = {
   ready: "Đã kết nối và hiệu chỉnh xong."
 };
 
+// Short label for the readiness badge — shared by Home's readiness card and
+// Skill Detail so the two always name a state the same way.
+export const READINESS_BADGE_LABEL: Record<RobotReadiness, string> = {
+  offline: "Ngoại tuyến",
+  stopped: "E-STOP",
+  "needs-calibration": "Cần hiệu chỉnh",
+  ready: "Sẵn sàng"
+};
+
 export function resolveReadiness(connected: boolean, calibrated: boolean, emergencyStopped: boolean): RobotReadiness {
   if (!connected) return "offline";
   if (emergencyStopped) return "stopped";

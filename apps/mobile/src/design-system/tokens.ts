@@ -18,8 +18,8 @@ export function skyNexColors(c: ThemeColors) {
     background: c.background,
     surface: c.surface,
     surfaceRaised: c.surfaceSecondary,
-    // The robot's stage (HeroStage): surfaceSecondary against `background`
-    // is the app's established depth cue — there is no shadow/elevation.
+    // A robot / media stage: surfaceSecondary against `background` is the
+    // app's established depth cue — there is no shadow/elevation.
     robotSurface: c.surfaceSecondary,
     border: c.border,
     borderEmphasis: c.borderStrong,

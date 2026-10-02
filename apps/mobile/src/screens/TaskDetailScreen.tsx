@@ -1,101 +1,84 @@
-import { ArrowRight, ChevronLeft, Heart, TriangleAlert } from "lucide-react-native";
-import { ReactElement, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ChevronLeft, Heart, ShieldAlert, TriangleAlert } from "lucide-react-native";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { HeroStage } from "../components/HeroStage";
-import { ScreenHeader } from "../components/ScreenHeader";
-import { getTaskIcon } from "../components/TaskCard";
-import { TaskStatusChip } from "../components/TaskStatusChip";
+import { SkillMedia, SkillStatus } from "../components/skills";
 import { Toast } from "../components/Toast";
-import { useAppTheme } from "../ThemeContext";
-import { getRobotSummary, RobotSummary } from "../data/robot";
-import { getTaskById, Task, TaskStatus } from "../data/tasks";
+import { SkyButton, SkyText, StatusBadge } from "../components/ui";
+import { corner } from "../design-system/radius";
+import { layout, space } from "../design-system/spacing";
+import { SkyNexColors, useSkyNexTokens } from "../design-system/tokens";
+import { getRobotSummary, READINESS_BADGE_LABEL, RobotSummary } from "../data/robot";
+import { formatSkillDuration, formatSkillLevel, getSkillById } from "../data/skills";
 import { getFavorites, toggleFavorite } from "../services/favoritesStorage";
-import { font, radius, spacing, ThemeColors, type } from "../theme";
+import { useAppTheme } from "../ThemeContext";
+import { Skill } from "../types/skill";
 
 type Props = {
   // Owned by App.tsx; the same flag Home's readiness is resolved from, so
   // both screens always agree on whether the robot may move.
   emergencyStopped: boolean;
   fontsReady: boolean;
+  // Technical route param kept for compatibility; it IS the skill id.
   taskId: string;
   onBack: () => void;
   onCalibrate: () => void;
   onConnect: () => void;
 };
 
-type TaskFact = { label: string; value: string };
+// GlobalChrome and the tab bar sit outside this screen (same constants as
+// Home / Skills), so the hero is sized against the space the user sees.
+const CHROME_HEIGHT = 64;
+const TAB_BAR_HEIGHT = 64;
+// The hero leads but stays smaller than the Skills library's discovery stage
+// (~50%): this page is for reading and acting, not browsing.
+const HERO_SHARE = 0.32;
+const HERO_MIN_HEIGHT = 180;
+const HERO_MAX_HEIGHT = 320;
+// Back / favorite sit on the media: 44pt targets.
+const OVERLAY_BUTTON = 44;
+// The content sheet rises over the bottom of the media by this much, with
+// rounded top corners only. The media frame grows by the same amount, so the
+// visible hero — and everything below it — stays where it was.
+const SHEET_OVERLAP = space.xl;
+const SHEET_RADIUS = 28;
 
-// Reads only static product metadata (level/duration/robot/mode) — none of
-// this is live robot/runtime state. Any field the task doesn't set is
-// omitted rather than rendered as "undefined" or a broken empty column.
-function buildTaskFacts(task: Task): TaskFact[] {
-  const entries: [string, string | undefined][] = [
-    ["Mức độ", task.level],
-    ["Thời gian", task.estimatedDuration],
-    ["Robot", task.robot],
-    ["Chế độ", task.mode]
-  ];
+// Start feedback. There is no execution backend yet: "starting" is a short
+// local acknowledgement and nothing is sent to a robot. No progress, no
+// completion and no result is ever shown — only that the request was taken.
+type StartState = "idle" | "starting";
+const STARTING_DELAY_MS = 900;
+const STARTED_TOAST_MS = 2600;
 
-  return entries
-    .filter((entry): entry is [string, string] => Boolean(entry[1]))
-    .map(([label, value]) => ({ label, value }));
-}
-
-// One target frame size — ~45-50% of the viewport height — regardless of
-// whether the fallback emblem or a real future photo/video fills it. A
-// prepared showcase frame shouldn't visibly change proportions the day real
-// SO-ARM101 media replaces the placeholder; the old media-vs-fallback split
-// (a tall aspect-1 frame for media, a short 0.78 one for the icon) would
-// have made that swap look like a redesign instead of just new content
-// dropping into the same stage. Ratio + clamp verified against real
-// renders (Playwright boundingBox against the status card's actual top
-// edge) on both 375x812 and 430x932, not derived from this constant alone.
-const HERO_HEIGHT_RATIO = 0.47;
-const HERO_MIN_HEIGHT = 320;
-const HERO_MAX_HEIGHT = 460;
-// Fraction of hero height the fade occupies — sized to comfortably hold the
-// "SO-ARM101" + task-name caption HeroStage overlays at the bottom of it
-// (see the HeroStage call below), not just the hero/body seam it used to be
-// tuned for alone.
-const HERO_FADE_RATIO = 0.34;
-
-// "Chạy tác vụ" execution feedback state machine. No backend/VLA endpoint
-// exists yet (see the TODO below), so `starting` is driven by a simulated
-// delay and always resolves to `success` — `error` is wired through the
-// button/toast rendering now so the only future change is what sets it.
-type TaskExecutionState = "idle" | "starting" | "success" | "error";
-
-const EXECUTION_STARTING_DELAY_MS = 900;
-const EXECUTION_TOAST_DURATION_MS = 2600;
-
+// Skill Detail answers "what does this skill do, how, and can I start it
+// now?". Media leads, the name appears once, then a compact readiness +
+// action area, then three plain sections (what the robot needs, how it
+// works, what to expect). Robot identity lives on Home, not here.
 export function TaskDetailScreen({ emergencyStopped, fontsReady, taskId, onBack, onCalibrate, onConnect }: Props) {
-  const { colors } = useAppTheme();
+  const { colors } = useSkyNexTokens();
+  const { colors: themeColors } = useAppTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  // undefined = still loading, null = id doesn't match any task.
-  const [task, setTask] = useState<Task | null | undefined>(undefined);
-  const [isFavorite, setIsFavorite] = useState(false);
-  const [executionState, setExecutionState] = useState<TaskExecutionState>("idle");
-  const [toastVisible, setToastVisible] = useState(false);
-  // Robot readiness from the single source Home also uses (data/robot.ts).
-  // null only until the first resolve; the previous value stays on screen
-  // while E-STOP flips, so the CTA never blanks out mid-toggle.
-  const [robot, setRobot] = useState<RobotSummary | null>(null);
-  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+
+  // undefined = loading, null = no skill with this id.
+  const [skill, setSkill] = useState<Skill | null | undefined>(undefined);
+  const [isFavorite, setIsFavorite] = useState(false);
+  // Same readiness source Home uses (data/robot.ts) — never recomputed here.
+  const [robot, setRobot] = useState<RobotSummary | null>(null);
+  const [startState, setStartState] = useState<StartState>("idle");
+  const [toastVisible, setToastVisible] = useState(false);
   const startingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let mounted = true;
-
-    getTaskById(taskId).then((found) => {
-      if (mounted) setTask(found ?? null);
+    getSkillById(taskId).then((found) => {
+      if (mounted) setSkill(found ?? null);
     });
     getFavorites().then((ids) => {
       if (mounted) setIsFavorite(ids.includes(taskId));
     });
-
     return () => {
       mounted = false;
     };
@@ -103,20 +86,18 @@ export function TaskDetailScreen({ emergencyStopped, fontsReady, taskId, onBack,
 
   useEffect(() => {
     let mounted = true;
-
     getRobotSummary({ emergencyStopped }).then((next) => {
       if (mounted) setRobot(next);
     });
-
     return () => {
       mounted = false;
     };
   }, [emergencyStopped]);
 
-  // E-STOP (or any loss of readiness) must also abort a start that is
-  // already in flight — otherwise the pending timeout would still report
-  // "Đã bắt đầu kỹ năng" after the robot was stopped. Checked against the
-  // raw flag too, so the abort doesn't wait for the async summary.
+  // Safety (Phase 5.1): losing readiness — E-STOP above all — cancels a
+  // start that is still in flight, so it can never report "started" after
+  // the robot was stopped. Checked against the raw flag too, so the abort
+  // doesn't wait for the async summary.
   const robotReady = robot?.readiness === "ready" && !emergencyStopped;
   useEffect(() => {
     if (robotReady) return;
@@ -124,7 +105,7 @@ export function TaskDetailScreen({ emergencyStopped, fontsReady, taskId, onBack,
       clearTimeout(startingTimeoutRef.current);
       startingTimeoutRef.current = null;
     }
-    setExecutionState((prev) => (prev === "starting" ? "idle" : prev));
+    setStartState("idle");
   }, [robotReady]);
 
   useEffect(
@@ -140,742 +121,425 @@ export function TaskDetailScreen({ emergencyStopped, fontsReady, taskId, onBack,
     void toggleFavorite(taskId).then((ids) => setIsFavorite(ids.includes(taskId)));
   };
 
-  // Simulated execution: no VLA/task-execution backend exists yet, so this
-  // just proves out the interaction (loading → confirmed feedback → idle)
-  // against a fake delay. Swapping the setTimeout below for the real
-  // request — and setting `error` on failure — is the only future change;
-  // the button/toast already render every state correctly.
-  const handleRunTask = () => {
-    // The CTA is already gated on readiness; this is the last-line guard so
-    // no code path can start a skill on an unready or stopped robot.
-    if (executionState === "starting" || !robotReady) return;
-
-    setExecutionState("starting");
+  const handleStart = () => {
+    // The button is already gated; this is the last-line guard so no code
+    // path can start a skill on an unready or stopped robot.
+    if (startState === "starting" || !robotReady || skill?.availability !== "ready") return;
+    setStartState("starting");
     startingTimeoutRef.current = setTimeout(() => {
-      setExecutionState("success");
+      startingTimeoutRef.current = null;
+      setStartState("idle");
       setToastVisible(true);
-      toastTimeoutRef.current = setTimeout(() => setToastVisible(false), EXECUTION_TOAST_DURATION_MS);
-    }, EXECUTION_STARTING_DELAY_MS);
+      toastTimeoutRef.current = setTimeout(() => setToastVisible(false), STARTED_TOAST_MS);
+    }, STARTING_DELAY_MS);
   };
 
-  if (task === undefined) {
-    return (
-      <View style={styles.screen}>
-        <View style={styles.loadingHeader}>
-          <ScreenHeader fontsReady={fontsReady} onBack={onBack} title="Đang tải…" />
-        </View>
-      </View>
-    );
-  }
+  const usefulHeight = windowHeight - insets.top - insets.bottom - CHROME_HEIGHT - TAB_BAR_HEIGHT;
+  const heroHeight = Math.round(Math.min(HERO_MAX_HEIGHT, Math.max(HERO_MIN_HEIGHT, usefulHeight * HERO_SHARE)));
 
-  if (task === null) {
-    return (
-      <View style={styles.screen}>
-        <View style={styles.loadingHeader}>
-          <ScreenHeader fontsReady={fontsReady} onBack={onBack} title="Không tìm thấy" />
-        </View>
-        <View style={styles.notFound}>
-          <TriangleAlert color={colors.caution} size={22} />
-          <Text style={[styles.notFoundText, font("body", fontsReady)]}>Kỹ năng này không còn tồn tại.</Text>
-        </View>
-      </View>
-    );
-  }
-
-  const Icon = getTaskIcon(task.icon);
-  const heroHeight = Math.min(
-    HERO_MAX_HEIGHT,
-    Math.max(HERO_MIN_HEIGHT, Math.round(windowHeight * HERO_HEIGHT_RATIO))
+  const backButton = (
+    <Pressable
+      accessibilityLabel="Quay lại"
+      accessibilityRole="button"
+      onPress={onBack}
+      style={({ pressed }) => [styles.overlayButton, styles.overlayLeft, pressed && styles.pressed]}
+    >
+      <ChevronLeft color={colors.textPrimary} size={22} />
+    </Pressable>
   );
-  const heroEmblemSize = Math.min(200, Math.round(windowWidth * 0.42));
-  const heroIconSize = Math.round(heroEmblemSize * 0.46);
-  const heroFadeHeight = Math.round(heroHeight * HERO_FADE_RATIO);
-  const taskFacts = buildTaskFacts(task);
-  // 4 columns fit comfortably at 390px+; below that (375px) it reads
-  // cramped, so fall back to a 2×2 grid rather than shrinking type.
-  const factColumns = windowWidth < 390 ? 2 : 4;
-  const chapters = buildChapters(task, fontsReady, styles);
+
+  if (skill === undefined) {
+    return <View style={styles.screen}>{backButton}</View>;
+  }
+
+  if (skill === null) {
+    // Unknown id (deleted skill, stale link): no fake content, back still works.
+    return (
+      <View style={styles.screen}>
+        {backButton}
+        <View style={styles.notFound}>
+          <TriangleAlert color={colors.textSecondary} size={22} />
+          <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="sectionTitle">
+            Không tìm thấy kỹ năng
+          </SkyText>
+          <SkyText fontsReady={fontsReady} style={styles.centered} tone="secondary">
+            Kỹ năng này không còn tồn tại.
+          </SkyText>
+        </View>
+      </View>
+    );
+  }
+
+  const meta = [formatSkillDuration(skill.durationSeconds), formatSkillLevel(skill.level)].filter(Boolean).join(" · ");
 
   return (
-    <View style={styles.screenWrap}>
+    <View style={styles.screen}>
       <ScrollView
-        accessibilityLabel={`Màn hình chi tiết kỹ năng ${task.name}`}
+        accessibilityLabel={`Chi tiết kỹ năng ${skill.name}`}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        style={styles.screen}
       >
-        {/* Cinematic hero first — media dominates, with "SO-ARM101" and the
-            task name overlaid inside it (HeroStage's caption slot) instead
-            of as a separate text block above the visual. Back/favorite
-            float on top of the stage, same overlay pattern this app already
-            uses elsewhere, legible against any future real photo via
-            HeroStage's own top scrim. */}
-        <View style={styles.heroWrap}>
-          <HeroStage
-            emblemIcon={Icon}
-            emblemSize={heroEmblemSize}
-            fadeHeight={heroFadeHeight}
-            fontsReady={fontsReady}
-            height={heroHeight}
-            iconSize={heroIconSize}
-            imageUrl={task.imageUrl}
-            overline="SO-ARM101"
-            title={task.name}
+        {/* Media first, full width like the Skills stage. Decorative for
+            screen readers — the name below carries the meaning. A real cover
+            (and later a preview poster) drops into the same frame and runs
+            edge to edge under the sheet; the padding only re-centres the
+            placeholder glyph in the part left visible. */}
+        <View style={styles.hero}>
+          <SkillMedia
+            height={heroHeight + SHEET_OVERLAP}
+            shape="stage"
+            skill={skill}
+            style={styles.heroMedia}
           />
-
+          {backButton}
           <Pressable
-            accessibilityLabel="Quay lại"
+            accessibilityLabel={isFavorite ? `Bỏ yêu thích ${skill.name}` : `Yêu thích ${skill.name}`}
             accessibilityRole="button"
-            hitSlop={8}
-            onPress={onBack}
-            style={({ pressed }) => [
-              styles.heroButton,
-              styles.heroButtonLeft,
-              { top: insets.top + spacing.sm },
-              pressed && styles.pressed
-            ]}
-          >
-            <ChevronLeft color={colors.textPrimary} size={22} />
-          </Pressable>
-
-          <Pressable
-            accessibilityLabel={isFavorite ? "Bỏ yêu thích" : "Yêu thích"}
-            accessibilityRole="button"
-            accessibilityState={{ selected: isFavorite }}
-            hitSlop={8}
+            aria-selected={isFavorite}
             onPress={handleToggleFavorite}
-            style={({ pressed }) => [
-              styles.heroButton,
-              styles.heroButtonRight,
-              { top: insets.top + spacing.sm },
-              pressed && styles.pressed
-            ]}
+            style={({ pressed }) => [styles.overlayButton, styles.overlayRight, pressed && styles.pressed]}
           >
             <Heart
-              color={isFavorite ? colors.accentStrong : colors.textPrimary}
-              fill={isFavorite ? colors.accentStrong : "none"}
+              color={isFavorite ? colors.accentInk : colors.textPrimary}
+              fill={isFavorite ? colors.accentInk : "none"}
               size={20}
             />
           </Pressable>
         </View>
 
-        <View style={styles.body}>
-          {/* Premium status card — task context (status, name, one short
-              description), not a dashboard readout. Repeats the task name
-              in a smaller, secondary weight; the hero already said it once,
-              large. */}
-          <View style={styles.statusCard}>
-            <TaskStatusChip fontsReady={fontsReady} size="md" status={task.status} />
-            <Text style={[styles.statusCardTitle, font("display", fontsReady)]}>{task.name}</Text>
-            <Text style={[styles.statusCardDescription, font("body", fontsReady)]}>{task.description}</Text>
+        {/* One continuous sheet from the title to the end of the page: no
+            cards inside, sections are separated by dividers and space. */}
+        <View style={styles.sheet}>
+          {/* Identity: the name once, one human sentence, quiet metadata.
+              Skill availability (Đang học / Sắp có) shows only when it isn't
+              ready — it is about the SKILL, never the robot. */}
+          <View style={styles.identity}>
+            {skill.availability !== "ready" && (
+              <View style={styles.statusRow}>
+                <SkillStatus availability={skill.availability} fontsReady={fontsReady} />
+              </View>
+            )}
+            <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="title">
+              {skill.name}
+            </SkyText>
+            <SkyText fontsReady={fontsReady} tone="secondary">
+              {skill.summary}
+            </SkyText>
+            {meta ? (
+              <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+                {meta}
+              </SkyText>
+            ) : null}
           </View>
 
-          <ExecutionAvailability
-            colors={colors}
-            executionState={executionState}
+          <ActionArea
             fontsReady={fontsReady}
             onCalibrate={onCalibrate}
             onConnect={onConnect}
-            onRunTask={handleRunTask}
+            onStart={handleStart}
             robot={robot}
-            skillName={task.name}
-            status={task.status}
+            skill={skill}
+            startState={startState}
             styles={styles}
+            colors={colors}
           />
 
-          {taskFacts.length > 0 && (
-            <>
-              <View style={styles.divider} />
-              <QuickFacts columns={factColumns} facts={taskFacts} fontsReady={fontsReady} styles={styles} />
-            </>
+          {skill.requirements && skill.requirements.length > 0 && (
+            <Section fontsReady={fontsReady} styles={styles} title="Robot cần…">
+              {skill.requirements.map((item) => (
+                <View key={item} style={styles.row}>
+                  <View style={styles.bullet} />
+                  <SkyText fontsReady={fontsReady} style={styles.rowText}>
+                    {item}
+                  </SkyText>
+                </View>
+              ))}
+            </Section>
           )}
 
-          {chapters.length > 0 && (
-            <>
-              <View style={styles.divider} />
-              <View style={styles.chapters}>{chapters}</View>
-            </>
+          {skill.steps && skill.steps.length > 0 && (
+            <Section fontsReady={fontsReady} styles={styles} title="Cách hoạt động">
+              {skill.steps.map((step, index) => (
+                <View accessibilityLabel={`Bước ${index + 1}: ${step}`} accessible key={step} style={styles.row}>
+                  <SkyText fontsReady={fontsReady} style={styles.stepNumber} tone="secondary" variant="sectionTitle">
+                    {index + 1}
+                  </SkyText>
+                  <SkyText fontsReady={fontsReady} style={styles.rowText}>
+                    {step}
+                  </SkyText>
+                </View>
+              ))}
+            </Section>
           )}
+
+          {skill.expectedOutcome ? (
+            <Section fontsReady={fontsReady} styles={styles} title="Kết quả mong đợi">
+              <SkyText fontsReady={fontsReady}>{skill.expectedOutcome}</SkyText>
+            </Section>
+          ) : null}
         </View>
       </ScrollView>
 
-      <Toast
-        colors={colors}
-        fontsReady={fontsReady}
-        subtitle="Robot đang chuẩn bị"
-        title="Đã bắt đầu kỹ năng"
-        visible={toastVisible}
-      />
+      {/* Local acknowledgement only — see StartState. */}
+      <Toast colors={themeColors} fontsReady={fontsReady} title="Đã bắt đầu kỹ năng" visible={toastVisible} />
     </View>
   );
 }
 
-// Two gates, in order:
-// 1. The SKILL's own status. TRAINING/COMING_SOON never show a fake-disabled
-//    CTA — status affects execution, not discoverability, so those surface
-//    as plain availability copy.
-// 2. The ROBOT's readiness (data/robot.ts — the same resolver Home's
-//    readiness card uses). A ready skill on an unready robot shows the one
-//    action that unblocks it (connect / calibrate), or — under E-STOP — a
-//    visibly unavailable button plus the reason. Only a ready robot gets
-//    "Bắt đầu {skill}".
-//
-// The start itself runs through `executionState` (idle/starting/success/
-// error). There is still no execution backend, so "starting" resolves via a
-// simulated delay owned by the parent screen — this component only renders
-// whichever state it's given.
-function ExecutionAvailability({
+// Readiness + action. The action comes first visually (it is what the page
+// is for); the readiness line under it says why. The robot's state is the
+// one Home shows — same source, same labels, same message.
+function ActionArea({
   colors,
-  executionState,
   fontsReady,
   onCalibrate,
   onConnect,
-  onRunTask,
+  onStart,
   robot,
-  skillName,
-  status,
+  skill,
+  startState,
   styles
 }: {
-  colors: ThemeColors;
-  executionState: TaskExecutionState;
+  colors: SkyNexColors;
   fontsReady: boolean;
   onCalibrate: () => void;
   onConnect: () => void;
-  onRunTask: () => void;
+  onStart: () => void;
   robot: RobotSummary | null;
-  skillName: string;
-  status: TaskStatus;
+  skill: Skill;
+  startState: StartState;
   styles: ReturnType<typeof createStyles>;
 }) {
-  if (status !== "ready") {
-    const isTraining = status === "training";
-
+  // Skill not available yet: nothing to start, so no robot CTA at all.
+  if (skill.availability !== "ready") {
     return (
-      <View style={styles.availabilityRow}>
-        <TriangleAlert color={isTraining ? colors.caution : colors.textSecondary} size={16} />
-        <Text style={[styles.availabilityText, font("body", fontsReady)]}>
-          {isTraining ? "Chưa thể bắt đầu kỹ năng này" : "Kỹ năng này chưa hỗ trợ thực thi"}
-        </Text>
+      <View style={styles.action}>
+        <SkyText fontsReady={fontsReady} tone="secondary">
+          {skill.availability === "learning"
+            ? "Robot đang học kỹ năng này, chưa thể bắt đầu."
+            : "Kỹ năng này sắp có, chưa thể bắt đầu."}
+        </SkyText>
       </View>
     );
   }
 
-  // Readiness resolves within a tick of mounting; render nothing rather
-  // than a CTA that might briefly offer a start the robot can't take.
+  // Readiness resolves within a tick; never flash a start the robot can't take.
   if (!robot) return null;
 
-  if (robot.readiness !== "ready") {
-    const blocked = robot.readiness === "stopped";
-    const action =
-      robot.readiness === "offline"
-        ? { label: "Kết nối robot", hint: "Mở màn hình kết nối", onPress: onConnect }
-        : robot.readiness === "needs-calibration"
-          ? { label: "Hiệu chỉnh", hint: "Mở màn hình hiệu chỉnh", onPress: onCalibrate }
-          : { label: "E-STOP đang bật", hint: "Không khả dụng khi E-STOP đang bật", onPress: undefined };
+  const readinessLine = (
+    <View style={styles.readiness}>
+      <StatusBadge fontsReady={fontsReady} label={READINESS_BADGE_LABEL[robot.readiness]} status={robot.status} />
+      <SkyText fontsReady={fontsReady} style={styles.readinessText} tone="secondary" variant="caption">
+        {robot.message}
+      </SkyText>
+    </View>
+  );
 
+  if (robot.readiness === "offline" || robot.readiness === "needs-calibration") {
+    const offline = robot.readiness === "offline";
     return (
-      <View style={styles.readinessBlock}>
-        {/* The reason, from the same copy Home shows for this state. */}
-        <View style={styles.availabilityRow}>
-          <TriangleAlert color={blocked ? colors.danger : colors.caution} size={16} />
-          <Text style={[styles.availabilityText, font("body", fontsReady)]}>{robot.message}</Text>
-        </View>
-
-        <Pressable
-          accessibilityHint={action.hint}
-          accessibilityLabel={action.label}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: blocked }}
-          disabled={blocked}
-          onPress={action.onPress}
-          style={({ pressed }) => [
-            styles.runButton,
-            blocked && styles.runButtonBlocked,
-            pressed && !blocked && styles.pillPressed
-          ]}
+      <View style={styles.action}>
+        <SkyButton
+          accessibilityHint={offline ? "Mở màn hình kết nối" : "Mở màn hình hiệu chỉnh"}
+          fontsReady={fontsReady}
+          onPress={offline ? onConnect : onCalibrate}
+          size="lg"
         >
-          <Text
-            numberOfLines={1}
-            style={[styles.runButtonText, blocked && styles.runButtonTextBlocked, font("display", fontsReady)]}
-          >
-            {action.label}
-          </Text>
-          {!blocked && (
-            <View style={styles.runButtonIcon}>
-              <ArrowRight color={colors.accent} size={18} />
-            </View>
-          )}
-        </Pressable>
+          {offline ? "Kết nối robot" : "Hiệu chỉnh"}
+        </SkyButton>
+        {readinessLine}
       </View>
     );
   }
 
-  const isStarting = executionState === "starting";
-  const isError = executionState === "error";
-  const label = isStarting ? "Đang gửi lệnh…" : isError ? "Thử lại" : `Bắt đầu ${skillName}`;
-
-  return (
-    <Pressable
-      accessibilityHint={isStarting ? undefined : "Gửi lệnh bắt đầu kỹ năng tới robot"}
-      accessibilityLabel={isStarting ? "Đang gửi lệnh bắt đầu kỹ năng" : label}
-      accessibilityRole="button"
-      accessibilityState={{ busy: isStarting, disabled: isStarting }}
-      disabled={isStarting}
-      onPress={onRunTask}
-      style={({ pressed }) => [
-        styles.runButton,
-        isStarting && styles.runButtonBusy,
-        pressed && !isStarting && styles.pillPressed
-      ]}
-    >
-      <Text numberOfLines={1} style={[styles.runButtonText, font("display", fontsReady)]}>
-        {label}
-      </Text>
-      <View style={styles.runButtonIcon}>
-        {isStarting ? (
-          <ActivityIndicator color={colors.accent} size="small" />
-        ) : isError ? (
-          <TriangleAlert color={colors.danger} size={18} />
-        ) : (
-          <ArrowRight color={colors.accent} size={18} />
-        )}
-      </View>
-    </Pressable>
-  );
-}
-
-// Static product spec row (level/duration/robot/mode) — 4 columns when
-// there's room, a 2×2 grid when there isn't. Either way it's plain
-// typography + spacing: no per-fact card, border, pill, or icon.
-function QuickFacts({
-  columns,
-  facts,
-  fontsReady,
-  styles
-}: {
-  columns: 2 | 4;
-  facts: TaskFact[];
-  fontsReady: boolean;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  const rows = columns === 4 ? [facts] : [facts.slice(0, 2), facts.slice(2, 4)].filter((row) => row.length > 0);
-
-  return (
-    <View style={styles.factsGrid}>
-      {rows.map((row, index) => (
-        <View key={index} style={styles.factsRow}>
-          {row.map((fact) => (
-            <Fact key={fact.label} fontsReady={fontsReady} label={fact.label} styles={styles} value={fact.value} />
-          ))}
+  if (robot.readiness === "stopped") {
+    // Safety state: the start is visibly unavailable (neutral, never orange)
+    // and the reason is in red. Reset stays where it lives — the top bar.
+    return (
+      <View style={styles.action}>
+        <SkyButton
+          accessibilityHint="Không khả dụng khi E-STOP đang bật"
+          accessibilityLabel={`Bắt đầu ${skill.name}`}
+          disabled
+          fontsReady={fontsReady}
+          size="lg"
+        >
+          Bắt đầu
+        </SkyButton>
+        <View accessibilityRole="alert" style={styles.safety}>
+          <ShieldAlert color={colors.statusDanger} size={18} />
+          <View style={styles.safetyText}>
+            <SkyText fontsReady={fontsReady} style={{ color: colors.statusDanger }} variant="sectionTitle">
+              E-STOP đang bật
+            </SkyText>
+            <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+              {robot.message}
+            </SkyText>
+          </View>
         </View>
-      ))}
-    </View>
-  );
-}
+      </View>
+    );
+  }
 
-function Fact({
-  fontsReady,
-  label,
-  styles,
-  value
-}: {
-  fontsReady: boolean;
-  label: string;
-  styles: ReturnType<typeof createStyles>;
-  value: string;
-}) {
+  const starting = startState === "starting";
   return (
-    <View style={styles.fact}>
-      <Text style={[styles.factLabel, font("body", fontsReady)]}>{label}</Text>
-      <Text style={[styles.factValue, font("display", fontsReady)]}>{value}</Text>
+    <View style={styles.action}>
+      <SkyButton
+        accessibilityHint={starting ? undefined : "Bắt đầu kỹ năng trên robot"}
+        accessibilityLabel={starting ? `Đang bắt đầu ${skill.name}` : `Bắt đầu ${skill.name}`}
+        fontsReady={fontsReady}
+        loading={starting}
+        onPress={onStart}
+        size="lg"
+      >
+        {starting ? "Đang bắt đầu…" : "Bắt đầu"}
+      </SkyButton>
+      {readinessLine}
     </View>
   );
 }
 
-// Builds the "Yêu cầu / Quy trình / Kết quả mong đợi" editorial chapters in
-// order, numbering only the chapters a task actually has — so a task
-// missing one field (e.g. no expectedOutcome yet) never leaves a numbering
-// gap like "01, 03".
-function buildChapters(task: Task, fontsReady: boolean, styles: ReturnType<typeof createStyles>): ReactElement[] {
-  const chapters: ReactElement[] = [];
-  let index = 0;
-
-  if (task.requirements && task.requirements.length > 0) {
-    index += 1;
-    chapters.push(
-      <RequirementsSection
-        fontsReady={fontsReady}
-        index={index}
-        key="requirements"
-        requirements={task.requirements}
-        styles={styles}
-      />
-    );
-  }
-
-  if (task.steps && task.steps.length > 0) {
-    index += 1;
-    chapters.push(<ProcessSection fontsReady={fontsReady} index={index} key="steps" steps={task.steps} styles={styles} />);
-  }
-
-  if (task.expectedOutcome) {
-    index += 1;
-    chapters.push(
-      <ExpectedOutcomeSection fontsReady={fontsReady} index={index} key="outcome" outcome={task.expectedOutcome} styles={styles} />
-    );
-  }
-
-  return chapters;
-}
-
-// Shared chapter heading: a restrained mono index ("01") beside a
-// display-weight title. Deliberately smaller than the page title (type.title)
-// so it reads as a section marker, not a second hero heading.
-function SectionHeader({
+// Plain section: thin divider, a quiet heading, content. No chapter numbers,
+// no card around it.
+function Section({
+  children,
   fontsReady,
-  index,
   styles,
   title
 }: {
+  children: ReactNode;
   fontsReady: boolean;
-  index: number;
   styles: ReturnType<typeof createStyles>;
   title: string;
 }) {
   return (
-    <View style={styles.sectionHeader}>
-      <Text style={[styles.sectionIndex, font("mono", fontsReady)]}>{String(index).padStart(2, "0")}</Text>
-      <Text style={[styles.sectionTitle, font("display", fontsReady)]}>{title}</Text>
-    </View>
-  );
-}
-
-// Static task metadata: what the task needs, not a live setup checklist.
-// Deliberately not a checkbox list — nothing here is interactive or
-// tracks completion.
-function RequirementsSection({
-  fontsReady,
-  index,
-  requirements,
-  styles
-}: {
-  fontsReady: boolean;
-  index: number;
-  requirements: string[];
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
     <View style={styles.section}>
-      <SectionHeader fontsReady={fontsReady} index={index} styles={styles} title="Yêu cầu" />
-      <View style={styles.requirementsList}>
-        {requirements.map((item) => (
-          <View key={item} style={styles.requirementRow}>
-            <View style={styles.requirementDot} />
-            <Text style={[styles.requirementText, font("body", fontsReady)]}>{item}</Text>
-          </View>
-        ))}
-      </View>
+      <View style={styles.divider} />
+      <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="sectionTitle">
+        {title}
+      </SkyText>
+      <View style={styles.sectionBody}>{children}</View>
     </View>
   );
 }
 
-// Editorial process list — numbered steps in mono type, no per-step cards
-// or connector lines. This describes what the task does in general, not a
-// live execution timeline with per-step progress. This is the strongest
-// content section on the page, so its own step numbers carry the accent
-// color (the chapter index above stays restrained/textSecondary).
-function ProcessSection({
-  fontsReady,
-  index,
-  steps,
-  styles
-}: {
-  fontsReady: boolean;
-  index: number;
-  steps: string[];
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <View style={styles.section}>
-      <SectionHeader fontsReady={fontsReady} index={index} styles={styles} title="Quy trình" />
-      <View style={styles.stepsList}>
-        {steps.map((step, stepIndex) => (
-          <View key={step} style={styles.stepRow}>
-            <Text style={[styles.stepIndex, font("mono", fontsReady)]}>{String(stepIndex + 1).padStart(2, "0")}</Text>
-            <Text style={[styles.stepText, font("body", fontsReady)]}>{step}</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-// Definition-of-done copy, not a completion/success state — a restrained
-// accent rule on the left marks it as the page's conclusion, with plain
-// text beside it. No card background, no success badge.
-function ExpectedOutcomeSection({
-  fontsReady,
-  index,
-  outcome,
-  styles
-}: {
-  fontsReady: boolean;
-  index: number;
-  outcome: string;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <View style={styles.section}>
-      <SectionHeader fontsReady={fontsReady} index={index} styles={styles} title="Kết quả mong đợi" />
-      <View style={styles.outcomeRow}>
-        <View style={styles.outcomeBar} />
-        <Text style={[styles.outcomeText, font("body", fontsReady)]}>{outcome}</Text>
-      </View>
-    </View>
-  );
-}
-
-function createStyles(colors: ThemeColors) {
+function createStyles(colors: SkyNexColors) {
   return StyleSheet.create({
     screen: {
       backgroundColor: colors.background,
       flex: 1
     },
-    // Wraps the ScrollView so Toast (a sibling, absolutely positioned) is
-    // pinned to the screen's own bounds instead of the scrollable content —
-    // otherwise it would scroll away with the page instead of floating.
-    screenWrap: {
-      flex: 1
-    },
-    loadingHeader: {
-      paddingHorizontal: spacing.xl,
-      paddingTop: spacing.lg
-    },
+    // flexGrow lets the sheet reach the tab bar on short content.
     content: {
-      paddingBottom: spacing.xxxl
+      flexGrow: 1
     },
-    notFound: {
-      alignItems: "center",
-      gap: spacing.sm,
-      paddingHorizontal: spacing.xl,
-      paddingTop: spacing.xxl
-    },
-    notFoundText: {
-      ...type.body,
-      color: colors.textSecondary,
-      textAlign: "center"
-    },
-    // Positions back/favorite as overlays on top of HeroStage — same
-    // pattern this app already uses (see TasksScreen's own hero) — instead
-    // of a separate toolbar row preceding the visual. The hero is the first
-    // thing on screen now, so these float directly on it.
-    heroWrap: {
+    hero: {
       position: "relative"
     },
-    heroButton: {
+    heroMedia: {
+      paddingBottom: SHEET_OVERLAP
+    },
+    overlayButton: {
       alignItems: "center",
       backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderRadius: radius.round,
-      borderWidth: 1,
-      height: 44,
+      borderRadius: corner.pill,
+      height: OVERLAY_BUTTON,
       justifyContent: "center",
       position: "absolute",
-      width: 44
+      top: space.sm,
+      width: OVERLAY_BUTTON,
+      zIndex: 1
     },
-    heroButtonLeft: {
-      left: spacing.md
+    overlayLeft: {
+      left: layout.screenGutter - space.xs
     },
-    heroButtonRight: {
-      right: spacing.md
-    },
-    body: {
-      gap: spacing.lg,
-      paddingHorizontal: spacing.xl,
-      paddingTop: spacing.xl
-    },
-    // Task context, not a dashboard readout — one card, no per-field
-    // borders/pills beyond the status chip it already reuses.
-    statusCard: {
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderRadius: radius.card,
-      borderWidth: 1,
-      gap: spacing.sm,
-      padding: spacing.lg
-    },
-    statusCardTitle: {
-      ...type.title,
-      color: colors.textPrimary
-    },
-    statusCardDescription: {
-      ...type.body,
-      color: colors.textSecondary
-    },
-    divider: {
-      backgroundColor: colors.border,
-      height: 1,
-      width: "100%"
-    },
-    factsGrid: {
-      gap: spacing.lg
-    },
-    factsRow: {
-      flexDirection: "row",
-      gap: spacing.lg
-    },
-    fact: {
-      flex: 1,
-      gap: spacing.xs
-    },
-    // Uppercase + tracked-out, same micro-label idiom TasksScreen's own
-    // hero metadata line already uses — reads as a product spec sheet
-    // rather than a form's field labels.
-    factLabel: {
-      ...type.small,
-      color: colors.textSecondary,
-      letterSpacing: 0.5,
-      textTransform: "uppercase"
-    },
-    // Medium weight, not bodyStrong — this is now a supporting technical
-    // detail below the status card and hero, not content competing with
-    // them for attention.
-    factValue: {
-      ...type.body,
-      color: colors.textPrimary
-    },
-    chapters: {
-      gap: spacing.xxl
-    },
-    section: {
-      gap: spacing.md
-    },
-    sectionHeader: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: spacing.sm
-    },
-    sectionIndex: {
-      ...type.mono,
-      color: colors.textSecondary
-    },
-    sectionTitle: {
-      color: colors.textPrimary,
-      fontSize: 18,
-      fontWeight: "700",
-      lineHeight: 24
-    },
-    requirementsList: {
-      gap: spacing.md
-    },
-    requirementRow: {
-      flexDirection: "row",
-      gap: spacing.sm
-    },
-    requirementDot: {
-      backgroundColor: colors.accentStrong,
-      borderRadius: radius.round,
-      height: 6,
-      marginTop: 8,
-      width: 6
-    },
-    requirementText: {
-      ...type.body,
-      color: colors.textPrimary,
-      flex: 1
-    },
-    // More vertical room per step (gap + paddingVertical both up from the
-    // previous, tighter pass) — a numbered task flow to scan at a glance,
-    // not a dense documentation list.
-    stepsList: {
-      gap: spacing.sm
-    },
-    stepRow: {
-      flexDirection: "row",
-      gap: spacing.md,
-      paddingVertical: spacing.md
-    },
-    stepIndex: {
-      ...type.mono,
-      color: colors.accentStrong,
-      paddingTop: 3,
-      width: 28
-    },
-    stepText: {
-      ...type.bodyStrong,
-      color: colors.textPrimary,
-      flex: 1
-    },
-    outcomeRow: {
-      alignItems: "stretch",
-      flexDirection: "row",
-      gap: spacing.md
-    },
-    outcomeBar: {
-      backgroundColor: colors.accentStrong,
-      borderRadius: 1,
-      width: 2
-    },
-    outcomeText: {
-      ...type.body,
-      color: colors.textPrimary,
-      flex: 1
-    },
-    runButton: {
-      alignItems: "center",
-      backgroundColor: colors.accent,
-      borderRadius: radius.round,
-      flexDirection: "row",
-      justifyContent: "space-between",
-      minHeight: 60,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md
-    },
-    // Kept on the same accent fill as idle (not `surfaceSecondary`, this
-    // app's usual "disabled" treatment) — it's temporarily busy, not
-    // unavailable, so it should still read as the same action in progress.
-    runButtonBusy: {
-      opacity: 0.85
-    },
-    // E-STOP: visibly unavailable on the app's neutral "disabled" surface —
-    // never a dimmed lime, which would still read as the go action.
-    runButtonBlocked: {
-      backgroundColor: colors.surfaceSecondary
-    },
-    runButtonTextBlocked: {
-      color: colors.textSecondary
-    },
-    readinessBlock: {
-      gap: spacing.md
-    },
-    runButtonText: {
-      ...type.title,
-      color: colors.accentForeground
-    },
-    runButtonIcon: {
-      alignItems: "center",
-      backgroundColor: colors.accentForeground,
-      borderRadius: radius.round,
-      height: 36,
-      justifyContent: "center",
-      width: 36
-    },
-    availabilityRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: spacing.sm
-    },
-    availabilityText: {
-      ...type.body,
-      color: colors.textPrimary,
-      flex: 1
-    },
-    pillPressed: {
-      opacity: 0.85,
-      transform: [{ scale: 0.98 }]
+    overlayRight: {
+      right: layout.screenGutter - space.xs
     },
     pressed: {
       opacity: 0.78
+    },
+    sheet: {
+      backgroundColor: colors.background,
+      borderTopLeftRadius: SHEET_RADIUS,
+      borderTopRightRadius: SHEET_RADIUS,
+      flexGrow: 1,
+      marginTop: -SHEET_OVERLAP,
+      paddingBottom: space.xxxl,
+      paddingHorizontal: space.lg,
+      paddingTop: layout.sectionGap
+    },
+    identity: {
+      gap: space.xs
+    },
+    statusRow: {
+      alignItems: "flex-start",
+      marginBottom: space.xxs
+    },
+    action: {
+      gap: space.md,
+      marginTop: layout.sectionGap
+    },
+    readiness: {
+      alignItems: "center",
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: space.sm
+    },
+    readinessText: {
+      flexShrink: 1
+    },
+    safety: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: space.sm
+    },
+    safetyText: {
+      flex: 1,
+      gap: space.xxs
+    },
+    section: {
+      gap: space.md,
+      marginTop: layout.sectionGap
+    },
+    divider: {
+      backgroundColor: colors.border,
+      height: StyleSheet.hairlineWidth,
+      marginBottom: space.xs
+    },
+    sectionBody: {
+      gap: space.md
+    },
+    row: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: space.md
+    },
+    rowText: {
+      flex: 1
+    },
+    // Quiet dot, aligned to the first line of body text.
+    bullet: {
+      backgroundColor: colors.textSecondary,
+      borderRadius: corner.pill,
+      height: 6,
+      marginLeft: 6,
+      marginTop: 8,
+      width: 6
+    },
+    stepNumber: {
+      textAlign: "center",
+      width: 18
+    },
+    notFound: {
+      alignItems: "center",
+      flex: 1,
+      gap: space.sm,
+      justifyContent: "center",
+      padding: layout.screenGutter
+    },
+    centered: {
+      textAlign: "center"
     }
   });
 }

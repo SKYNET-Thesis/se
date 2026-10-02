@@ -1,6 +1,6 @@
 import { ChevronRight } from "lucide-react-native";
 import { Pressable, StyleSheet, View } from "react-native";
-import { RobotSummary } from "../../data/robot";
+import { READINESS_BADGE_LABEL, RobotSummary } from "../../data/robot";
 import { corner } from "../../design-system/radius";
 import { layout } from "../../design-system/spacing";
 import { useSkyNexTokens } from "../../design-system/tokens";
@@ -16,12 +16,7 @@ type Props = {
   summary: RobotSummary;
 };
 
-const BADGE_LABEL: Record<RobotSummary["readiness"], string> = {
-  offline: "Ngoại tuyến",
-  stopped: "E-STOP",
-  "needs-calibration": "Cần hiệu chỉnh",
-  ready: "Sẵn sàng"
-};
+
 
 // Robot state + the single next action. The CTA always matches the first
 // unmet readiness gate (see data/robot.ts), so the one lime action on Home
@@ -41,7 +36,7 @@ export function RobotReadinessCard({
   return (
     <SkyCard style={styles.card}>
       <View style={styles.headerRow}>
-        <StatusBadge fontsReady={fontsReady} label={BADGE_LABEL[summary.readiness]} status={summary.status} />
+        <StatusBadge fontsReady={fontsReady} label={READINESS_BADGE_LABEL[summary.readiness]} status={summary.status} />
         {/*
           Restrained, text-only way into StatusScreen — the only entry now
           that Status isn't a bottom tab. Must never compete with the CTA.

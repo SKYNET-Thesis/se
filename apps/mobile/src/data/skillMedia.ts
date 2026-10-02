@@ -17,8 +17,8 @@ import { getSkillIcon, SkillIconComponent } from "./skillIcons";
 const BUNDLED_MEDIA: Record<string, number> = {};
 
 // Placeholder services and generic dummy-image hosts never count as media —
-// the one shared version of the check FeaturedTaskCard, TaskCard's grid
-// tile and HeroStage each carry a copy of today.
+// the one shared version of the check FeaturedTaskCard and TaskCard's grid
+// tile each carry a copy of today.
 export function hasRealMedia(url?: string): boolean {
   return !!url && !/placehold|placeholder|dummyimage/i.test(url);
 }
