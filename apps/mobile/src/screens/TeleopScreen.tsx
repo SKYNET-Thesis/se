@@ -41,7 +41,7 @@ type JogCommand = {
 };
 
 type Props = {
-  // Owned by App.tsx (GlobalChrome sets and resets it). Read only here —
+  // Owned by App.tsx (the floating E-STOP sets it; Reset clears it). Read only here —
   // this screen never stops or resets anything itself.
   emergencyStopped: boolean;
   fontsReady: boolean;
@@ -349,7 +349,7 @@ export function TeleopScreen({ emergencyStopped, fontsReady, onBack, onCalibrate
 
 // Compact shared readiness — the same badge, labels and message as Home,
 // Skill Detail and the Robot hub. Blocked states carry the one action that
-// unblocks them; E-STOP only explains (Reset lives in the top bar).
+// unblocks them; E-STOP only explains (Reset lives beside the floating E-STOP).
 function RobotState({
   colors,
   emergencyStopped,

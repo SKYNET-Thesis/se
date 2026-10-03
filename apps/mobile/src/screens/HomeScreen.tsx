@@ -1,4 +1,4 @@
-import { ArrowRight, Bot, Check, Radio, ShieldAlert, TriangleAlert } from "lucide-react-native";
+import { ArrowRight, Bot, Check, Radio, ShieldAlert, TriangleAlert, User } from "lucide-react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
@@ -39,6 +39,8 @@ type Props = {
   emergencyStopped: boolean;
   fontsReady: boolean;
   isRobotMotionActive?: boolean;
+  // Shortcut into Settings > Tài khoản (moved here from the old top bar).
+  onOpenAccount: () => void;
   onOpenTask: (taskId: string) => void;
   reduceMotion: boolean;
   onOpenRoute: (route: HomeRoute) => void;
@@ -74,6 +76,7 @@ export function HomeScreen({
   emergencyStopped,
   fontsReady,
   isRobotMotionActive = false,
+  onOpenAccount,
   onOpenRoute,
   onOpenStatus,
   onOpenTask,
@@ -129,6 +132,23 @@ export function HomeScreen({
       showsVerticalScrollIndicator={false}
       style={[homeStyles.screen, { backgroundColor: colors.background }]}
     >
+      <View style={homeStyles.topRow}>
+        <Pressable
+          accessibilityHint="Mở Cài đặt, mục Tài khoản"
+          accessibilityLabel="Tài khoản"
+          accessibilityRole="button"
+          hitSlop={4}
+          onPress={onOpenAccount}
+          style={({ pressed }) => [
+            homeStyles.avatar,
+            { backgroundColor: colors.surfaceRaised, borderColor: colors.border },
+            pressed && homeStyles.pressed
+          ]}
+        >
+          <User color={colors.textSecondary} size={18} strokeWidth={2} />
+        </Pressable>
+      </View>
+
       <RobotHero
         fontsReady={fontsReady}
         headline={summary?.headline ?? ""}
@@ -205,6 +225,17 @@ export function HomeScreen({
 const homeStyles = StyleSheet.create({
   screen: {
     flex: 1
+  },
+  topRow: {
+    flexDirection: "row"
+  },
+  avatar: {
+    alignItems: "center",
+    borderRadius: radius.round,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: "center",
+    width: 40
   },
   screenContent: {
     gap: layout.sectionGap,

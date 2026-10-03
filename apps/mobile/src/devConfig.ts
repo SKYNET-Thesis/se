@@ -11,7 +11,7 @@ import { ThemeMode } from "./theme";
 // is the app's default appearance whenever no persisted choice exists.
 //
 // The Home avatar no longer touches theme at all; it navigates to
-// Settings > Tài khoản (see GlobalChrome.tsx / App.tsx).
+// Settings > Tài khoản (see HomeScreen.tsx / App.tsx).
 export const DEV_INITIAL_THEME_MODE: ThemeMode = "dark";
 
 // Dev/QA-only entry-flow overrides. Independent of each other, so each part

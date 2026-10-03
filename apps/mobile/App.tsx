@@ -27,7 +27,7 @@ function AppRoot() {
   // E-STOP's single source of truth. Deliberately ABOVE the entry gate: the
   // main app (MainShell) can mount and unmount — e.g. on sign-out — without
   // ever resetting a stop. Resetting stays an explicit, confirmed action
-  // (MainShell's Reset modal). GlobalChrome's button and Phone Teleop's
+  // (MainShell's Reset modal). The floating E-STOP and Phone Teleop's
   // fullscreen overlay button both call the same activation setter instead
   // of each owning their own "stopped" state.
   const [emergencyStopped, setEmergencyStopped] = useState(false);

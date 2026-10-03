@@ -55,7 +55,7 @@ type SystemState = "normal" | "disconnected" | "calibration-incomplete" | "emerg
 
 // Swap this during development/QA to preview any mock state below. The real
 // `emergencyStopped` prop always overrides it once wired to a live signal,
-// so GlobalChrome's E-STOP stays the single source of truth for that state.
+// so App.tsx's E-STOP stays the single source of truth for that state.
 const MOCK_STATE: SystemState = "normal";
 
 const SNAPSHOTS: Record<Exclude<SystemState, "loading">, StatusSnapshot> = {

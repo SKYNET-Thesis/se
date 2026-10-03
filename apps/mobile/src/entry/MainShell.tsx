@@ -2,8 +2,8 @@ import { useNavigationContainerRef } from "@react-navigation/native";
 import { ShieldAlert, X } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { GlobalChrome } from "../components/GlobalChrome";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { FloatingEStop } from "../components/FloatingEStop";
 import { AppNavigator, RootTabParamList } from "../navigation/AppNavigator";
 import { font, radius, spacing, ThemeColors, type } from "../theme";
 import { useAppTheme } from "../ThemeContext";
@@ -20,10 +20,15 @@ type Props = {
   onResetEmergencyStop: () => void;
 };
 
-// The main app as the user knows it: GlobalChrome (with E-STOP) above the
-// tab navigator, plus the Reset confirmation. Moved out of App.tsx as-is —
-// mounted only in the entry flow's "app" phase, so the tabs never mount
-// early and the chrome never appears over onboarding or the auth entry.
+// The main app as the user knows it: the tab navigator, the floating E-STOP
+// above every screen, and the Reset confirmation. Mounted only in the entry
+// flow's "app" phase, so the tabs never mount early and E-STOP never
+// appears over onboarding or the auth entry.
+//
+// No top bar: the shell reserves no row and no top safe-area edge. Each
+// screen gets the top inset from the navigator (AppNavigator's scene
+// padding), except hero screens that opt into running edge-to-edge behind
+// the status bar (the Skills library).
 export function MainShell({
   emergencyStopped,
   fontsReady,
@@ -33,13 +38,12 @@ export function MainShell({
 }: Props) {
   const { colors: themeColors } = useAppTheme();
   const styles = useMemo(() => createStyles(themeColors), [themeColors]);
+  const insets = useSafeAreaInsets();
   const [resetConfirmVisible, setResetConfirmVisible] = useState(false);
-  const [activeRouteName, setActiveRouteName] = useState<string | undefined>("HomeMain");
-  // Owned here (not inside AppNavigator) so the Home avatar's "open Settings
-  // > Tài khoản" shortcut below can imperatively navigate — GlobalChrome is
-  // mounted above the whole navigator and has no navigation prop of its own.
+  // Measured by the tab navigator, so the E-STOP's drag region always ends
+  // above the real tab bar (0 while it is hidden, e.g. under the keyboard).
+  const [tabBarHeight, setTabBarHeight] = useState(0);
   const navigationRef = useNavigationContainerRef<RootTabParamList>();
-  const openAccountSettings = () => navigationRef.current?.navigate("Settings");
 
   const requestResetEmergencyStop = () => {
     setResetConfirmVisible(true);
@@ -55,30 +59,34 @@ export function MainShell({
   };
 
   return (
-    <>
+    <View style={styles.root}>
       <SafeAreaView
-        edges={["top", "left", "right", "bottom"]}
+        edges={["left", "right", "bottom"]}
         style={[styles.safe, { backgroundColor: themeColors.background }]}
       >
-        <GlobalChrome
-          emergencyStopped={emergencyStopped}
-          fontsReady={fontsReady}
-          isHome={activeRouteName === "HomeMain"}
-          onEmergencyStop={onEmergencyStop}
-          onOpenAccount={openAccountSettings}
-          onResetEmergencyStop={requestResetEmergencyStop}
-        />
         <View style={styles.content}>
           <AppNavigator
             emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
             navigationRef={navigationRef}
-            onActiveRouteChange={setActiveRouteName}
             onEmergencyStop={onEmergencyStop}
+            onTabBarHeightChange={setTabBarHeight}
             reduceMotion={reduceMotion}
           />
         </View>
       </SafeAreaView>
+
+      {/* Above every screen. Same App.tsx handler as before; Reset opens the
+          same confirmation below. */}
+      <FloatingEStop
+        bottomReserved={insets.bottom + tabBarHeight}
+        emergencyStopped={emergencyStopped}
+        fontsReady={fontsReady}
+        onEmergencyStop={onEmergencyStop}
+        onRequestReset={requestResetEmergencyStop}
+        reduceMotion={reduceMotion}
+        topInset={insets.top}
+      />
 
       <ResetConfirmModal
         colors={themeColors}
@@ -88,7 +96,7 @@ export function MainShell({
         styles={styles}
         visible={resetConfirmVisible}
       />
-    </>
+    </View>
   );
 }
 
@@ -157,6 +165,9 @@ function ResetConfirmModal({
 
 function createStyles(colors: ThemeColors) {
   return StyleSheet.create({
+    root: {
+      flex: 1
+    },
     safe: {
       flex: 1,
       backgroundColor: colors.background

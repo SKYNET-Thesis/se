@@ -5,6 +5,7 @@ import {
   NavigatorScreenParams
 } from "@react-navigation/native";
 import {
+  BottomTabBar,
   BottomTabNavigationProp,
   BottomTabScreenProps,
   createBottomTabNavigator
@@ -13,6 +14,7 @@ import { createNativeStackNavigator, NativeStackScreenProps } from "@react-navig
 import { Bot, Camera, Hand, LayoutGrid, Settings as SettingsIcon } from "lucide-react-native";
 import { RefObject, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { enableScreens } from "react-native-screens";
 import { CalibrateScreen } from "../screens/CalibrateScreen";
 import { CameraScreen } from "../screens/CameraScreen";
@@ -85,22 +87,14 @@ type AppNavigatorProps = {
   emergencyStopped: boolean;
   fontsReady: boolean;
   reduceMotion: boolean;
-  // Lets GlobalChrome (mounted once, above this whole navigator) know the
-  // deepest active route name so it can show Home's product-first header
-  // (avatar, no wordmark) only on Home's own screen — not on a TaskDetail
-  // pushed from Home, which already has its own header via the hero.
-  onActiveRouteChange?: (routeName: string | undefined) => void;
-  // Owned by App.tsx (via useNavigationContainerRef) so the Home avatar's
-  // "open Settings > Tài khoản" shortcut can imperatively navigate from
-  // GlobalChrome, which is mounted above this whole navigator and has no
-  // navigation prop of its own.
   navigationRef: RefObject<NavigationContainerRef<RootTabParamList> | null>;
-  // Same activation callback GlobalChrome's own E-STOP button calls —
-  // threaded only as far as Phone Teleop's fullscreen overlay, which is the
-  // one surface that visually covers GlobalChrome and would otherwise leave
-  // a user with no E-STOP control while potentially driving the robot live.
+  // Same activation callback the floating E-STOP calls — threaded only as
+  // far as Phone Teleop's fullscreen view, a native Modal that covers the
+  // whole app (the floating E-STOP included) and so carries its own.
   // Not a new state source: App.tsx still owns `emergencyStopped` alone.
   onEmergencyStop: () => void;
+  // The real tab bar height, for the floating E-STOP's safe drag region.
+  onTabBarHeightChange: (height: number) => void;
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -143,26 +137,32 @@ export function AppNavigator({
   emergencyStopped,
   fontsReady,
   navigationRef,
-  onActiveRouteChange,
   onEmergencyStop,
+  onTabBarHeightChange,
   reduceMotion
 }: AppNavigatorProps) {
   const { colors: themeColors } = useAppTheme();
   const navigationTheme = useNavigationTheme(themeColors);
-  const reportActiveRoute = () => onActiveRouteChange?.(navigationRef.current?.getCurrentRoute()?.name);
+  const insets = useSafeAreaInsets();
 
   return (
-    <NavigationContainer
-      onReady={reportActiveRoute}
-      onStateChange={reportActiveRoute}
-      ref={navigationRef}
-      theme={navigationTheme}
-    >
+    <NavigationContainer ref={navigationRef} theme={navigationTheme}>
       <Tab.Navigator
         initialRouteName="Home"
+        // The stock tab bar, measured: its real height (0 while hidden under
+        // the keyboard) bounds the floating E-STOP's drag region.
+        tabBar={(props) => (
+          <View onLayout={(event) => onTabBarHeightChange(event.nativeEvent.layout.height)}>
+            <BottomTabBar {...props} />
+          </View>
+        )}
         screenOptions={({ route }) => ({
           headerShown: false,
           lazy: true,
+          // The one top-inset rule: every screen starts below the status
+          // bar, except the Skills tab, whose library hero runs edge to edge
+          // (its stack re-applies the inset to everything else it pushes).
+          sceneStyle: { paddingTop: route.name === SkyNexTabs.SKILLS ? 0 : insets.top },
           // Bare lime reads almost invisibly on Light's near-white tab bar
           // (~1.3:1) — accentStrong is the same lime family, deepened only
           // enough on Light to clear contrast; on Dark it equals accent
@@ -349,6 +349,7 @@ function HomeMainScreen({
     <HomeScreen
       emergencyStopped={emergencyStopped}
       fontsReady={fontsReady}
+      onOpenAccount={() => navigation.getParent<BottomTabNavigationProp<RootTabParamList>>()?.navigate("Settings")}
       onOpenTask={(taskId) => navigation.navigate("TaskDetail", { taskId })}
       onOpenRoute={handleOpenRoute}
       onOpenStatus={() => navigation.navigate("Status")}
@@ -362,16 +363,18 @@ function HomeMainScreen({
 
 function TasksStackScreen({ emergencyStopped, fontsReady }: Pick<AppNavigatorProps, "emergencyStopped" | "fontsReady">) {
   const { colors: themeColors } = useAppTheme();
+  const insets = useSafeAreaInsets();
 
   return (
     <TaskStack.Navigator
       initialRouteName="TasksList"
       screenOptions={{
-        contentStyle: { backgroundColor: themeColors.background },
+        contentStyle: { backgroundColor: themeColors.background, paddingTop: insets.top },
         headerShown: false
       }}
     >
-      <TaskStack.Screen name="TasksList">
+      {/* Edge to edge: the library hero runs behind the status bar. */}
+      <TaskStack.Screen name="TasksList" options={{ contentStyle: { backgroundColor: themeColors.background } }}>
         {({ navigation }: NativeStackScreenProps<TaskStackParamList, "TasksList">) => (
           <TasksScreen
             fontsReady={fontsReady}

@@ -302,7 +302,7 @@ export function ConnectScreen({ emergencyStopped, fontsReady, reduceMotion, onBa
         <View style={styles.stoppedBanner}>
           <ShieldAlert color={colors.danger} size={18} />
           <Text style={[styles.stoppedText, font("body", fontsReady)]}>
-            Hệ thống đang E-STOP — không thể quét cổng hay kết nối. Reset E-STOP ở thanh trạng thái để tiếp tục.
+            Hệ thống đang E-STOP — không thể quét cổng hay kết nối. Nhấn Reset cạnh nút E-STOP để tiếp tục.
           </Text>
         </View>
       )}

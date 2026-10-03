@@ -25,7 +25,7 @@ export type SkyButtonProps = Omit<PressableProps, "children" | "style"> & {
 // - primary: the brand lime fill. Meant to be the ONE dominant action on a
 //   screen — the same rule TaskDetail's "Chạy tác vụ" CTA already follows.
 // - secondary: neutral raised fill + border (Connect's action buttons).
-// - danger: red fill (GlobalChrome's E-STOP treatment).
+// - danger: red fill (the E-STOP treatment).
 // Loading keeps the label visible next to a spinner so the button reads as
 // the same action in progress, not as a different control.
 export function SkyButton({

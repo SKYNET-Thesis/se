@@ -3,7 +3,7 @@ import { Image, StyleProp, StyleSheet, View, ViewStyle } from "react-native";
 import { resolveSkillVisual } from "../../data/skillMedia";
 import { corner } from "../../design-system/radius";
 import { SkyNexColors, useSkyNexTokens } from "../../design-system/tokens";
-import { Skill } from "../../types/skill";
+import { MediaRef, Skill } from "../../types/skill";
 
 // Frame shapes, fixed per placement and never dependent on whether media
 // exists — that is what lets a real photo (or video) replace today's icon
@@ -42,6 +42,9 @@ type Props = {
   rounded?: boolean;
   // Overlays positioned by the caller (status, favorite).
   children?: ReactNode;
+  // Placement-level art shown instead of the skill's own cover (the Skills
+  // library hero). Same frame and fallback rules as a skill cover.
+  cover?: MediaRef;
   style?: StyleProp<ViewStyle>;
 };
 
@@ -56,10 +59,10 @@ type Props = {
 //
 // Decorative for screen readers: the card or hero around it carries the
 // skill's name as its label.
-export function SkillMedia({ aspectRatio, children, height, rounded = false, shape, skill, style }: Props) {
+export function SkillMedia({ aspectRatio, children, cover, height, rounded = false, shape, skill, style }: Props) {
   const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const visual = resolveSkillVisual(skill);
+  const visual = resolveSkillVisual(cover ? { icon: skill.icon, media: { ...skill.media, cover } } : skill);
   const size = height !== undefined ? { height } : { aspectRatio: aspectRatio ?? SKILL_MEDIA_ASPECT[shape] };
 
   return (
@@ -69,7 +72,9 @@ export function SkillMedia({ aspectRatio, children, height, rounded = false, sha
       style={[styles.frame, size, rounded && styles.rounded, style]}
     >
       {visual.kind === "media" ? (
-        <Image accessibilityIgnoresInvertColors resizeMode="cover" source={visual.source} style={styles.image} />
+        <View pointerEvents="none" style={styles.imageFill}>
+          <Image accessibilityIgnoresInvertColors resizeMode="cover" source={visual.source} style={styles.image} />
+        </View>
       ) : (
         <visual.Icon color={colors.textSecondary} size={ICON_SIZE[shape]} strokeWidth={1.5} />
       )}
@@ -93,10 +98,20 @@ function createStyles(colors: SkyNexColors) {
     // Fills the whole frame regardless of any padding the caller adds — that
     // padding only re-centres the placeholder glyph (e.g. SkillHero clear of
     // a tray that overlaps its bottom edge); a photo still runs edge to edge.
-    image: {
-      position: "absolute",
-      top: 0,
+    // The photo fills the WHOLE frame, padding included. An absolute
+    // child's % size on native resolves against the frame's content box
+    // (Yoga errata AbsolutePercentAgainstInnerSize), so a padded frame (the
+    // Skills hero's sheet overlap) would cut the photo short on iOS/Android.
+    // Edge insets span the padding box everywhere, so this wrapper is
+    // exactly frame-sized; it has no padding, so the image's 100% is too.
+    imageFill: {
+      bottom: 0,
       left: 0,
+      position: "absolute",
+      right: 0,
+      top: 0
+    },
+    image: {
       height: "100%",
       width: "100%"
     }

@@ -15,7 +15,7 @@ export type AuthStackParamList = {
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 
 // The account-access flow, entirely separate from the main app's
-// AppNavigator (its own container, no tabs, no GlobalChrome / E-STOP).
+// AppNavigator (its own container, no tabs, no floating E-STOP).
 // AppEntry mounts it only in the "auth" phase, so leaving it — e.g.
 // "Tiếp tục không cần tài khoản" — unmounts the whole stack: back can never
 // return here from the app. Welcome is the root, so system back on it

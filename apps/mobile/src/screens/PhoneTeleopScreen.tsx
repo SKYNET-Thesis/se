@@ -27,15 +27,15 @@ import { isPhoneARNativeAvailable, PhoneARPose, PhoneARView } from "../../module
 import { gripperSlideVelocity } from "../services/gripperSlide";
 
 type Props = {
-  // Owned by App.tsx (GlobalChrome sets and resets it). Read only here.
+  // Owned by App.tsx (the floating E-STOP sets it; Reset clears it). Read only here.
   emergencyStopped: boolean;
   fontsReady: boolean;
   onBack: () => void;
   onCalibrate: () => void;
   onConnect: () => void;
-  // Fires the same App.tsx-owned E-STOP activation GlobalChrome's own
+  // Fires the same App.tsx-owned E-STOP activation the floating E-STOP
   // button calls. Needed here specifically because the fullscreen motion
-  // view below is a full-bleed overlay that visually covers GlobalChrome
+  // view below is a native Modal that covers the whole app, the floating E-STOP
   // entirely — without this, a user actively driving the robot in that
   // mode would have no E-STOP control on screen at all.
   onEmergencyStop: () => void;
@@ -708,7 +708,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
 
           {/*
             Always rendered and last, so it stacks on top: this modal is the
-            one surface that covers GlobalChrome, so it carries its own
+            one surface that covers the floating E-STOP, so it carries its own
             E-STOP entry point — the same App.tsx activation callback, no
             separate stopped state, no reset here.
           */}
@@ -1048,7 +1048,7 @@ function createStyles(colors: SkyNexColors) {
       position: "absolute",
       right: space.lg
     },
-    // Same danger/onDanger pairing as GlobalChrome's own E-STOP button.
+    // Same danger/onDanger pairing as the floating E-STOP.
     fullscreenEstop: {
       alignItems: "center",
       backgroundColor: colors.statusDanger,

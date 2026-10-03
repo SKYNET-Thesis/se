@@ -11,7 +11,7 @@ import { useRobotSummary } from "../hooks/useRobotSummary";
 export type RobotHubRoute = "teleop" | "phone-teleop" | "connect" | "calibrate" | "status";
 
 type Props = {
-  // Owned by App.tsx — the same flag GlobalChrome sets and resets. The hub
+  // Owned by App.tsx — the same flag the floating E-STOP sets and Reset clears. The hub
   // only reads it; it never stops or resets anything itself.
   emergencyStopped: boolean;
   fontsReady: boolean;
@@ -148,7 +148,7 @@ export function RobotHubScreen({ emergencyStopped, fontsReady, onOpenRoute }: Pr
             </View>
 
             {robot.readiness === "stopped" ? (
-              // Explains the stop; Reset stays in GlobalChrome only.
+              // Explains the stop; Reset stays beside the floating E-STOP only.
               <View accessibilityRole="alert" style={styles.safety}>
                 <ShieldAlert color={colors.statusDanger} size={18} />
                 <View style={styles.safetyText}>

@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { Pressable, StyleProp, StyleSheet, View, ViewStyle } from "react-native";
 import { layout, space } from "../../design-system/spacing";
-import { Skill } from "../../types/skill";
+import { MediaRef, Skill } from "../../types/skill";
 import { SkyText } from "../ui";
 import { SkillMedia } from "./SkillMedia";
 
@@ -29,6 +29,8 @@ type Props = {
   // placeholder glyph centres in the part of the stage left visible when
   // the screen overlaps its lower edge. Real media still fills the frame.
   mediaStyle?: StyleProp<ViewStyle>;
+  // Placement art instead of the skill's own cover (see SkillMedia).
+  cover?: MediaRef;
   fontsReady?: boolean;
   style?: StyleProp<ViewStyle>;
 };
@@ -46,6 +48,7 @@ export function SkillHero({
   accessibilityHint,
   accessibilityLabel,
   aspectRatio,
+  cover,
   fontsReady = true,
   height,
   mediaStyle,
@@ -59,6 +62,7 @@ export function SkillHero({
     <>
       <SkillMedia
         aspectRatio={aspectRatio}
+        cover={cover}
         height={height}
         rounded={rounded}
         shape="stage"

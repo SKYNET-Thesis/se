@@ -27,7 +27,8 @@ type Props = {
   onConnect: () => void;
 };
 
-// GlobalChrome and the tab bar sit outside this screen (same constants as
+// The former top-bar row (removed in 6.3.1; kept here so this layout
+// doesn't change) and the tab bar sit outside this screen (same constants as
 // Home / Skills), so the hero is sized against the space the user sees.
 const CHROME_HEIGHT = 64;
 const TAB_BAR_HEIGHT = 64;
@@ -346,7 +347,7 @@ function ActionArea({
 
   if (robot.readiness === "stopped") {
     // Safety state: the start is visibly unavailable (neutral, never orange)
-    // and the reason is in red. Reset stays where it lives — the top bar.
+    // and the reason is in red. Reset stays where it lives — beside the floating E-STOP.
     return (
       <View style={styles.action}>
         <SkyButton

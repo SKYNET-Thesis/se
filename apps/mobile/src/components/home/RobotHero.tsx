@@ -16,7 +16,7 @@ type Props = {
   reduceMotion: boolean;
 };
 
-// GlobalChrome (single row) and the bottom tab bar are fixed heights that
+// The former top-bar row (removed in 6.3.1; kept so Home doesn't change) and the bottom tab bar are fixed heights that
 // live outside this screen; sizing the hero against the space actually left
 // after them keeps the title/subtitle visually tied to the thumb-zone CTAs.
 const CHROME_HEIGHT = 64;

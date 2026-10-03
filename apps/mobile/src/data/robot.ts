@@ -85,7 +85,7 @@ const READINESS_HEADLINE: Record<RobotReadiness, string> = {
 
 const READINESS_MESSAGE: Record<RobotReadiness, string> = {
   offline: "Kết nối robot để bắt đầu sử dụng kỹ năng.",
-  stopped: "Robot sẽ không di chuyển. Nhấn Reset ở trên cùng khi đã an toàn.",
+  stopped: "Robot sẽ không di chuyển. Nhấn Reset cạnh nút E-STOP khi đã an toàn.",
   "needs-calibration": "Robot đã kết nối. Hiệu chỉnh một lần để robot di chuyển chính xác.",
   ready: "Đã kết nối và hiệu chỉnh xong."
 };
