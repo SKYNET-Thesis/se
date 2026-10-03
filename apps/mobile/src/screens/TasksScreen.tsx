@@ -1,4 +1,5 @@
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
+import { StatusBar } from "expo-status-bar";
 import { Heart } from "lucide-react-native";
 import { ComponentType, useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
@@ -6,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SkillCard, SkillHero } from "../components/skills";
 import { getSuggestedSkillId } from "../data/robot";
 import { getSkills } from "../data/skills";
+import { resolveLibraryHeroMedia } from "../data/skillMedia";
 import { layout } from "../design-system/spacing";
 import { getFavorites, toggleFavorite } from "../services/favoritesStorage";
 import { font, radius, spacing, ThemeColors, type } from "../theme";
@@ -24,18 +26,20 @@ type Props = {
   onOpenTask: (taskId: string) => void;
 };
 
-// GlobalChrome (single row) and the bottom tab bar are fixed heights outside
-// this screen — the same constants RobotHero uses on Home — so the hero is
-// sized against the space the user actually sees, not the raw window.
-const CHROME_HEIGHT = 64;
+// The bottom tab bar is a fixed height outside this screen (same constant
+// RobotHero uses on Home).
 const TAB_BAR_HEIGHT = 64;
-// The stage takes about half of that useful first viewport: dominant, with
-// the filters and the first row of tiles still in view below it. Capped at
-// the stage's 4:5 portrait shape so wide/short screens never stretch it
-// into a tall sliver, and floored so tiny screens keep a real stage.
+// An immersive stage: half of what the user sees above the tab bar on a
+// portrait phone — substantial, with the tabs and first tiles still in
+// view. Never taller than a 4:5 portrait frame (short/wide windows), never
+// below a real stage. Portrait-ish frames use the art-directed mobile crop
+// of the photo when present (see resolveLibraryHeroMedia); `cover` fills
+// the frame either way — never contain/letterbox.
 const HERO_VIEWPORT_SHARE = 0.5;
-const HERO_MIN_HEIGHT = 220;
 const HERO_MAX_ASPECT = 5 / 4;
+const HERO_MIN_HEIGHT = 240;
+// A frame at least this tall relative to its width counts as portrait.
+const HERO_PORTRAIT_FROM = 0.75;
 // The library sheet is the lower section of the screen, not a card: full
 // width, no outer border, only its top corners rounded where it meets the
 // stage. Its content (selector + tiles) is padded inside it instead.
@@ -44,8 +48,8 @@ const SHEET_RADIUS = 28;
 // The sheet rises over the stage's lower edge so the stage flows into the
 // collection instead of ending at a gap. The overlap equals the corner
 // radius so the stage — never the page background — shows behind the
-// sheet's curved corners. The stage is made taller by the same amount: the
-// part left visible is still ~half.
+// sheet's curved corners. The overlap falls inside the 3:2 frame, on the
+// photo's tabletop (bottom ~10%), never on the robot.
 const SHEET_OVERLAP = SHEET_RADIUS;
 
 // Skills answers "what can my robot do?" — composed as two masses:
@@ -64,6 +68,7 @@ export function TasksScreen({ fontsReady, onOpenTask }: Props) {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
+  const isFocused = useIsFocused();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [suggestedId, setSuggestedId] = useState<string | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
@@ -106,12 +111,14 @@ export function TasksScreen({ fontsReady, onOpenTask }: Props) {
   // can never feature a learning or coming-soon skill.
   const heroSkill = skills.find((skill) => skill.id === suggestedId && skill.availability === "ready");
 
-  const usefulHeight = windowHeight - insets.top - insets.bottom - CHROME_HEIGHT - TAB_BAR_HEIGHT;
-  const heroVisibleHeight = Math.min(
-    windowWidth * HERO_MAX_ASPECT,
-    Math.max(HERO_MIN_HEIGHT, usefulHeight * HERO_VIEWPORT_SHARE)
+  // The hero runs edge to edge from the very top, so it is measured against
+  // everything above the tab bar (status-bar area included).
+  const visibleHeight = windowHeight - insets.bottom - TAB_BAR_HEIGHT;
+  const heroHeight = Math.round(
+    Math.max(HERO_MIN_HEIGHT, Math.min(visibleHeight * HERO_VIEWPORT_SHARE, windowWidth * HERO_MAX_ASPECT))
   );
-  const heroHeight = Math.round(heroVisibleHeight + SHEET_OVERLAP);
+  const heroMedia = resolveLibraryHeroMedia({ portrait: heroHeight >= windowWidth * HERO_PORTRAIT_FROM });
+
   // Exact 2-column width (not a percentage) so both columns and the gap
   // between them always add up to the sheet's inner width.
   const sheetInnerWidth = windowWidth - SHEET_PADDING * 2;
@@ -131,9 +138,15 @@ export function TasksScreen({ fontsReady, onOpenTask }: Props) {
       showsVerticalScrollIndicator={false}
       style={styles.screen}
     >
+      {/* The hero runs behind the status bar and its top is dark in both
+          themes, so the status bar is light while this screen is in front
+          (pushed on the app's status-bar stack; popped when it isn't). */}
+      {isFocused && heroSkill && <StatusBar style="light" />}
       {heroSkill && (
         <SkillHero
           accessibilityHint="Xem chi tiết kỹ năng"
+          // The library's own hero photo, not the featured skill's cover.
+          cover={heroMedia}
           fontsReady={fontsReady}
           height={heroHeight}
           mediaStyle={styles.heroMedia}
@@ -143,7 +156,7 @@ export function TasksScreen({ fontsReady, onOpenTask }: Props) {
         />
       )}
 
-      <View style={[styles.sheet, !heroSkill && styles.sheetStandalone]}>
+      <View style={[styles.sheet, !heroSkill && [styles.sheetStandalone, { paddingTop: insets.top + spacing.xs }]]}>
         {/* The sheet's header: same controls and behavior as before — only
           their position changed. */}
         <View style={styles.filterSelector}>

@@ -13,8 +13,28 @@ import { getSkillIcon, SkillIconComponent } from "./skillIcons";
 //     "clear-table/cover": require("../../assets/skills/task-clear-table/cover.webp"),
 //   };
 //
-// Empty on purpose: no real assets exist yet, and none are generated.
-const BUNDLED_MEDIA: Record<string, number> = {};
+// Only real, approved assets register here — nothing is generated.
+const BUNDLED_MEDIA: Record<string, number> = {
+  "library/hero/desktop": require("../../assets/skills/skill-library-hero.jpg"),
+  // Art-directed 1:1 crop of the same photo for portrait phones.
+  "library/hero/mobile": require("../../assets/skills/skill-library-hero-mobile.png")
+};
+
+// Placement-level art for the Skills library hero. It belongs to the
+// library, not to any one skill, so it is never a skill's `media.cover` and
+// never appears on cards or Skill Detail. Two art-directed variants of ONE
+// photo: a 3:2 frame for wide windows, a ~1:1 frame for portrait phones.
+export const SKILLS_LIBRARY_HERO_MEDIA: Record<"desktop" | "mobile", MediaRef> = {
+  desktop: { kind: "bundled", assetId: "library/hero/desktop" },
+  mobile: { kind: "bundled", assetId: "library/hero/mobile" }
+};
+
+// Portrait frames use the mobile crop when it is registered; otherwise (and
+// on wide frames) the desktop photo, cropped with `cover`.
+export function resolveLibraryHeroMedia({ portrait }: { portrait: boolean }): MediaRef {
+  const { desktop, mobile } = SKILLS_LIBRARY_HERO_MEDIA;
+  return portrait && resolveMediaSource(mobile) ? mobile : desktop;
+}
 
 // Placeholder services and generic dummy-image hosts never count as media —
 // the one shared version of the check FeaturedTaskCard and TaskCard's grid
