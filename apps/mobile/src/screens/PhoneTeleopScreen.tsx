@@ -1,12 +1,13 @@
-import { AlertTriangle, Camera, CircleAlert, CircleCheck, Hand, Radio, RotateCcw, ShieldAlert, Wifi, WifiOff } from "lucide-react-native";
+import { CircleAlert, Hand, Lock, ShieldAlert, Smartphone, TriangleAlert } from "lucide-react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { DeviceMotion } from "expo-sensors";
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as ScreenOrientation from "expo-screen-orientation";
 import {
   AppState,
   GestureResponderEvent,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,46 +16,73 @@ import {
   View
 } from "react-native";
 import { ScreenHeader } from "../components/ScreenHeader";
-import { useAppTheme } from "../ThemeContext";
-import { darkColors, font, radius, spacing, ThemeColors, type } from "../theme";
+import { SkyButton, SkyCard, SkyText, StatusBadge } from "../components/ui";
+import { corner } from "../design-system/radius";
+import { layout, space } from "../design-system/spacing";
+import { SkyNexColors, useSkyNexTokens } from "../design-system/tokens";
+import { getLiveReadiness, READINESS_BADGE_LABEL } from "../data/robot";
+import { useRobotSummary } from "../hooks/useRobotSummary";
+import { darkColors, font } from "../theme";
 import { isPhoneARNativeAvailable, PhoneARPose, PhoneARView } from "../../modules/expo-phone-ar";
 import { gripperSlideVelocity } from "../services/gripperSlide";
 
 type Props = {
+  // Owned by App.tsx (GlobalChrome sets and resets it). Read only here.
   emergencyStopped: boolean;
   fontsReady: boolean;
   onBack: () => void;
+  onCalibrate: () => void;
+  onConnect: () => void;
   // Fires the same App.tsx-owned E-STOP activation GlobalChrome's own
-  // button calls. Needed here specifically because the fullscreen Motion +
-  // Camera modal below (motionFullscreen) is a full-bleed overlay that
-  // visually covers GlobalChrome entirely — without this, a user actively
-  // driving the robot in that mode would have no E-STOP control on screen
-  // at all. See the fullscreen Modal's JSX for the visual entry point.
+  // button calls. Needed here specifically because the fullscreen motion
+  // view below is a full-bleed overlay that visually covers GlobalChrome
+  // entirely — without this, a user actively driving the robot in that
+  // mode would have no E-STOP control on screen at all.
   onEmergencyStop: () => void;
 };
 
 type InputMode = "pad" | "motion";
 type TrackingState = "ready" | "tracking" | "limited" | "lost";
+type Transport = "disconnected" | "connecting" | "connected";
 
 const PAD_HEIGHT = 220;
+const PAD_FINE_ZONE = 92;
 const GRIPPER_DEAD_ZONE = 0.1;
+const POSE_INTERVAL_MS = 50;
+// Phone motion input exists only in the native app: the browser's
+// DeviceMotion is not a phone being held as a controller, and expo-sensors
+// doesn't support setting its update rate on web.
+const MOTION_INPUT_SUPPORTED = Platform.OS !== "web";
+const CLIENT_PLATFORM = Platform.OS === "android" ? "android" : "ios";
 
-export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmergencyStop }: Props) {
-  const { colors } = useAppTheme();
+// Phone Control. Two state layers, never merged:
+//
+//   ROBOT   — useRobotSummary() (live): may the robot move? Same source as Home,
+//             Skill Detail, the Robot hub and Manual Control.
+//   SESSION — this phone as a controller: control-server transport, motion
+//             input (sensors), tracking. A connected server is NOT evidence
+//             the robot is online.
+//
+// A pose leaves the app only while BOTH allow it AND the user is holding
+// the control (dead-man hold). Losing either layer releases the hold and,
+// when the socket is open, sends the existing `control_disabled` with a
+// truthful reason. Nothing re-arms on its own: control resumes only on a
+// new deliberate hold.
+export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCalibrate, onConnect, onEmergencyStop }: Props) {
+  const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
+  const robot = useRobotSummary({ emergencyStopped });
   const [serverHost, setServerHost] = useState("192.168.1.100");
   // The direct-USB LeRobot worker accepts both Quest and phone clients on 8765.
   const [serverPort, setServerPort] = useState("8765");
-  const [connected, setConnected] = useState(false);
+  const [transport, setTransport] = useState<Transport>("disconnected");
   // The direct-USB worker intentionally serves plain LAN WebSocket. The Quest
   // page and phone therefore use the same ws://8765 endpoint.
   const [secureTransport, setSecureTransport] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [motionAvailable, setMotionAvailable] = useState(false);
-  const [nativeTracking, setNativeTracking] = useState<TrackingState>("ready");
   const [motionReading, setMotionReading] = useState({ pitch: 0, roll: 0, yaw: 0 });
   const [motionPosition, setMotionPosition] = useState({ x: 0, y: 0, z: 0 });
-  const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [mode, setMode] = useState<InputMode>("motion");
   const [motionFullscreen, setMotionFullscreen] = useState(false);
   const [tracking, setTracking] = useState<TrackingState>("ready");
@@ -62,9 +90,6 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
   const [fineMode, setFineMode] = useState(false);
   const [gripperVelocity, setGripperVelocity] = useState(0);
   const slideOriginY = useRef<number | null>(null);
-  const [speed, setSpeed] = useState(50);
-  const [referenceLatched, setReferenceLatched] = useState(false);
-  const trackingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const sequenceRef = useRef(0);
   const controlHeldRef = useRef(false);
@@ -75,15 +100,35 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
   const nativeQuaternionRef = useRef({ x: 0, y: 0, z: 0, w: 1 });
   const referenceNativeQuaternionRef = useRef({ x: 0, y: 0, z: 0, w: 1 });
   const sessionIdRef = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  // Latest E-STOP for the 50ms pose sender, read at send time — not the
-  // value captured when the interval was created.
-  const emergencyStoppedRef = useRef(emergencyStopped);
-  emergencyStoppedRef.current = emergencyStopped;
 
-  const canControl = connected && !emergencyStopped && tracking !== "lost";
+
+  const connected = transport === "connected";
+  // Layer A — robot. The raw E-STOP flag wins without waiting for the
+  // async summary.
+  const robotReady = robot?.readiness === "ready" && !emergencyStopped;
+  // Layer B — session.
+  const sessionReady = connected && MOTION_INPUT_SUPPORTED && motionAvailable && tracking !== "lost";
+  const canControl = robotReady && sessionReady;
   const active = canControl && controlHeld;
-  const trackingLabel = { ready: "Sẵn sàng", tracking: "Đang tracking", limited: "Tracking giới hạn", lost: "Mất tracking" }[tracking];
-  const trackingColor = tracking === "tracking" ? colors.success : tracking === "limited" ? colors.caution : tracking === "lost" ? colors.danger : colors.textSecondary;
+
+  // Why control is blocked, as the `control_disabled` reason (free text,
+  // 1–128 chars in the server's protocol). null = nothing blocks it.
+  const blockReason = emergencyStopped || robot?.readiness === "stopped"
+    ? "emergency_stop"
+    : robot?.readiness === "offline"
+      ? "robot_offline"
+      : robot?.readiness === "needs-calibration"
+        ? "robot_needs_calibration"
+        : tracking === "lost"
+          ? "tracking_lost"
+          : null;
+
+  // Latest permission for the 50ms sender and the press handlers, read at
+  // the moment of sending — never a value captured when a timer started.
+  const canSendRef = useRef(false);
+  const emergencyStoppedRef = useRef(emergencyStopped);
+  canSendRef.current = canControl;
+  emergencyStoppedRef.current = emergencyStopped;
 
   useEffect(() => {
     if (isPhoneARNativeAvailable) setMotionAvailable(true);
@@ -111,7 +156,8 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
   }, []);
 
   useEffect(() => {
-    if (isPhoneARNativeAvailable) return undefined;
+    // Native only: no sensor calls at all on web (see MOTION_INPUT_SUPPORTED).
+    if (isPhoneARNativeAvailable || !MOTION_INPUT_SUPPORTED) return undefined;
     let mounted = true;
     let subscription: { remove: () => void } | null = null;
     void DeviceMotion.requestPermissionsAsync().then(async (permission) => {
@@ -120,7 +166,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
       if (!mounted) return;
       setMotionAvailable(available);
       if (!available) return;
-      DeviceMotion.setUpdateInterval(50);
+      DeviceMotion.setUpdateInterval(POSE_INTERVAL_MS);
       subscription = DeviceMotion.addListener((reading) => {
         const rotation = reading.rotation;
         if (!rotation) return;
@@ -151,7 +197,6 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
   }, []);
 
   const handleNativePose = (pose: PhoneARPose) => {
-    setNativeTracking(pose.trackingState);
     setMotionAvailable(pose.trackingState !== "lost");
     setMotionPosition(pose.position);
     setMotionReading({ pitch: 0, roll: 0, yaw: 0 });
@@ -159,35 +204,35 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
     nativeQuaternionRef.current = pose.quaternion;
   };
 
-  // E-STOP tells the server explicitly, the same way releasing the hold
-  // does, instead of relying on the server noticing the pose stream stopped.
+  // Any loss of permission — robot or session — releases the hold.
   useEffect(() => {
-    if (!emergencyStopped) return;
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: "control_disabled", protocolVersion: 1, reason: "emergency_stop" }));
-    }
-  }, [emergencyStopped]);
+    if (canControl) return;
+    setControlHeld(false);
+    controlHeldRef.current = false;
+    setGripperVelocity(0);
+  }, [canControl]);
 
+  // Tell the server whenever something starts blocking control (E-STOP,
+  // robot readiness, tracking), instead of relying only on the server's
+  // 250ms stale-pose release. Sent once per new reason.
   useEffect(() => {
-    if (emergencyStopped || !connected || tracking === "lost") {
-      setControlHeld(false);
-      controlHeldRef.current = false;
-      setReferenceLatched(false);
+    if (!blockReason) return;
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: "control_disabled", protocolVersion: 1, reason: blockReason }));
     }
-  }, [connected, emergencyStopped, tracking]);
+  }, [blockReason]);
 
   useEffect(() => () => {
-    if (trackingTimer.current) clearTimeout(trackingTimer.current);
     socketRef.current?.close();
   }, []);
 
   const handleConnect = () => {
-    if (connected) {
+    if (transport !== "disconnected") {
       socketRef.current?.close();
       socketRef.current = null;
-      setConnected(false);
+      setTransport("disconnected");
       setControlHeld(false);
-      setReferenceLatched(false);
+      controlHeldRef.current = false;
       setTracking("ready");
       return;
     }
@@ -195,34 +240,32 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
     if (!serverHost.trim() || !serverPort.trim()) return;
     const socket = new WebSocket(`${secureTransport ? "wss" : "ws"}://${serverHost.trim()}:${serverPort.trim()}/ws`);
     socketRef.current = socket;
+    setTransport("connecting");
     socket.onopen = () => {
-      setConnected(true);
+      setTransport("connected");
       setTracking(motionAvailable ? "tracking" : "limited");
-      socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, platform: "ios", sessionId: sessionIdRef.current, arm: "right" }));
-    };
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data as string) as { type?: string; timestampNs?: number };
-        if (message.type === "pong" && message.timestampNs) setLatencyMs(Math.max(0, Math.round((Date.now() * 1e6 - message.timestampNs) / 1e6)));
-      } catch {
-        // Ignore malformed status messages; the server remains the protocol authority.
-      }
+      socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, platform: CLIENT_PLATFORM, sessionId: sessionIdRef.current, arm: "right" }));
     };
     socket.onerror = () => {
-      setTracking("lost");
       setControlHeld(false);
+      controlHeldRef.current = false;
     };
+    // No auto-reconnect: a dropped session ends control; reconnecting and
+    // holding again are both deliberate user actions.
     socket.onclose = () => {
-      socketRef.current = null;
-      setConnected(false);
+      if (socketRef.current === socket) socketRef.current = null;
+      setTransport("disconnected");
       setControlHeld(false);
-      setReferenceLatched(false);
+      controlHeldRef.current = false;
       setTracking("ready");
     };
   };
 
+  // Live check straight from the shared robot link + E-STOP, at call time.
+  const robotMayMoveNow = () => getLiveReadiness(emergencyStoppedRef.current) === "ready";
+
   const handleControlStart = () => {
-    if (!canControl) return;
+    if (!canSendRef.current || !robotMayMoveNow()) return;
     setControlHeld(true);
     controlHeldRef.current = true;
     velocityRef.current = { x: 0, y: 0, z: 0 };
@@ -231,7 +274,6 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
     referenceNativeQuaternionRef.current = nativeQuaternionRef.current;
     if (!isPhoneARNativeAvailable) setMotionPosition({ x: 0, y: 0, z: 0 });
     referenceMotionRef.current = motionReading;
-    setReferenceLatched(true);
   };
 
   const handleControlStop = () => {
@@ -250,8 +292,13 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
     handleControlStop();
   };
 
+  const closeMotionFullscreen = () => {
+    handleControlStop();
+    setMotionFullscreen(false);
+  };
+
   const handleSlideStart = (event: GestureResponderEvent) => {
-    if (!canControl) return;
+    if (!canSendRef.current) return;
     slideOriginY.current = event.nativeEvent.pageY;
     setGripperVelocity(0);
     handleControlStart();
@@ -262,22 +309,19 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
     setGripperVelocity(gripperSlideVelocity(slideOriginY.current, event.nativeEvent.pageY));
   };
 
-  const closeMotionFullscreen = () => {
-    handleControlStop();
-    setMotionFullscreen(false);
-  };
-
   const handlePadMove = (event: GestureResponderEvent) => {
     if (!active || mode !== "pad") return;
     const { locationY, locationX } = event.nativeEvent;
-    setFineMode(locationX < 92);
+    setFineMode(locationX < PAD_FINE_ZONE);
     const normalized = 1 - Math.max(0, Math.min(PAD_HEIGHT, locationY)) / PAD_HEIGHT;
     setGripperVelocity(Math.abs(normalized - 0.5) < GRIPPER_DEAD_ZONE ? 0 : Math.max(-1, Math.min(1, (normalized - 0.5) * 2)));
   };
 
+  // "Căn giữa": ends the current hold and tells the server to drop its
+  // current target (`recenter`). The next hold takes the phone's pose at
+  // that moment as the new neutral point.
   const recenter = () => {
     if (!connected || emergencyStopped) return;
-    setReferenceLatched(false);
     setControlHeld(false);
     controlHeldRef.current = false;
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -285,15 +329,20 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
     }
   };
 
+  // The only outbound motion path: 20Hz while held.
   useEffect(() => {
     if (!active || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return undefined;
     const timer = setInterval(() => {
-      if (emergencyStoppedRef.current) return;
+      // Last-line gate, read now: live robot readiness (shared link, not the
+      // last render), session, E-STOP, hold.
+      if (!canSendRef.current || !controlHeldRef.current || emergencyStoppedRef.current || !robotMayMoveNow()) return;
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
       const timestampNs = Date.now() * 1e6;
-      socketRef.current?.send(JSON.stringify({
+      socket.send(JSON.stringify({
         type: "phone_pose",
         protocolVersion: 1,
-        platform: "ios",
+        platform: CLIENT_PLATFORM,
         sessionId: sessionIdRef.current,
         sequence: sequenceRef.current++,
         timestampNs,
@@ -310,176 +359,358 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
             ),
         gripperVelocity
       }));
-    }, 50);
+    }, POSE_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [active, fineMode, gripperVelocity, motionPosition, motionReading, tracking]);
 
-  const statusText = useMemo(() => {
-    if (emergencyStopped) return "E-STOP đang bật — mọi lệnh đã bị khóa";
-    if (!connected) return "Kết nối điện thoại với server để bắt đầu";
-    if (!controlHeld) return "Giữ nút điều khiển để robot chuyển động";
-    return mode === "pad" ? "CONTROL ACTIVE · Pad đang được giữ" : "CONTROL ACTIVE · Đang dùng pose điện thoại";
-  }, [connected, controlHeld, emergencyStopped, mode]);
+  const session = describeSession({ transport, tracking, motionAvailable, colors });
+  const lockNote = !robotReady
+    ? emergencyStopped || robot?.readiness === "stopped"
+      ? "Tạm khóa vì E-STOP"
+      : robot?.readiness === "offline"
+        ? "Tạm khóa — robot chưa kết nối"
+        : robot?.readiness === "needs-calibration"
+          ? "Tạm khóa — robot cần hiệu chỉnh"
+          : "Đang kiểm tra trạng thái robot…"
+    : !MOTION_INPUT_SUPPORTED
+      ? "Điều khiển bằng chuyển động cần ứng dụng SkyNex trên điện thoại."
+      : !connected
+        ? "Kết nối máy chủ điều khiển để bắt đầu"
+        : !motionAvailable
+          ? "Điện thoại chưa cho phép dùng cảm biến chuyển động"
+          : tracking === "lost"
+            ? "Mất theo dõi chuyển động — giữ điện thoại ổn định để theo dõi lại"
+            : null;
+  const holdLabel = active ? "Đang điều khiển · Thả để dừng" : "Giữ để điều khiển";
 
   return (
-    <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} style={styles.screen}>
+    <ScrollView
+      accessibilityLabel="Điều khiển bằng điện thoại"
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      style={styles.screen}
+    >
       <ScreenHeader
         fontsReady={fontsReady}
-        meta="PHONE"
         onBack={onBack}
-        subtitle="Điều khiển SO-101 bằng pad hoặc chuyển động điện thoại"
-        title="Phone Teleop"
+        subtitle="Giữ nút và di chuyển điện thoại, robot sẽ làm theo."
+        title="Điều khiển bằng điện thoại"
       />
 
-      <View style={styles.connectionCard}>
-        <View style={styles.cardTitleRow}>
-          <View>
-            <Text style={[styles.sectionTitle, font("display", fontsReady)]}>Kết nối</Text>
-            <Text style={[styles.caption, font("body", fontsReady)]}>Cùng Wi-Fi nội bộ · WebSocket</Text>
+      {/* Two layers, two rows: the robot, then this phone. */}
+      <SkyCard style={styles.group}>
+        <View style={styles.stateRow}>
+          <SkyText fontsReady={fontsReady} style={styles.stateKey} tone="secondary" variant="caption">
+            Robot
+          </SkyText>
+          <View style={styles.stateValue}>
+            {robot ? (
+              <StatusBadge fontsReady={fontsReady} label={READINESS_BADGE_LABEL[robot.readiness]} status={robot.status} />
+            ) : (
+              <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+                Đang kiểm tra…
+              </SkyText>
+            )}
+            {robot && robot.readiness !== "ready" && !emergencyStopped && robot.readiness !== "stopped" && (
+              <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+                {robot.message}
+              </SkyText>
+            )}
           </View>
-          <View style={[styles.statusPill, connected ? styles.statusPillOk : styles.statusPillMuted]}>
-            {connected ? <Wifi color={colors.success} size={14} /> : <WifiOff color={colors.textSecondary} size={14} />}
-            {/* statusPillOk's background is a fixed dark tint (see createStyles) — its text stays pinned dark-safe rather than following the theme. */}
-            <Text style={[styles.statusPillText, connected && { color: darkColors.textSecondary }, font("mono", fontsReady)]}>{connected ? "CONNECTED" : "OFFLINE"}</Text>
+        </View>
+        <View style={styles.divider} />
+        <View accessibilityLabel={`Điện thoại: ${session.label}`} accessible style={styles.stateRow}>
+          <SkyText fontsReady={fontsReady} style={styles.stateKey} tone="secondary" variant="caption">
+            Điện thoại
+          </SkyText>
+          <View style={[styles.stateValue, styles.sessionValue]}>
+            <session.icon color={session.color} size={15} />
+            <SkyText fontsReady={fontsReady} style={styles.sessionText} variant="caption">
+              {session.label}
+            </SkyText>
           </View>
+        </View>
+      </SkyCard>
+
+      {(emergencyStopped || robot?.readiness === "stopped") && robot ? (
+        <View accessibilityRole="alert" style={styles.safety}>
+          <ShieldAlert color={colors.statusDanger} size={18} />
+          <View style={styles.safetyText}>
+            <SkyText fontsReady={fontsReady} style={{ color: colors.statusDanger }} variant="sectionTitle">
+              E-STOP đang bật
+            </SkyText>
+            <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+              {robot.message}
+            </SkyText>
+          </View>
+        </View>
+      ) : robot?.readiness === "offline" ? (
+        <SkyButton accessibilityHint="Mở màn hình kết nối robot" fontsReady={fontsReady} onPress={onConnect}>
+          Kết nối robot
+        </SkyButton>
+      ) : robot?.readiness === "needs-calibration" ? (
+        <SkyButton accessibilityHint="Mở màn hình hiệu chỉnh" fontsReady={fontsReady} onPress={onCalibrate}>
+          Hiệu chỉnh
+        </SkyButton>
+      ) : null}
+
+      {/* Control area */}
+      <View style={styles.section}>
+        <View accessibilityRole="tablist" style={styles.segment}>
+          {(
+            [
+              ["motion", "Chuyển động"],
+              ["pad", "Bảng giữ"]
+            ] as const
+          ).map(([value, label]) => {
+            const selected = mode === value;
+            return (
+              <Pressable
+                accessibilityLabel={label}
+                accessibilityRole="tab"
+                accessibilityState={{ selected }}
+                aria-selected={selected}
+                key={value}
+                onPress={() => {
+                  handleControlStop();
+                  setMotionFullscreen(false);
+                  setMode(value);
+                }}
+                style={({ pressed }) => [styles.segmentItem, selected && styles.segmentItemSelected, pressed && styles.pressed]}
+              >
+                <SkyText
+                  fontsReady={fontsReady}
+                  style={selected ? { color: colors.textPrimary } : undefined}
+                  tone={selected ? undefined : "secondary"}
+                  variant="cardTitle"
+                >
+                  {label}
+                </SkyText>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {mode === "motion" ? (
+          <>
+            <MotionPreview
+              cameraGranted={!!cameraPermission?.granted}
+              colors={colors}
+              fontsReady={fontsReady}
+              onNativePose={handleNativePose}
+              onRequestCamera={requestCameraPermission}
+              sessionLabel={session.label}
+              styles={styles}
+            />
+            <Pressable
+              accessibilityHint={canControl ? "Giữ để robot làm theo điện thoại, thả để dừng" : lockNote ?? undefined}
+              accessibilityLabel={holdLabel}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canControl, selected: active }}
+              aria-selected={active}
+              disabled={!canControl}
+              onPressIn={handleControlStart}
+              onPressOut={handleControlStop}
+              style={[styles.hold, active && styles.holdActive, !canControl && styles.holdDisabled]}
+            >
+              <Hand color={canControl ? colors.onAccent : colors.textSecondary} size={20} />
+              <SkyText
+                fontsReady={fontsReady}
+                style={{ color: canControl ? colors.onAccent : colors.textSecondary }}
+                variant="sectionTitle"
+              >
+                {holdLabel}
+              </SkyText>
+            </Pressable>
+          </>
+        ) : (
+          <View
+            accessibilityHint={canControl ? "Giữ để điều khiển. Kéo lên để mở kẹp, kéo xuống để gắp. Vùng bên trái để di chuyển chậm." : lockNote ?? undefined}
+            accessibilityLabel={active ? "Bảng giữ, đang điều khiển" : "Bảng giữ"}
+            accessible
+            onResponderGrant={handleControlStart}
+            onResponderMove={handlePadMove}
+            onResponderRelease={handleControlStop}
+            onResponderTerminate={handleControlStop}
+            onStartShouldSetResponder={() => canSendRef.current}
+            style={[styles.pad, active && styles.padActive, !canControl && styles.disabled]}
+          >
+            <View pointerEvents="none" style={styles.fineZone}>
+              <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+                Chậm
+              </SkyText>
+            </View>
+            <View pointerEvents="none" style={styles.padCenter}>
+              <Hand color={active ? colors.accentInk : colors.textSecondary} size={30} />
+              <SkyText fontsReady={fontsReady} style={styles.centered} variant="sectionTitle">
+                {active ? "Đang điều khiển" : "Giữ để điều khiển"}
+              </SkyText>
+              <SkyText fontsReady={fontsReady} style={styles.centered} tone="secondary" variant="caption">
+                {active ? (gripperVelocity > 0 ? "Đang mở kẹp" : gripperVelocity < 0 ? "Đang gắp" : "Thả tay để dừng") : "Kéo lên để mở, xuống để gắp"}
+              </SkyText>
+            </View>
+            <View pointerEvents="none" style={styles.gripperTrack}>
+              <View style={[styles.gripperThumb, { bottom: `${Math.max(5, Math.min(95, 50 + gripperVelocity / 2))}%` }]} />
+            </View>
+          </View>
+        )}
+
+        {lockNote && (
+          <View accessibilityLiveRegion="polite" style={styles.lockNote}>
+            <Lock color={colors.textSecondary} size={15} />
+            <SkyText fontsReady={fontsReady} style={styles.lockText} tone="secondary" variant="caption">
+              {lockNote}
+            </SkyText>
+          </View>
+        )}
+
+        <View style={styles.secondaryRow}>
+          <SkyButton
+            accessibilityHint="Dừng điều khiển. Lần giữ tiếp theo lấy vị trí điện thoại hiện tại làm điểm gốc."
+            disabled={!connected || emergencyStopped}
+            fontsReady={fontsReady}
+            onPress={recenter}
+            style={styles.secondaryButton}
+            variant="secondary"
+          >
+            Căn giữa
+          </SkyButton>
+          {mode === "motion" && MOTION_INPUT_SUPPORTED && (
+            <SkyButton
+              accessibilityHint="Mở chế độ toàn màn hình: giữ màn hình để điều khiển, trượt lên để mở kẹp, xuống để gắp"
+              fontsReady={fontsReady}
+              onPress={openMotionFullscreen}
+              style={styles.secondaryButton}
+              variant="secondary"
+            >
+              Toàn màn hình
+            </SkyButton>
+          )}
+        </View>
+      </View>
+
+      {/* The phone-control server — the PHONE's link, not the robot's. */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="sectionTitle">
+            Máy chủ điều khiển
+          </SkyText>
+          <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+            Điện thoại và máy chủ cần cùng mạng Wi-Fi.
+          </SkyText>
         </View>
         <View style={styles.inputRow}>
-          <TextInput autoCapitalize="none" editable={!connected} onChangeText={setServerHost} placeholder="Server IP / hostname" placeholderTextColor={colors.textSecondary} style={[styles.input, styles.hostInput, font("mono", fontsReady)]} value={serverHost} />
-          <TextInput editable={!connected} keyboardType="number-pad" onChangeText={setServerPort} placeholder="Port" placeholderTextColor={colors.textSecondary} style={[styles.input, styles.portInput, font("mono", fontsReady)]} value={serverPort} />
-          <Pressable accessibilityRole="switch" accessibilityState={{ checked: secureTransport, disabled: connected }} disabled={connected} onPress={() => setSecureTransport((value) => !value)} style={[styles.transportButton, secureTransport && styles.transportButtonActive]}><Text style={[styles.transportText, font("mono", fontsReady)]}>{secureTransport ? "WSS" : "WS"}</Text></Pressable>
-          <Pressable accessibilityRole="button" disabled={emergencyStopped} onPress={handleConnect} style={({ pressed }) => [styles.connectButton, connected && styles.disconnectButton, emergencyStopped && styles.disabled, pressed && styles.pressed]}>
-            <Text style={[styles.connectText, font("display", fontsReady)]}>{connected ? "Ngắt" : "Kết nối"}</Text>
+          <TextInput
+            accessibilityLabel="Địa chỉ máy chủ"
+            autoCapitalize="none"
+            editable={transport === "disconnected"}
+            onChangeText={setServerHost}
+            placeholder="Địa chỉ IP"
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.input, styles.hostInput, font("mono", fontsReady)]}
+            value={serverHost}
+          />
+          <TextInput
+            accessibilityLabel="Cổng"
+            editable={transport === "disconnected"}
+            keyboardType="number-pad"
+            onChangeText={setServerPort}
+            placeholder="Cổng"
+            placeholderTextColor={colors.textSecondary}
+            style={[styles.input, styles.portInput, font("mono", fontsReady)]}
+            value={serverPort}
+          />
+          <Pressable
+            accessibilityLabel="Kết nối bảo mật"
+            accessibilityRole="switch"
+            accessibilityState={{ checked: secureTransport, disabled: transport !== "disconnected" }}
+            aria-checked={secureTransport}
+            disabled={transport !== "disconnected"}
+            onPress={() => setSecureTransport((value) => !value)}
+            style={[styles.input, styles.secureToggle, secureTransport && styles.secureToggleOn]}
+          >
+            <Text style={[styles.secureText, secureTransport && { color: colors.accentInk }, font("mono", fontsReady)]}>
+              {secureTransport ? "WSS" : "WS"}
+            </Text>
           </Pressable>
         </View>
+        <SkyButton
+          disabled={emergencyStopped && transport === "disconnected"}
+          fontsReady={fontsReady}
+          onPress={handleConnect}
+          variant="secondary"
+        >
+          {transport === "connected" ? "Ngắt kết nối" : transport === "connecting" ? "Hủy kết nối" : "Kết nối máy chủ"}
+        </SkyButton>
       </View>
 
-      <View style={styles.stateCard}>
-        <View style={styles.stateMain}>
-          <View style={[styles.stateDot, { backgroundColor: trackingColor }]} />
-          <View style={styles.stateCopy}>
-            <Text style={[styles.stateTitle, font("display", fontsReady)]}>{statusText}</Text>
-            <Text style={[styles.caption, font("body", fontsReady)]}>Robot: <Text style={styles.accentText}>CONNECTED SERVER</Text> · Độ trễ {latencyMs === null ? "—" : `${latencyMs} ms`}</Text>
-          </View>
-        </View>
-        <View style={styles.stateMetrics}>
-          <Metric label="TRACKING" value={trackingLabel} color={trackingColor} fontsReady={fontsReady} styles={styles} />
-          <Metric label="REFERENCE" value={referenceLatched ? "LATCHED" : "RECENTER"} color={referenceLatched ? colors.success : colors.caution} fontsReady={fontsReady} styles={styles} />
-        </View>
-      </View>
-
-      <View style={styles.modeRow}>
-        <ModeButton active={mode === "pad"} colors={colors} icon={<Hand color={mode === "pad" ? colors.accentForeground : colors.textSecondary} size={18} />} label="Control pad" onPress={() => { closeMotionFullscreen(); setMode("pad"); }} fontsReady={fontsReady} styles={styles} />
-        <ModeButton active={mode === "motion"} colors={colors} icon={<Camera color={mode === "motion" ? colors.accentForeground : colors.textSecondary} size={18} />} label="Motion + camera" onPress={openMotionFullscreen} fontsReady={fontsReady} styles={styles} />
-      </View>
-
-      {mode === "pad" ? (
-        <View style={styles.controlCard}>
-          <View style={styles.controlHeader}>
-            <View>
-              <Text style={[styles.sectionTitle, font("display", fontsReady)]}>Control pad</Text>
-              <Text style={[styles.caption, font("body", fontsReady)]}>Giữ để di chuyển · Kéo dọc để gắp</Text>
-            </View>
-            <Text style={[styles.fineHint, font("mono", fontsReady)]}>{fineMode ? "FINE" : "NORMAL"}</Text>
-          </View>
-          <View onResponderGrant={handleControlStart} onResponderMove={handlePadMove} onResponderRelease={handleControlStop} onResponderTerminate={handleControlStop} style={[styles.pad, !canControl && styles.padDisabled, active && styles.padActive]}>
-            <View pointerEvents="none" style={styles.fineZone}><Text style={[styles.zoneText, font("mono", fontsReady)]}>FINE</Text></View>
-            <View pointerEvents="none" style={styles.padCenter}><Hand color={active ? colors.accentStrong : colors.textSecondary} size={34} /><Text style={[styles.padAction, font("display", fontsReady)]}>{active ? "CONTROL ACTIVE" : canControl ? "GIỮ ĐỂ ĐIỀU KHIỂN" : "KẾT NỐI ĐỂ BẮT ĐẦU"}</Text><Text style={[styles.padSubtext, font("body", fontsReady)]}>{active ? (gripperVelocity > 0 ? "Gripper mở" : gripperVelocity < 0 ? "Gripper đóng" : "Đang giữ mục tiêu") : "Thả tay để dừng mục tiêu"}</Text></View>
-            <View pointerEvents="none" style={styles.gripperTrack}><View style={[styles.gripperThumb, { bottom: `${Math.max(5, Math.min(95, 50 + gripperVelocity / 2))}%` }]} /><Text style={[styles.gripperLabel, styles.gripperTop, font("mono", fontsReady)]}>OPEN</Text><Text style={[styles.gripperLabel, styles.gripperBottom, font("mono", fontsReady)]}>CLOSE</Text></View>
-          </View>
-          <View style={styles.padFooter}><Text style={[styles.caption, font("body", fontsReady)]}>Bên trái: fine mode · vùng giữa: dead zone</Text><Text style={[styles.valueText, font("monoStrong", fontsReady)]}>GRIP {gripperVelocity > 0 ? "+" : ""}{Math.round(gripperVelocity * 100)}</Text></View>
-        </View>
-      ) : (
-        <View style={styles.controlCard}>
-          <View style={styles.controlHeader}><View><Text style={[styles.sectionTitle, font("display", fontsReady)]}>Motion + camera</Text><Text style={[styles.caption, font("body", fontsReady)]}>Di chuyển điện thoại để điều khiển pose</Text></View><Radio color={trackingColor} size={20} /></View>
-          {!cameraPermission?.granted ? <View style={styles.cameraPermission}><Camera color={colors.textSecondary} size={30} /><Text style={[styles.cameraPermissionTitle, font("display", fontsReady)]}>Cần quyền camera</Text><Text style={[styles.caption, font("body", fontsReady)]}>Camera được dùng để tracking và quan sát.</Text><Pressable onPress={requestCameraPermission} style={styles.permissionButton}><Text style={[styles.connectText, font("display", fontsReady)]}>Cho phép camera</Text></Pressable></View> : (
-            /*
-              This container hosts a live CameraView/PhoneARView feed, so —
-              same rule as CameraScreen's mock preview — it stays visually
-              dark regardless of the active app theme (a light HUD over a
-              live camera feed would be unreadable against arbitrary video
-              content). Everything outside this camera surface follows the
-              theme normally.
-            */
-            <View style={styles.cameraMock}>{isPhoneARNativeAvailable ? <PhoneARView onPose={(event) => handleNativePose(event.nativeEvent)} style={StyleSheet.absoluteFill} /> : <CameraView facing="back" style={StyleSheet.absoluteFill} />}<View style={styles.cameraOverlay}><Text style={[styles.cameraOverlayTitle, font("display", fontsReady)]}>{isPhoneARNativeAvailable ? "ARKit 6DOF" : "LIVE CAMERA"}</Text><Text style={[styles.cameraOverlayCaption, font("body", fontsReady)]}>{isPhoneARNativeAvailable ? nativeTracking.toUpperCase() : motionAvailable ? `P ${motionReading.pitch.toFixed(1)}° · R ${motionReading.roll.toFixed(1)}°` : "Motion sensor unavailable"}</Text><View style={styles.crosshair}><View style={styles.crosshairHorizontal} /><View style={styles.crosshairVertical} /></View></View></View>
-          )}
-          <Pressable accessibilityRole="button" disabled={!canControl} onPressIn={handleControlStart} onPressOut={handleControlStop} style={({ pressed }) => [styles.holdButton, active && styles.holdButtonActive, !canControl && styles.disabled, pressed && styles.pressed]}>
-            {/*
-              holdButtonActive swaps the fill to `caution`, whose two
-              theme values need opposite text colors for 4.5:1 (dark text
-              in Dark, light text in Light) — exactly what `dangerForeground`
-              already provides, so it's reused here for the "active" state
-              rather than inventing a one-off `cautionForeground` token for
-              this single button in a non-priority screen.
-            */}
-            <Text style={[styles.holdButtonText, active && { color: colors.dangerForeground }, font("display", fontsReady)]}>{active ? "ĐANG ĐIỀU KHIỂN · THẢ ĐỂ DỪNG" : "GIỮ ĐỂ ĐIỀU KHIỂN"}</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" disabled={!canControl} onPress={openMotionFullscreen} style={({ pressed }) => [styles.gripperButton, !canControl && styles.disabled, pressed && styles.pressed]}><Hand color={colors.accentStrong} size={18} /><Text style={[styles.gripperButtonText, font("display", fontsReady)]}>Mở toàn màn hình · Trượt ↑ mở / ↓ gắp</Text></Pressable>
-        </View>
-      )}
-
-      <View style={styles.actionsRow}>
-        <Pressable accessibilityRole="button" disabled={!connected || emergencyStopped} onPress={recenter} style={({ pressed }) => [styles.secondaryButton, (!connected || emergencyStopped) && styles.disabled, pressed && styles.pressed]}><RotateCcw color={colors.textPrimary} size={17} /><Text style={[styles.secondaryText, font("display", fontsReady)]}>Recenter</Text></Pressable>
-        <Pressable accessibilityRole="button" onPress={handleControlStop} style={({ pressed }) => [styles.stopButton, pressed && styles.pressed]}><ShieldAlert color={colors.dangerForeground} size={17} /><Text style={[styles.secondaryText, styles.stopText, font("display", fontsReady)]}>Dừng motion</Text></Pressable>
-      </View>
-
-      <View style={styles.speedCard}><View style={styles.cardTitleRow}><Text style={[styles.sectionTitle, font("display", fontsReady)]}>Tốc độ chuyển động</Text><Text style={[styles.speedValue, font("monoStrong", fontsReady)]}>{speed}%</Text></View><View style={styles.speedTrack}>{[25, 50, 75].map((point) => <Pressable key={point} accessibilityRole="button" onPress={() => setSpeed(point)} style={[styles.speedPoint, { left: `${point}%` }, speed >= point && styles.speedPointActive]} />)}<View style={[styles.speedFill, { width: `${speed}%` }]} /></View><View style={styles.speedLabels}><Text style={[styles.caption, font("mono", fontsReady)]}>SLOW</Text><Text style={[styles.caption, font("mono", fontsReady)]}>NORMAL</Text><Text style={[styles.caption, font("mono", fontsReady)]}>FAST</Text></View></View>
-
-      {/* notice's background is a fixed dark tint (see createStyles) — its icon/text stay pinned dark-safe rather than following the theme. */}
-      <View style={styles.notice}><CircleAlert color={darkColors.caution} size={17} /><Text style={[styles.noticeText, font("body", fontsReady)]}>{motionAvailable ? `${isPhoneARNativeAvailable ? "Pose đang lấy từ ARKit 6DoF." : "Pose đang lấy từ Device Motion (fallback)."} Thả pad, mất tracking, mất WebSocket hoặc đưa app xuống nền sẽ tự động khóa lệnh.` : "iPhone chưa cấp quyền hoặc không có tracking; không thể bật điều khiển pose."}</Text></View>
+      <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+        Thả tay, mất theo dõi, mất kết nối hoặc chuyển ứng dụng xuống nền đều dừng điều khiển ngay.
+        {MOTION_INPUT_SUPPORTED && motionAvailable
+          ? ` Nguồn chuyển động: ${isPhoneARNativeAvailable ? "ARKit" : "cảm biến điện thoại"}.`
+          : ""}
+      </SkyText>
 
       {/*
-        The fullscreen motion+camera experience below is a full-bleed live
-        AR/camera HUD (same reasoning as cameraMock above) — its backdrop and
-        overlay text are intentionally pinned dark regardless of app theme,
-        not "stuck in Dark Mode": there is no page chrome here to theme, only
-        a live camera/AR viewfinder with a HUD, exactly like a native camera
-        app's viewfinder would look the same in either system theme.
+        Fullscreen motion view: a full-bleed live camera/AR viewfinder. Its
+        backdrop and overlay text are pinned dark (darkColors) regardless of
+        app theme — there is no page chrome to theme, only a live feed.
       */}
       <Modal animationType="slide" onRequestClose={closeMotionFullscreen} supportedOrientations={["portrait"]} visible={motionFullscreen}>
-        <View style={styles.motionFullscreen}>
+        <View style={styles.fullscreen}>
           {!cameraPermission?.granted ? (
             <View style={styles.fullscreenPermission}>
-              <Camera color={darkColors.textPrimary} size={34} />
-              <Text style={[styles.fullscreenPermissionTitle, font("display", fontsReady)]}>Cần quyền camera</Text>
-              <Pressable onPress={requestCameraPermission} style={styles.permissionButton}>
-                <Text style={[styles.connectText, font("display", fontsReady)]}>Cho phép camera</Text>
-              </Pressable>
+              <Text style={[styles.fullscreenText, font("display", fontsReady)]}>Cần quyền camera</Text>
+              <SkyButton fontsReady={fontsReady} onPress={requestCameraPermission}>
+                Cho phép camera
+              </SkyButton>
             </View>
           ) : (
             <>
               <View
-                onStartShouldSetResponder={() => canControl}
                 onResponderGrant={handleSlideStart}
                 onResponderMove={handleSlideMove}
                 onResponderRelease={handleControlStop}
                 onResponderTerminate={handleControlStop}
                 onResponderTerminationRequest={() => false}
+                onStartShouldSetResponder={() => canSendRef.current}
                 style={styles.fullscreenHoldArea}
               >
-                <View pointerEvents="none" style={StyleSheet.absoluteFill}>{isPhoneARNativeAvailable ? <PhoneARView onPose={(event) => handleNativePose(event.nativeEvent)} style={StyleSheet.absoluteFill} /> : <CameraView facing="back" style={StyleSheet.absoluteFill} />}</View>
+                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                  {isPhoneARNativeAvailable ? (
+                    <PhoneARView onPose={(event) => handleNativePose(event.nativeEvent)} style={StyleSheet.absoluteFill} />
+                  ) : (
+                    <CameraView facing="back" style={StyleSheet.absoluteFill} />
+                  )}
+                </View>
                 <View pointerEvents="none" style={styles.fullscreenOverlay}>
-                  <Text style={[styles.fullscreenTracking, font("mono", fontsReady)]}>{isPhoneARNativeAvailable ? `ARKit · ${nativeTracking.toUpperCase()}` : `DEVICE MOTION · ${tracking.toUpperCase()}`}</Text>
-                  <View style={styles.crosshair}><View style={styles.crosshairHorizontal} /><View style={styles.crosshairVertical} /></View>
-                  <Text style={[styles.fullscreenHint, font("display", fontsReady)]}>{active ? "ĐANG ĐIỀU KHIỂN · THẢ ĐỂ DỪNG" : "GIỮ MÀN HÌNH ĐỂ ĐIỀU KHIỂN"}</Text>
+                  <Text style={[styles.fullscreenChip, font("display", fontsReady)]}>{session.label}</Text>
+                  <Text style={[styles.fullscreenHint, font("display", fontsReady)]}>
+                    {canControl ? (active ? "Đang điều khiển · Thả để dừng" : "Giữ màn hình để điều khiển") : lockNote}
+                  </Text>
                 </View>
               </View>
-              <Pressable accessibilityLabel="Quay lại trang điều khiển" onPress={closeMotionFullscreen} style={styles.fullscreenBack}>
-                <Text style={[styles.fullscreenBackText, font("display", fontsReady)]}>‹  Điều khiển</Text>
+              <Pressable
+                accessibilityLabel="Quay lại điều khiển"
+                accessibilityRole="button"
+                onPress={closeMotionFullscreen}
+                style={styles.fullscreenBack}
+              >
+                <Text style={[styles.fullscreenText, font("display", fontsReady)]}>‹  Quay lại</Text>
               </Pressable>
               <View pointerEvents="none" style={styles.fullscreenGripper}>
-                <Hand color={colors.accentForeground} size={20} />
-                <Text style={[styles.fullscreenGripperText, font("display", fontsReady)]}>{gripperVelocity > 0 ? "ĐANG MỞ" : gripperVelocity < 0 ? "ĐANG GẮP" : "↑ MỞ · ↓ GẮP"}</Text>
+                <Text style={[styles.fullscreenText, font("display", fontsReady)]}>
+                  {gripperVelocity > 0 ? "Đang mở kẹp" : gripperVelocity < 0 ? "Đang gắp" : "Trượt lên để mở · xuống để gắp"}
+                </Text>
               </View>
             </>
           )}
 
           {/*
-            Always rendered, in both the permission-prompt and live-feed
-            branches above, and last in this View so it stacks on top of
-            everything else here — this fullscreen modal is the one surface
-            that fully covers GlobalChrome, so it needs its own E-STOP entry
-            point. Same activation callback as GlobalChrome's button (see
-            the onEmergencyStop prop); no separate stopped state.
+            Always rendered and last, so it stacks on top: this modal is the
+            one surface that covers GlobalChrome, so it carries its own
+            E-STOP entry point — the same App.tsx activation callback, no
+            separate stopped state, no reset here.
           */}
           <Pressable
             accessibilityHint={emergencyStopped ? undefined : "Dừng chuyển động toàn hệ thống ngay lập tức"}
@@ -489,16 +720,12 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
             disabled={emergencyStopped}
             hitSlop={8}
             onPress={onEmergencyStop}
-            style={({ pressed }) => [
-              styles.fullscreenEstop,
-              emergencyStopped && styles.fullscreenEstopActive,
-              pressed && !emergencyStopped && styles.pressed
-            ]}
+            style={({ pressed }) => [styles.fullscreenEstop, pressed && !emergencyStopped && styles.pressed]}
           >
             {emergencyStopped ? (
-              <AlertTriangle color={colors.dangerForeground} size={16} />
+              <TriangleAlert color={colors.onDanger} size={16} />
             ) : (
-              <ShieldAlert color={colors.dangerForeground} size={16} />
+              <ShieldAlert color={colors.onDanger} size={16} />
             )}
             <Text style={[styles.fullscreenEstopText, font("display", fontsReady)]}>
               {emergencyStopped ? "ĐÃ DỪNG" : "E-STOP"}
@@ -507,6 +734,92 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onEmer
         </View>
       </Modal>
     </ScrollView>
+  );
+}
+
+// Session (phone) state in words. Green only for a working session — and
+// it never stands in for the robot's own readiness above it.
+function describeSession({
+  colors,
+  motionAvailable,
+  tracking,
+  transport
+}: {
+  colors: SkyNexColors;
+  motionAvailable: boolean;
+  tracking: TrackingState;
+  transport: Transport;
+}) {
+  if (!MOTION_INPUT_SUPPORTED) {
+    return { label: "Trình duyệt không có cảm biến chuyển động", icon: Smartphone, color: colors.statusOffline };
+  }
+  if (transport === "connecting") return { label: "Đang kết nối…", icon: Smartphone, color: colors.statusOffline };
+  if (transport === "disconnected") return { label: "Chưa kết nối máy chủ điều khiển", icon: Smartphone, color: colors.statusOffline };
+  if (!motionAvailable) return { label: "Đã kết nối · chưa có cảm biến chuyển động", icon: CircleAlert, color: colors.statusWarning };
+  if (tracking === "lost") return { label: "Đã kết nối · mất theo dõi chuyển động", icon: TriangleAlert, color: colors.statusWarning };
+  if (tracking === "limited") return { label: "Đã kết nối · theo dõi hạn chế", icon: TriangleAlert, color: colors.statusWarning };
+  return { label: "Đã kết nối · đang theo dõi chuyển động", icon: Smartphone, color: colors.statusReady };
+}
+
+// The motion view: the live camera/AR feed the tracking uses, or an honest
+// explanation when there is none. No crosshair, no numbers.
+function MotionPreview({
+  cameraGranted,
+  colors,
+  fontsReady,
+  onNativePose,
+  onRequestCamera,
+  sessionLabel,
+  styles
+}: {
+  cameraGranted: boolean;
+  colors: SkyNexColors;
+  fontsReady: boolean;
+  onNativePose: (pose: PhoneARPose) => void;
+  onRequestCamera: () => void;
+  sessionLabel: string;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  if (!MOTION_INPUT_SUPPORTED) {
+    return (
+      <View style={styles.previewEmpty}>
+        <Smartphone color={colors.textSecondary} size={28} strokeWidth={1.5} />
+        <SkyText fontsReady={fontsReady} style={styles.centered} variant="sectionTitle">
+          Cần điện thoại để điều khiển bằng chuyển động
+        </SkyText>
+        <SkyText fontsReady={fontsReady} style={styles.centered} tone="secondary" variant="caption">
+          Mở SkyNex trên điện thoại. Trên trình duyệt chỉ xem được bố cục và kết nối.
+        </SkyText>
+      </View>
+    );
+  }
+
+  if (!cameraGranted) {
+    return (
+      <View style={styles.previewEmpty}>
+        <SkyText fontsReady={fontsReady} style={styles.centered} variant="sectionTitle">
+          Cần quyền camera
+        </SkyText>
+        <SkyText fontsReady={fontsReady} style={styles.centered} tone="secondary" variant="caption">
+          Camera giúp theo dõi chuyển động của điện thoại.
+        </SkyText>
+        <SkyButton fontsReady={fontsReady} onPress={onRequestCamera} variant="secondary">
+          Cho phép camera
+        </SkyButton>
+      </View>
+    );
+  }
+
+  return (
+    // Live feed — pinned dark regardless of theme, like a camera viewfinder.
+    <View accessibilityLabel={`Xem trước camera. ${sessionLabel}`} accessible style={styles.preview}>
+      {isPhoneARNativeAvailable ? (
+        <PhoneARView onPose={(event) => onNativePose(event.nativeEvent)} style={StyleSheet.absoluteFill} />
+      ) : (
+        <CameraView facing="back" style={StyleSheet.absoluteFill} />
+      )}
+      <Text style={[styles.previewChip, font("display", fontsReady)]}>{sessionLabel}</Text>
+    </View>
   );
 }
 
@@ -535,100 +848,219 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function Metric({
-  label,
-  value,
-  color,
-  fontsReady,
-  styles
-}: {
-  label: string;
-  value: string;
-  color: string;
-  fontsReady: boolean;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return <View><Text style={[styles.metricLabel, font("mono", fontsReady)]}>{label}</Text><Text style={[styles.metricValue, font("display", fontsReady), { color }]}>{value}</Text></View>;
-}
+const PREVIEW_HEIGHT = 168;
+// Scrim behind text on the live feed: darkColors.background at ~60%.
+const FEED_SCRIM = `${darkColors.background}99`;
 
-function ModeButton({
-  active,
-  colors,
-  icon,
-  label,
-  onPress,
-  fontsReady,
-  styles
-}: {
-  active: boolean;
-  colors: ThemeColors;
-  icon: ReactNode;
-  label: string;
-  onPress: () => void;
-  fontsReady: boolean;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={({ pressed }) => [styles.modeButton, active && styles.modeButtonActive, pressed && styles.pressed]}>{icon}<Text style={[styles.modeText, font("display", fontsReady), active && styles.modeTextActive]}>{label}</Text>{active && <CircleCheck color={colors.accentForeground} size={15} />}</Pressable>;
-}
-
-function createStyles(colors: ThemeColors) {
+function createStyles(colors: SkyNexColors) {
   return StyleSheet.create({
     screen: { backgroundColor: colors.background, flex: 1 },
-    content: { gap: spacing.md, padding: spacing.lg, paddingBottom: spacing.xxxl },
-    connectionCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: spacing.md, padding: spacing.md },
-    cardTitleRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
-    sectionTitle: { color: colors.textPrimary, fontSize: 17, lineHeight: 22 },
-    caption: { color: colors.textSecondary, fontSize: 12, lineHeight: 18 },
-    statusPill: { alignItems: "center", borderRadius: radius.round, flexDirection: "row", gap: spacing.xxs, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
-    // Pre-existing dark-tinted "connected" pill, not built from a theme
-    // token — flagged in the migration report as a category-D gap (no
-    // "success surface" token exists yet) rather than invented ad hoc here.
-    statusPillOk: { backgroundColor: "#263516" }, statusPillMuted: { backgroundColor: colors.surfaceSecondary },
-    statusPillText: { color: colors.textSecondary, fontSize: 10 }, inputRow: { flexDirection: "row", gap: spacing.xs },
-    input: { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, color: colors.textPrimary, minHeight: 46, paddingHorizontal: spacing.sm },
-    // flex:1 alone isn't enough here: react-native-web compiles this row to
-    // real CSS flexbox, where a flex item's default min-width is `auto`
-    // (its own content size), not 0 — so without an explicit minWidth:0,
-    // hostInput refused to shrink below the width of its placeholder/value
-    // text and pushed transportButton/connectButton past the card's right
-    // edge at narrower widths (~375-430px). minWidth:0 lets it actually
-    // shrink to fill only the space left after its fixed-width siblings;
-    // TextInput scrolls its own content horizontally when narrower than
-    // the value, same as any native text field, so nothing is lost.
+    content: {
+      gap: layout.sectionGap,
+      paddingBottom: space.xxxl,
+      paddingHorizontal: layout.screenGutter,
+      paddingTop: space.lg
+    },
+    pressed: { opacity: 0.78 },
+    disabled: { opacity: 0.52 },
+    centered: { textAlign: "center" },
+    group: { borderRadius: corner.productCard, overflow: "hidden", padding: 0 },
+    stateRow: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: space.md,
+      minHeight: 56,
+      paddingHorizontal: layout.productCardPadding,
+      paddingVertical: space.md
+    },
+    stateKey: { paddingTop: 4, width: 72 },
+    stateValue: { flex: 1, gap: space.xs },
+    sessionValue: { alignItems: "center", flexDirection: "row", paddingTop: 2 },
+    sessionText: { flexShrink: 1 },
+    divider: { backgroundColor: colors.border, height: StyleSheet.hairlineWidth, marginLeft: layout.productCardPadding },
+    safety: { alignItems: "flex-start", flexDirection: "row", gap: space.sm },
+    safetyText: { flex: 1, gap: space.xxs },
+    section: { gap: space.md },
+    sectionHeader: { gap: space.xxs },
+    segment: {
+      backgroundColor: colors.surfaceRaised,
+      borderRadius: corner.pill,
+      flexDirection: "row",
+      gap: space.xxs,
+      padding: space.xxs
+    },
+    segmentItem: { alignItems: "center", borderRadius: corner.pill, flex: 1, justifyContent: "center", minHeight: 44 },
+    segmentItemSelected: { backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 },
+    preview: {
+      backgroundColor: darkColors.surfaceSecondary,
+      borderRadius: corner.productCard,
+      height: PREVIEW_HEIGHT,
+      overflow: "hidden"
+    },
+    previewChip: {
+      alignSelf: "flex-start",
+      backgroundColor: FEED_SCRIM,
+      borderRadius: corner.pill,
+      color: darkColors.textPrimary,
+      fontSize: 12,
+      left: space.sm,
+      overflow: "hidden",
+      paddingHorizontal: space.sm,
+      paddingVertical: space.xxs,
+      position: "absolute",
+      top: space.sm
+    },
+    previewEmpty: {
+      alignItems: "center",
+      backgroundColor: colors.surfaceRaised,
+      borderRadius: corner.productCard,
+      gap: space.xs,
+      justifyContent: "center",
+      minHeight: PREVIEW_HEIGHT,
+      padding: layout.productCardPadding
+    },
+    hold: {
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: corner.pill,
+      flexDirection: "row",
+      gap: space.sm,
+      justifyContent: "center",
+      minHeight: 60,
+      paddingHorizontal: space.lg
+    },
+    // Held: the selected interactive state — label and icon change too,
+    // so it is never carried by colour alone.
+    holdActive: { borderColor: colors.onAccent, borderWidth: 2, transform: [{ scale: 0.98 }] },
+    // Unavailable: neutral, never a faded orange — orange means "you can".
+    holdDisabled: { backgroundColor: colors.surfaceRaised },
+    pad: {
+      backgroundColor: colors.surfaceRaised,
+      borderColor: colors.border,
+      borderRadius: corner.productCard,
+      borderWidth: 1,
+      height: PAD_HEIGHT,
+      overflow: "hidden"
+    },
+    padActive: { borderColor: colors.accentInk, borderWidth: 2 },
+    fineZone: {
+      borderRightColor: colors.border,
+      borderRightWidth: StyleSheet.hairlineWidth,
+      bottom: 0,
+      left: 0,
+      paddingLeft: space.sm,
+      paddingTop: space.sm,
+      position: "absolute",
+      top: 0,
+      width: PAD_FINE_ZONE
+    },
+    padCenter: {
+      alignItems: "center",
+      bottom: 0,
+      gap: space.xs,
+      justifyContent: "center",
+      left: PAD_FINE_ZONE,
+      paddingHorizontal: space.sm,
+      position: "absolute",
+      right: 48,
+      top: 0
+    },
+    gripperTrack: {
+      backgroundColor: colors.border,
+      borderRadius: corner.pill,
+      bottom: space.md,
+      position: "absolute",
+      right: 22,
+      top: space.md,
+      width: 4
+    },
+    gripperThumb: {
+      backgroundColor: colors.accentInk,
+      borderRadius: corner.pill,
+      height: 16,
+      position: "absolute",
+      right: -6,
+      width: 16
+    },
+    lockNote: { alignItems: "center", flexDirection: "row", gap: space.xs },
+    lockText: { flexShrink: 1 },
+    secondaryRow: { flexDirection: "row", gap: space.sm },
+    secondaryButton: { flex: 1 },
+    inputRow: { flexDirection: "row", gap: space.xs },
+    input: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: corner.card,
+      borderWidth: 1,
+      color: colors.textPrimary,
+      minHeight: 48,
+      paddingHorizontal: space.sm
+    },
+    // react-native-web: a flex item's default min-width is its content, so
+    // without minWidth:0 the host field pushes its siblings off the row.
     hostInput: { flex: 1, minWidth: 0 },
-    // Was 92 — comfortably oversized for a port number (max 5 digits).
-    // Narrower here is what actually gives hostInput enough room to stay
-    // legible instead of merely "not clipping" at 375-430px.
-    portInput: { width: 64 },
-    transportButton: { alignItems: "center", backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, justifyContent: "center", minWidth: 48 }, transportButtonActive: { borderColor: colors.accentStrong }, transportText: { color: colors.textSecondary, fontSize: 10 },
-    connectButton: { alignItems: "center", backgroundColor: colors.accent, borderRadius: radius.button, justifyContent: "center", minWidth: 82, paddingHorizontal: spacing.sm }, disconnectButton: { backgroundColor: colors.surfaceSecondary, borderColor: colors.danger, borderWidth: 1 }, connectText: { color: colors.accentForeground, fontSize: 13 },
-    stateCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: spacing.md, padding: spacing.md }, stateMain: { alignItems: "center", flexDirection: "row", gap: spacing.sm }, stateDot: { borderRadius: radius.round, height: 10, width: 10 }, stateCopy: { flex: 1 }, stateTitle: { color: colors.textPrimary, fontSize: 14, lineHeight: 20 }, accentText: { color: colors.accentStrong }, stateMetrics: { borderTopColor: colors.border, borderTopWidth: 1, flexDirection: "row", gap: spacing.xxxl, paddingTop: spacing.sm }, metricLabel: { color: colors.textSecondary, fontSize: 10 }, metricValue: { fontSize: 12, lineHeight: 18 },
-    modeRow: { flexDirection: "row", gap: spacing.sm }, modeButton: { alignItems: "center", backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, flex: 1, flexDirection: "row", gap: spacing.xs, justifyContent: "center", minHeight: 48, paddingHorizontal: spacing.xs }, modeButtonActive: { backgroundColor: colors.accent, borderColor: colors.accent }, modeText: { color: colors.textSecondary, fontSize: 12 }, modeTextActive: { color: colors.accentForeground },
-    controlCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: spacing.md, padding: spacing.md }, controlHeader: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" }, fineHint: { color: colors.accentStrong, fontSize: 11 }, pad: { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, height: PAD_HEIGHT, overflow: "hidden" }, padDisabled: { opacity: 0.52 }, padActive: { borderColor: colors.accentStrong },
-    // Fixed dark-tinted corner zone on the pad, not theme-driven (same
-    // category-D gap as statusPillOk above) — its own "FINE" label stays
-    // plain `accent` since that fixed-dark background never lightens.
-    fineZone: { backgroundColor: "#252b1d", bottom: 0, left: 0, position: "absolute", top: 0, width: 92 }, zoneText: { color: colors.accent, fontSize: 10, left: spacing.sm, position: "absolute", top: spacing.sm }, padCenter: { alignItems: "center", bottom: 0, justifyContent: "center", left: 92, position: "absolute", right: 55, top: 0 }, padAction: { color: colors.textPrimary, fontSize: 12, marginTop: spacing.sm, textAlign: "center" }, padSubtext: { color: colors.textSecondary, fontSize: 11, marginTop: spacing.xs, textAlign: "center" }, gripperTrack: { backgroundColor: colors.border, borderRadius: radius.round, bottom: spacing.md, position: "absolute", right: 21, top: spacing.md, width: 4 }, gripperThumb: { backgroundColor: colors.accentStrong, borderColor: colors.accentForeground, borderRadius: radius.round, borderWidth: 2, height: 16, position: "absolute", right: -6, width: 16 }, gripperLabel: { color: colors.textSecondary, fontSize: 8, position: "absolute", right: 10 }, gripperTop: { top: -3 }, gripperBottom: { bottom: -3 }, padFooter: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" }, valueText: { color: colors.accentStrong, fontSize: 11 },
-    // cameraMock hosts a live CameraView/PhoneARView feed — pinned dark
-    // regardless of theme (see the comment at its JSX usage site above).
-    cameraMock: { backgroundColor: darkColors.surfaceSecondary, borderColor: darkColors.border, borderRadius: radius.button, borderWidth: 1, height: 220, overflow: "hidden" },
-    // cameraPermission (no live feed yet) follows the theme normally.
-    cameraPermission: { alignItems: "center", backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, gap: spacing.xs, height: 220, justifyContent: "center" }, cameraPermissionTitle: { color: colors.textPrimary, fontSize: 14, marginTop: spacing.sm },
-    permissionButton: { backgroundColor: colors.accent, borderRadius: radius.button, marginTop: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
-    // Scrim + HUD text over the live feed — pinned dark-appropriate so they
-    // stay legible against arbitrary video content in either app theme.
-    cameraOverlay: { alignItems: "center", backgroundColor: "#0005", bottom: 0, justifyContent: "center", left: 0, position: "absolute", right: 0, top: 0 }, cameraOverlayTitle: { color: darkColors.textPrimary, fontSize: 14, marginTop: spacing.sm }, cameraOverlayCaption: { color: darkColors.textSecondary, fontSize: 12, lineHeight: 18 }, crosshair: { height: 64, position: "absolute", width: 64 }, crosshairHorizontal: { backgroundColor: colors.accent, height: 1, left: 0, position: "absolute", right: 0, top: 32 }, crosshairVertical: { backgroundColor: colors.accent, bottom: 0, position: "absolute", right: 32, top: 0, width: 1 }, holdButton: { alignItems: "center", backgroundColor: colors.accent, borderRadius: radius.button, justifyContent: "center", minHeight: 52 }, holdButtonActive: { backgroundColor: colors.caution }, holdButtonText: { color: colors.accentForeground, fontSize: 12 }, gripperButton: { alignItems: "center", borderColor: colors.accentStrong, borderRadius: radius.button, borderWidth: 1, flexDirection: "row", gap: spacing.xs, justifyContent: "center", minHeight: 48 }, gripperButtonText: { color: colors.textPrimary, fontSize: 12 },
-    // The fullscreen motion+camera modal is a full-bleed live AR/camera
-    // HUD — pinned dark throughout (see the comment above the Modal JSX).
-    motionFullscreen: { backgroundColor: "#000", flex: 1 }, fullscreenHoldArea: { flex: 1 }, fullscreenOverlay: { alignItems: "center", bottom: 0, justifyContent: "center", left: 0, position: "absolute", right: 0, top: 0 }, fullscreenTracking: { backgroundColor: "#0008", color: darkColors.textPrimary, fontSize: 11, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs }, fullscreenHint: { backgroundColor: "#0009", bottom: 112, color: darkColors.textPrimary, fontSize: 13, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, position: "absolute" }, fullscreenPermission: { alignItems: "center", flex: 1, gap: spacing.xs, justifyContent: "center" }, fullscreenPermissionTitle: { color: darkColors.textPrimary, fontSize: 14, marginTop: spacing.sm }, fullscreenBack: { backgroundColor: "#111c", borderColor: darkColors.textPrimary, borderRadius: radius.button, borderWidth: 1, left: spacing.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, position: "absolute", top: spacing.xl }, fullscreenBackText: { color: darkColors.textPrimary, fontSize: 13 }, fullscreenGripper: { alignItems: "center", backgroundColor: colors.accent, borderRadius: radius.button, bottom: spacing.xl, flexDirection: "row", gap: spacing.xs, justifyContent: "center", left: spacing.lg, minHeight: 54, paddingHorizontal: spacing.md, position: "absolute", right: spacing.lg }, fullscreenGripperText: { color: colors.accentForeground, fontSize: 13 },
-    // Same danger/dangerForeground pairing GlobalChrome's own E-STOP button
-    // uses — the one other place on screen a user can trigger it while this
-    // fullscreen overlay hides GlobalChrome entirely. Placed above every
-    // other fullscreen child (last in JSX = topmost) so it's never covered
-    // by the camera feed or the hold-to-control area.
-    fullscreenEstop: { alignItems: "center", backgroundColor: colors.danger, borderRadius: radius.button, flexDirection: "row", gap: spacing.xxs, minHeight: 44, paddingHorizontal: spacing.sm, position: "absolute", right: spacing.md, top: spacing.xl },
-    fullscreenEstopActive: { opacity: 0.9 },
-    fullscreenEstopText: { color: colors.dangerForeground, fontSize: 13, fontWeight: "700" },
-    actionsRow: { flexDirection: "row", gap: spacing.sm }, secondaryButton: { alignItems: "center", backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.button, borderWidth: 1, flex: 1, flexDirection: "row", gap: spacing.xs, justifyContent: "center", minHeight: 48 }, stopButton: { alignItems: "center", backgroundColor: colors.danger, borderRadius: radius.button, flex: 1, flexDirection: "row", gap: spacing.xs, justifyContent: "center", minHeight: 48 }, secondaryText: { color: colors.textPrimary, fontSize: 12 }, stopText: { color: colors.dangerForeground }, speedCard: { backgroundColor: colors.surface, borderColor: colors.border, borderRadius: radius.card, borderWidth: 1, gap: spacing.sm, padding: spacing.md }, speedValue: { color: colors.accentStrong, fontSize: 14 }, speedTrack: { backgroundColor: colors.border, height: 6, position: "relative" }, speedFill: { backgroundColor: colors.accent, height: 6, left: 0, position: "absolute", top: 0 }, speedPoint: { backgroundColor: colors.textSecondary, borderRadius: radius.round, height: 14, marginLeft: -7, marginTop: -4, position: "absolute", width: 14, zIndex: 2 }, speedPointActive: { backgroundColor: colors.accentStrong }, speedLabels: { flexDirection: "row", justifyContent: "space-between" }, notice: { alignItems: "flex-start", backgroundColor: "#2e2819", borderColor: darkColors.caution, borderRadius: radius.button, borderWidth: 1, flexDirection: "row", gap: spacing.xs, padding: spacing.sm }, noticeText: { color: darkColors.textPrimary, flex: 1, fontSize: 12 }, disabled: { opacity: 0.45 }, pressed: { opacity: 0.78 }
+    portInput: { width: 72 },
+    secureToggle: { alignItems: "center", justifyContent: "center", minWidth: 56 },
+    secureToggleOn: { borderColor: colors.accentInk },
+    secureText: { color: colors.textSecondary, fontSize: 12 },
+    fullscreen: { backgroundColor: darkColors.background, flex: 1 },
+    fullscreenHoldArea: { flex: 1 },
+    fullscreenOverlay: { alignItems: "center", bottom: 0, gap: space.sm, justifyContent: "center", left: 0, position: "absolute", right: 0, top: 0 },
+    fullscreenChip: {
+      backgroundColor: FEED_SCRIM,
+      borderRadius: corner.pill,
+      color: darkColors.textPrimary,
+      fontSize: 12,
+      overflow: "hidden",
+      paddingHorizontal: space.sm,
+      paddingVertical: space.xxs
+    },
+    fullscreenHint: {
+      backgroundColor: FEED_SCRIM,
+      borderRadius: corner.card,
+      color: darkColors.textPrimary,
+      fontSize: 14,
+      overflow: "hidden",
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      textAlign: "center"
+    },
+    fullscreenPermission: { alignItems: "center", flex: 1, gap: space.md, justifyContent: "center" },
+    fullscreenText: { color: darkColors.textPrimary, fontSize: 14 },
+    fullscreenBack: {
+      backgroundColor: FEED_SCRIM,
+      borderRadius: corner.pill,
+      justifyContent: "center",
+      left: space.md,
+      minHeight: 44,
+      paddingHorizontal: space.md,
+      position: "absolute",
+      top: space.xl
+    },
+    fullscreenGripper: {
+      alignItems: "center",
+      backgroundColor: FEED_SCRIM,
+      borderRadius: corner.pill,
+      bottom: space.xl,
+      justifyContent: "center",
+      left: space.lg,
+      minHeight: 52,
+      position: "absolute",
+      right: space.lg
+    },
+    // Same danger/onDanger pairing as GlobalChrome's own E-STOP button.
+    fullscreenEstop: {
+      alignItems: "center",
+      backgroundColor: colors.statusDanger,
+      borderRadius: corner.card,
+      flexDirection: "row",
+      gap: space.xxs,
+      minHeight: 44,
+      paddingHorizontal: space.sm,
+      position: "absolute",
+      right: space.md,
+      top: space.xl
+    },
+    fullscreenEstopText: { color: colors.onDanger, fontSize: 13, fontWeight: "700" }
   });
 }

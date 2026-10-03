@@ -38,7 +38,7 @@ type ControlStackParamList = {
   // `from: "hub"` / `"teleop"` means Back returns to that screen; without it
   // Back keeps its original Home destination for entries from Home / Skill
   // Detail.
-  Connect: { from?: "hub" | "teleop" } | undefined;
+  Connect: { from?: "hub" | "teleop" | "phone-teleop" } | undefined;
   Calibrate: { from?: "home" | "connect" } | undefined;
   Teleop: { from?: "home" | "connect" } | undefined;
   PhoneTeleop: { from?: "home" } | undefined;
@@ -523,6 +523,8 @@ function ControlStackScreen({
           <PhoneTeleopScreen
             emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
+            onCalibrate={() => navigation.navigate("Calibrate")}
+            onConnect={() => navigation.navigate("Connect", { from: "phone-teleop" })}
             onEmergencyStop={onEmergencyStop}
             onBack={() => {
               if (route.params?.from === "home") {

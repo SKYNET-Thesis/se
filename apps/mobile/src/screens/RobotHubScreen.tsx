@@ -5,7 +5,8 @@ import { SkyCard, SkySection, SkyText, StatusBadge } from "../components/ui";
 import { corner } from "../design-system/radius";
 import { layout, space } from "../design-system/spacing";
 import { SkyNexColors, useSkyNexTokens } from "../design-system/tokens";
-import { getRobotSummary, READINESS_BADGE_LABEL, RobotReadiness, RobotSummary } from "../data/robot";
+import { READINESS_BADGE_LABEL, RobotReadiness, RobotSummary } from "../data/robot";
+import { useRobotSummary } from "../hooks/useRobotSummary";
 
 export type RobotHubRoute = "teleop" | "phone-teleop" | "connect" | "calibrate" | "status";
 
@@ -122,17 +123,8 @@ export function RobotHubScreen({ emergencyStopped, fontsReady, onOpenRoute }: Pr
   const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
   // Same readiness source as Home and Skill Detail — never recomputed here.
-  const [robot, setRobot] = useState<RobotSummary | null>(null);
+  const robot = useRobotSummary({ emergencyStopped });
 
-  useEffect(() => {
-    let mounted = true;
-    getRobotSummary({ emergencyStopped }).then((next) => {
-      if (mounted) setRobot(next);
-    });
-    return () => {
-      mounted = false;
-    };
-  }, [emergencyStopped]);
 
   return (
     <ScrollView

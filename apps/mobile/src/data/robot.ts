@@ -33,6 +33,42 @@ const MOCK_ROBOT = {
   calibrated: true
 };
 
+// The live robot link: the ONE place connection/calibration state lives.
+// Seeded from MOCK_ROBOT today; when the real link exists, it calls
+// setRobotLink() and every consumer (useRobotSummary, getLiveReadiness)
+// follows without any screen changing. Replaced, never mutated, so a
+// snapshot identity change means the link changed.
+export type RobotLink = { connected: boolean; calibrated: boolean };
+
+let robotLink: RobotLink = { connected: MOCK_ROBOT.connected, calibrated: MOCK_ROBOT.calibrated };
+const robotLinkListeners = new Set<() => void>();
+
+export function getRobotLink(): RobotLink {
+  return robotLink;
+}
+
+export function subscribeRobotLink(listener: () => void): () => void {
+  robotLinkListeners.add(listener);
+  return () => {
+    robotLinkListeners.delete(listener);
+  };
+}
+
+export function setRobotLink(next: Partial<RobotLink>) {
+  const merged = { ...robotLink, ...next };
+  if (merged.connected === robotLink.connected && merged.calibrated === robotLink.calibrated) return;
+  robotLink = merged;
+  robotLinkListeners.forEach((listener) => listener());
+}
+
+// Dev/QA only (stripped from release builds): lets a tester or test script
+// drive the shared link — e.g. globalThis.__skynexRobotLink.set({ connected: false })
+// — until a real robot link exists. It writes the shared source; there is
+// no per-screen override.
+if (__DEV__) {
+  (globalThis as { __skynexRobotLink?: unknown }).__skynexRobotLink = { get: getRobotLink, set: setRobotLink };
+}
+
 const READINESS_STATUS: Record<RobotReadiness, RobotStatus> = {
   offline: "offline",
   stopped: "danger",
@@ -82,9 +118,15 @@ export async function getSuggestedSkillId(): Promise<string | null> {
   return pickSuggestedTask(await getTasks())?.id ?? null;
 }
 
-export async function getRobotSummary({ emergencyStopped }: { emergencyStopped: boolean }): Promise<RobotSummary> {
-  const tasks = await getTasks();
-  const readiness = resolveReadiness(MOCK_ROBOT.connected, MOCK_ROBOT.calibrated, emergencyStopped);
+// Readiness right now, synchronously, from the live link. For last-line
+// checks at the moment a command would leave the app — no render, effect
+// or promise in between.
+export function getLiveReadiness(emergencyStopped: boolean): RobotReadiness {
+  return resolveReadiness(robotLink.connected, robotLink.calibrated, emergencyStopped);
+}
+
+export function buildRobotSummary(link: RobotLink, emergencyStopped: boolean, suggestedSkill: Task | null): RobotSummary {
+  const readiness = resolveReadiness(link.connected, link.calibrated, emergencyStopped);
 
   return {
     name: MOCK_ROBOT.name,
@@ -92,6 +134,16 @@ export async function getRobotSummary({ emergencyStopped }: { emergencyStopped: 
     status: READINESS_STATUS[readiness],
     headline: READINESS_HEADLINE[readiness],
     message: READINESS_MESSAGE[readiness],
-    suggestedSkill: pickSuggestedTask(tasks)
+    suggestedSkill
   };
+}
+
+export async function getSuggestedSkill(): Promise<Task | null> {
+  return pickSuggestedTask(await getTasks());
+}
+
+// One-shot summary of the live link. Screens use useRobotSummary() instead,
+// which also follows link changes.
+export async function getRobotSummary({ emergencyStopped }: { emergencyStopped: boolean }): Promise<RobotSummary> {
+  return buildRobotSummary(robotLink, emergencyStopped, await getSuggestedSkill());
 }

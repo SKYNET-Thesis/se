@@ -7,13 +7,13 @@ import { HomeToolsList } from "../components/home/HomeToolsList";
 import { RobotHero } from "../components/home/RobotHero";
 import { RobotReadinessCard } from "../components/home/RobotReadinessCard";
 import { SkySection, SkyText } from "../components/ui";
-import { getRobotSummary, RobotSummary as HomeRobotSummary } from "../data/robot";
 import { getTasks, Task } from "../data/tasks";
 import { layout } from "../design-system/spacing";
 import { useSkyNexTokens } from "../design-system/tokens";
 import { getFavorites, toggleFavorite } from "../services/favoritesStorage";
 import { font, radius, spacing, ThemeColors, ThemeMode, type } from "../theme";
 import { useAppTheme } from "../ThemeContext";
+import { useRobotSummary } from "../hooks/useRobotSummary";
 
 export type HomeRoute = "connect" | "calibrate" | "teleop" | "phone-teleop" | "camera";
 type HomeDataState =
@@ -81,7 +81,7 @@ export function HomeScreen({
   reduceMotion
 }: Props) {
   const { colors } = useSkyNexTokens();
-  const [summary, setSummary] = useState<HomeRobotSummary | null>(null);
+  const summary = useRobotSummary({ emergencyStopped });
   const [featuredTasks, setFeaturedTasks] = useState<Task[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const { width: windowWidth } = useWindowDimensions();
@@ -89,19 +89,6 @@ export function HomeScreen({
   const featuredCardWidth = Math.min(320, Math.max(284, Math.round(windowWidth * 0.74)));
   const featuredCardHeight = windowWidth < 390 ? 196 : 204;
 
-  // Re-resolved whenever E-STOP flips. The previous summary stays on screen
-  // until the new one lands, so the card never blanks out mid-toggle.
-  useEffect(() => {
-    let mounted = true;
-
-    getRobotSummary({ emergencyStopped }).then((next) => {
-      if (mounted) setSummary(next);
-    });
-
-    return () => {
-      mounted = false;
-    };
-  }, [emergencyStopped]);
 
   useEffect(() => {
     let mounted = true;

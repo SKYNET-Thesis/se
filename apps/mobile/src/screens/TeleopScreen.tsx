@@ -6,7 +6,8 @@ import { SkyButton, SkyCard, SkySection, SkyText, StatusBadge } from "../compone
 import { corner } from "../design-system/radius";
 import { layout, space } from "../design-system/spacing";
 import { SkyNexColors, useSkyNexTokens } from "../design-system/tokens";
-import { getRobotSummary, READINESS_BADGE_LABEL, RobotReadiness, RobotSummary } from "../data/robot";
+import { getLiveReadiness, READINESS_BADGE_LABEL, RobotReadiness, RobotSummary } from "../data/robot";
+import { useRobotSummary } from "../hooks/useRobotSummary";
 import { font } from "../theme";
 
 type ArmRole = "follower" | "leader";
@@ -163,7 +164,7 @@ function lockReason(readiness: RobotReadiness | null, emergencyStopped: boolean,
 // adjustments. Raw readings live in "Chi tiết"; there is no telemetry here.
 //
 // Safety model, in layers:
-//   1. Readiness comes ONLY from getRobotSummary() — the same source as
+//   1. Readiness comes ONLY from useRobotSummary() — the same source as
 //      Home, Skill Detail and the Robot hub. Motion needs readiness "ready"
 //      AND the raw E-STOP flag clear (the flag wins without waiting for the
 //      async summary).
@@ -175,7 +176,7 @@ function lockReason(readiness: RobotReadiness | null, emergencyStopped: boolean,
 export function TeleopScreen({ emergencyStopped, fontsReady, onBack, onCalibrate, onConnect }: Props) {
   const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const [robot, setRobot] = useState<RobotSummary | null>(null);
+  const robot = useRobotSummary({ emergencyStopped });
   const [manualEnabled, setManualEnabled] = useState(false);
   const [confirmManualVisible, setConfirmManualVisible] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -185,15 +186,6 @@ export function TeleopScreen({ emergencyStopped, fontsReady, onBack, onCalibrate
     leader: createInitialPositions("leader")
   });
 
-  useEffect(() => {
-    let mounted = true;
-    getRobotSummary({ emergencyStopped }).then((next) => {
-      if (mounted) setRobot(next);
-    });
-    return () => {
-      mounted = false;
-    };
-  }, [emergencyStopped]);
 
   const readings = useMemo(() => buildReadings(positions), [positions]);
   const hasFault = hasTone(readings, "fault");
@@ -203,6 +195,10 @@ export function TeleopScreen({ emergencyStopped, fontsReady, onBack, onCalibrate
 
   // Latest gate for the motion loop and press handlers (layer 3).
   const motionAllowedRef = useRef(motionAllowed);
+  const emergencyStoppedRef = useRef(emergencyStopped);
+  emergencyStoppedRef.current = emergencyStopped;
+  // Live check straight from the shared robot link + E-STOP, at call time.
+  const robotMayMoveNow = () => motionAllowedRef.current && getLiveReadiness(emergencyStoppedRef.current) === "ready";
   const manualEnabledRef = useRef(manualEnabled);
   const hasFaultRef = useRef(hasFault);
   const activeJogRef = useRef(activeJog);
@@ -231,7 +227,7 @@ export function TeleopScreen({ emergencyStopped, fontsReady, onBack, onCalibrate
 
     const timer = setInterval(() => {
       // Layer 3: decide what this tick may apply from the gate as it is now.
-      const allowed = motionAllowedRef.current && manualEnabledRef.current && !hasFaultRef.current;
+      const allowed = robotMayMoveNow() && manualEnabledRef.current && !hasFaultRef.current;
       const jog = allowed ? activeJogRef.current : null;
       tickRef.current += 1;
       const nextTick = tickRef.current;
@@ -242,7 +238,7 @@ export function TeleopScreen({ emergencyStopped, fontsReady, onBack, onCalibrate
   }, [motionAllowed]);
 
   const handleJogStart = (command: JogCommand) => {
-    if (!motionAllowedRef.current || !manualEnabledRef.current || hasFaultRef.current) return;
+    if (!robotMayMoveNow() || !manualEnabledRef.current || hasFaultRef.current) return;
     setActiveJog(command);
   };
 

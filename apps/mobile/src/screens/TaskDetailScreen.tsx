@@ -8,7 +8,8 @@ import { SkyButton, SkyText, StatusBadge } from "../components/ui";
 import { corner } from "../design-system/radius";
 import { layout, space } from "../design-system/spacing";
 import { SkyNexColors, useSkyNexTokens } from "../design-system/tokens";
-import { getRobotSummary, READINESS_BADGE_LABEL, RobotSummary } from "../data/robot";
+import { READINESS_BADGE_LABEL, RobotSummary } from "../data/robot";
+import { useRobotSummary } from "../hooks/useRobotSummary";
 import { formatSkillDuration, formatSkillLevel, getSkillById } from "../data/skills";
 import { getFavorites, toggleFavorite } from "../services/favoritesStorage";
 import { useAppTheme } from "../ThemeContext";
@@ -65,7 +66,7 @@ export function TaskDetailScreen({ emergencyStopped, fontsReady, taskId, onBack,
   const [skill, setSkill] = useState<Skill | null | undefined>(undefined);
   const [isFavorite, setIsFavorite] = useState(false);
   // Same readiness source Home uses (data/robot.ts) — never recomputed here.
-  const [robot, setRobot] = useState<RobotSummary | null>(null);
+  const robot = useRobotSummary({ emergencyStopped });
   const [startState, setStartState] = useState<StartState>("idle");
   const [toastVisible, setToastVisible] = useState(false);
   const startingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -84,15 +85,6 @@ export function TaskDetailScreen({ emergencyStopped, fontsReady, taskId, onBack,
     };
   }, [taskId]);
 
-  useEffect(() => {
-    let mounted = true;
-    getRobotSummary({ emergencyStopped }).then((next) => {
-      if (mounted) setRobot(next);
-    });
-    return () => {
-      mounted = false;
-    };
-  }, [emergencyStopped]);
 
   // Safety (Phase 5.1): losing readiness — E-STOP above all — cancels a
   // start that is still in flight, so it can never report "started" after

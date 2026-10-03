@@ -30,7 +30,7 @@ export function ScreenHeader({ title, subtitle, meta, fontsReady, onBack, right 
       </Pressable>
 
       <View style={styles.titleBlock}>
-        <Text numberOfLines={1} style={[styles.title, font("display", fontsReady)]}>
+        <Text numberOfLines={2} style={[styles.title, font("display", fontsReady)]}>
           {title}
         </Text>
         {subtitle && (
