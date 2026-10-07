@@ -6,6 +6,7 @@ NestJS API, websocket, persistence, and orchestration service for OmniArm SE.
 
 ```bash
 npm install
+npm run prisma:generate
 npm run start:dev
 ```
 
@@ -30,3 +31,7 @@ src/
 Controllers own HTTP transport and validation. Services own business rules and
 authorization checks. Repositories own persistence and external state access;
 database queries are kept inside repositories.
+
+Prisma is the backend ORM. Add schema models in `prisma/schema.prisma`, run
+`npm run prisma:migrate` during development, and inject `PrismaService` into
+repositories instead of creating database clients there.
