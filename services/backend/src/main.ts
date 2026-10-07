@@ -2,8 +2,8 @@ import "reflect-metadata";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { ApiExceptionFilter } from "./common/filters/api-exception.filter";
 import { AppModule } from "./app.module";
-import { ApiExceptionFilter } from "./api/filters/api-exception.filter";
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);

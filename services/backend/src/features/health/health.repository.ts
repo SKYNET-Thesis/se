@@ -1,14 +1,12 @@
 import { Injectable, OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Pool } from "pg";
-import { HealthIndicator, HealthIndicatorResult } from "@nestjs/terminus";
 
 @Injectable()
-export class DatabaseService extends HealthIndicator implements OnModuleDestroy {
+export class HealthRepository implements OnModuleDestroy {
   private readonly pool: Pool;
 
   constructor(config: ConfigService) {
-    super();
     this.pool = new Pool({
       connectionString: config.get<string>("DATABASE_URL"),
       host: config.get<string>("POSTGRES_HOST", "localhost"),
@@ -19,12 +17,12 @@ export class DatabaseService extends HealthIndicator implements OnModuleDestroy 
     });
   }
 
-  async isHealthy(): Promise<HealthIndicatorResult> {
+  async canConnect(): Promise<boolean> {
     try {
       await this.pool.query("SELECT 1");
-      return this.getStatus("postgres", true);
+      return true;
     } catch {
-      return this.getStatus("postgres", false);
+      return false;
     }
   }
 

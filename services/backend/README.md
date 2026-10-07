@@ -14,3 +14,19 @@ the status endpoint at `/api/status`, and development Swagger at `/docs`.
 
 Configuration is read from `PORT`, `POSTGRES_*`, `DATABASE_URL`, and `MQTT_*`
 environment variables. See `.env.example` for the container defaults.
+
+## Structure
+
+The backend is organized by feature rather than technical layer:
+
+```text
+src/
+	common/       Cross-cutting HTTP and security concerns
+	features/
+		health/     Controller -> service -> repository
+		status/     Controller -> service -> repository
+```
+
+Controllers own HTTP transport and validation. Services own business rules and
+authorization checks. Repositories own persistence and external state access;
+database queries are kept inside repositories.

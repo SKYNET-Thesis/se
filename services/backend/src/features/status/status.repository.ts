@@ -3,13 +3,13 @@ import { ConfigService } from "@nestjs/config";
 import mqtt, { MqttClient } from "mqtt";
 
 @Injectable()
-export class MqttConnectionService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(MqttConnectionService.name);
+export class StatusRepository implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(StatusRepository.name);
   private client?: MqttClient;
 
   constructor(private readonly config: ConfigService) {}
 
-  get isConnected(): boolean {
+  isMqttConnected(): boolean {
     return this.client?.connected ?? false;
   }
 
