@@ -10,7 +10,15 @@ async function bootstrap(): Promise<void> {
 
   app.setGlobalPrefix("api", { exclude: ["health"] });
   app.useGlobalFilters(new ApiExceptionFilter());
-  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      forbidUnknownValues: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
 
   if (process.env.NODE_ENV !== "production") {
     const config = new DocumentBuilder()

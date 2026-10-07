@@ -1,5 +1,6 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, Query } from "@nestjs/common";
 import { HealthCheck, HealthCheckResult } from "@nestjs/terminus";
+import { HealthRequestDto } from "./dto/health-request.dto";
 import { HealthService } from "./health.service";
 
 @Controller()
@@ -8,7 +9,7 @@ export class HealthController {
 
   @Get("health")
   @HealthCheck()
-  check(): Promise<HealthCheckResult> {
+  check(@Query() _query: HealthRequestDto): Promise<HealthCheckResult> {
     return this.health.check();
   }
 }
