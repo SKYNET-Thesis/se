@@ -40,7 +40,8 @@ type ControlStackParamList = {
   // `from: "hub"` / `"teleop"` means Back returns to that screen; without it
   // Back keeps its original Home destination for entries from Home / Skill
   // Detail.
-  Connect: { from?: "hub" | "teleop" | "phone-teleop" | "calibrate" } | undefined;
+  // `armId` brings that arm's card into view (e.g. from Status).
+  Connect: { from?: "hub" | "teleop" | "phone-teleop" | "calibrate" | "status"; armId?: string } | undefined;
   // `armId` preselects that arm (multi-arm setups). Omitted or unknown →
   // Calibrate's own arm overview.
   Calibrate: { from?: "home" | "connect"; armId?: string } | undefined;
@@ -311,6 +312,24 @@ function HomeStackScreen({
               }
               navigation.navigate("HomeMain");
             }}
+            // Into the Robot tab. Connect without `from` and Calibrate /
+            // Teleop with `from: "home"` all return to the Home tab, where
+            // this Status is still on top.
+            onCalibrate={(armId) =>
+              navigation
+                .getParent<BottomTabNavigationProp<RootTabParamList>>()
+                ?.navigate("Control", { screen: "Calibrate", initial: false, params: { from: "home", armId } })
+            }
+            onConnect={(armId) =>
+              navigation
+                .getParent<BottomTabNavigationProp<RootTabParamList>>()
+                ?.navigate("Control", { screen: "Connect", initial: false, params: armId ? { armId } : undefined })
+            }
+            onOpenControl={() =>
+              navigation
+                .getParent<BottomTabNavigationProp<RootTabParamList>>()
+                ?.navigate("Control", { screen: "Teleop", initial: false, params: { from: "home" } })
+            }
           />
         )}
       </HomeStack.Screen>
@@ -466,6 +485,7 @@ function ControlStackScreen({
         {({ navigation, route }: NativeStackScreenProps<ControlStackParamList, "Connect">) => (
           <ConnectScreen
             emergencyStopped={emergencyStopped}
+            focusArmId={route.params?.armId}
             fontsReady={fontsReady}
             onBack={() => {
               if (route.params?.from && navigation.canGoBack()) {
@@ -562,6 +582,10 @@ function ControlStackScreen({
               }
               navigation.navigate("RobotHub");
             }}
+            // Pushed on this stack, so each Back returns here to Status.
+            onCalibrate={(armId) => navigation.navigate("Calibrate", armId ? { armId } : undefined)}
+            onConnect={(armId) => navigation.navigate("Connect", { from: "status", armId })}
+            onOpenControl={() => navigation.navigate("Teleop")}
           />
         )}
       </ControlStack.Screen>

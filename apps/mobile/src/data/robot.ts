@@ -97,6 +97,14 @@ export function getActiveArms(setup: RobotSetup = robotSetup): RobotArmState[] {
   return setup.activeArmIds.flatMap((id) => (setup.arms[id] ? [setup.arms[id]] : []));
 }
 
+// The arm a setup-level "Calibrate" should open directly: the one connected
+// arm that still needs calibration. null when none or several do — then
+// Calibrate's own arm overview lets the user choose.
+export function pickArmToCalibrate(arms: readonly RobotArmState[]): string | null {
+  const pending = arms.filter((arm) => arm.connected && !arm.calibrated);
+  return pending.length === 1 ? pending[0].id : null;
+}
+
 // ── Aggregate link (backward-compatible view) ─────────────────────────────
 // Most screens only need "is the setup connected / calibrated?". RobotLink
 // is that aggregate over the ACTIVE arms — the ONE place it is derived:

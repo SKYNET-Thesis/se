@@ -1,149 +1,70 @@
-import { useMemo } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Bot, ChevronDown, ChevronUp, CircleAlert, CircleCheck, FlaskConical, ShieldAlert } from "lucide-react-native";
+import { useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { ScreenHeader } from "../components/ScreenHeader";
-import { useAppTheme } from "../ThemeContext";
-import { font, radius, spacing, ThemeColors, type } from "../theme";
+import { SkyButton, SkyCard, SkyText, StatusBadge } from "../components/ui";
+import { corner } from "../design-system/radius";
+import { layout, space } from "../design-system/spacing";
+import { SkyNexColors, useSkyNexTokens } from "../design-system/tokens";
+import {
+  describeRobotArm,
+  getActiveArms,
+  getRobotLinkMode,
+  pickArmToCalibrate,
+  READINESS_BADGE_LABEL,
+  ROBOT_ARM_MODEL,
+  RobotArmSide,
+  RobotArmState
+} from "../data/robot";
+import { useRobotSetup, useRobotSummary } from "../hooks/useRobotSummary";
+import { font } from "../theme";
 
 type Props = {
+  // Owned by App.tsx (floating E-STOP / Reset). Read only here.
   emergencyStopped: boolean;
   fontsReady: boolean;
   onBack: () => void;
+  // Connect, optionally with one arm brought into view.
+  onConnect: (armId?: string) => void;
+  // Calibrate, optionally with one arm preselected.
+  onCalibrate: (armId?: string) => void;
+  // Manual Control — it still requires its own deliberate arm step.
+  onOpenControl: () => void;
 };
 
-type Tone = "ok" | "caution" | "danger" | "neutral";
-
-// Built from the live theme (not a module constant) so it follows
-// Light/Dark; "ok" uses accentStrong since this color paints bare text/dot
-// fills directly on a surface, where plain accent reads almost invisibly
-// on Light.
-function buildToneColor(colors: ThemeColors): Record<Tone, string> {
-  return {
-    ok: colors.success,
-    caution: colors.caution,
-    danger: colors.danger,
-    neutral: colors.textSecondary
-  };
-}
-
-type ArmChannel = {
-  label: "Follower" | "Leader";
-  connected: boolean;
-  port: string;
-  latencyMs: number | null;
-  calibrated: boolean;
+// Only sides worth saying in words; "custom" has no fixed meaning.
+const SIDE_LABEL: Partial<Record<RobotArmSide, string>> = {
+  left: "Trái",
+  right: "Phải"
 };
 
-type StatusSnapshot = {
-  heroLabel: string;
-  heroTone: Tone;
-  mode: string;
-  modeTone: Tone;
-  systemLatencyMs: number | null;
-  follower: ArmChannel;
-  leader: ArmChannel;
-  camerasOnline: number;
-  camerasTotal: number;
-  robotLabel: string;
-  robotTone: Tone;
-  calibrationLabel: string;
-  calibrationTone: Tone;
-  connectionLabel: string;
-  connectionTone: Tone;
-};
+// Clears the floating E-STOP (bottom-left by default, 58pt + caption) so
+// the last action can always be scrolled above it.
+const ESTOP_CLEARANCE = 96;
 
-type SystemState = "normal" | "disconnected" | "calibration-incomplete" | "emergency-stopped" | "loading";
-
-// Swap this during development/QA to preview any mock state below. The real
-// `emergencyStopped` prop always overrides it once wired to a live signal,
-// so App.tsx's E-STOP stays the single source of truth for that state.
-const MOCK_STATE: SystemState = "normal";
-
-const SNAPSHOTS: Record<Exclude<SystemState, "loading">, StatusSnapshot> = {
-  normal: {
-    heroLabel: "Sẵn sàng",
-    heroTone: "ok",
-    mode: "Manual",
-    modeTone: "ok",
-    systemLatencyMs: 42,
-    follower: { label: "Follower", connected: true, port: "/dev/ttyACM0", latencyMs: 18, calibrated: true },
-    leader: { label: "Leader", connected: true, port: "/dev/ttyACM1", latencyMs: 14, calibrated: true },
-    camerasOnline: 3,
-    camerasTotal: 3,
-    robotLabel: "Online",
-    robotTone: "ok",
-    calibrationLabel: "Hoàn tất",
-    calibrationTone: "ok",
-    connectionLabel: "Sẵn sàng",
-    connectionTone: "ok"
-  },
-  disconnected: {
-    heroLabel: "Mất kết nối",
-    heroTone: "danger",
-    mode: "—",
-    modeTone: "neutral",
-    systemLatencyMs: null,
-    follower: { label: "Follower", connected: false, port: "—", latencyMs: null, calibrated: false },
-    leader: { label: "Leader", connected: false, port: "—", latencyMs: null, calibrated: false },
-    camerasOnline: 0,
-    camerasTotal: 3,
-    robotLabel: "Offline",
-    robotTone: "danger",
-    calibrationLabel: "Không rõ",
-    calibrationTone: "neutral",
-    connectionLabel: "Mất kết nối",
-    connectionTone: "danger"
-  },
-  "calibration-incomplete": {
-    heroLabel: "Cần hiệu chỉnh",
-    heroTone: "caution",
-    mode: "Manual",
-    modeTone: "ok",
-    systemLatencyMs: 45,
-    follower: { label: "Follower", connected: true, port: "/dev/ttyACM0", latencyMs: 19, calibrated: false },
-    leader: { label: "Leader", connected: true, port: "/dev/ttyACM1", latencyMs: 15, calibrated: false },
-    camerasOnline: 3,
-    camerasTotal: 3,
-    robotLabel: "Online",
-    robotTone: "ok",
-    calibrationLabel: "Chưa hoàn tất",
-    calibrationTone: "caution",
-    connectionLabel: "Sẵn sàng",
-    connectionTone: "ok"
-  },
-  "emergency-stopped": {
-    heroLabel: "Đã dừng khẩn cấp",
-    heroTone: "danger",
-    mode: "Dừng khẩn cấp",
-    modeTone: "danger",
-    systemLatencyMs: 42,
-    follower: { label: "Follower", connected: true, port: "/dev/ttyACM0", latencyMs: 18, calibrated: true },
-    leader: { label: "Leader", connected: true, port: "/dev/ttyACM1", latencyMs: 14, calibrated: true },
-    camerasOnline: 3,
-    camerasTotal: 3,
-    robotLabel: "Đã dừng",
-    robotTone: "danger",
-    calibrationLabel: "Hoàn tất",
-    calibrationTone: "ok",
-    connectionLabel: "Sẵn sàng",
-    connectionTone: "ok"
-  }
-};
-
-// theme.ts tops out at radius.card (16). Matches the larger, softer corner
-// HomeScreen's own "rich card" cluster already established for this app —
-// kept identical here so Status reads as the same product as Home.
-const CARD_RADIUS_OUTER = 24;
-const CARD_RADIUS_INNER = 20;
-
-export function StatusScreen({ emergencyStopped, fontsReady, onBack }: Props) {
-  const { colors } = useAppTheme();
+// Robot Status V2. The overview between the Robot hub and Connect /
+// Calibrate: is the active setup ready, which arms are connected and
+// calibrated, which one needs attention, and what to do next. Readiness is
+// the shared aggregate (useRobotSummary); per-arm facts come from the shared
+// setup (useRobotSetup). Nothing here is measured hardware data — no ports,
+// latency, battery or firmware — and nothing arms or moves the robot.
+export function StatusScreen({ emergencyStopped, fontsReady, onBack, onCalibrate, onConnect, onOpenControl }: Props) {
+  const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const toneColor = useMemo(() => buildToneColor(colors), [colors]);
-  const state: SystemState = emergencyStopped ? "emergency-stopped" : MOCK_STATE;
+  const setup = useRobotSetup();
+  const robot = useRobotSummary({ emergencyStopped });
+  const arms = useMemo(() => getActiveArms(setup), [setup]);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const prototype = getRobotLinkMode() === "prototype";
+
+  const connectedCount = arms.filter((arm) => arm.connected).length;
+  const uncalibratedCount = arms.filter((arm) => !arm.calibrated).length;
+
+  const handleCalibrate = () => onCalibrate(pickArmToCalibrate(arms) ?? undefined);
 
   return (
     <ScrollView
-      accessibilityLabel="Màn hình trạng thái tổng OmniArm"
+      accessibilityLabel="Trạng thái robot"
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
       style={styles.screen}
@@ -151,463 +72,613 @@ export function StatusScreen({ emergencyStopped, fontsReady, onBack }: Props) {
       <ScreenHeader
         fontsReady={fontsReady}
         onBack={onBack}
-        subtitle="Theo dõi hệ thống theo thời gian thực"
-        title="Trạng thái"
+        subtitle="Tổng quan hệ thống và từng tay robot."
+        title="Trạng thái robot"
       />
 
-      {state === "loading" ? (
-        <LoadingState fontsReady={fontsReady} styles={styles} />
-      ) : (
-        <>
-          <HeroCard colors={colors} fontsReady={fontsReady} snapshot={SNAPSHOTS[state]} styles={styles} toneColor={toneColor} />
+      <SetupCard
+        armCount={arms.length}
+        colors={colors}
+        connectedCount={connectedCount}
+        emergencyStopped={emergencyStopped}
+        fontsReady={fontsReady}
+        robot={robot}
+        styles={styles}
+        uncalibratedCount={uncalibratedCount}
+      />
 
-          <View style={styles.armShell}>
-            <View style={styles.armShellRow}>
-              <ArmChannelCard
-                channel={SNAPSHOTS[state].follower}
-                fontsReady={fontsReady}
-                styles={styles}
-                toneColor={toneColor}
-              />
-              <ArmChannelCard
-                channel={SNAPSHOTS[state].leader}
-                fontsReady={fontsReady}
-                styles={styles}
-                toneColor={toneColor}
-              />
-            </View>
+      {emergencyStopped && (
+        // Global — the arm facts below stay visible. Reset lives only beside
+        // the floating E-STOP.
+        <View accessibilityLiveRegion="assertive" accessibilityRole="alert" style={styles.safety}>
+          <ShieldAlert color={colors.statusDanger} size={18} />
+          <View style={styles.flex}>
+            <SkyText fontsReady={fontsReady} style={{ color: colors.statusDanger }} variant="sectionTitle">
+              Đã dừng khẩn cấp
+            </SkyText>
+            <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+              Robot đang ở trạng thái dừng khẩn cấp. Nhấn Reset cạnh nút E-STOP khi đã an toàn.
+            </SkyText>
           </View>
+        </View>
+      )}
 
-          <ReadinessCard fontsReady={fontsReady} snapshot={SNAPSHOTS[state]} styles={styles} toneColor={toneColor} />
-          <ProfileCard fontsReady={fontsReady} styles={styles} />
-        </>
+      {arms.length > 0 && (
+        <View style={styles.armList}>
+          <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="sectionTitle">
+            {arms.length > 1 ? "Các tay robot" : "Tay robot"}
+          </SkyText>
+          {arms.map((arm) => (
+            <ArmCard
+              arm={arm}
+              colors={colors}
+              fontsReady={fontsReady}
+              key={arm.id}
+              onCalibrate={() => onCalibrate(arm.id)}
+              onConnect={() => onConnect(arm.id)}
+              styles={styles}
+            />
+          ))}
+        </View>
+      )}
+
+      <PrimaryAction
+        empty={arms.length === 0}
+        fontsReady={fontsReady}
+        onCalibrate={handleCalibrate}
+        onConnect={() => onConnect()}
+        onOpenControl={onOpenControl}
+        readiness={robot?.readiness}
+        styles={styles}
+      />
+
+      <TechnicalDetails
+        arms={arms}
+        fontsReady={fontsReady}
+        colors={colors}
+        onToggle={() => setDetailsOpen((open) => !open)}
+        open={detailsOpen}
+        prototype={prototype}
+        registeredCount={Object.keys(setup.arms).length}
+        styles={styles}
+      />
+
+      {prototype && (
+        <View
+          accessibilityLabel="Chế độ thử nghiệm: trạng thái hiện được lấy từ mô hình mô phỏng, chưa phản ánh kết nối phần cứng thật."
+          accessible
+          style={styles.modeNote}
+        >
+          <FlaskConical color={colors.textSecondary} size={14} />
+          <SkyText fontsReady={fontsReady} style={styles.flex} tone="secondary" variant="caption">
+            Chế độ thử nghiệm · trạng thái hiện được lấy từ mô hình mô phỏng, chưa phản ánh kết nối phần cứng thật.
+          </SkyText>
+        </View>
       )}
     </ScrollView>
   );
 }
 
-function HeroCard({
+// The active setup at a glance: model, arm count, the shared aggregate
+// state, and three plain counts. The state is the shared readiness; the
+// counts only phrase it.
+function SetupCard({
+  armCount,
+  colors,
+  connectedCount,
+  emergencyStopped,
+  fontsReady,
+  robot,
+  styles,
+  uncalibratedCount
+}: {
+  armCount: number;
+  colors: SkyNexColors;
+  connectedCount: number;
+  emergencyStopped: boolean;
+  fontsReady: boolean;
+  robot: ReturnType<typeof useRobotSummary>;
+  styles: ReturnType<typeof createStyles>;
+  uncalibratedCount: number;
+}) {
+  const empty = armCount === 0;
+
+  let label: string | null = null;
+  let note: string | null = null;
+  if (robot) {
+    switch (robot.readiness) {
+      case "offline":
+        label = connectedCount > 0 ? "Chưa kết nối đầy đủ" : "Chưa kết nối";
+        note = empty
+          ? null
+          : connectedCount > 0
+            ? "Một số tay chưa kết nối. Kết nối đủ các tay để robot hoạt động."
+            : robot.message;
+        break;
+      case "stopped":
+        label = "Đã dừng khẩn cấp";
+        break;
+      default:
+        label = READINESS_BADGE_LABEL[robot.readiness];
+        note = robot.message;
+    }
+  }
+
+  return (
+    <SkyCard style={styles.card}>
+      <View style={styles.identity}>
+        <View style={styles.robotIcon}>
+          <Bot color={colors.textPrimary} size={26} strokeWidth={1.75} />
+        </View>
+        <View style={styles.flex}>
+          <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="title">
+            {ROBOT_ARM_MODEL}
+          </SkyText>
+          <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+            {empty ? "Chưa có tay robot trong hệ thống" : `${armCount} tay trong hệ thống`}
+          </SkyText>
+        </View>
+      </View>
+
+      {/* E-STOP is global and always wins the headline, even while the
+          setup is also offline (readiness still says offline underneath,
+          which keeps "Kết nối robot" available). */}
+      {emergencyStopped ? (
+        <StatusBadge accessibilityLiveRegion="polite" fontsReady={fontsReady} label="Đã dừng khẩn cấp" status="danger" />
+      ) : robot && label ? (
+        <StatusBadge accessibilityLiveRegion="polite" fontsReady={fontsReady} label={label} status={robot.status} />
+      ) : (
+        <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+          Đang tải trạng thái…
+        </SkyText>
+      )}
+
+      {note && (
+        <SkyText fontsReady={fontsReady} tone="secondary">
+          {note}
+        </SkyText>
+      )}
+
+      {!empty && (
+        <View style={styles.facts}>
+          <Fact fontsReady={fontsReady} label="Tay" styles={styles} value={armCount} />
+          <View style={styles.factDivider} />
+          <Fact fontsReady={fontsReady} label="Đã kết nối" styles={styles} value={connectedCount} />
+          <View style={styles.factDivider} />
+          <Fact fontsReady={fontsReady} label="Cần hiệu chỉnh" styles={styles} value={uncalibratedCount} />
+        </View>
+      )}
+    </SkyCard>
+  );
+}
+
+function Fact({
+  fontsReady,
+  label,
+  styles,
+  value
+}: {
+  fontsReady: boolean;
+  label: string;
+  styles: ReturnType<typeof createStyles>;
+  value: number;
+}) {
+  return (
+    <View accessibilityLabel={`${label}: ${value}`} accessible style={styles.fact}>
+      <SkyText fontsReady={fontsReady} variant="cardTitle">
+        {value}
+      </SkyText>
+      <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+        {label}
+      </SkyText>
+    </View>
+  );
+}
+
+// One arm: name first, role/model (and side) second, then connection and
+// calibration in words — icons only reinforce them. The one action is the
+// arm's most important next step; a healthy arm has none.
+function ArmCard({
+  arm,
   colors,
   fontsReady,
-  snapshot,
-  styles,
-  toneColor
+  onCalibrate,
+  onConnect,
+  styles
 }: {
-  colors: ThemeColors;
+  arm: RobotArmState;
+  colors: SkyNexColors;
   fontsReady: boolean;
-  snapshot: StatusSnapshot;
+  onCalibrate: () => void;
+  onConnect: () => void;
   styles: ReturnType<typeof createStyles>;
-  toneColor: Record<Tone, string>;
 }) {
-  const heroColor = toneColor[snapshot.heroTone];
-  const hasLatency = snapshot.systemLatencyMs !== null;
+  const side = arm.side ? SIDE_LABEL[arm.side] : undefined;
+  const subtitle = side ? `${describeRobotArm(arm)} · ${side}` : describeRobotArm(arm);
+  const connection = arm.connecting ? "Đang kết nối…" : arm.connected ? "Đã kết nối" : "Chưa kết nối";
+  const calibration = arm.calibrating ? "Đang hiệu chỉnh…" : arm.calibrated ? "Đã hiệu chỉnh" : "Cần hiệu chỉnh";
+  // Semantic colour only where it is true right now: a disconnected arm's
+  // stored calibration stays neutral.
+  const calibrationColor = !arm.connected
+    ? colors.textSecondary
+    : arm.calibrated
+      ? colors.statusReady
+      : colors.statusWarning;
+  const CalibrationIcon = arm.calibrated ? CircleCheck : CircleAlert;
+
+  const needsConnect = !arm.connected && !arm.connecting;
+  const needsCalibration = arm.connected && !arm.calibrated && !arm.calibrating;
+  const healthy = arm.connected && arm.calibrated && !arm.calibrating;
 
   return (
-    <View style={[styles.heroCard, snapshot.heroTone === "danger" && styles.heroCardDanger]}>
-      <View style={styles.heroTop}>
-        <View style={styles.heroStateRow}>
-          <View style={[styles.dot, { backgroundColor: heroColor }]} />
-          <Text style={[styles.heroLabel, font("display", fontsReady), { color: heroColor }]}>
-            {snapshot.heroLabel}
-          </Text>
+    <SkyCard style={styles.armCard}>
+      <View style={styles.armTop}>
+        <View style={styles.armIcon}>
+          <Bot color={colors.textPrimary} size={22} strokeWidth={1.75} />
         </View>
+        <View accessibilityLabel={`${arm.name}, ${subtitle}, ${connection}, ${calibration}`} accessible style={styles.armText}>
+          <SkyText fontsReady={fontsReady} numberOfLines={2} variant="cardTitle">
+            {arm.name}
+          </SkyText>
+          <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+            {subtitle}
+          </SkyText>
+          <View style={styles.armStatus}>
+            <View style={styles.statusItem}>
+              {arm.connecting ? (
+                <ActivityIndicator color={colors.textSecondary} size="small" />
+              ) : (
+                <View style={[styles.statusDot, { backgroundColor: arm.connected ? colors.statusReady : colors.textSecondary }]} />
+              )}
+              <SkyText fontsReady={fontsReady} tone={arm.connected ? "primary" : "secondary"} variant="caption">
+                {connection}
+              </SkyText>
+            </View>
+            <View style={styles.statusItem}>
+              {arm.calibrating ? (
+                <ActivityIndicator color={colors.textSecondary} size="small" />
+              ) : (
+                <CalibrationIcon color={calibrationColor} size={14} />
+              )}
+              <SkyText fontsReady={fontsReady} tone={arm.connected ? "primary" : "secondary"} variant="caption">
+                {calibration}
+              </SkyText>
+            </View>
+          </View>
+        </View>
+      </View>
 
-        <View
-          style={[
-            styles.modePill,
-            snapshot.modeTone === "ok" && styles.modePillOk,
-            snapshot.modeTone === "danger" && styles.modePillDanger
-          ]}
+      {needsConnect && (
+        <View style={styles.armActions}>
+          <SkyButton
+            accessibilityHint={`Mở màn hình kết nối cho ${arm.name}`}
+            accessibilityLabel={`Kết nối ${arm.name}`}
+            fontsReady={fontsReady}
+            onPress={onConnect}
+            style={styles.armButton}
+            variant="secondary"
+          >
+            Kết nối
+          </SkyButton>
+        </View>
+      )}
+      {needsCalibration && (
+        <View style={styles.armActions}>
+          <SkyButton
+            accessibilityHint={`Mở hiệu chỉnh cho ${arm.name}`}
+            accessibilityLabel={`Hiệu chỉnh ${arm.name}`}
+            fontsReady={fontsReady}
+            onPress={onCalibrate}
+            style={styles.armButton}
+            variant="secondary"
+          >
+            Hiệu chỉnh
+          </SkyButton>
+        </View>
+      )}
+      {healthy && (
+        <SkyText fontsReady={fontsReady} style={styles.armNote} tone="secondary" variant="caption">
+          Không cần thao tác.
+        </SkyText>
+      )}
+    </SkyCard>
+  );
+}
+
+// The one next step for the whole setup, chosen by the shared aggregate
+// readiness: connect, calibrate, or control. Nothing under E-STOP — never
+// a control action while stopped.
+function PrimaryAction({
+  empty,
+  fontsReady,
+  onCalibrate,
+  onConnect,
+  onOpenControl,
+  readiness,
+  styles
+}: {
+  empty: boolean;
+  fontsReady: boolean;
+  onCalibrate: () => void;
+  onConnect: () => void;
+  onOpenControl: () => void;
+  readiness: string | undefined;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  if (empty || readiness === "offline") {
+    return (
+      <View style={styles.action}>
+        <SkyButton accessibilityHint="Mở màn hình kết nối robot" accessibilityLabel="Kết nối robot" fontsReady={fontsReady} onPress={onConnect}>
+          Kết nối robot
+        </SkyButton>
+      </View>
+    );
+  }
+
+  if (readiness === "needs-calibration") {
+    return (
+      <View style={styles.action}>
+        <SkyButton accessibilityHint="Mở màn hình hiệu chỉnh" accessibilityLabel="Hiệu chỉnh robot" fontsReady={fontsReady} onPress={onCalibrate}>
+          Hiệu chỉnh robot
+        </SkyButton>
+      </View>
+    );
+  }
+
+  if (readiness === "ready") {
+    return (
+      <View style={styles.action}>
+        <SkyButton
+          accessibilityHint="Mở điều khiển thủ công. Bạn vẫn cần bật điều khiển trước khi robot di chuyển."
+          accessibilityLabel="Điều khiển robot"
+          fontsReady={fontsReady}
+          onPress={onOpenControl}
         >
-          <Text
-            style={[
-              styles.modeText,
-              font("display", fontsReady),
-              snapshot.modeTone === "ok" && styles.modeTextOk,
-              snapshot.modeTone === "danger" && styles.modeTextDanger
-            ]}
-          >
-            {snapshot.mode}
-          </Text>
-        </View>
+          Điều khiển robot
+        </SkyButton>
       </View>
+    );
+  }
 
-      <View style={styles.heroLatencyBlock}>
-        <Text style={[styles.heroLatencyLabel, font("body", fontsReady)]}>Độ trễ hệ thống</Text>
-        <View style={styles.heroLatencyRow}>
-          <Text
-            style={[
-              type.display,
-              font("monoStrong", fontsReady),
-              styles.heroLatencyValue,
-              { color: hasLatency ? colors.textPrimary : colors.textSecondary }
-            ]}
-          >
-            {hasLatency ? snapshot.systemLatencyMs : "—"}
-          </Text>
-          {hasLatency && <Text style={[styles.heroLatencyUnit, font("mono", fontsReady)]}>ms</Text>}
-        </View>
-      </View>
-    </View>
-  );
+  return null;
 }
 
-function ArmChannelCard({
-  channel,
+// Collapsed by default and secondary. Only facts the app actually holds:
+// arm counts, each arm's internal id, model, role and side, and where the
+// state comes from. No serials, ports, firmware or timestamps.
+function TechnicalDetails({
+  arms,
+  colors,
   fontsReady,
-  styles,
-  toneColor
+  onToggle,
+  open,
+  prototype,
+  registeredCount,
+  styles
 }: {
-  channel: ArmChannel;
+  arms: RobotArmState[];
+  colors: SkyNexColors;
   fontsReady: boolean;
+  onToggle: () => void;
+  open: boolean;
+  prototype: boolean;
+  registeredCount: number;
   styles: ReturnType<typeof createStyles>;
-  toneColor: Record<Tone, string>;
 }) {
-  const connectionTone: Tone = channel.connected ? "ok" : "danger";
-  const statusLabel = channel.connected ? "Đã kết nối" : "Mất kết nối";
-  const calibratedLabel = !channel.connected ? "—" : channel.calibrated ? "Có" : "Chưa";
-  const calibratedTone: Tone = !channel.connected ? "neutral" : channel.calibrated ? "ok" : "caution";
-
+  const Chevron = open ? ChevronUp : ChevronDown;
+  const mono = [styles.mono, font("mono", fontsReady)];
   return (
-    <View style={styles.armCard}>
-      <View style={styles.armHeaderRow}>
-        <View style={[styles.dot, styles.dotSmall, { backgroundColor: toneColor[connectionTone] }]} />
-        <Text style={[styles.armLabel, font("display", fontsReady)]}>{channel.label}</Text>
-      </View>
-      <Text style={[styles.armStatus, font("body", fontsReady), { color: toneColor[connectionTone] }]}>
-        {statusLabel}
-      </Text>
+    <View style={styles.details}>
+      <Pressable
+        accessibilityLabel="Chi tiết kỹ thuật"
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={onToggle}
+        style={({ pressed }) => [styles.detailsHeader, pressed && styles.pressed]}
+      >
+        <View style={styles.flex}>
+          <SkyText fontsReady={fontsReady} variant="sectionTitle">
+            Chi tiết kỹ thuật
+          </SkyText>
+          <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+            Cấu hình hệ thống và mã định danh
+          </SkyText>
+        </View>
+        <Chevron color={colors.textSecondary} size={18} />
+      </Pressable>
 
-      <View style={styles.armRows}>
-        <View style={styles.armRow}>
-          <Text style={[styles.armRowLabel, font("body", fontsReady)]}>Cổng</Text>
-          <Text style={[styles.armRowValue, font("mono", fontsReady)]}>{channel.port}</Text>
+      {open && (
+        <View style={styles.detailsBody}>
+          <DetailRow fontsReady={fontsReady} label="Tay đang dùng" styles={styles} value={String(arms.length)} />
+          <DetailRow fontsReady={fontsReady} label="Tay đã đăng ký" styles={styles} value={String(registeredCount)} />
+          <DetailRow fontsReady={fontsReady} label="Nguồn trạng thái" styles={styles} value={prototype ? "prototype" : "hardware"} />
+          {arms.map((arm) => (
+            <View key={arm.id} style={styles.detailsArm}>
+              <SkyText fontsReady={fontsReady} numberOfLines={1} variant="cardTitle">
+                {arm.name}
+              </SkyText>
+              <SkyText fontsReady={fontsReady} style={mono} tone="secondary">
+                id {arm.id} · {arm.model} · {arm.role}
+                {arm.side ? ` · ${arm.side}` : ""}
+              </SkyText>
+            </View>
+          ))}
         </View>
-        <View style={styles.armRow}>
-          <Text style={[styles.armRowLabel, font("body", fontsReady)]}>Độ trễ</Text>
-          <Text style={[styles.armRowValue, font("monoStrong", fontsReady)]}>
-            {channel.latencyMs !== null ? `${channel.latencyMs} ms` : "—"}
-          </Text>
-        </View>
-        <View style={styles.armRow}>
-          <Text style={[styles.armRowLabel, font("body", fontsReady)]}>Hiệu chỉnh</Text>
-          <Text style={[styles.armRowValue, font("display", fontsReady), { color: toneColor[calibratedTone] }]}>
-            {calibratedLabel}
-          </Text>
-        </View>
-      </View>
+      )}
     </View>
   );
 }
 
-function ReadinessCard({
+function DetailRow({
   fontsReady,
-  snapshot,
+  label,
   styles,
-  toneColor
+  value
 }: {
   fontsReady: boolean;
-  snapshot: StatusSnapshot;
+  label: string;
   styles: ReturnType<typeof createStyles>;
-  toneColor: Record<Tone, string>;
+  value: string;
 }) {
-  const cameraTone: Tone =
-    snapshot.camerasOnline === snapshot.camerasTotal ? "ok" : snapshot.camerasOnline === 0 ? "danger" : "caution";
-
-  const rows: { label: string; value: string; tone: Tone }[] = [
-    { label: "Kết nối", value: snapshot.connectionLabel, tone: snapshot.connectionTone },
-    { label: "Hiệu chỉnh", value: snapshot.calibrationLabel, tone: snapshot.calibrationTone },
-    { label: "Chế độ điều khiển", value: snapshot.mode, tone: snapshot.modeTone },
-    { label: "Camera", value: `${snapshot.camerasOnline}/${snapshot.camerasTotal} hoạt động`, tone: cameraTone },
-    { label: "Robot", value: snapshot.robotLabel, tone: snapshot.robotTone }
-  ];
-
   return (
-    <View style={styles.readinessCard}>
-      <Text style={[styles.sectionTitle, font("display", fontsReady)]}>Trạng thái điều khiển</Text>
-
-      <View>
-        {rows.map((row, index) => (
-          <View key={row.label} style={[styles.readinessRow, index > 0 && styles.readinessRowDivider]}>
-            <Text style={[styles.readinessLabel, font("body", fontsReady)]}>{row.label}</Text>
-            <Text style={[styles.readinessValue, font("display", fontsReady), { color: toneColor[row.tone] }]}>
-              {row.value}
-            </Text>
-          </View>
-        ))}
-      </View>
+    <View accessibilityLabel={`${label}: ${value}`} accessible style={styles.detailsRow}>
+      <SkyText fontsReady={fontsReady} style={styles.flex}>
+        {label}
+      </SkyText>
+      <SkyText fontsReady={fontsReady} style={[styles.mono, font("mono", fontsReady)]} tone="secondary">
+        {value}
+      </SkyText>
     </View>
   );
 }
 
-function ProfileCard({ fontsReady, styles }: { fontsReady: boolean; styles: ReturnType<typeof createStyles> }) {
-  const rows = [
-    { label: "Model", value: "SO-ARM101" },
-    { label: "Cấu hình", value: "Dual Arm" },
-    { label: "Firmware", value: "Mock" },
-    { label: "Phiên bản app", value: "0.1.0" }
-  ];
-
-  return (
-    <View style={styles.profileCard}>
-      <Text style={[styles.profileTitle, font("display", fontsReady)]}>Hồ sơ hệ thống</Text>
-
-      <View>
-        {rows.map((row, index) => (
-          <View key={row.label} style={[styles.profileRow, index > 0 && styles.profileRowDivider]}>
-            <Text style={[styles.profileLabel, font("body", fontsReady)]}>{row.label}</Text>
-            <Text style={[styles.profileValue, font("mono", fontsReady)]}>{row.value}</Text>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-function LoadingState({ fontsReady, styles }: { fontsReady: boolean; styles: ReturnType<typeof createStyles> }) {
-  return (
-    <View style={styles.loadingWrap}>
-      <Text style={[styles.loadingCaption, font("body", fontsReady)]}>Đang đồng bộ trạng thái hệ thống…</Text>
-      <View style={[styles.skeletonBlock, styles.skeletonHero]} />
-      <View style={[styles.skeletonBlock, styles.skeletonRow]} />
-      <View style={[styles.skeletonBlock, styles.skeletonRow]} />
-    </View>
-  );
-}
-
-function createStyles(colors: ThemeColors) {
+function createStyles(colors: SkyNexColors) {
   return StyleSheet.create({
     screen: {
       backgroundColor: colors.background,
       flex: 1
     },
     content: {
-      gap: spacing.lg,
-      paddingHorizontal: spacing.xl,
-      paddingTop: spacing.lg,
-      paddingBottom: spacing.xxxl
+      gap: layout.sectionGap,
+      paddingBottom: space.xxxl + ESTOP_CLEARANCE,
+      paddingHorizontal: layout.screenGutter,
+      paddingTop: space.lg
     },
-    dot: {
-      width: 10,
-      height: 10,
-      borderRadius: radius.round
+    flex: {
+      flex: 1
     },
-    dotSmall: {
-      width: 8,
-      height: 8
+    pressed: {
+      opacity: 0.78
     },
-
-    // Hero
-    heroCard: {
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderWidth: 1,
-      borderRadius: CARD_RADIUS_OUTER,
-      padding: spacing.lg,
-      gap: spacing.lg
+    card: {
+      borderRadius: corner.productCard,
+      gap: space.md,
+      padding: layout.productCardPadding
     },
-    heroCardDanger: {
-      borderColor: colors.danger
-    },
-    heroTop: {
+    identity: {
+      alignItems: "center",
       flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: spacing.md
+      gap: space.md
     },
-    heroStateRow: {
-      flexDirection: "row",
+    robotIcon: {
       alignItems: "center",
-      gap: spacing.xs,
-      flexShrink: 1
-    },
-    heroLabel: {
-      ...type.title,
-      flexShrink: 1
-    },
-    modePill: {
-      alignItems: "center",
+      backgroundColor: colors.robotSurface,
+      borderRadius: corner.card,
+      height: 56,
       justifyContent: "center",
-      backgroundColor: colors.surfaceSecondary,
-      borderColor: colors.border,
-      borderWidth: 1,
-      borderRadius: radius.button,
-      minHeight: 34,
-      paddingHorizontal: spacing.sm
+      width: 56
     },
-    modePillOk: {
-      backgroundColor: colors.accent,
-      borderColor: colors.accent
-    },
-    modePillDanger: {
-      borderColor: colors.danger
-    },
-    modeText: {
-      ...type.label,
-      color: colors.textPrimary
-    },
-    modeTextOk: {
-      color: colors.accentForeground
-    },
-    modeTextDanger: {
-      color: colors.danger
-    },
-    heroLatencyBlock: {
-      gap: spacing.xxs
-    },
-    heroLatencyLabel: {
-      ...type.small,
-      color: colors.textSecondary
-    },
-    heroLatencyRow: {
+    facts: {
+      borderTopColor: colors.border,
+      borderTopWidth: StyleSheet.hairlineWidth,
       flexDirection: "row",
-      alignItems: "flex-end",
-      gap: spacing.xxs
+      paddingTop: space.md
     },
-    heroLatencyValue: {
-      letterSpacing: 0
+    fact: {
+      flex: 1,
+      gap: 2
     },
-    heroLatencyUnit: {
-      ...type.mono,
-      color: colors.textSecondary,
-      paddingBottom: spacing.xs
+    factDivider: {
+      backgroundColor: colors.border,
+      marginHorizontal: space.sm,
+      width: StyleSheet.hairlineWidth
     },
-
-    // Follower / Leader
-    armShell: {
-      backgroundColor: colors.surfaceSecondary,
-      borderRadius: CARD_RADIUS_OUTER,
-      padding: spacing.sm
-    },
-    armShellRow: {
+    safety: {
+      alignItems: "flex-start",
       flexDirection: "row",
-      flexWrap: "wrap",
-      gap: spacing.sm
+      gap: space.sm
+    },
+    armList: {
+      gap: space.sm
     },
     armCard: {
-      backgroundColor: colors.surface,
-      borderRadius: CARD_RADIUS_INNER,
-      padding: spacing.md,
-      gap: spacing.sm,
-      flexBasis: "47%",
-      flexGrow: 1,
-      minWidth: 140
+      borderRadius: corner.productCard,
+      gap: space.sm,
+      padding: space.md
     },
-    armHeaderRow: {
+    armTop: {
+      alignItems: "flex-start",
       flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.xs
+      gap: space.md
     },
-    armLabel: {
-      ...type.bodyStrong,
-      color: colors.textPrimary
+    armIcon: {
+      alignItems: "center",
+      backgroundColor: colors.robotSurface,
+      borderRadius: corner.card,
+      height: 44,
+      justifyContent: "center",
+      width: 44
+    },
+    // minWidth 0 lets a long name wrap / truncate instead of overflowing.
+    armText: {
+      flex: 1,
+      gap: 2,
+      minWidth: 0
     },
     armStatus: {
-      ...type.small
-    },
-    armRows: {
-      gap: spacing.xs,
-      marginTop: spacing.xxs
-    },
-    armRow: {
       flexDirection: "row",
+      flexWrap: "wrap",
+      gap: space.md,
+      marginTop: space.xxs
+    },
+    statusItem: {
       alignItems: "center",
-      justifyContent: "space-between"
-    },
-    armRowLabel: {
-      ...type.small,
-      color: colors.textSecondary
-    },
-    armRowValue: {
-      ...type.small,
-      color: colors.textPrimary
-    },
-
-    // Readiness
-    readinessCard: {
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderWidth: 1,
-      borderRadius: CARD_RADIUS_OUTER,
-      padding: spacing.lg,
-      gap: spacing.md
-    },
-    sectionTitle: {
-      ...type.bodyStrong,
-      color: colors.textPrimary
-    },
-    readinessRow: {
       flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
+      gap: space.xxs
+    },
+    statusDot: {
+      borderRadius: corner.pill,
+      height: 8,
+      width: 8
+    },
+    // Right-aligned: away from the default bottom-left floating E-STOP.
+    armActions: {
+      flexDirection: "row",
+      justifyContent: "flex-end"
+    },
+    armButton: {
       minHeight: 44,
-      paddingVertical: spacing.xs
+      paddingHorizontal: space.md
     },
-    readinessRowDivider: {
+    armNote: {
+      textAlign: "right"
+    },
+    action: {
+      gap: space.sm
+    },
+    details: {
       borderTopColor: colors.border,
-      borderTopWidth: 1
+      borderTopWidth: StyleSheet.hairlineWidth,
+      gap: space.md,
+      paddingTop: space.md
     },
-    readinessLabel: {
-      ...type.body,
-      color: colors.textSecondary
-    },
-    readinessValue: {
-      ...type.bodyStrong
-    },
-
-    // Profile
-    profileCard: {
-      backgroundColor: colors.surfaceSecondary,
-      borderColor: colors.border,
-      borderWidth: 1,
-      borderRadius: CARD_RADIUS_INNER,
-      padding: spacing.lg,
-      gap: spacing.sm
-    },
-    profileTitle: {
-      ...type.label,
-      color: colors.textSecondary
-    },
-    profileRow: {
-      flexDirection: "row",
+    detailsHeader: {
       alignItems: "center",
-      justifyContent: "space-between",
-      minHeight: 36,
-      paddingVertical: spacing.xxs
+      flexDirection: "row",
+      gap: space.md,
+      minHeight: 48
     },
-    profileRowDivider: {
+    detailsBody: {
+      gap: space.sm
+    },
+    detailsRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: space.md
+    },
+    detailsArm: {
       borderTopColor: colors.border,
-      borderTopWidth: 1
+      borderTopWidth: StyleSheet.hairlineWidth,
+      gap: 2,
+      paddingTop: space.sm
     },
-    profileLabel: {
-      ...type.small,
-      color: colors.textSecondary
+    mono: {
+      fontSize: 13
     },
-    profileValue: {
-      ...type.small,
-      color: colors.textPrimary
-    },
-
-    // Loading
-    loadingWrap: {
-      gap: spacing.md
-    },
-    loadingCaption: {
-      ...type.small,
-      color: colors.textSecondary,
-      textAlign: "center"
-    },
-    skeletonBlock: {
-      backgroundColor: colors.surfaceSecondary,
-      borderColor: colors.border,
-      borderWidth: 1,
-      borderRadius: CARD_RADIUS_OUTER
-    },
-    skeletonHero: {
-      height: 150
-    },
-    skeletonRow: {
-      height: 96
+    modeNote: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: space.xs
     }
   });
 }

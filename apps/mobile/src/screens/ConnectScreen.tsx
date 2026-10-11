@@ -1,5 +1,5 @@
 import { Bot, CircleAlert, CircleCheck, FlaskConical, Pencil, ShieldAlert } from "lucide-react-native";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -25,6 +25,7 @@ import {
   disconnectRobotArm,
   getActiveArms,
   getRobotLinkMode,
+  pickArmToCalibrate,
   READINESS_BADGE_LABEL,
   renameRobotArm,
   RobotArmState
@@ -43,6 +44,9 @@ type Props = {
   // Calibration with one arm preselected.
   onCalibrateArm: (armId: string) => void;
   onOpenControl: () => void;
+  // Optional: an arm to bring into view and emphasise (e.g. from Status's
+  // per-arm "Kết nối"). Ignored if it isn't in the active setup.
+  focusArmId?: string;
 };
 
 // Only what is true before connecting — no network or port requirements
@@ -67,7 +71,15 @@ const ESTOP_CLEARANCE = 96;
 // per-arm actions (data/robot.ts); the summary and the one primary action
 // follow the shared AGGREGATE readiness — the same one every other screen
 // shows. Connected ≠ ready: calibration and E-STOP still gate motion.
-export function ConnectScreen({ emergencyStopped, fontsReady, onBack, onCalibrate, onCalibrateArm, onOpenControl }: Props) {
+export function ConnectScreen({
+  emergencyStopped,
+  focusArmId,
+  fontsReady,
+  onBack,
+  onCalibrate,
+  onCalibrateArm,
+  onOpenControl
+}: Props) {
   const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const link = useRobotLink();
@@ -115,14 +127,40 @@ export function ConnectScreen({ emergencyStopped, fontsReady, onBack, onCalibrat
   // "Calibrate" from the aggregate CTA: straight to the arm when exactly one
   // needs it, otherwise Calibrate's own arm overview.
   const handleCalibrate = () => {
-    const pending = arms.filter((arm) => arm.connected && !arm.calibrated);
-    if (pending.length === 1) onCalibrateArm(pending[0].id);
+    const armId = pickArmToCalibrate(arms);
+    if (armId) onCalibrateArm(armId);
     else onCalibrate();
   };
+
+  // Targeted arm: scrolled into view once its card has been laid out, and
+  // outlined while this screen shows it. Positions come from onLayout.
+  const focusId = focusArmId && setup.activeArmIds.includes(focusArmId) ? focusArmId : null;
+  const scrollRef = useRef<ScrollView>(null);
+  const armListY = useRef<number | null>(null);
+  const armYs = useRef<Record<string, number>>({});
+  const scrolledFor = useRef<string | null>(null);
+
+  const scrollToFocus = () => {
+    if (!focusId || scrolledFor.current === focusId) return;
+    const listY = armListY.current;
+    const cardY = armYs.current[focusId];
+    if (listY === null || cardY === undefined) return;
+    scrolledFor.current = focusId;
+    // No animation: a jump is motion-safe and lands immediately.
+    scrollRef.current?.scrollTo({ animated: false, y: Math.max(0, listY + cardY - space.lg) });
+  };
+
+  useEffect(() => {
+    scrolledFor.current = null;
+    scrollToFocus();
+    // scrollToFocus reads refs only; re-run when the target changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId]);
 
   return (
     <>
       <ScrollView
+        ref={scrollRef}
         accessibilityLabel="Kết nối robot"
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -168,26 +206,40 @@ export function ConnectScreen({ emergencyStopped, fontsReady, onBack, onCalibrat
           </View>
         )}
 
-        <View style={styles.armList}>
+        <View
+          onLayout={(event) => {
+            armListY.current = event.nativeEvent.layout.y;
+            scrollToFocus();
+          }}
+          style={styles.armList}
+        >
           {multiArm && (
             <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="sectionTitle">
               Các tay robot
             </SkyText>
           )}
           {arms.map((arm) => (
-            <ArmRow
-              arm={arm}
-              colors={colors}
-              failed={failedArmIds.includes(arm.id)}
-              fontsReady={fontsReady}
+            <View
               key={arm.id}
-              onCalibrate={() => onCalibrateArm(arm.id)}
-              onCancel={() => cancelRobotArmConnect(arm.id)}
-              onConnect={() => handleConnectArm(arm.id)}
-              onDisconnect={() => handleDisconnectArm(arm.id)}
-              onRename={() => setRenamingArmId(arm.id)}
-              styles={styles}
-            />
+              onLayout={(event) => {
+                armYs.current[arm.id] = event.nativeEvent.layout.y;
+                scrollToFocus();
+              }}
+            >
+              <ArmRow
+                arm={arm}
+                colors={colors}
+                failed={failedArmIds.includes(arm.id)}
+                focused={arm.id === focusId}
+                fontsReady={fontsReady}
+                onCalibrate={() => onCalibrateArm(arm.id)}
+                onCancel={() => cancelRobotArmConnect(arm.id)}
+                onConnect={() => handleConnectArm(arm.id)}
+                onDisconnect={() => handleDisconnectArm(arm.id)}
+                onRename={() => setRenamingArmId(arm.id)}
+                styles={styles}
+              />
+            </View>
           ))}
           {arms.length === 0 && (
             <SkyText fontsReady={fontsReady} tone="secondary">
@@ -353,6 +405,7 @@ function ArmRow({
   arm,
   colors,
   failed,
+  focused,
   fontsReady,
   onCalibrate,
   onCancel,
@@ -364,6 +417,7 @@ function ArmRow({
   arm: RobotArmState;
   colors: SkyNexColors;
   failed: boolean;
+  focused: boolean;
   fontsReady: boolean;
   onCalibrate: () => void;
   onCancel: () => void;
@@ -384,7 +438,7 @@ function ArmRow({
   const CalibrationIcon = arm.calibrated ? CircleCheck : CircleAlert;
 
   return (
-    <SkyCard style={styles.armCard}>
+    <SkyCard style={[styles.armCard, focused && { borderColor: colors.accentInk, borderWidth: 2 }]}>
       <View style={styles.armTop}>
         <View style={styles.armIcon}>
           <Bot color={colors.textPrimary} size={22} strokeWidth={1.75} />
