@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { buildRobotSummary, getRobotLink, getSuggestedSkill, RobotLink, RobotSummary, subscribeRobotLink } from "../data/robot";
+import {
+  buildRobotSummary,
+  getRobotLink,
+  getRobotSetup,
+  getSuggestedSkill,
+  RobotLink,
+  RobotSetup,
+  RobotSummary,
+  subscribeRobotLink
+} from "../data/robot";
 import { Task } from "../data/tasks";
 
 // The live shared robot summary — the one readiness source for every
@@ -32,4 +41,11 @@ export function useRobotSummary({ emergencyStopped }: { emergencyStopped: boolea
 // useRobotSummary — never re-derive it from these flags.
 export function useRobotLink(): RobotLink {
   return useSyncExternalStore(subscribeRobotLink, getRobotLink, getRobotLink);
+}
+
+// The full multi-arm state (every arm + the active setup), for the screens
+// that work per arm — Calibration today, Connect later. Everything else
+// reads the aggregate through useRobotSummary / useRobotLink.
+export function useRobotSetup(): RobotSetup {
+  return useSyncExternalStore(subscribeRobotLink, getRobotSetup, getRobotSetup);
 }

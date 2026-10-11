@@ -40,7 +40,7 @@ type ControlStackParamList = {
   // `from: "hub"` / `"teleop"` means Back returns to that screen; without it
   // Back keeps its original Home destination for entries from Home / Skill
   // Detail.
-  Connect: { from?: "hub" | "teleop" | "phone-teleop" } | undefined;
+  Connect: { from?: "hub" | "teleop" | "phone-teleop" | "calibrate" } | undefined;
   Calibrate: { from?: "home" | "connect" } | undefined;
   Teleop: { from?: "home" | "connect" } | undefined;
   PhoneTeleop: { from?: "home" } | undefined;
@@ -495,6 +495,8 @@ function ControlStackScreen({
               }
               navigation.navigate("RobotHub");
             }}
+            // Offline: connect first, then Back returns here to calibrate.
+            onConnect={() => navigation.navigate("Connect", { from: "calibrate" })}
           />
         )}
       </ControlStack.Screen>

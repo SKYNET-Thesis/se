@@ -1,1004 +1,1325 @@
-import { Check, Circle, CircleCheck, RotateCcw, ScanLine, ShieldAlert, TriangleAlert } from "lucide-react-native";
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Bot,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  CircleCheck,
+  Crosshair,
+  FlaskConical,
+  Move,
+  ShieldAlert
+} from "lucide-react-native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { ScreenHeader } from "../components/ScreenHeader";
-import { useAppTheme } from "../ThemeContext";
-import { font, radius, spacing, ThemeColors, type } from "../theme";
-
-type ArmRole = "follower" | "leader";
-type MotorId =
-  | "shoulder_pan"
-  | "shoulder_lift"
-  | "elbow_flex"
-  | "wrist_flex"
-  | "wrist_roll"
-  | "gripper";
-
-type RangeRow = {
-  min: number;
-  pos: number;
-  max: number;
-};
-
-type RangeByMotor = Record<MotorId, RangeRow>;
-type RunStatus = "idle" | "recording" | "completed";
-
-type ArmCalibration = {
-  status: RunStatus;
-  range: RangeByMotor;
-};
-
-type PortState = {
-  value: string | null;
-  searching: boolean;
-};
+import { SkyButton, SkyCard, SkyText, StatusBadge } from "../components/ui";
+import { corner } from "../design-system/radius";
+import { layout, space } from "../design-system/spacing";
+import { SkyNexColors, useSkyNexTokens } from "../design-system/tokens";
+import {
+  cancelRobotCalibration,
+  completeRobotCalibration,
+  describeRobotArm,
+  getActiveArms,
+  getRobotLinkMode,
+  getRobotSetup,
+  READINESS_BADGE_LABEL,
+  RobotArmState
+} from "../data/robot";
+import {
+  CALIBRATION_JOINTS,
+  CalibrationJointState,
+  getCalibrationTelemetryMode,
+  JOINT_POSITION_MAX
+} from "../data/calibrationTelemetry";
+import { useCalibrationTelemetry } from "../hooks/useCalibrationTelemetry";
+import { useRobotSetup, useRobotSummary } from "../hooks/useRobotSummary";
+import { font } from "../theme";
 
 type Props = {
+  // Owned by App.tsx. Read only: calibrating never sets or clears it.
   emergencyStopped: boolean;
   fontsReady: boolean;
+  // Leaves the flow the way it came (Connect, Robot hub, Home…).
   onBack: () => void;
+  onConnect: () => void;
 };
 
-const ARM_ROLES: ArmRole[] = ["follower", "leader"];
-const MOTOR_IDS: MotorId[] = [
-  "shoulder_pan",
-  "shoulder_lift",
-  "elbow_flex",
-  "wrist_flex",
-  "wrist_roll",
-  "gripper"
-];
+// The user's place in the guided flow for the target arm. Finishing is not
+// a step of its own: it is that arm's `calibrating` flag on the range step.
+type Step = "intro" | "center" | "range" | "complete";
 
-const ROLE_LABEL: Record<ArmRole, "Follower" | "Leader"> = {
-  follower: "Follower",
-  leader: "Leader"
-};
+// Flow position only (1 / 3, 2 / 3, 3 / 3) — never measured progress. The
+// intro is before the flow (0) and shows no indicator.
+const STEP_NUMBER: Record<Step, number> = { intro: 0, center: 1, range: 2, complete: 3 };
+const STEP_COUNT = 3;
 
-const ROLE_HINT: Record<ArmRole, string> = {
-  follower: "Robot",
-  leader: "Teleoperator"
-};
-
-// theme.ts tops out at radius.card (16) — matches the larger, softer corner
-// Home/Teleop/Connect already established for this app's "rich card"
-// surfaces, kept identical here so Calibrate reads as the same product.
-const CARD_RADIUS_OUTER = 24;
-const CARD_RADIUS_INNER = 20;
-
-const MOCK_PORT: Record<ArmRole, string> = {
-  follower: "/dev/ttyACM0",
-  leader: "/dev/ttyACM1"
-};
-
-const MOTOR_CONFIG: Record<MotorId, { amplitude: number; followerCenter: number; leaderCenter: number; seed: number }> = {
-  shoulder_pan: { amplitude: 1420, followerCenter: 2048, leaderCenter: 2070, seed: 0 },
-  shoulder_lift: { amplitude: 1180, followerCenter: 1960, leaderCenter: 1995, seed: 7 },
-  elbow_flex: { amplitude: 1260, followerCenter: 2144, leaderCenter: 2110, seed: 13 },
-  wrist_flex: { amplitude: 980, followerCenter: 2012, leaderCenter: 2058, seed: 19 },
-  wrist_roll: { amplitude: 1540, followerCenter: 2090, leaderCenter: 2032, seed: 29 },
-  gripper: { amplitude: 760, followerCenter: 1710, leaderCenter: 1764, seed: 37 }
-};
-
-// A joint counts as "captured" once its recorded swing covers most of its
-// realistic travel — comfortably reachable while still requiring an honest
-// full-range sweep before the Save pill unlocks.
-function requiredSpan(motorId: MotorId) {
-  return MOTOR_CONFIG[motorId].amplitude * 1.1;
+// Every active arm with a finish in flight gets it invalidated.
+function cancelAllCalibrations() {
+  getRobotSetup().activeArmIds.forEach((armId) => cancelRobotCalibration(armId));
 }
 
-export function CalibrateScreen({ emergencyStopped, fontsReady, onBack }: Props) {
-  const { colors } = useAppTheme();
+// Calibration V2, per arm. Answers: which arm, why calibrate, what do I
+// physically do, when is it done, what next? A setup with one arm goes
+// straight to that arm; with several, the user first picks the arm. The
+// steps are a guided sequence the user confirms; finishing goes through
+// completeRobotCalibration(armId), the ONLY thing that sets an arm's
+// `calibrated`. The overall readiness shown here comes from the shared
+// summary (the active setup's aggregate), so this screen never shows a
+// local-only "Ready". Nothing here arms or moves the robot, and E-STOP is
+// never touched.
+export function CalibrateScreen({ emergencyStopped, fontsReady, onBack, onConnect }: Props) {
+  const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const [selectedArm, setSelectedArm] = useState<ArmRole>("follower");
-  const [sampleTick, setSampleTick] = useState(0);
-  const [arms, setArms] = useState<Record<ArmRole, ArmCalibration>>({
-    follower: createArmCalibration("follower"),
-    leader: createArmCalibration("leader")
-  });
-  const [ports, setPorts] = useState<Record<ArmRole, PortState>>({
-    follower: { value: null, searching: false },
-    leader: { value: null, searching: false }
-  });
+  const setup = useRobotSetup();
+  const robot = useRobotSummary({ emergencyStopped });
+  const activeArms = useMemo(() => getActiveArms(setup), [setup]);
+  const multiArm = activeArms.length > 1;
+  const [selectedArmId, setSelectedArmId] = useState<string | null>(null);
+  const [step, setStep] = useState<Step>("intro");
+  const [finishFailed, setFinishFailed] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const prototype = getRobotLinkMode() === "prototype";
+  const simulatedJoints = getCalibrationTelemetryMode() === "prototype";
+  const isFocused = useIsFocused();
 
-  const selectedRun = arms[selectedArm];
-  const otherArm: ArmRole = selectedArm === "follower" ? "leader" : "follower";
-  const allCaptured = MOTOR_IDS.every(
-    (motorId) => selectedRun.range[motorId].max - selectedRun.range[motorId].min >= requiredSpan(motorId)
+  // The arm being calibrated. One-arm setups skip the picker.
+  const targetId = multiArm ? selectedArmId : (activeArms[0]?.id ?? null);
+  const arm = activeArms.find((candidate) => candidate.id === targetId) ?? null;
+  const targetRef = useRef(targetId);
+  targetRef.current = targetId;
+
+  const connected = arm?.connected ?? false;
+  const finishing = arm?.calibrating ?? false;
+  const readiness = robot?.readiness;
+  const inFlow = arm !== null && (step === "center" || step === "range");
+
+  // The joint monitor streams the TARGET arm only, while a guided step is
+  // on screen and that arm is connected. Reading positions never moves the
+  // robot, so it keeps streaming under E-STOP — the user may still be
+  // holding the arm.
+  const joints = useCalibrationTelemetry(
+    arm && connected && isFocused ? arm.id : null,
+    step === "center" || step === "range" ? step : null
   );
 
+  // Leaving the screen abandons any calibration still being finished: its
+  // late result is ignored and `calibrated` stays as it was — the same
+  // stale-result rule as disconnect and cancel. Blur covers switching tabs
+  // (the screen stays mounted); the cleanup also runs on unmount.
+  useFocusEffect(useCallback(() => cancelAllCalibrations, []));
+
+  // Losing the target arm (disconnected, or no longer in the setup) ends its
+  // flow: the shared state has already invalidated its finishing attempt.
   useEffect(() => {
-    if (emergencyStopped || selectedRun.status !== "recording") return undefined;
+    if (connected) return;
+    setStep("intro");
+    setFinishFailed(false);
+  }, [connected, targetId]);
 
-    const timer = setInterval(() => {
-      setSampleTick((tick) => {
-        const nextTick = tick + 1;
-        setArms((prev) =>
-          updateArm(prev, selectedArm, {
-            range: advanceMockRange(prev[selectedArm].range, selectedArm, nextTick)
-          })
-        );
-        return nextTick;
-      });
-    }, 480);
+  const handleSelectArm = (armId: string) => {
+    setSelectedArmId(armId);
+    setStep("intro");
+    setFinishFailed(false);
+  };
 
-    return () => clearInterval(timer);
-  }, [emergencyStopped, selectedArm, selectedRun.status]);
+  const handleShowArms = () => {
+    setSelectedArmId(null);
+    setStep("intro");
+    setFinishFailed(false);
+  };
 
   const handleStart = () => {
-    if (emergencyStopped) return;
-    setArms((prev) => updateArm(prev, selectedArm, { status: "recording" }));
+    if (!arm || !connected || emergencyStopped) return;
+    setFinishFailed(false);
+    setStep("center");
   };
 
-  const handleCancel = () => {
-    if (emergencyStopped) return;
-    setArms((prev) => updateArm(prev, selectedArm, { status: "idle", range: createInitialRange(selectedArm) }));
+  const handleCenterDone = () => {
+    if (!arm || !connected || emergencyStopped) return;
+    setStep("range");
   };
 
-  const handleSave = () => {
-    if (emergencyStopped || selectedRun.status !== "recording" || !allCaptured) return;
-    setArms((prev) => updateArm(prev, selectedArm, { status: "completed" }));
+  const handleFinish = () => {
+    if (!arm || !connected || emergencyStopped || finishing) return;
+    const armId = arm.id;
+    setFinishFailed(false);
+    void completeRobotCalibration(armId).then((result) => {
+      // A result for an arm the screen no longer targets changes nothing here.
+      if (targetRef.current !== armId) return;
+      if (result === "calibrated") setStep("complete");
+      else if (result === "failed") setFinishFailed(true);
+      // "offline": the connection effect returns to the intro.
+      // "cancelled": the user stays on the range step.
+    });
   };
 
-  const handleFindPort = () => {
-    if (emergencyStopped) return;
-    const role = selectedArm;
-    setPorts((prev) => ({ ...prev, [role]: { ...prev[role], searching: true } }));
-    setTimeout(() => {
-      setPorts((prev) => ({ ...prev, [role]: { value: MOCK_PORT[role], searching: false } }));
-    }, 500);
+  const handleCancelFinish = () => {
+    if (arm) cancelRobotCalibration(arm.id);
   };
 
-  const primaryLabel = selectedRun.status === "recording" ? "Hủy hiệu chỉnh" : "Bắt đầu hiệu chỉnh";
-  const primaryDisabled = emergencyStopped || selectedRun.status === "completed";
-  const onPrimaryPress = selectedRun.status === "recording" ? handleCancel : handleStart;
+  const handleCancelFlow = () => {
+    handleCancelFinish();
+    setFinishFailed(false);
+    setStep("intro");
+  };
+
+  // Explicit exit: invalidate an in-flight finish before navigating away.
+  const handleBack = () => {
+    cancelAllCalibrations();
+    onBack();
+  };
+
+  // After one arm: the next active arm that still needs calibration. It is
+  // only offered — the user opens it and starts it deliberately.
+  const remaining = activeArms.filter((candidate) => !candidate.calibrated);
+  const nextArm = multiArm ? (remaining.find((candidate) => candidate.id !== arm?.id) ?? null) : null;
+
+  const stoppedAlert = emergencyStopped && connected && step !== "complete";
 
   return (
     <ScrollView
-      accessibilityLabel="Màn hình hiệu chỉnh SO-101"
+      accessibilityLabel="Hiệu chỉnh robot"
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
       style={styles.screen}
     >
       <ScreenHeader
         fontsReady={fontsReady}
-        meta={ROLE_LABEL[selectedArm]}
-        onBack={onBack}
-        subtitle="Ghi tầm chuyển động thật cho Follower và Leader"
+        onBack={handleBack}
+        subtitle="Giúp robot hiểu đúng vị trí và phạm vi chuyển động."
         title="Hiệu chỉnh"
       />
 
-      {emergencyStopped && <StoppedBanner colors={colors} fontsReady={fontsReady} styles={styles} />}
-
-      <View style={styles.configBlock}>
-        <View style={styles.configCard}>
-          <ArmSegmented
-            disabled={emergencyStopped}
-            fontsReady={fontsReady}
-            onChange={setSelectedArm}
-            styles={styles}
-            value={selectedArm}
-          />
-
-          <PortField
-            colors={colors}
-            disabled={emergencyStopped}
-            fontsReady={fontsReady}
-            onFind={handleFindPort}
-            port={ports[selectedArm]}
-            styles={styles}
-          />
-        </View>
-
-        <Pressable
-          accessibilityLabel={primaryLabel}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: primaryDisabled }}
-          disabled={primaryDisabled}
-          onPress={onPrimaryPress}
-          style={({ pressed }) => [
-            styles.primaryPill,
-            selectedRun.status === "recording" && styles.primaryPillDanger,
-            primaryDisabled && styles.primaryPillDisabled,
-            pressed && !primaryDisabled && styles.pillPressed
-          ]}
-        >
-          <Text
-            style={[
-              styles.primaryPillText,
-              selectedRun.status === "recording" && styles.primaryPillTextDanger,
-              primaryDisabled && styles.primaryPillTextDisabled,
-              font("display", fontsReady)
-            ]}
-          >
-            {primaryLabel}
-          </Text>
-        </Pressable>
-
-        <ArmChecklist arms={arms} colors={colors} fontsReady={fontsReady} styles={styles} />
-      </View>
-
-      <View style={styles.statusCard}>
-        <StatusBadge fontsReady={fontsReady} status={selectedRun.status} styles={styles} />
-
-        {selectedRun.status === "idle" && (
-          <Text style={[styles.promptLine, font("body", fontsReady)]}>
-            Đưa mọi khớp về giữa tầm rồi bắt đầu ghi.
-          </Text>
-        )}
-
-        {selectedRun.status !== "idle" && (
-          <>
-            <ReminderBanner colors={colors} fontsReady={fontsReady} styles={styles} />
-
-            <View style={styles.jointListHeader}>
-              <Text style={[styles.jointListTitle, font("display", fontsReady)]}>Dữ liệu vị trí trực tiếp</Text>
-              <Text style={[styles.jointListMeta, font("mono", fontsReady)]}>MOCK · T{sampleTick}</Text>
-            </View>
-
-            <View style={styles.jointList}>
-              {MOTOR_IDS.map((motorId) => (
-                <JointRow
-                  captured={selectedRun.range[motorId].max - selectedRun.range[motorId].min >= requiredSpan(motorId)}
-                  colors={colors}
-                  fontsReady={fontsReady}
-                  key={motorId}
-                  motorId={motorId}
-                  row={selectedRun.range[motorId]}
-                  styles={styles}
-                />
-              ))}
-            </View>
-          </>
-        )}
-      </View>
-
-      {selectedRun.status === "recording" && (
-        <View style={styles.saveBlock}>
-          <Pressable
-            accessibilityLabel="Lưu hiệu chỉnh"
-            accessibilityRole="button"
-            accessibilityState={{ disabled: emergencyStopped || !allCaptured }}
-            disabled={emergencyStopped || !allCaptured}
-            onPress={handleSave}
-            style={({ pressed }) => [
-              styles.savePill,
-              (emergencyStopped || !allCaptured) && styles.savePillDisabled,
-              pressed && allCaptured && !emergencyStopped && styles.pillPressed
-            ]}
-          >
-            <Check color={allCaptured && !emergencyStopped ? colors.accentForeground : colors.textSecondary} size={18} />
-            <Text
-              style={[
-                styles.savePillText,
-                (!allCaptured || emergencyStopped) && styles.savePillTextDisabled,
-                font("display", fontsReady)
-              ]}
-            >
-              Lưu hiệu chỉnh
-            </Text>
-          </Pressable>
-
-          {!allCaptured && (
-            <Text style={[styles.saveHint, font("body", fontsReady)]}>
-              Ghi đủ tầm cho cả 6 khớp để bật nút lưu.
-            </Text>
+      {!arm && (
+        <>
+          {emergencyStopped && robot && (
+            <StoppedAlert colors={colors} fontsReady={fontsReady} message={robot.message} styles={styles} />
           )}
-        </View>
+          {activeArms.length > 0 ? (
+            <ArmOverview arms={activeArms} colors={colors} fontsReady={fontsReady} onSelect={handleSelectArm} styles={styles} />
+          ) : (
+            <View style={styles.action}>
+              <SkyText fontsReady={fontsReady} style={styles.centered} tone="secondary">
+                Chưa có tay robot nào trong hệ thống.
+              </SkyText>
+            </View>
+          )}
+          {prototype && <PrototypeNote colors={colors} fontsReady={fontsReady} styles={styles} />}
+        </>
       )}
 
-      {selectedRun.status === "completed" && (
-        <CompletionPanel
-          colors={colors}
-          fontsReady={fontsReady}
-          onSwitchArm={() => setSelectedArm(otherArm)}
-          otherArm={otherArm}
-          otherDone={arms[otherArm].status === "completed"}
-          styles={styles}
-        />
+      {arm && step === "intro" && (
+        <>
+          <ArmCard
+            arm={arm}
+            colors={colors}
+            fontsReady={fontsReady}
+            prototype={prototype}
+            robot={multiArm ? null : robot}
+            styles={styles}
+          />
+
+          {stoppedAlert && robot && <StoppedAlert colors={colors} fontsReady={fontsReady} message={robot.message} styles={styles} />}
+
+          {!connected ? (
+            <View style={styles.action}>
+              <SkyButton
+                accessibilityHint="Mở màn hình kết nối robot"
+                accessibilityLabel="Kết nối robot"
+                fontsReady={fontsReady}
+                onPress={onConnect}
+              >
+                Kết nối robot
+              </SkyButton>
+              <SkyText fontsReady={fontsReady} style={styles.centered} tone="secondary" variant="caption">
+                {multiArm ? `${arm.name} chưa được kết nối.` : "Robot chưa được kết nối."} Kết nối trước rồi quay lại hiệu chỉnh.
+              </SkyText>
+            </View>
+          ) : (
+            <View style={styles.action}>
+              <SkyButton
+                accessibilityHint={
+                  arm.calibrated
+                    ? `Bắt đầu lại hiệu chỉnh cho ${arm.name}. Hiệu chỉnh hiện tại được giữ đến khi bạn hoàn tất.`
+                    : `Bắt đầu hiệu chỉnh từng bước cho ${arm.name}`
+                }
+                accessibilityLabel={arm.calibrated ? "Hiệu chỉnh lại" : "Bắt đầu hiệu chỉnh"}
+                disabled={emergencyStopped}
+                fontsReady={fontsReady}
+                onPress={handleStart}
+              >
+                {arm.calibrated ? "Hiệu chỉnh lại" : "Bắt đầu hiệu chỉnh"}
+              </SkyButton>
+              {arm.calibrated && !emergencyStopped && (
+                <SkyText fontsReady={fontsReady} style={styles.centered} tone="secondary" variant="caption">
+                  Hiệu chỉnh hiện tại vẫn được giữ cho đến khi bạn hoàn tất lần mới.
+                </SkyText>
+              )}
+            </View>
+          )}
+
+          {multiArm && (
+            <SkyButton
+              accessibilityLabel="Chọn tay khác"
+              fontsReady={fontsReady}
+              onPress={handleShowArms}
+              style={styles.secondaryAction}
+              variant="secondary"
+            >
+              Chọn tay khác
+            </SkyButton>
+          )}
+
+          {connected && <Overview colors={colors} fontsReady={fontsReady} styles={styles} />}
+        </>
       )}
+
+      {arm && inFlow && (
+        <>
+          <TargetArm arm={arm} colors={colors} fontsReady={fontsReady} styles={styles} />
+          <StepIndicator current={STEP_NUMBER[step]} fontsReady={fontsReady} styles={styles} />
+
+          {step === "center" ? (
+            <InstructionCard
+              bullets={[
+                "Nhẹ nhàng đưa từng khớp về khoảng giữa phạm vi của nó.",
+                "Giữ vùng làm việc quanh robot trống.",
+                "Dùng tay điều khiển (Leader)? Đưa tay đó về cùng tư thế."
+              ]}
+              colors={colors}
+              fontsReady={fontsReady}
+              icon={Crosshair}
+              styles={styles}
+              title="Đưa robot về vị trí giữa"
+            />
+          ) : (
+            <InstructionCard
+              bullets={[
+                "Lần lượt di chuyển từng khớp thật chậm đến hết phạm vi an toàn.",
+                "Không dùng lực ép khớp vượt qua điểm dừng.",
+                "Giữ tay và đồ vật xung quanh tránh xa robot."
+              ]}
+              colors={colors}
+              fontsReady={fontsReady}
+              icon={Move}
+              styles={styles}
+              title="Di chuyển các khớp qua toàn bộ phạm vi"
+            />
+          )}
+
+          {stoppedAlert && robot && (
+            <StoppedAlert
+              colors={colors}
+              fontsReady={fontsReady}
+              message="Tạm dừng các bước cần di chuyển robot. Nhấn Reset cạnh nút E-STOP khi đã an toàn để tiếp tục."
+              styles={styles}
+            />
+          )}
+
+          <JointMonitor
+            armName={arm.name}
+            colors={colors}
+            fontsReady={fontsReady}
+            joints={joints}
+            showRange={step === "range"}
+            simulated={simulatedJoints}
+            styles={styles}
+          />
+
+          <View style={styles.action}>
+            {step === "center" ? (
+              <SkyButton
+                accessibilityHint="Xác nhận robot đã ở vị trí giữa và sang bước tiếp theo"
+                accessibilityLabel="Đã đưa về vị trí giữa"
+                disabled={emergencyStopped}
+                fontsReady={fontsReady}
+                onPress={handleCenterDone}
+              >
+                Đã đưa về vị trí giữa
+              </SkyButton>
+            ) : (
+              <SkyButton
+                accessibilityHint={`Xác nhận đã di chuyển hết phạm vi và hoàn tất hiệu chỉnh cho ${arm.name}`}
+                accessibilityLabel={finishing ? "Đang hoàn tất hiệu chỉnh" : "Tôi đã hoàn tất"}
+                disabled={emergencyStopped && !finishing}
+                fontsReady={fontsReady}
+                loading={finishing}
+                onPress={handleFinish}
+              >
+                {finishing ? "Đang hoàn tất hiệu chỉnh…" : "Tôi đã hoàn tất"}
+              </SkyButton>
+            )}
+
+            {finishFailed && (
+              <SkyText accessibilityLiveRegion="polite" fontsReady={fontsReady} style={styles.centered} tone="secondary" variant="caption">
+                Chưa hoàn tất được hiệu chỉnh. Kiểm tra robot rồi thử lại.
+              </SkyText>
+            )}
+
+            <SkyButton
+              accessibilityLabel={finishing ? "Hủy hoàn tất hiệu chỉnh" : step === "center" ? "Hủy hiệu chỉnh" : "Quay lại bước trước"}
+              fontsReady={fontsReady}
+              onPress={finishing ? handleCancelFinish : step === "center" ? handleCancelFlow : () => setStep("center")}
+              style={styles.secondaryAction}
+              variant="secondary"
+            >
+              {finishing ? "Hủy" : step === "center" ? "Hủy hiệu chỉnh" : "Quay lại"}
+            </SkyButton>
+          </View>
+        </>
+      )}
+
+      {arm && step === "complete" && (
+        <>
+          <TargetArm arm={arm} colors={colors} fontsReady={fontsReady} styles={styles} />
+          <StepIndicator current={STEP_NUMBER.complete} fontsReady={fontsReady} styles={styles} />
+          <Complete
+            arm={arm}
+            colors={colors}
+            emergencyStopped={emergencyStopped}
+            fontsReady={fontsReady}
+            prototype={prototype}
+            readiness={readiness}
+            remaining={remaining.length}
+            robot={robot}
+            styles={styles}
+          />
+          <View style={styles.action}>
+            {nextArm ? (
+              <>
+                {/* Opens the next arm's intro — it never starts by itself. */}
+                <SkyButton
+                  accessibilityHint={`Mở hiệu chỉnh cho ${nextArm.name}. Bạn sẽ bắt đầu khi đã sẵn sàng.`}
+                  accessibilityLabel={`Hiệu chỉnh tay tiếp theo: ${nextArm.name}`}
+                  fontsReady={fontsReady}
+                  onPress={() => handleSelectArm(nextArm.id)}
+                >
+                  Hiệu chỉnh tay tiếp theo
+                </SkyButton>
+                <SkyButton
+                  accessibilityHint="Quay lại danh sách tay robot"
+                  accessibilityLabel="Quay lại"
+                  fontsReady={fontsReady}
+                  onPress={handleShowArms}
+                  style={styles.secondaryAction}
+                  variant="secondary"
+                >
+                  Quay lại
+                </SkyButton>
+              </>
+            ) : (
+              // Back where the user came from — never straight into control.
+              <SkyButton accessibilityLabel="Tiếp tục" fontsReady={fontsReady} onPress={handleBack}>
+                Tiếp tục
+              </SkyButton>
+            )}
+          </View>
+        </>
+      )}
+
+      <TechnicalDetails
+        colors={colors}
+        fontsReady={fontsReady}
+        onToggle={() => setDetailsOpen((open) => !open)}
+        open={detailsOpen}
+        simulated={simulatedJoints}
+        styles={styles}
+      />
     </ScrollView>
   );
 }
 
-function ArmSegmented({
-  disabled,
-  fontsReady,
-  onChange,
-  styles,
-  value
-}: {
-  disabled: boolean;
-  fontsReady: boolean;
-  onChange: (role: ArmRole) => void;
-  styles: ReturnType<typeof createStyles>;
-  value: ArmRole;
-}) {
-  return (
-    <View accessibilityRole="tablist" style={styles.segmented}>
-      {ARM_ROLES.map((role) => {
-        const active = value === role;
-        return (
-          <Pressable
-            accessibilityLabel={`${ROLE_LABEL[role]} (${ROLE_HINT[role]})`}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active, disabled }}
-            disabled={disabled}
-            key={role}
-            onPress={() => onChange(role)}
-            style={[styles.segment, active && styles.segmentActive]}
-          >
-            <Text style={[styles.segmentTitle, active && styles.segmentTitleActive, font("display", fontsReady)]}>
-              {ROLE_LABEL[role]}
-            </Text>
-            <Text style={[styles.segmentHint, active && styles.segmentHintActive, font("body", fontsReady)]}>
-              {ROLE_HINT[role]}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
+function connectionLabel(arm: RobotArmState) {
+  return arm.connected ? "Đã kết nối" : "Chưa kết nối";
 }
 
-function PortField({
-  colors,
-  disabled,
-  fontsReady,
-  onFind,
-  port,
-  styles
-}: {
-  colors: ThemeColors;
-  disabled: boolean;
-  fontsReady: boolean;
-  onFind: () => void;
-  port: PortState;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <View style={styles.portRow}>
-      <View style={styles.portField}>
-        <Text style={[styles.portLabel, font("body", fontsReady)]}>Port</Text>
-        <Text style={[styles.portValue, font("mono", fontsReady)]}>
-          {port.searching ? "Đang tìm…" : (port.value ?? "Chưa xác định")}
-        </Text>
-      </View>
-
-      <Pressable
-        accessibilityLabel="Tìm port"
-        accessibilityRole="button"
-        accessibilityState={{ disabled }}
-        disabled={disabled}
-        onPress={onFind}
-        style={({ pressed }) => [styles.findButton, disabled && styles.findButtonDisabled, pressed && !disabled && styles.pillPressed]}
-      >
-        <ScanLine color={disabled ? colors.textSecondary : colors.textPrimary} size={16} />
-        <Text style={[styles.findButtonText, disabled && styles.findButtonTextDisabled, font("display", fontsReady)]}>
-          Tìm
-        </Text>
-      </Pressable>
-    </View>
-  );
+function calibrationLabel(arm: RobotArmState) {
+  return arm.calibrated ? "Đã hiệu chỉnh" : "Cần hiệu chỉnh";
 }
 
-function ArmChecklist({
+// Multi-arm setups: one compact row per active arm — its name, its role,
+// and whether it is connected and calibrated. Tapping opens that arm's
+// calibration intro; nothing starts until the user does.
+function ArmOverview({
   arms,
   colors,
   fontsReady,
+  onSelect,
   styles
 }: {
-  arms: Record<ArmRole, ArmCalibration>;
-  colors: ThemeColors;
+  arms: RobotArmState[];
+  colors: SkyNexColors;
   fontsReady: boolean;
+  onSelect: (armId: string) => void;
   styles: ReturnType<typeof createStyles>;
 }) {
   return (
-    <View style={styles.checklistRow}>
-      {ARM_ROLES.map((role) => {
-        const done = arms[role].status === "completed";
-        return (
-          <View key={role} style={styles.checklistItem}>
-            {done ? (
-              <CircleCheck color={colors.success} size={16} />
-            ) : (
-              <Circle color={colors.textSecondary} size={16} />
-            )}
-            <Text style={[styles.checklistText, done && styles.checklistTextDone, font("body", fontsReady)]}>
-              {ROLE_LABEL[role]}
-            </Text>
+    <View style={styles.armList}>
+      <View style={styles.armListHeading}>
+        <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="sectionTitle">
+          {arms.length} tay trong hệ thống
+        </SkyText>
+        <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+          Chọn tay bạn muốn hiệu chỉnh. Mỗi tay được hiệu chỉnh riêng.
+        </SkyText>
+      </View>
+      {arms.map((arm) => (
+        <Pressable
+          accessibilityHint="Mở hiệu chỉnh cho tay này"
+          accessibilityLabel={`${arm.name}, ${describeRobotArm(arm)}, ${connectionLabel(arm)}, ${calibrationLabel(arm)}`}
+          accessibilityRole="button"
+          key={arm.id}
+          onPress={() => onSelect(arm.id)}
+          style={({ pressed }) => [styles.armRow, pressed && styles.pressed]}
+        >
+          <View style={styles.armRowIcon}>
+            <Bot color={colors.textPrimary} size={22} strokeWidth={1.75} />
           </View>
-        );
-      })}
+          <View style={styles.armRowText}>
+            <SkyText fontsReady={fontsReady} numberOfLines={1} variant="cardTitle">
+              {arm.name}
+            </SkyText>
+            <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+              {describeRobotArm(arm)}
+            </SkyText>
+            <View style={styles.armRowStatus}>
+              <StatusBadge
+                fontsReady={fontsReady}
+                label={calibrationLabel(arm)}
+                status={!arm.connected ? "offline" : arm.calibrated ? "ready" : "warning"}
+              />
+              <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+                {connectionLabel(arm)}
+              </SkyText>
+            </View>
+          </View>
+          <ChevronRight color={colors.textSecondary} size={18} />
+        </Pressable>
+      ))}
     </View>
   );
 }
 
-function StatusBadge({
+// The selected arm's identity, connection and calibration. In a one-arm
+// setup the arm IS the robot, so the shared readiness badge is shown too;
+// with several arms it would describe the whole setup, so it isn't.
+function ArmCard({
+  arm,
+  colors,
   fontsReady,
-  status,
+  prototype,
+  robot,
   styles
 }: {
+  arm: RobotArmState;
+  colors: SkyNexColors;
   fontsReady: boolean;
-  status: RunStatus;
+  prototype: boolean;
+  robot: ReturnType<typeof useRobotSummary>;
   styles: ReturnType<typeof createStyles>;
 }) {
-  const label = status === "idle" ? "Đưa về giữa" : status === "recording" ? "Đang ghi tầm" : "Hoàn tất";
+  return (
+    <SkyCard style={styles.card}>
+      <View style={styles.identity}>
+        <View style={styles.robotIcon}>
+          <Bot color={colors.textPrimary} size={26} strokeWidth={1.75} />
+        </View>
+        <View style={styles.identityText}>
+          <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="title">
+            {arm.name}
+          </SkyText>
+          <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+            {describeRobotArm(arm)}
+          </SkyText>
+        </View>
+      </View>
 
+      {robot && (
+        <StatusBadge
+          accessibilityLiveRegion="polite"
+          fontsReady={fontsReady}
+          label={robot.readiness === "offline" ? "Chưa kết nối" : READINESS_BADGE_LABEL[robot.readiness]}
+          status={robot.status}
+        />
+      )}
+
+      <View style={styles.facts}>
+        <View accessibilityLabel={`Kết nối: ${connectionLabel(arm)}`} accessible style={styles.factItem}>
+          <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+            Kết nối
+          </SkyText>
+          <SkyText fontsReady={fontsReady} variant="cardTitle">
+            {connectionLabel(arm)}
+          </SkyText>
+        </View>
+        <View style={styles.factDivider} />
+        <View accessibilityLabel={`Hiệu chỉnh: ${arm.calibrated ? "Đã hiệu chỉnh" : "Chưa hiệu chỉnh"}`} accessible style={styles.factItem}>
+          <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+            Hiệu chỉnh
+          </SkyText>
+          <SkyText fontsReady={fontsReady} variant="cardTitle">
+            {arm.calibrated ? "Đã hiệu chỉnh" : "Chưa hiệu chỉnh"}
+          </SkyText>
+        </View>
+      </View>
+
+      {prototype && <PrototypeNote colors={colors} fontsReady={fontsReady} styles={styles} />}
+    </SkyCard>
+  );
+}
+
+// Which arm the steps apply to — shown above every step so the user never
+// calibrates the wrong arm.
+function TargetArm({
+  arm,
+  colors,
+  fontsReady,
+  styles
+}: {
+  arm: RobotArmState;
+  colors: SkyNexColors;
+  fontsReady: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View accessibilityLabel={`Đang hiệu chỉnh ${arm.name}, ${describeRobotArm(arm)}`} accessible style={styles.target}>
+      <View style={styles.targetIcon}>
+        <Bot color={colors.textPrimary} size={20} strokeWidth={1.75} />
+      </View>
+      <View style={styles.flex}>
+        <SkyText fontsReady={fontsReady} numberOfLines={1} variant="cardTitle">
+          {arm.name}
+        </SkyText>
+        <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+          {describeRobotArm(arm)}
+        </SkyText>
+      </View>
+    </View>
+  );
+}
+
+// What the user is about to do — so the flow holds no surprises.
+function Overview({
+  colors,
+  fontsReady,
+  styles
+}: {
+  colors: SkyNexColors;
+  fontsReady: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const items = ["Đưa robot về vị trí giữa", "Di chuyển các khớp qua toàn bộ phạm vi", "Hoàn tất"];
+  return (
+    <View style={styles.overview}>
+      <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="sectionTitle">
+        Bạn sẽ làm
+      </SkyText>
+      {items.map((item, index) => (
+        <View key={item} style={styles.overviewRow}>
+          <View style={[styles.overviewNumber, { borderColor: colors.border }]}>
+            <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+              {index + 1}
+            </SkyText>
+          </View>
+          <SkyText fontsReady={fontsReady} style={styles.flex}>
+            {item}
+          </SkyText>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// Flow position, not calibration progress.
+function StepIndicator({
+  current,
+  fontsReady,
+  styles
+}: {
+  current: number;
+  fontsReady: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View accessibilityLabel={`Bước ${current} trên ${STEP_COUNT}`} accessible style={styles.stepIndicator}>
+      <View style={styles.stepDots}>
+        {Array.from({ length: STEP_COUNT }, (_, index) => (
+          <View key={index} style={[styles.stepDot, index < current && styles.stepDotDone]} />
+        ))}
+      </View>
+      <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+        Bước {current} / {STEP_COUNT}
+      </SkyText>
+    </View>
+  );
+}
+
+function InstructionCard({
+  bullets,
+  colors,
+  fontsReady,
+  icon: Icon,
+  styles,
+  title
+}: {
+  bullets: string[];
+  colors: SkyNexColors;
+  fontsReady: boolean;
+  icon: typeof Crosshair;
+  styles: ReturnType<typeof createStyles>;
+  title: string;
+}) {
+  return (
+    <SkyCard style={styles.card}>
+      <View style={styles.instructionIcon}>
+        <Icon color={colors.textPrimary} size={28} strokeWidth={1.75} />
+      </View>
+      <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="title">
+        {title}
+      </SkyText>
+      <View style={styles.bullets}>
+        {bullets.map((bullet) => (
+          <View key={bullet} style={styles.bulletRow}>
+            <View style={[styles.bulletDot, { backgroundColor: colors.textSecondary }]} />
+            <SkyText fontsReady={fontsReady} style={styles.flex}>
+              {bullet}
+            </SkyText>
+          </View>
+        ))}
+      </View>
+    </SkyCard>
+  );
+}
+
+// Done: this arm's calibration is recorded, but the robot's overall state
+// comes from the shared readiness of the whole setup — "Sẵn sàng" only if
+// every required arm really is ready, and the E-STOP state stays visible if
+// the robot is stopped.
+function Complete({
+  arm,
+  colors,
+  emergencyStopped,
+  fontsReady,
+  prototype,
+  readiness,
+  remaining,
+  robot,
+  styles
+}: {
+  arm: RobotArmState;
+  colors: SkyNexColors;
+  emergencyStopped: boolean;
+  fontsReady: boolean;
+  prototype: boolean;
+  readiness: string | undefined;
+  remaining: number;
+  robot: ReturnType<typeof useRobotSummary>;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const stopped = emergencyStopped || readiness === "stopped";
+  return (
+    <>
+      <SkyCard style={styles.card}>
+        <View style={styles.instructionIcon}>
+          <CircleCheck color={readiness === "ready" ? colors.statusReady : colors.textPrimary} size={28} strokeWidth={1.75} />
+        </View>
+        <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="title">
+          {arm.name} đã được hiệu chỉnh
+        </SkyText>
+        {robot && (
+          <StatusBadge
+            accessibilityLiveRegion="polite"
+            fontsReady={fontsReady}
+            label={READINESS_BADGE_LABEL[robot.readiness]}
+            status={robot.status}
+          />
+        )}
+        {readiness === "ready" && (
+          <SkyText fontsReady={fontsReady} tone="secondary">
+            Robot đã sẵn sàng. Bạn vẫn cần bật điều khiển trước khi robot di chuyển.
+          </SkyText>
+        )}
+        {remaining > 0 && (
+          <SkyText fontsReady={fontsReady} tone="secondary">
+            Còn {remaining} tay cần hiệu chỉnh trước khi robot sẵn sàng.
+          </SkyText>
+        )}
+        {prototype && (
+          <View style={styles.modeNote}>
+            <FlaskConical color={colors.textSecondary} size={14} />
+            <SkyText fontsReady={fontsReady} style={styles.flex} tone="secondary" variant="caption">
+              Quy trình hiện được mô phỏng, chưa ghi dữ liệu vào robot thật.
+            </SkyText>
+          </View>
+        )}
+      </SkyCard>
+      {stopped && robot && (
+        <StoppedAlert
+          colors={colors}
+          fontsReady={fontsReady}
+          message={`Hiệu chỉnh đã được lưu, nhưng robot vẫn đang dừng. ${robot.message}`}
+          styles={styles}
+        />
+      )}
+    </>
+  );
+}
+
+// E-STOP explained, never cleared here — Reset lives beside the floating
+// E-STOP only.
+function StoppedAlert({
+  colors,
+  fontsReady,
+  message,
+  styles
+}: {
+  colors: SkyNexColors;
+  fontsReady: boolean;
+  message: string;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View accessibilityRole="alert" style={styles.safety}>
+      <ShieldAlert color={colors.statusDanger} size={18} />
+      <View style={styles.safetyText}>
+        <SkyText fontsReady={fontsReady} style={{ color: colors.statusDanger }} variant="sectionTitle">
+          Đã dừng khẩn cấp
+        </SkyText>
+        <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+          {message}
+        </SkyText>
+      </View>
+    </View>
+  );
+}
+
+function PrototypeNote({
+  colors,
+  fontsReady,
+  styles
+}: {
+  colors: SkyNexColors;
+  fontsReady: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
   return (
     <View
-      style={[
-        styles.badge,
-        status === "recording" && styles.badgeRecording,
-        status === "completed" && styles.badgeCompleted
-      ]}
+      accessibilityLabel="Chế độ thử nghiệm: quy trình hiện được mô phỏng, chưa ghi dữ liệu vào robot thật."
+      accessible
+      style={styles.modeNote}
     >
-      <View
-        style={[
-          styles.badgeDot,
-          status === "recording" && styles.badgeDotRecording,
-          status === "completed" && styles.badgeDotCompleted
-        ]}
-      />
-      <Text
-        style={[
-          styles.badgeText,
-          status === "recording" && styles.badgeTextRecording,
-          status === "completed" && styles.badgeTextCompleted,
-          font("display", fontsReady)
-        ]}
-      >
-        {label}
-      </Text>
+      <FlaskConical color={colors.textSecondary} size={14} />
+      <SkyText fontsReady={fontsReady} style={styles.flex} tone="secondary" variant="caption">
+        Chế độ thử nghiệm · quy trình được mô phỏng, chưa ghi dữ liệu vào robot thật.
+      </SkyText>
     </View>
   );
 }
 
-function ReminderBanner({
+// The live joint monitor: the user watches it while physically moving the
+// arm. Step 1 shows where each joint is relative to mid-range; step 2 adds
+// the range observed so far in this attempt. It reports positions only — no
+// per-joint "done" or quality verdict, which needs real hardware rules.
+function JointMonitor({
+  armName,
   colors,
   fontsReady,
+  joints,
+  showRange,
+  simulated,
   styles
 }: {
-  colors: ThemeColors;
+  armName: string;
+  colors: SkyNexColors;
   fontsReady: boolean;
+  joints: CalibrationJointState[] | null;
+  showRange: boolean;
+  simulated: boolean;
   styles: ReturnType<typeof createStyles>;
 }) {
   return (
-    <View style={styles.reminderBanner}>
-      <TriangleAlert color={colors.caution} size={16} />
-      <Text style={[styles.reminderText, font("body", fontsReady)]}>
-        Di chuyển từng khớp hết tầm tới điểm chặn cơ khí.
-      </Text>
-    </View>
-  );
-}
-
-function StoppedBanner({
-  colors,
-  fontsReady,
-  styles
-}: {
-  colors: ThemeColors;
-  fontsReady: boolean;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <View style={styles.stoppedBanner}>
-      <ShieldAlert color={colors.danger} size={18} />
-      <Text style={[styles.stoppedText, font("body", fontsReady)]}>
-        Hệ thống đang E-STOP, không thể ghi hoặc lưu hiệu chỉnh. Nhấn Reset cạnh nút E-STOP để tiếp tục.
-      </Text>
-    </View>
-  );
-}
-
-function JointRow({
-  captured,
-  colors,
-  fontsReady,
-  motorId,
-  row,
-  styles
-}: {
-  captured: boolean;
-  colors: ThemeColors;
-  fontsReady: boolean;
-  motorId: MotorId;
-  row: RangeRow;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  const span = row.max - row.min;
-  const fraction = span > 0 ? (row.pos - row.min) / span : 0.5;
-
-  return (
-    <View style={[styles.jointCard, captured && styles.jointCardDone]}>
-      <View style={styles.jointHeaderRow}>
-        <View style={styles.jointNameRow}>
-          {captured ? (
-            <CircleCheck color={colors.success} size={16} />
-          ) : (
-            <Circle color={colors.textSecondary} size={16} />
-          )}
-          <Text style={[styles.jointName, font("mono", fontsReady)]}>{motorId}</Text>
+    <SkyCard style={styles.card}>
+      <View style={styles.monitorHeading}>
+        <View accessibilityLabel="Đang cập nhật trực tiếp" accessible style={styles.liveTag}>
+          <View style={[styles.liveDot, { backgroundColor: colors.statusReady }]} />
+          <SkyText fontsReady={fontsReady} style={[styles.liveText, font("mono", fontsReady)]} tone="secondary">
+            LIVE
+          </SkyText>
         </View>
-        <Text style={[styles.jointPos, font("monoStrong", fontsReady)]}>{formatCount(row.pos)}</Text>
+        <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="sectionTitle">
+          Dữ liệu khớp · {armName}
+        </SkyText>
+        <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+          {showRange
+            ? "Dải đậm là phạm vi đã ghi nhận trong bước này. Theo dõi khi bạn di chuyển từng khớp."
+            : "Vạch giữa là vị trí giữa. Theo dõi khi bạn đưa từng khớp về đó."}
+        </SkyText>
+      </View>
+
+      {simulated && (
+        <View accessibilityLabel="Dữ liệu mô phỏng, chưa đọc trực tiếp từ robot." accessible style={styles.modeNote}>
+          <FlaskConical color={colors.textSecondary} size={14} />
+          <SkyText fontsReady={fontsReady} style={styles.flex} tone="secondary" variant="caption">
+            Dữ liệu mô phỏng · chưa đọc trực tiếp từ robot
+          </SkyText>
+        </View>
+      )}
+
+      {joints ? (
+        <View style={styles.jointList}>
+          {joints.map((joint, index) => (
+            <JointRow
+              colors={colors}
+              first={index === 0}
+              fontsReady={fontsReady}
+              joint={joint}
+              key={joint.id}
+              showRange={showRange}
+              styles={styles}
+            />
+          ))}
+        </View>
+      ) : (
+        <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+          Đang chờ dữ liệu khớp…
+        </SkyText>
+      )}
+    </SkyCard>
+  );
+}
+
+function positionPercent(value: number): `${number}%` {
+  return `${(Math.max(0, Math.min(JOINT_POSITION_MAX, value)) / JOINT_POSITION_MAX) * 100}%`;
+}
+
+// One joint: name and current value, a position track, and (range step)
+// the observed min / max beneath it.
+function JointRow({
+  colors,
+  first,
+  fontsReady,
+  joint,
+  showRange,
+  styles
+}: {
+  colors: SkyNexColors;
+  first: boolean;
+  fontsReady: boolean;
+  joint: CalibrationJointState;
+  showRange: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const mono = font("mono", fontsReady);
+  const min = joint.minObserved;
+  const max = joint.maxObserved;
+  const range = showRange && min !== null && max !== null ? { min, max } : null;
+  return (
+    <View
+      accessibilityLabel={`${joint.label}: vị trí ${joint.current}${range ? `, thấp nhất ${range.min}, cao nhất ${range.max}` : ""}`}
+      accessible
+      style={[styles.jointRow, !first && styles.jointRowDivider]}
+    >
+      <View style={styles.jointHeader}>
+        <SkyText fontsReady={fontsReady} style={styles.flex}>
+          {joint.label}
+        </SkyText>
+        <SkyText fontsReady={fontsReady} style={[styles.jointValue, mono]}>
+          {joint.current}
+        </SkyText>
       </View>
 
       <View style={styles.track}>
-        <View style={[styles.trackCursor, { left: `${Math.round(fraction * 100)}%` }]} />
+        <View style={[styles.trackLine, { backgroundColor: colors.border }]} />
+        {range ? (
+          <View
+            style={[
+              styles.trackBand,
+              { backgroundColor: colors.accentInk, left: positionPercent(range.min), width: positionPercent(range.max - range.min) }
+            ]}
+          />
+        ) : (
+          <View style={[styles.trackCenter, { backgroundColor: colors.textSecondary }]} />
+        )}
+        <View
+          style={[
+            styles.trackDot,
+            { backgroundColor: colors.accentInk, borderColor: colors.surface, left: positionPercent(joint.current) }
+          ]}
+        />
       </View>
 
-      <View style={styles.trackLabels}>
-        <Text style={[styles.trackLabel, font("mono", fontsReady)]}>{formatCount(row.min)}</Text>
-        <Text style={[styles.trackLabel, styles.trackLabelRight, font("mono", fontsReady)]}>
-          {formatCount(row.max)}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function CompletionPanel({
-  colors,
-  fontsReady,
-  onSwitchArm,
-  otherArm,
-  otherDone,
-  styles
-}: {
-  colors: ThemeColors;
-  fontsReady: boolean;
-  onSwitchArm: () => void;
-  otherArm: ArmRole;
-  otherDone: boolean;
-  styles: ReturnType<typeof createStyles>;
-}) {
-  return (
-    <View style={styles.completionPanel}>
-      <View style={styles.completionRow}>
-        <CircleCheck color={colors.success} size={18} />
-        <Text style={[styles.completionText, font("body", fontsReady)]}>
-          Đã lưu hiệu chỉnh cho {ROLE_LABEL[otherArm === "follower" ? "leader" : "follower"]}.
-        </Text>
-      </View>
-
-      {otherDone ? (
-        <Text style={[styles.completionText, font("body", fontsReady)]}>
-          Cả Follower và Leader đã hiệu chỉnh xong.
-        </Text>
-      ) : (
-        <Pressable
-          accessibilityLabel={`Chuyển sang hiệu chỉnh ${ROLE_LABEL[otherArm]}`}
-          accessibilityRole="button"
-          onPress={onSwitchArm}
-          style={({ pressed }) => [styles.switchButton, pressed && styles.pillPressed]}
-        >
-          <RotateCcw color={colors.textPrimary} size={16} />
-          <Text style={[styles.switchButtonText, font("display", fontsReady)]}>
-            Chuyển sang {ROLE_LABEL[otherArm]}
-          </Text>
-        </Pressable>
+      {range && (
+        <View style={styles.jointRange}>
+          <SkyText fontsReady={fontsReady} style={[styles.jointRangeValue, mono]} tone="secondary">
+            {range.min}
+          </SkyText>
+          <SkyText fontsReady={fontsReady} style={[styles.jointRangeValue, mono]} tone="secondary">
+            {range.max}
+          </SkyText>
+        </View>
       )}
     </View>
   );
 }
 
-function createArmCalibration(role: ArmRole): ArmCalibration {
-  return { status: "idle", range: createInitialRange(role) };
+// Collapsed by default and secondary — the joints themselves stay visible
+// in the monitor. Here: raw joint ids for matching to hardware, and where
+// the readings come from.
+function TechnicalDetails({
+  colors,
+  fontsReady,
+  onToggle,
+  open,
+  simulated,
+  styles
+}: {
+  colors: SkyNexColors;
+  fontsReady: boolean;
+  onToggle: () => void;
+  open: boolean;
+  simulated: boolean;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  const Chevron = open ? ChevronUp : ChevronDown;
+  return (
+    <View style={styles.details}>
+      <Pressable
+        accessibilityLabel="Chi tiết kỹ thuật"
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        onPress={onToggle}
+        style={({ pressed }) => [styles.detailsHeader, pressed && styles.pressed]}
+      >
+        <View style={styles.flex}>
+          <SkyText fontsReady={fontsReady} variant="sectionTitle">
+            Chi tiết kỹ thuật
+          </SkyText>
+          <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+            Các khớp được hiệu chỉnh
+          </SkyText>
+        </View>
+        <Chevron color={colors.textSecondary} size={18} />
+      </Pressable>
+
+      {open && (
+        <View style={styles.detailsBody}>
+          {CALIBRATION_JOINTS.map((joint) => (
+            <View key={joint.id} style={styles.detailsRow}>
+              <SkyText fontsReady={fontsReady}>{joint.label}</SkyText>
+              <SkyText fontsReady={fontsReady} style={[styles.mono, font("mono", fontsReady)]} tone="secondary">
+                {joint.id}
+              </SkyText>
+            </View>
+          ))}
+          <View style={styles.detailsRow}>
+            <SkyText fontsReady={fontsReady}>Nguồn dữ liệu khớp</SkyText>
+            <SkyText fontsReady={fontsReady} style={[styles.mono, font("mono", fontsReady)]} tone="secondary">
+              {simulated ? "prototype" : "hardware"}
+            </SkyText>
+          </View>
+          <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+            {simulated
+              ? `Vị trí khớp tính theo bước encoder (0–${JOINT_POSITION_MAX}). Ở chế độ thử nghiệm, vị trí do ứng dụng mô phỏng, chưa đọc từ servo, và phạm vi ghi nhận không được lưu vào robot.`
+              : `Vị trí khớp tính theo bước encoder (0–${JOINT_POSITION_MAX}).`}
+          </SkyText>
+        </View>
+      )}
+    </View>
+  );
 }
 
-function createInitialRange(role: ArmRole): RangeByMotor {
-  return MOTOR_IDS.reduce((range, motorId) => {
-    const center = getCenterCount(role, motorId);
-    range[motorId] = { min: center, pos: center, max: center };
-    return range;
-  }, {} as RangeByMotor);
-}
-
-function advanceMockRange(range: RangeByMotor, role: ArmRole, tick: number): RangeByMotor {
-  return MOTOR_IDS.reduce((nextRange, motorId) => {
-    const pos = readMockCount(role, motorId, tick);
-    const prev = range[motorId];
-    nextRange[motorId] = {
-      min: Math.min(prev.min, pos),
-      pos,
-      max: Math.max(prev.max, pos)
-    };
-    return nextRange;
-  }, {} as RangeByMotor);
-}
-
-function updateArm(
-  prev: Record<ArmRole, ArmCalibration>,
-  role: ArmRole,
-  patch: Partial<ArmCalibration>
-) {
-  return {
-    ...prev,
-    [role]: {
-      ...prev[role],
-      ...patch
-    }
-  };
-}
-
-function readMockCount(role: ArmRole, motorId: MotorId, tick: number) {
-  const config = MOTOR_CONFIG[motorId];
-  const center = getCenterCount(role, motorId);
-  const phase = (tick + config.seed + (role === "leader" ? 11 : 0)) / (7 + (config.seed % 5));
-  const sweep = Math.sin(phase) * config.amplitude;
-  const microDrift = ((tick + config.seed) % 17) - 8;
-  return clampCount(Math.round(center + sweep + microDrift));
-}
-
-function getCenterCount(role: ArmRole, motorId: MotorId) {
-  const config = MOTOR_CONFIG[motorId];
-  return role === "follower" ? config.followerCenter : config.leaderCenter;
-}
-
-function clampCount(value: number) {
-  return Math.max(0, Math.min(4095, value));
-}
-
-function formatCount(value: number) {
-  return Math.round(value).toString().padStart(4, "0");
-}
-
-function createStyles(colors: ThemeColors) {
+function createStyles(colors: SkyNexColors) {
   return StyleSheet.create({
     screen: {
       backgroundColor: colors.background,
       flex: 1
     },
     content: {
-      gap: spacing.xl,
-      paddingHorizontal: spacing.xl,
-      paddingTop: spacing.lg,
-      paddingBottom: spacing.xxxl
+      gap: layout.sectionGap,
+      paddingBottom: space.xxxl,
+      paddingHorizontal: layout.screenGutter,
+      paddingTop: space.lg
     },
-    stoppedBanner: {
-      alignItems: "flex-start",
-      backgroundColor: colors.surface,
-      borderColor: colors.danger,
-      borderRadius: CARD_RADIUS_OUTER,
-      borderWidth: 1,
-      flexDirection: "row",
-      gap: spacing.sm,
-      padding: spacing.md
-    },
-    stoppedText: {
-      ...type.body,
-      color: colors.textPrimary,
+    flex: {
       flex: 1
     },
-    configBlock: {
-      gap: spacing.md
-    },
-    configCard: {
-      backgroundColor: colors.surfaceSecondary,
-      borderRadius: CARD_RADIUS_OUTER,
-      gap: spacing.sm,
-      padding: spacing.md
-    },
-    segmented: {
-      backgroundColor: colors.surface,
-      borderRadius: CARD_RADIUS_INNER,
-      flexDirection: "row",
-      gap: spacing.xxs,
-      padding: spacing.xxs
-    },
-    segment: {
-      alignItems: "center",
-      borderRadius: radius.button,
-      flex: 1,
-      gap: 2,
-      paddingVertical: spacing.sm
-    },
-    segmentActive: {
-      backgroundColor: colors.surfaceSecondary
-    },
-    segmentTitle: {
-      ...type.label,
-      color: colors.textSecondary
-    },
-    segmentTitleActive: {
-      color: colors.accentStrong
-    },
-    segmentHint: {
-      ...type.small,
-      color: colors.textSecondary
-    },
-    segmentHintActive: {
-      color: colors.textPrimary
-    },
-    portRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: spacing.sm
-    },
-    portField: {
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderRadius: radius.button,
-      borderWidth: 1,
-      flex: 1,
-      minHeight: 52,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs
-    },
-    portLabel: {
-      ...type.small,
-      color: colors.textSecondary
-    },
-    portValue: {
-      ...type.mono,
-      color: colors.textPrimary,
-      marginTop: 2
-    },
-    findButton: {
-      alignItems: "center",
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderRadius: radius.button,
-      borderWidth: 1,
-      flexDirection: "row",
-      gap: spacing.xxs,
-      minHeight: 52,
-      paddingHorizontal: spacing.md
-    },
-    findButtonDisabled: {
-      opacity: 0.45
-    },
-    findButtonText: {
-      ...type.label,
-      color: colors.textPrimary
-    },
-    findButtonTextDisabled: {
-      color: colors.textSecondary
-    },
-    primaryPill: {
-      alignItems: "center",
-      backgroundColor: colors.accent,
-      borderRadius: radius.round,
-      height: 56,
-      justifyContent: "center"
-    },
-    primaryPillDanger: {
-      backgroundColor: colors.danger
-    },
-    primaryPillDisabled: {
-      backgroundColor: colors.surfaceSecondary
-    },
-    primaryPillText: {
-      ...type.bodyStrong,
-      color: colors.accentForeground
-    },
-    primaryPillTextDanger: {
-      color: colors.dangerForeground
-    },
-    primaryPillTextDisabled: {
-      color: colors.textSecondary
-    },
-    checklistRow: {
-      flexDirection: "row",
-      gap: spacing.lg,
-      justifyContent: "center",
-      paddingTop: spacing.xxs
-    },
-    checklistItem: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: spacing.xxs
-    },
-    checklistText: {
-      ...type.small,
-      color: colors.textSecondary
-    },
-    checklistTextDone: {
-      color: colors.textPrimary
-    },
-    statusCard: {
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderRadius: CARD_RADIUS_OUTER,
-      borderWidth: 1,
-      gap: spacing.md,
-      padding: spacing.md
-    },
-    badge: {
-      alignItems: "center",
-      alignSelf: "flex-start",
-      backgroundColor: colors.surfaceSecondary,
-      borderColor: colors.border,
-      borderRadius: radius.button,
-      borderWidth: 1,
-      flexDirection: "row",
-      gap: spacing.xs,
-      minHeight: 34,
-      paddingHorizontal: spacing.sm
-    },
-    badgeRecording: {
-      borderColor: colors.caution
-    },
-    badgeCompleted: {
-      borderColor: colors.success
-    },
-    badgeDot: {
-      backgroundColor: colors.textSecondary,
-      borderRadius: radius.status,
-      height: 8,
-      width: 8
-    },
-    badgeDotRecording: {
-      backgroundColor: colors.caution
-    },
-    badgeDotCompleted: {
-      backgroundColor: colors.success
-    },
-    badgeText: {
-      ...type.label,
-      color: colors.textPrimary
-    },
-    badgeTextRecording: {
-      color: colors.caution
-    },
-    badgeTextCompleted: {
-      color: colors.success
-    },
-    promptLine: {
-      ...type.body,
-      color: colors.textSecondary
-    },
-    reminderBanner: {
-      alignItems: "flex-start",
-      backgroundColor: colors.surfaceSecondary,
-      borderColor: colors.caution,
-      borderRadius: CARD_RADIUS_INNER,
-      borderWidth: 1,
-      flexDirection: "row",
-      gap: spacing.sm,
-      padding: spacing.sm
-    },
-    reminderText: {
-      ...type.small,
-      color: colors.textPrimary,
-      flex: 1
-    },
-    jointListHeader: {
-      alignItems: "center",
-      flexDirection: "row",
-      justifyContent: "space-between"
-    },
-    jointListTitle: {
-      ...type.title,
-      color: colors.textPrimary
-    },
-    jointListMeta: {
-      ...type.mono,
-      color: colors.textSecondary
-    },
-    jointList: {
-      gap: spacing.sm
-    },
-    jointCard: {
-      backgroundColor: colors.surfaceSecondary,
-      borderColor: "transparent",
-      borderRadius: CARD_RADIUS_INNER,
-      borderWidth: 1,
-      gap: spacing.sm,
-      padding: spacing.md
-    },
-    jointCardDone: {
-      borderColor: colors.success
-    },
-    jointHeaderRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      justifyContent: "space-between"
-    },
-    jointNameRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: spacing.xs
-    },
-    jointName: {
-      ...type.body,
-      color: colors.textPrimary
-    },
-    jointPos: {
-      ...type.title,
-      color: colors.textPrimary,
-      fontVariant: ["tabular-nums"]
-    },
-    track: {
-      backgroundColor: colors.surface,
-      borderRadius: radius.round,
-      height: 6,
-      width: "100%"
-    },
-    trackCursor: {
-      backgroundColor: colors.accentStrong,
-      borderRadius: radius.round,
-      height: 14,
-      marginLeft: -7,
-      position: "absolute",
-      top: -4,
-      width: 14
-    },
-    trackLabels: {
-      flexDirection: "row",
-      justifyContent: "space-between"
-    },
-    trackLabel: {
-      ...type.mono,
-      color: colors.textSecondary
-    },
-    trackLabelRight: {
-      textAlign: "right"
-    },
-    saveBlock: {
-      gap: spacing.xs
-    },
-    savePill: {
-      alignItems: "center",
-      backgroundColor: colors.accent,
-      borderRadius: radius.round,
-      flexDirection: "row",
-      gap: spacing.sm,
-      height: 56,
-      justifyContent: "center"
-    },
-    savePillDisabled: {
-      backgroundColor: colors.surfaceSecondary
-    },
-    savePillText: {
-      ...type.bodyStrong,
-      color: colors.accentForeground
-    },
-    savePillTextDisabled: {
-      color: colors.textSecondary
-    },
-    saveHint: {
-      ...type.small,
-      color: colors.textSecondary,
+    centered: {
       textAlign: "center"
     },
-    completionPanel: {
+    pressed: {
+      opacity: 0.78
+    },
+    card: {
+      borderRadius: corner.productCard,
+      gap: space.md,
+      padding: layout.productCardPadding
+    },
+    identity: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: space.md
+    },
+    robotIcon: {
+      alignItems: "center",
+      backgroundColor: colors.robotSurface,
+      borderRadius: corner.card,
+      height: 56,
+      justifyContent: "center",
+      width: 56
+    },
+    identityText: {
+      flex: 1,
+      gap: 2
+    },
+    facts: {
+      borderTopColor: colors.border,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      paddingTop: space.md
+    },
+    factItem: {
+      flex: 1,
+      gap: 2
+    },
+    factDivider: {
+      backgroundColor: colors.border,
+      marginHorizontal: space.md,
+      width: StyleSheet.hairlineWidth
+    },
+    armList: {
+      gap: space.sm
+    },
+    armListHeading: {
+      gap: space.xxs,
+      marginBottom: space.xxs
+    },
+    // Compact consumer row, not a table: at least 72px tall so the whole
+    // row is an easy touch target.
+    armRow: {
+      alignItems: "center",
       backgroundColor: colors.surface,
-      borderColor: colors.success,
-      borderRadius: CARD_RADIUS_OUTER,
-      borderWidth: 1,
-      gap: spacing.sm,
-      padding: spacing.md
-    },
-    completionRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: spacing.xs
-    },
-    completionText: {
-      ...type.body,
-      color: colors.textPrimary,
-      flex: 1
-    },
-    switchButton: {
-      alignItems: "center",
-      alignSelf: "flex-start",
-      backgroundColor: colors.surfaceSecondary,
       borderColor: colors.border,
-      borderRadius: radius.round,
-      borderWidth: 1,
+      borderRadius: corner.card,
+      borderWidth: StyleSheet.hairlineWidth,
       flexDirection: "row",
-      gap: spacing.xs,
-      minHeight: 44,
-      paddingHorizontal: spacing.md
+      gap: space.md,
+      minHeight: 72,
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm
     },
-    switchButtonText: {
-      ...type.label,
-      color: colors.textPrimary
+    armRowIcon: {
+      alignItems: "center",
+      backgroundColor: colors.robotSurface,
+      borderRadius: corner.card,
+      height: 44,
+      justifyContent: "center",
+      width: 44
     },
-    pillPressed: {
-      opacity: 0.85,
-      transform: [{ scale: 0.98 }]
+    armRowText: {
+      flex: 1,
+      gap: 2
+    },
+    armRowStatus: {
+      alignItems: "center",
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: space.xs,
+      marginTop: space.xxs
+    },
+    target: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: space.sm
+    },
+    targetIcon: {
+      alignItems: "center",
+      backgroundColor: colors.robotSurface,
+      borderRadius: corner.card,
+      height: 40,
+      justifyContent: "center",
+      width: 40
+    },
+    modeNote: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: space.xs
+    },
+    action: {
+      gap: space.sm
+    },
+    // Compact and centred: subordinate to the primary action, and clear of
+    // the floating E-STOP's edge column.
+    secondaryAction: {
+      alignSelf: "center",
+      minWidth: 160
+    },
+    overview: {
+      gap: space.sm
+    },
+    overviewRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: space.sm
+    },
+    overviewNumber: {
+      alignItems: "center",
+      borderRadius: corner.pill,
+      borderWidth: 1,
+      height: 28,
+      justifyContent: "center",
+      width: 28
+    },
+    stepIndicator: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: space.sm
+    },
+    stepDots: {
+      flexDirection: "row",
+      gap: space.xxs
+    },
+    stepDot: {
+      backgroundColor: colors.border,
+      borderRadius: corner.pill,
+      height: 6,
+      width: 20
+    },
+    stepDotDone: {
+      backgroundColor: colors.accentInk
+    },
+    instructionIcon: {
+      alignItems: "center",
+      backgroundColor: colors.robotSurface,
+      borderRadius: corner.card,
+      height: 56,
+      justifyContent: "center",
+      width: 56
+    },
+    bullets: {
+      gap: space.sm
+    },
+    bulletRow: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: space.sm
+    },
+    bulletDot: {
+      borderRadius: corner.pill,
+      height: 6,
+      marginTop: 9,
+      width: 6
+    },
+    safety: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      gap: space.sm
+    },
+    safetyText: {
+      flex: 1,
+      gap: space.xxs
+    },
+    details: {
+      borderTopColor: colors.border,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      gap: space.md,
+      paddingTop: space.md
+    },
+    detailsHeader: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: space.md,
+      minHeight: 48
+    },
+    detailsBody: {
+      gap: space.sm
+    },
+    detailsRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between"
+    },
+    mono: {
+      fontSize: 13
+    },
+    monitorHeading: {
+      gap: space.xxs
+    },
+    liveTag: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: space.xxs
+    },
+    liveDot: {
+      borderRadius: corner.pill,
+      height: 6,
+      width: 6
+    },
+    liveText: {
+      fontSize: 11,
+      letterSpacing: 1
+    },
+    jointList: {
+      gap: space.sm
+    },
+    jointRow: {
+      gap: space.xxs
+    },
+    jointRowDivider: {
+      borderTopColor: colors.border,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      paddingTop: space.sm
+    },
+    jointHeader: {
+      alignItems: "baseline",
+      flexDirection: "row",
+      gap: space.sm
+    },
+    jointValue: {
+      fontSize: 15,
+      fontVariant: ["tabular-nums"]
+    },
+    // 14px tall so the 12px dot sits on the 2px line without clipping.
+    track: {
+      height: 14,
+      justifyContent: "center"
+    },
+    trackLine: {
+      borderRadius: corner.pill,
+      height: 2,
+      left: 0,
+      position: "absolute",
+      right: 0
+    },
+    trackBand: {
+      borderRadius: corner.pill,
+      height: 4,
+      opacity: 0.45,
+      position: "absolute"
+    },
+    trackCenter: {
+      height: 10,
+      left: "50%",
+      marginLeft: -0.5,
+      position: "absolute",
+      width: 1
+    },
+    trackDot: {
+      borderRadius: corner.pill,
+      borderWidth: 2,
+      height: 12,
+      marginLeft: -6,
+      position: "absolute",
+      width: 12
+    },
+    jointRange: {
+      flexDirection: "row",
+      justifyContent: "space-between"
+    },
+    jointRangeValue: {
+      fontSize: 12,
+      fontVariant: ["tabular-nums"]
     }
   });
 }
