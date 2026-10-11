@@ -44,7 +44,15 @@ type Props = {
   // Leaves the flow the way it came (Connect, Robot hub, Home…).
   onBack: () => void;
   onConnect: () => void;
+  // Opens straight to this arm's intro (e.g. Connect's per-arm
+  // "Hiệu chỉnh"). Omitted or not in the active setup → the arm overview.
+  initialArmId?: string;
 };
+
+// A requested arm only counts if the active setup has it.
+function validArmId(armId: string | undefined): string | null {
+  return armId && getRobotSetup().activeArmIds.includes(armId) ? armId : null;
+}
 
 // The user's place in the guided flow for the target arm. Finishing is not
 // a step of its own: it is that arm's `calibrating` flag on the range step.
@@ -69,14 +77,14 @@ function cancelAllCalibrations() {
 // summary (the active setup's aggregate), so this screen never shows a
 // local-only "Ready". Nothing here arms or moves the robot, and E-STOP is
 // never touched.
-export function CalibrateScreen({ emergencyStopped, fontsReady, onBack, onConnect }: Props) {
+export function CalibrateScreen({ emergencyStopped, fontsReady, initialArmId, onBack, onConnect }: Props) {
   const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const setup = useRobotSetup();
   const robot = useRobotSummary({ emergencyStopped });
   const activeArms = useMemo(() => getActiveArms(setup), [setup]);
   const multiArm = activeArms.length > 1;
-  const [selectedArmId, setSelectedArmId] = useState<string | null>(null);
+  const [selectedArmId, setSelectedArmId] = useState<string | null>(() => validArmId(initialArmId));
   const [step, setStep] = useState<Step>("intro");
   const [finishFailed, setFinishFailed] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -123,6 +131,16 @@ export function CalibrateScreen({ emergencyStopped, fontsReady, onBack, onConnec
     setStep("intro");
     setFinishFailed(false);
   };
+
+  // A new requested arm on an already-mounted screen (route params changed)
+  // opens that arm's intro. It never starts a step by itself.
+  useEffect(() => {
+    const requested = validArmId(initialArmId);
+    if (!requested) return;
+    setSelectedArmId(requested);
+    setStep("intro");
+    setFinishFailed(false);
+  }, [initialArmId]);
 
   const handleShowArms = () => {
     setSelectedArmId(null);

@@ -41,7 +41,9 @@ type ControlStackParamList = {
   // Back keeps its original Home destination for entries from Home / Skill
   // Detail.
   Connect: { from?: "hub" | "teleop" | "phone-teleop" | "calibrate" } | undefined;
-  Calibrate: { from?: "home" | "connect" } | undefined;
+  // `armId` preselects that arm (multi-arm setups). Omitted or unknown →
+  // Calibrate's own arm overview.
+  Calibrate: { from?: "home" | "connect"; armId?: string } | undefined;
   Teleop: { from?: "home" | "connect" } | undefined;
   PhoneTeleop: { from?: "home" } | undefined;
   // Same StatusScreen Home pushes on its own stack, here reached from the hub.
@@ -473,6 +475,7 @@ function ControlStackScreen({
               returnHome(navigation);
             }}
             onCalibrate={() => navigation.navigate("Calibrate", { from: "connect" })}
+            onCalibrateArm={(armId) => navigation.navigate("Calibrate", { from: "connect", armId })}
             // Manual Control: it still requires its own deliberate arm step.
             onOpenControl={() => navigation.navigate("Teleop", { from: "connect" })}
           />
@@ -484,6 +487,7 @@ function ControlStackScreen({
           <CalibrateScreen
             emergencyStopped={emergencyStopped}
             fontsReady={fontsReady}
+            initialArmId={route.params?.armId}
             onBack={() => {
               if (route.params?.from === "home") {
                 returnHome(navigation);
