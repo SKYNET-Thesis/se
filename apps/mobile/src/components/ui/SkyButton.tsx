@@ -57,6 +57,8 @@ export function SkyButton({
       accessibilityLabel={accessibilityLabel ?? (typeof children === "string" ? children : undefined)}
       accessibilityRole="button"
       accessibilityState={{ ...accessibilityState, busy: loading, disabled: inactive }}
+      // RN web drops `busy` from accessibilityState; expose it explicitly.
+      aria-busy={loading}
       disabled={inactive}
       style={({ pressed }) => [
         styles.base,

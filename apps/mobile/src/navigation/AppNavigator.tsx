@@ -472,9 +472,9 @@ function ControlStackScreen({
               }
               returnHome(navigation);
             }}
-            onContinue={() => navigation.navigate("Calibrate", { from: "connect" })}
-            onOpenTeleop={() => navigation.navigate("Teleop", { from: "connect" })}
-            reduceMotion={reduceMotion}
+            onCalibrate={() => navigation.navigate("Calibrate", { from: "connect" })}
+            // Manual Control: it still requires its own deliberate arm step.
+            onOpenControl={() => navigation.navigate("Teleop", { from: "connect" })}
           />
         )}
       </ControlStack.Screen>

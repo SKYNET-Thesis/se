@@ -10,10 +10,13 @@ const STORAGE_KEY = "skynex.estop.position.v1";
 export type EStopSide = "left" | "right";
 export type EStopPosition = { side: EStopSide; yRatio: number };
 
-// First launch: right edge, low in the thumb zone just above the tab bar
+// First launch: LEFT edge, low in the thumb zone just above the tab bar
 // (the drag range already ends above it) — below where screens put their
-// primary actions (Skill Detail's and Home's "Bắt đầu").
-export const DEFAULT_ESTOP_POSITION: EStopPosition = { side: "right", yRatio: 0.92 };
+// primary actions (Skill Detail's and Home's "Bắt đầu"). Left, because the
+// right edge is where the app puts row controls: Manual Control's +/− jog
+// column and the skill cards' favourite hearts scroll under a right-docked
+// default; the left of those rows is labels only.
+export const DEFAULT_ESTOP_POSITION: EStopPosition = { side: "left", yRatio: 0.92 };
 
 function isPosition(value: unknown): value is EStopPosition {
   if (!value || typeof value !== "object") return false;

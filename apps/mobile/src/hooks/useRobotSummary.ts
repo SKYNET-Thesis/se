@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { buildRobotSummary, getRobotLink, getSuggestedSkill, RobotSummary, subscribeRobotLink } from "../data/robot";
+import { buildRobotSummary, getRobotLink, getSuggestedSkill, RobotLink, RobotSummary, subscribeRobotLink } from "../data/robot";
 import { Task } from "../data/tasks";
 
 // The live shared robot summary — the one readiness source for every
@@ -25,4 +25,11 @@ export function useRobotSummary({ emergencyStopped }: { emergencyStopped: boolea
     () => (suggestedSkill === undefined ? null : buildRobotSummary(link, emergencyStopped, suggestedSkill)),
     [emergencyStopped, link, suggestedSkill]
   );
+}
+
+// The raw shared link (connected / calibrated / connecting), for screens
+// that manage the connection itself. Readiness still comes from
+// useRobotSummary — never re-derive it from these flags.
+export function useRobotLink(): RobotLink {
+  return useSyncExternalStore(subscribeRobotLink, getRobotLink, getRobotLink);
 }
