@@ -1,5 +1,24 @@
 import type { RobotStatus } from "../components/ui/StatusBadge";
+import { PROTOTYPE_DEVICES, prototypeBinding } from "./robotProviders/prototype";
+import { findRobotProvider, getRobotProvider, getRobotProviderMode, installRobotProvider } from "./robotProviders/registry";
+import { SO101_MODEL } from "./robotProviders/so101";
+import {
+  PhysicalArmBinding,
+  providerErrorCode,
+  RobotDeviceDescriptor,
+  RobotDeviceTarget,
+  RobotProvider,
+  RobotProviderErrorCode,
+  RobotProviderMode
+} from "./robotProviders/types";
 import { getTasks, Task } from "./tasks";
+
+export type { PhysicalArmBinding, RobotDeviceDescriptor, RobotProviderErrorCode } from "./robotProviders/types";
+
+// The robot DOMAIN: the one shared store of arms and the active setup, and
+// the actions that change it. Screens call these actions and read this
+// state; device work goes through the active provider (robotProviders/),
+// which never writes this state itself. See robotProviders/README.md.
 
 // What Home needs to answer "who is the robot, is it ready, what next?".
 // Readiness is a gate, checked in this order — each step blocks the next:
@@ -28,9 +47,11 @@ export type RobotSummary = {
 // ── Arms and the active setup ─────────────────────────────────────────────
 // A SkyNex setup may hold several SO-ARM101 arms (one leader + one follower,
 // two of each, …), each connected and calibrated on its own. An arm's `id`
-// is its stable identity; `name` is a user-editable label and is never
-// parsed — role and side are explicit fields.
-export const ROBOT_ARM_MODEL = "SO-ARM101";
+// is its stable APP identity; `name` is a user-editable label and is never
+// parsed — role and side are explicit fields. The physical device behind an
+// arm is a separate, optional `binding`: arm.id is never a device id or a
+// port, and renaming or rebinding never changes it.
+export const ROBOT_ARM_MODEL = SO101_MODEL;
 
 export type RobotArmRole = "leader" | "follower";
 export type RobotArmSide = "left" | "right" | "custom";
@@ -41,6 +62,9 @@ export type RobotArmState = {
   role: RobotArmRole;
   side?: RobotArmSide;
   model: typeof ROBOT_ARM_MODEL;
+  // Which physical device this arm is (provider + device id). Bound ≠
+  // connected: a bound arm may be offline; an unbound arm can't connect.
+  binding?: PhysicalArmBinding;
   connected: boolean;
   calibrated: boolean;
   // In-flight attempts (connectRobotArm / completeRobotCalibration). Neither
@@ -48,11 +72,18 @@ export type RobotArmState = {
   // finishing calibration keeps its previous calibration state.
   connecting: boolean;
   calibrating: boolean;
+  // Why the last connect / calibration failed, if it did. Machine-readable;
+  // screens choose the words. Cleared when a new attempt starts.
+  lastError?: RobotProviderErrorCode;
 };
 
-// The arm facts the link may change. Identity, role and model never change
-// through it; the name changes only through renameRobotArm().
+// The arm facts the dev/QA setter may change. Identity, role and model never
+// change; name, binding and errors change only through their own actions.
 type RobotArmFlags = Pick<RobotArmState, "connected" | "calibrated" | "connecting" | "calibrating">;
+type ArmPatch = Partial<RobotArmFlags> & {
+  binding?: PhysicalArmBinding | undefined;
+  lastError?: RobotProviderErrorCode | undefined;
+};
 
 // Every registered arm, plus the ones the current setup requires. Only
 // active arms count toward readiness — a registered arm the setup doesn't
@@ -72,18 +103,30 @@ export function describeRobotArm(arm: RobotArmState): string {
   return `${ROBOT_ARM_ROLE_LABEL[arm.role]} · ${arm.model}`;
 }
 
-// Prototype setup: one leader and one follower, both connected and
-// calibrated, so every existing flow (Manual, Phone, Skills) is reachable
-// without setup. Either arm can be recalibrated on its own, and the dev
-// hook below can drop one to "needs calibration".
-function prototypeArm(id: string, name: string, role: RobotArmRole, side: RobotArmSide): RobotArmState {
-  return { id, name, role, side, model: ROBOT_ARM_MODEL, connected: true, calibrated: true, connecting: false, calibrating: false };
+// Prototype setup: one leader and one follower, each bound to a simulated
+// prototype device, both connected and calibrated, so every existing flow
+// (Manual, Phone, Skills) is reachable without setup. Either arm can be
+// recalibrated on its own, and the dev hook below can drop one to "needs
+// calibration".
+function prototypeArm(id: string, name: string, role: RobotArmRole, side: RobotArmSide, deviceId: string): RobotArmState {
+  return {
+    id,
+    name,
+    role,
+    side,
+    model: ROBOT_ARM_MODEL,
+    binding: prototypeBinding(deviceId),
+    connected: true,
+    calibrated: true,
+    connecting: false,
+    calibrating: false
+  };
 }
 
 let robotSetup: RobotSetup = {
   arms: {
-    arm_01: prototypeArm("arm_01", "leader_left", "leader", "left"),
-    arm_02: prototypeArm("arm_02", "follower_right", "follower", "right")
+    arm_01: prototypeArm("arm_01", "leader_left", "leader", "left", PROTOTYPE_DEVICES[0].deviceId),
+    arm_02: prototypeArm("arm_02", "follower_right", "follower", "right", PROTOTYPE_DEVICES[1].deviceId)
   },
   activeArmIds: ["arm_01", "arm_02"]
 };
@@ -156,7 +199,7 @@ function commitSetup(next: RobotSetup) {
   robotLinkListeners.forEach((listener) => listener());
 }
 
-function patchArms(armIds: readonly string[], patch: Partial<RobotArmFlags>) {
+function patchArms(armIds: readonly string[], patch: ArmPatch) {
   let arms = robotSetup.arms;
   armIds.forEach((id) => {
     const arm = arms[id];
@@ -168,15 +211,24 @@ function patchArms(armIds: readonly string[], patch: Partial<RobotArmFlags>) {
   if (arms !== robotSetup.arms) commitSetup({ ...robotSetup, arms });
 }
 
-// One arm's connection / calibration facts. A real transport calls this as
-// each arm reports in.
-export function setRobotArm(armId: string, patch: Partial<RobotArmFlags>) {
+function patchArm(armId: string, patch: ArmPatch) {
   patchArms([armId], patch);
+}
+
+// Dev/QA: one arm's connection / calibration facts, written directly.
+export function setRobotArm(armId: string, patch: Partial<RobotArmFlags>) {
+  const { connected, calibrated, connecting, calibrating } = patch;
+  const flags: Partial<RobotArmFlags> = {};
+  if (connected !== undefined) flags.connected = connected;
+  if (calibrated !== undefined) flags.calibrated = calibrated;
+  if (connecting !== undefined) flags.connecting = connecting;
+  if (calibrating !== undefined) flags.calibrating = calibrating;
+  patchArm(armId, flags);
 }
 
 // Legacy whole-robot setter: applies to every active arm at once.
 export function setRobotLink(next: Partial<RobotLink>) {
-  patchArms(robotSetup.activeArmIds, next);
+  robotSetup.activeArmIds.forEach((armId) => setRobotArm(armId, next));
 }
 
 // Which registered arms the current setup requires. Unknown ids are dropped.
@@ -188,8 +240,8 @@ export function setActiveRobotArms(armIds: readonly string[]) {
 }
 
 // ── Rename seam ────────────────────────────────────────────────────────────
-// Names are labels only: renaming never changes the id, role or side, and
-// role is never inferred from the name.
+// Names are labels only: renaming never changes the id, role, side or
+// binding, and role is never inferred from the name.
 export type RenameArmResult = "renamed" | "unchanged" | "empty" | "not-found";
 
 export function renameRobotArm(armId: string, name: string): RenameArmResult {
@@ -202,47 +254,10 @@ export function renameRobotArm(armId: string, name: string): RenameArmResult {
   return "renamed";
 }
 
-// ── Connection seam ────────────────────────────────────────────────────────
-// Screens never talk to hardware: they call the connect / disconnect
-// actions and read the shared state. HOW an arm is reached is a provider.
-// Today the only provider is the prototype one below, which talks to
-// nothing — it is labelled as such in the UI (getRobotLinkMode()). A real
-// SO-ARM101 transport replaces it later without any screen changing.
-export type RobotLinkMode = "prototype" | "hardware";
-
-export type RobotLinkProvider = {
-  mode: RobotLinkMode;
-  // Resolves once the arm has answered, with what it reports about its
-  // calibration; rejects if it can't be reached.
-  connect: (armId: string) => Promise<{ calibrated: boolean }>;
-  disconnect: (armId: string) => Promise<void>;
-  // Finalises a calibration the user has just walked this arm through
-  // (centre pose, then full range). Resolves once the arm has stored it;
-  // rejects if it couldn't. Real hardware would read and save the joint
-  // ranges here.
-  completeCalibration: (armId: string) => Promise<void>;
-};
-
-// Prototype: no discovery, pairing or handshake happens. "Connecting" is a
-// short simulated wait; each arm keeps whatever calibration state it had.
-// Calibration reads no servo and writes nothing to any arm — finishing it
-// is a short simulated wait too. The UI says so (getRobotLinkMode()).
-const PROTOTYPE_CONNECT_MS = 1200;
-const PROTOTYPE_CALIBRATION_MS = 1000;
-const prototypeProvider: RobotLinkProvider = {
-  mode: "prototype",
-  connect: (armId) =>
-    new Promise((resolve) => {
-      setTimeout(() => resolve({ calibrated: robotSetup.arms[armId]?.calibrated ?? false }), PROTOTYPE_CONNECT_MS);
-    }),
-  disconnect: async () => undefined,
-  completeCalibration: () =>
-    new Promise((resolve) => {
-      setTimeout(resolve, PROTOTYPE_CALIBRATION_MS);
-    })
-};
-
-const linkProvider: RobotLinkProvider = prototypeProvider;
+// ── Provider plumbing ─────────────────────────────────────────────────────
+// Every device operation resolves the arm's binding against the ACTIVE
+// provider here. An arm bound to another provider's device is unavailable,
+// not silently re-targeted.
 
 // Each attempt gets an id PER ARM; a cancelled or superseded attempt's late
 // result is ignored instead of connecting (or calibrating) that arm behind
@@ -260,10 +275,87 @@ function isCurrentAttempt(attempts: Map<string, number>, armId: string, attempt:
   return attempts.get(armId) === attempt;
 }
 
-export function getRobotLinkMode(): RobotLinkMode {
-  return linkProvider.mode;
+// The device target for an arm on a provider, or why there is none.
+export function resolveDeviceTarget(
+  arm: RobotArmState,
+  provider: RobotProvider
+): { target: RobotDeviceTarget } | { error: RobotProviderErrorCode } {
+  if (!arm.binding) return { error: "unbound" };
+  if (arm.binding.providerId !== provider.id) return { error: "unavailable" };
+  return { target: { armId: arm.id, binding: arm.binding } };
 }
 
+// Where robot state comes from — the ONE source for every "Chế độ thử
+// nghiệm" disclosure (Connect, Calibration, Status).
+export type RobotLinkMode = RobotProviderMode;
+
+export function getRobotLinkMode(): RobotLinkMode {
+  return getRobotProviderMode();
+}
+
+// ── Binding seam ───────────────────────────────────────────────────────────
+// Ties a logical arm to a physical device. Binding is not connecting: the
+// arm stays offline until connectRobotArm(). Changing an arm's device takes
+// it offline first (invalidating anything in flight for that arm only) and
+// clears its calibration, which belonged to the previous device. Rename
+// never touches a binding; unbinding never deletes the arm.
+export type BindArmResult = "bound" | "unchanged" | "not-found" | "unsupported-model";
+
+// Takes one arm offline in app state and invalidates its in-flight connect
+// and calibration. Returns the provider target to release, if any.
+function takeArmOffline(arm: RobotArmState): RobotDeviceTarget | null {
+  nextAttempt(connectAttempts, arm.id);
+  nextAttempt(calibrationAttempts, arm.id);
+  patchArm(arm.id, { connected: false, connecting: false, calibrating: false });
+  const resolved = resolveDeviceTarget(arm, getRobotProvider());
+  return "target" in resolved ? resolved.target : null;
+}
+
+function releaseDevice(target: RobotDeviceTarget | null) {
+  if (!target) return;
+  // Best effort: app state is already offline whatever the device says.
+  void getRobotProvider().connection.disconnect(target).catch(() => undefined);
+}
+
+export function bindRobotArm(armId: string, device: RobotDeviceDescriptor): BindArmResult {
+  const arm = robotSetup.arms[armId];
+  if (!arm) return "not-found";
+  if (device.model !== arm.model) return "unsupported-model";
+  if (arm.binding?.providerId === device.providerId && arm.binding.deviceId === device.deviceId) return "unchanged";
+  const busy = arm.connected || arm.connecting || arm.calibrating;
+  const previous = busy ? takeArmOffline(arm) : null;
+  patchArm(armId, {
+    binding: { providerId: device.providerId, deviceId: device.deviceId },
+    calibrated: false,
+    lastError: undefined
+  });
+  releaseDevice(previous);
+  return "bound";
+}
+
+export function unbindRobotArm(armId: string): "unbound" | "unchanged" | "not-found" {
+  const arm = robotSetup.arms[armId];
+  if (!arm) return "not-found";
+  if (!arm.binding) return "unchanged";
+  const previous = takeArmOffline(arm);
+  patchArm(armId, { binding: undefined, lastError: undefined });
+  releaseDevice(previous);
+  return "unbound";
+}
+
+// Devices the active provider can offer for binding (future pairing UI).
+// Empty when the provider can't discover.
+export async function discoverRobotDevices(): Promise<RobotDeviceDescriptor[]> {
+  const provider = getRobotProvider();
+  if (!provider.capabilities.discovery || !provider.connection.discover) return [];
+  try {
+    return await provider.connection.discover();
+  } catch {
+    return [];
+  }
+}
+
+// ── Connection seam ────────────────────────────────────────────────────────
 export type ConnectResult = "connected" | "cancelled" | "failed";
 
 // Connecting never touches E-STOP (owned by App.tsx) and never arms or
@@ -273,40 +365,62 @@ export async function connectRobotArm(armId: string): Promise<ConnectResult> {
   if (!arm) return "failed";
   if (arm.connected) return "connected";
   if (arm.connecting) return "cancelled";
-  const attempt = nextAttempt(connectAttempts, armId);
-  setRobotArm(armId, { connecting: true });
-  try {
-    const { calibrated } = await linkProvider.connect(armId);
-    if (!isCurrentAttempt(connectAttempts, armId, attempt)) return "cancelled";
-    setRobotArm(armId, { connected: true, calibrated, connecting: false });
-    return "connected";
-  } catch {
-    if (!isCurrentAttempt(connectAttempts, armId, attempt)) return "cancelled";
-    setRobotArm(armId, { connecting: false });
+  const provider = getRobotProvider();
+  const resolved = resolveDeviceTarget(arm, provider);
+  if ("error" in resolved) {
+    patchArm(armId, { lastError: resolved.error });
     return "failed";
+  }
+  if (!provider.capabilities.connection) {
+    patchArm(armId, { lastError: "unsupported" });
+    return "failed";
+  }
+  const attempt = nextAttempt(connectAttempts, armId);
+  patchArm(armId, { connecting: true, lastError: undefined });
+  try {
+    const report = await provider.connection.connect(resolved.target);
+    if (!isCurrentAttempt(connectAttempts, armId, attempt)) return "cancelled";
+    // A device that reports its calibration is believed; one that can't
+    // tell (the prototype) leaves the app's record as it was.
+    patchArm(armId, report.calibrated === undefined
+      ? { connected: true, connecting: false }
+      : { connected: true, connecting: false, calibrated: report.calibrated });
+    return "connected";
+  } catch (error) {
+    if (!isCurrentAttempt(connectAttempts, armId, attempt)) return "cancelled";
+    const code = providerErrorCode(error, "connection_failed");
+    patchArm(armId, { connecting: false, lastError: code === "cancelled" ? undefined : code });
+    return code === "cancelled" ? "cancelled" : "failed";
   }
 }
 
 export function cancelRobotArmConnect(armId: string) {
-  if (!robotSetup.arms[armId]?.connecting) return;
+  const arm = robotSetup.arms[armId];
+  if (!arm?.connecting) return;
   nextAttempt(connectAttempts, armId);
-  setRobotArm(armId, { connecting: false });
+  patchArm(armId, { connecting: false });
+  const resolved = resolveDeviceTarget(arm, getRobotProvider());
+  if ("target" in resolved) getRobotProvider().connection.cancelConnect?.(resolved.target);
 }
 
 // Disconnecting one arm drops readiness to offline at once (controllers
 // disarm via the shared gate) and invalidates a connect or calibration in
-// flight for THAT arm only; it does not clear E-STOP or its calibration.
+// flight for THAT arm only; it does not clear E-STOP, its calibration or
+// its binding.
 export async function disconnectRobotArm(armId: string): Promise<void> {
-  if (!robotSetup.arms[armId]) return;
-  nextAttempt(connectAttempts, armId);
-  nextAttempt(calibrationAttempts, armId);
-  setRobotArm(armId, { connected: false, connecting: false, calibrating: false });
-  await linkProvider.disconnect(armId);
+  const arm = robotSetup.arms[armId];
+  if (!arm) return;
+  const target = takeArmOffline(arm);
+  if (!target) return;
+  try {
+    await getRobotProvider().connection.disconnect(target);
+  } catch {
+    // Already offline in app state; nothing else to do.
+  }
 }
 
-// Whole-setup actions (what Connect uses today): the prototype connects and
-// disconnects every active arm together. Per-arm actions above are the
-// long-term API. One arm failing makes the setup "failed"; arms that did
+// Whole-setup actions (what Connect uses today): connect / disconnect every
+// active arm. One arm failing makes the setup "failed"; arms that did
 // connect stay connected, and the aggregate stays offline until all are.
 export async function connectRobot(): Promise<ConnectResult> {
   const results = await Promise.all(robotSetup.activeArmIds.map(connectRobotArm));
@@ -324,40 +438,68 @@ export async function disconnectRobot(): Promise<void> {
 }
 
 // ── Calibration seam ───────────────────────────────────────────────────────
-// Calibration belongs to ONE arm. The guided steps are the user's; finishing
-// is the provider's. An arm's `calibrated` becomes true ONLY here, after the
-// provider confirms, and only if that arm is still connected and this
-// attempt is still current. It never touches E-STOP: finishing while stopped
-// records the calibration, and readiness stays "stopped" until the user's
-// Reset. It never arms or starts any control either.
+// Calibration belongs to ONE arm. The guided steps are the user's (the UI);
+// finishing is the provider's hardware step. An arm's `calibrated` becomes
+// true ONLY here, after the provider confirms, and only if that arm is still
+// connected and this attempt is still current. It never touches E-STOP:
+// finishing while stopped records the calibration, and readiness stays
+// "stopped" until the user's Reset. It never arms or starts any control.
 export type CalibrationResult = "calibrated" | "offline" | "cancelled" | "failed";
 
 export async function completeRobotCalibration(armId: string): Promise<CalibrationResult> {
   const arm = robotSetup.arms[armId];
   if (!arm?.connected) return "offline";
   if (arm.calibrating) return "cancelled";
+  const provider = getRobotProvider();
+  const resolved = resolveDeviceTarget(arm, provider);
+  if ("error" in resolved || !provider.capabilities.calibration) {
+    patchArm(armId, { lastError: "error" in resolved ? resolved.error : "unsupported" });
+    return "failed";
+  }
   const attempt = nextAttempt(calibrationAttempts, armId);
-  setRobotArm(armId, { calibrating: true });
+  patchArm(armId, { calibrating: true, lastError: undefined });
   try {
-    await linkProvider.completeCalibration(armId);
+    await provider.calibration.calibrate(resolved.target);
     if (!isCurrentAttempt(calibrationAttempts, armId, attempt)) return "cancelled";
     if (!robotSetup.arms[armId]?.connected) {
-      setRobotArm(armId, { calibrating: false });
+      patchArm(armId, { calibrating: false });
       return "offline";
     }
-    setRobotArm(armId, { calibrated: true, calibrating: false });
+    patchArm(armId, { calibrated: true, calibrating: false });
     return "calibrated";
-  } catch {
+  } catch (error) {
     if (!isCurrentAttempt(calibrationAttempts, armId, attempt)) return "cancelled";
-    setRobotArm(armId, { calibrating: false });
-    return "failed";
+    const code = providerErrorCode(error, "calibration_failed");
+    patchArm(armId, { calibrating: false, lastError: code === "cancelled" ? undefined : code });
+    return code === "cancelled" ? "cancelled" : "failed";
   }
 }
 
 export function cancelRobotCalibration(armId: string) {
-  if (!robotSetup.arms[armId]?.calibrating) return;
+  const arm = robotSetup.arms[armId];
+  if (!arm?.calibrating) return;
   nextAttempt(calibrationAttempts, armId);
-  setRobotArm(armId, { calibrating: false });
+  patchArm(armId, { calibrating: false });
+  const resolved = resolveDeviceTarget(arm, getRobotProvider());
+  if ("target" in resolved) getRobotProvider().calibration.cancelCalibration?.(resolved.target);
+}
+
+// ── Provider selection (development only) ─────────────────────────────────
+// Swaps the provider for every arm. Every arm is taken offline first, so no
+// in-flight result from the previous provider can land; arms bound to the
+// previous provider's devices then report "unavailable" until rebound.
+// No-op (false) in release builds.
+export function setRobotProviderForDevelopment(providerId: string): boolean {
+  if (!__DEV__) return false;
+  const next = findRobotProvider(providerId);
+  if (!next) return false;
+  if (next === getRobotProvider()) return true;
+  const targets = Object.values(robotSetup.arms).map(takeArmOffline);
+  targets.forEach(releaseDevice);
+  installRobotProvider(next);
+  // Re-notify so screens re-read the provider mode.
+  commitSetup({ ...robotSetup });
+  return true;
 }
 
 // Dev/QA only (stripped from release builds): lets a tester or test script
@@ -365,6 +507,7 @@ export function cancelRobotCalibration(armId: string) {
 //   globalThis.__skynexRobotLink.set({ connected: false })          // whole setup
 //   globalThis.__skynexRobotLink.setArm("arm_02", { calibrated: false })
 //   globalThis.__skynexRobotLink.rename("arm_01", "robot_lab_1")
+//   globalThis.__skynexRobotLink.setProvider("so101-hardware")      // placeholder: everything "unavailable"
 // until a real robot link exists. It writes the shared source; there is no
 // per-screen override.
 if (__DEV__) {
@@ -374,9 +517,15 @@ if (__DEV__) {
     getSetup: getRobotSetup,
     setArm: setRobotArm,
     setActive: setActiveRobotArms,
-    rename: renameRobotArm
+    rename: renameRobotArm,
+    bind: bindRobotArm,
+    unbind: unbindRobotArm,
+    discover: discoverRobotDevices,
+    provider: () => getRobotProvider().id,
+    setProvider: setRobotProviderForDevelopment
   };
 }
+
 
 const READINESS_STATUS: Record<RobotReadiness, RobotStatus> = {
   offline: "offline",

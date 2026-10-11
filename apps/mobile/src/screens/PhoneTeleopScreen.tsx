@@ -21,6 +21,7 @@ import { corner } from "../design-system/radius";
 import { layout, space } from "../design-system/spacing";
 import { SkyNexColors, useSkyNexTokens } from "../design-system/tokens";
 import { getLiveReadiness, READINESS_BADGE_LABEL } from "../data/robot";
+import { usePhoneControlSession } from "../hooks/usePhoneControlSession";
 import { useRobotSummary } from "../hooks/useRobotSummary";
 import { darkColors, font } from "../theme";
 import { isPhoneARNativeAvailable, PhoneARPose, PhoneARView } from "../../modules/expo-phone-ar";
@@ -43,6 +44,7 @@ type Props = {
 
 type InputMode = "pad" | "motion";
 type TrackingState = "ready" | "tracking" | "limited" | "lost";
+// The controller session's own connection (not the robot's).
 type Transport = "disconnected" | "connecting" | "connected";
 
 const PAD_HEIGHT = 220;
@@ -59,9 +61,10 @@ const CLIENT_PLATFORM = Platform.OS === "android" ? "android" : "ios";
 //
 //   ROBOT   — useRobotSummary() (live): may the robot move? Same source as Home,
 //             Skill Detail, the Robot hub and Manual Control.
-//   SESSION — this phone as a controller: control-server transport, motion
-//             input (sensors), tracking. A connected server is NOT evidence
-//             the robot is online.
+//   SESSION — this phone as a controller: the control session
+//             (usePhoneControlSession → domain → provider poseControl →
+//             LeRobot bridge transport), motion input (sensors), tracking.
+//             A connected session is NOT evidence the robot is online.
 //
 // A pose leaves the app only while BOTH allow it AND the user is holding
 // the control (dead-man hold). Losing either layer releases the hold and,
@@ -75,7 +78,6 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
   const [serverHost, setServerHost] = useState("192.168.1.100");
   // The direct-USB LeRobot worker accepts both Quest and phone clients on 8765.
   const [serverPort, setServerPort] = useState("8765");
-  const [transport, setTransport] = useState<Transport>("disconnected");
   // The direct-USB worker intentionally serves plain LAN WebSocket. The Quest
   // page and phone therefore use the same ws://8765 endpoint.
   const [secureTransport, setSecureTransport] = useState(false);
@@ -90,8 +92,6 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
   const [fineMode, setFineMode] = useState(false);
   const [gripperVelocity, setGripperVelocity] = useState(0);
   const slideOriginY = useRef<number | null>(null);
-  const socketRef = useRef<WebSocket | null>(null);
-  const sequenceRef = useRef(0);
   const controlHeldRef = useRef(false);
   const velocityRef = useRef({ x: 0, y: 0, z: 0 });
   const lastAccelerationTimestampRef = useRef<number | null>(null);
@@ -99,7 +99,30 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
   const referencePositionRef = useRef({ x: 0, y: 0, z: 0 });
   const nativeQuaternionRef = useRef({ x: 0, y: 0, z: 0, w: 1 });
   const referenceNativeQuaternionRef = useRef({ x: 0, y: 0, z: 0, w: 1 });
-  const sessionIdRef = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+  // The controller session, for the arm the domain chooses (the active
+  // setup's controlled follower) — this screen never names an arm. Its
+  // lifecycle events drive the same resets the socket handlers did: open →
+  // tracking starts; error / target arm lost → release the hold; close
+  // (dropped or user-closed) → release the hold, tracking back to ready. No
+  // auto-reconnect: reconnecting and holding again are both deliberate.
+  const { session: controlSession, state: transport, available: sessionAvailable } = usePhoneControlSession(CLIENT_PLATFORM, {
+    open: () => setTracking(motionAvailable ? "tracking" : "limited"),
+    error: () => {
+      setControlHeld(false);
+      controlHeldRef.current = false;
+    },
+    target_lost: () => {
+      setControlHeld(false);
+      controlHeldRef.current = false;
+      setGripperVelocity(0);
+    },
+    close: () => {
+      setControlHeld(false);
+      controlHeldRef.current = false;
+      setTracking("ready");
+    }
+  });
 
 
   const connected = transport === "connected";
@@ -149,11 +172,11 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
         setControlHeld(false);
         controlHeldRef.current = false;
         setGripperVelocity(0);
-        socketRef.current?.send(JSON.stringify({ type: "control_disabled", protocolVersion: 1, reason: "app_background" }));
+        controlSession.stopMotion("app_background");
       }
     });
     return () => subscription.remove();
-  }, []);
+  }, [controlSession]);
 
   useEffect(() => {
     // Native only: no sensor calls at all on web (see MOTION_INPUT_SUPPORTED).
@@ -217,48 +240,18 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
   // 250ms stale-pose release. Sent once per new reason.
   useEffect(() => {
     if (!blockReason) return;
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: "control_disabled", protocolVersion: 1, reason: blockReason }));
-    }
-  }, [blockReason]);
+    controlSession.stopMotion(blockReason);
+  }, [blockReason, controlSession]);
 
-  useEffect(() => () => {
-    socketRef.current?.close();
-  }, []);
-
+  // Open / close the controller session. Closing releases the hold and
+  // resets tracking through the "close" event. The session is shut down
+  // when the screen unmounts (usePhoneControlSession).
   const handleConnect = () => {
     if (transport !== "disconnected") {
-      socketRef.current?.close();
-      socketRef.current = null;
-      setTransport("disconnected");
-      setControlHeld(false);
-      controlHeldRef.current = false;
-      setTracking("ready");
+      controlSession.close();
       return;
     }
-
-    if (!serverHost.trim() || !serverPort.trim()) return;
-    const socket = new WebSocket(`${secureTransport ? "wss" : "ws"}://${serverHost.trim()}:${serverPort.trim()}/ws`);
-    socketRef.current = socket;
-    setTransport("connecting");
-    socket.onopen = () => {
-      setTransport("connected");
-      setTracking(motionAvailable ? "tracking" : "limited");
-      socket.send(JSON.stringify({ type: "hello", protocolVersion: 1, platform: CLIENT_PLATFORM, sessionId: sessionIdRef.current, arm: "right" }));
-    };
-    socket.onerror = () => {
-      setControlHeld(false);
-      controlHeldRef.current = false;
-    };
-    // No auto-reconnect: a dropped session ends control; reconnecting and
-    // holding again are both deliberate user actions.
-    socket.onclose = () => {
-      if (socketRef.current === socket) socketRef.current = null;
-      setTransport("disconnected");
-      setControlHeld(false);
-      controlHeldRef.current = false;
-      setTracking("ready");
-    };
+    controlSession.open({ host: serverHost, port: serverPort, secure: secureTransport });
   };
 
   // Live check straight from the shared robot link + E-STOP, at call time.
@@ -268,6 +261,8 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
     if (!canSendRef.current || !robotMayMoveNow()) return;
     setControlHeld(true);
     controlHeldRef.current = true;
+    // The deliberate start the domain session requires before any pose.
+    controlSession.beginControl();
     velocityRef.current = { x: 0, y: 0, z: 0 };
     lastAccelerationTimestampRef.current = null;
     referencePositionRef.current = isPhoneARNativeAvailable ? motionPosition : { x: 0, y: 0, z: 0 };
@@ -281,9 +276,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
     setControlHeld(false);
     controlHeldRef.current = false;
     setGripperVelocity(0);
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: "control_disabled", protocolVersion: 1, reason: "hold_released" }));
-    }
+    controlSession.stopMotion("hold_released");
   };
 
   const openMotionFullscreen = () => {
@@ -324,46 +317,40 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
     if (!connected || emergencyStopped) return;
     setControlHeld(false);
     controlHeldRef.current = false;
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: "recenter", protocolVersion: 1 }));
-    }
+    controlSession.recenter({ emergencyStopped: emergencyStoppedRef.current });
   };
 
   // The only outbound motion path: 20Hz while held.
   useEffect(() => {
-    if (!active || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return undefined;
+    if (!active || !controlSession.isOpen()) return undefined;
     const timer = setInterval(() => {
       // Last-line gate, read now: live robot readiness (shared link, not the
       // last render), session, E-STOP, hold.
       if (!canSendRef.current || !controlHeldRef.current || emergencyStoppedRef.current || !robotMayMoveNow()) return;
-      const socket = socketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) return;
-      const timestampNs = Date.now() * 1e6;
-      socket.send(JSON.stringify({
-        type: "phone_pose",
-        protocolVersion: 1,
-        platform: CLIENT_PLATFORM,
-        sessionId: sessionIdRef.current,
-        sequence: sequenceRef.current++,
-        timestampNs,
-        trackingState: tracking,
-        enabled: true,
-        fineMode,
-        position: isPhoneARNativeAvailable ? subtractPosition(motionPosition, referencePositionRef.current) : motionPosition,
-        quaternion: isPhoneARNativeAvailable
-          ? relativeQuaternion(nativeQuaternionRef.current, referenceNativeQuaternionRef.current)
-          : eulerToQuaternion(
-              motionReading.pitch - referenceMotionRef.current.pitch,
-              motionReading.roll - referenceMotionRef.current.roll,
-              motionReading.yaw - referenceMotionRef.current.yaw
-            ),
-        gripperVelocity
-      }));
+      if (!controlSession.isOpen()) return;
+      // The domain session re-checks E-STOP, live readiness and the hold
+      // before the transport sees the frame.
+      controlSession.sendPose(
+        {
+          trackingState: tracking,
+          fineMode,
+          position: isPhoneARNativeAvailable ? subtractPosition(motionPosition, referencePositionRef.current) : motionPosition,
+          quaternion: isPhoneARNativeAvailable
+            ? relativeQuaternion(nativeQuaternionRef.current, referenceNativeQuaternionRef.current)
+            : eulerToQuaternion(
+                motionReading.pitch - referenceMotionRef.current.pitch,
+                motionReading.roll - referenceMotionRef.current.roll,
+                motionReading.yaw - referenceMotionRef.current.yaw
+              ),
+          gripperVelocity
+        },
+        { emergencyStopped: emergencyStoppedRef.current, controlEnabled: canSendRef.current && controlHeldRef.current }
+      );
     }, POSE_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [active, fineMode, gripperVelocity, motionPosition, motionReading, tracking]);
+  }, [active, fineMode, gripperVelocity, motionPosition, motionReading, controlSession, tracking]);
 
-  const session = describeSession({ transport, tracking, motionAvailable, colors });
+  const sessionStatus = describeSession({ transport, tracking, motionAvailable, colors });
   const lockNote = !robotReady
     ? emergencyStopped || robot?.readiness === "stopped"
       ? "Tạm khóa vì E-STOP"
@@ -419,14 +406,14 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
           </View>
         </View>
         <View style={styles.divider} />
-        <View accessibilityLabel={`Điện thoại: ${session.label}`} accessible style={styles.stateRow}>
+        <View accessibilityLabel={`Điện thoại: ${sessionStatus.label}`} accessible style={styles.stateRow}>
           <SkyText fontsReady={fontsReady} style={styles.stateKey} tone="secondary" variant="caption">
             Điện thoại
           </SkyText>
           <View style={[styles.stateValue, styles.sessionValue]}>
-            <session.icon color={session.color} size={15} />
+            <sessionStatus.icon color={sessionStatus.color} size={15} />
             <SkyText fontsReady={fontsReady} style={styles.sessionText} variant="caption">
-              {session.label}
+              {sessionStatus.label}
             </SkyText>
           </View>
         </View>
@@ -499,7 +486,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
               fontsReady={fontsReady}
               onNativePose={handleNativePose}
               onRequestCamera={requestCameraPermission}
-              sessionLabel={session.label}
+              sessionLabel={sessionStatus.label}
               styles={styles}
             />
             <Pressable
@@ -635,7 +622,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
           </Pressable>
         </View>
         <SkyButton
-          disabled={emergencyStopped && transport === "disconnected"}
+          disabled={(emergencyStopped || !sessionAvailable) && transport === "disconnected"}
           fontsReady={fontsReady}
           onPress={handleConnect}
           variant="secondary"
@@ -684,7 +671,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
                   )}
                 </View>
                 <View pointerEvents="none" style={styles.fullscreenOverlay}>
-                  <Text style={[styles.fullscreenChip, font("display", fontsReady)]}>{session.label}</Text>
+                  <Text style={[styles.fullscreenChip, font("display", fontsReady)]}>{sessionStatus.label}</Text>
                   <Text style={[styles.fullscreenHint, font("display", fontsReady)]}>
                     {canControl ? (active ? "Đang điều khiển · Thả để dừng" : "Giữ màn hình để điều khiển") : lockNote}
                   </Text>

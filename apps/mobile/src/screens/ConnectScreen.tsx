@@ -24,13 +24,12 @@ import {
   disconnectRobot,
   disconnectRobotArm,
   getActiveArms,
-  getRobotLinkMode,
   pickArmToCalibrate,
   READINESS_BADGE_LABEL,
   renameRobotArm,
   RobotArmState
 } from "../data/robot";
-import { useRobotLink, useRobotSetup, useRobotSummary } from "../hooks/useRobotSummary";
+import { useRobotLink, useRobotProviderMode, useRobotSetup, useRobotSummary } from "../hooks/useRobotSummary";
 import { font } from "../theme";
 
 type Props = {
@@ -90,7 +89,7 @@ export function ConnectScreen({
   // Arms whose own last connect attempt failed; cleared on the next try.
   const [failedArmIds, setFailedArmIds] = useState<readonly string[]>([]);
   const [renamingArmId, setRenamingArmId] = useState<string | null>(null);
-  const prototype = getRobotLinkMode() === "prototype";
+  const prototype = useRobotProviderMode() === "prototype";
 
   const multiArm = arms.length > 1;
   const connectedCount = arms.filter((arm) => arm.connected).length;
@@ -292,7 +291,7 @@ export function ConnectScreen({
 
         {prototype && (
           // Truthful about what "connected" means today: no hardware is
-          // discovered or contacted (see getRobotLinkMode / data/robot.ts).
+          // discovered or contacted (see useRobotProviderMode / data/robot.ts).
           <View
             accessibilityLabel="Chế độ thử nghiệm: kết nối hiện được mô phỏng, chưa giao tiếp với robot thật."
             accessible

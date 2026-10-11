@@ -22,7 +22,6 @@ import {
   completeRobotCalibration,
   describeRobotArm,
   getActiveArms,
-  getRobotLinkMode,
   getRobotSetup,
   READINESS_BADGE_LABEL,
   RobotArmState
@@ -30,11 +29,10 @@ import {
 import {
   CALIBRATION_JOINTS,
   CalibrationJointState,
-  getCalibrationTelemetryMode,
   JOINT_POSITION_MAX
 } from "../data/calibrationTelemetry";
 import { useCalibrationTelemetry } from "../hooks/useCalibrationTelemetry";
-import { useRobotSetup, useRobotSummary } from "../hooks/useRobotSummary";
+import { useRobotProviderMode, useRobotSetup, useRobotSummary } from "../hooks/useRobotSummary";
 import { font } from "../theme";
 
 type Props = {
@@ -88,8 +86,9 @@ export function CalibrateScreen({ emergencyStopped, fontsReady, initialArmId, on
   const [step, setStep] = useState<Step>("intro");
   const [finishFailed, setFinishFailed] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const prototype = getRobotLinkMode() === "prototype";
-  const simulatedJoints = getCalibrationTelemetryMode() === "prototype";
+  // One source for both disclosures: the active provider's mode.
+  const prototype = useRobotProviderMode() === "prototype";
+  const simulatedJoints = prototype;
   const isFocused = useIsFocused();
 
   // The arm being calibrated. One-arm setups skip the picker.

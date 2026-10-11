@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   buildRobotSummary,
   getRobotLink,
+  getRobotLinkMode,
   getRobotSetup,
+  RobotLinkMode,
   getSuggestedSkill,
   RobotLink,
   RobotSetup,
@@ -48,4 +50,11 @@ export function useRobotLink(): RobotLink {
 // reads the aggregate through useRobotSummary / useRobotLink.
 export function useRobotSetup(): RobotSetup {
   return useSyncExternalStore(subscribeRobotLink, getRobotSetup, getRobotSetup);
+}
+
+// Where robot state comes from ("prototype" | "hardware"), live: switching
+// the provider (dev only) notifies through the same robot-state
+// subscription. The source of every "Chế độ thử nghiệm" disclosure.
+export function useRobotProviderMode(): RobotLinkMode {
+  return useSyncExternalStore(subscribeRobotLink, getRobotLinkMode, getRobotLinkMode);
 }

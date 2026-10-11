@@ -9,14 +9,13 @@ import { SkyNexColors, useSkyNexTokens } from "../design-system/tokens";
 import {
   describeRobotArm,
   getActiveArms,
-  getRobotLinkMode,
   pickArmToCalibrate,
   READINESS_BADGE_LABEL,
   ROBOT_ARM_MODEL,
   RobotArmSide,
   RobotArmState
 } from "../data/robot";
-import { useRobotSetup, useRobotSummary } from "../hooks/useRobotSummary";
+import { useRobotProviderMode, useRobotSetup, useRobotSummary } from "../hooks/useRobotSummary";
 import { font } from "../theme";
 
 type Props = {
@@ -55,7 +54,7 @@ export function StatusScreen({ emergencyStopped, fontsReady, onBack, onCalibrate
   const robot = useRobotSummary({ emergencyStopped });
   const arms = useMemo(() => getActiveArms(setup), [setup]);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const prototype = getRobotLinkMode() === "prototype";
+  const prototype = useRobotProviderMode() === "prototype";
 
   const connectedCount = arms.filter((arm) => arm.connected).length;
   const uncalibratedCount = arms.filter((arm) => !arm.calibrated).length;

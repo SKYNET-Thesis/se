@@ -7,6 +7,7 @@ import { corner } from "../design-system/radius";
 import { layout, space } from "../design-system/spacing";
 import { SkyNexColors, useSkyNexTokens } from "../design-system/tokens";
 import { getLiveReadiness, READINESS_BADGE_LABEL, RobotReadiness, RobotSummary } from "../data/robot";
+import { getControlledFollowerArmId, jogRobotJoint, stopRobotMotion } from "../data/robotCommands";
 import { useRobotSummary } from "../hooks/useRobotSummary";
 import { font } from "../theme";
 
@@ -220,6 +221,16 @@ export function TeleopScreen({ emergencyStopped, fontsReady, onBack, onCalibrate
     if (!controlsActive && activeJog) setActiveJog(null);
   }, [activeJog, controlsActive]);
 
+  // Whenever a held jog ends — release, disarm, readiness loss, unmount —
+  // send stop. Stop is never gated.
+  useEffect(() => {
+    if (!activeJog) return undefined;
+    return () => {
+      const armId = getControlledFollowerArmId();
+      if (armId) void stopRobotMotion(armId);
+    };
+  }, [activeJog]);
+
   // The motion loop. Runs only while the robot may move; stops the moment
   // readiness is lost (cleanup on the same commit that disables controls).
   useEffect(() => {
@@ -229,6 +240,17 @@ export function TeleopScreen({ emergencyStopped, fontsReady, onBack, onCalibrate
       // Layer 3: decide what this tick may apply from the gate as it is now.
       const allowed = robotMayMoveNow() && manualEnabledRef.current && !hasFaultRef.current;
       const jog = allowed ? activeJogRef.current : null;
+      // The command leaves through the domain, which re-checks the shared
+      // gate itself before the provider sees it (prototype: accepted, no
+      // device). The on-screen positions below stay this screen's simulation.
+      const followerArmId = jog ? getControlledFollowerArmId() : null;
+      if (jog && followerArmId) {
+        void jogRobotJoint(
+          followerArmId,
+          { jointId: jog.motorId, direction: jog.direction, step: JOG_STEP },
+          { emergencyStopped: emergencyStoppedRef.current, controlEnabled: manualEnabledRef.current && !hasFaultRef.current }
+        );
+      }
       tickRef.current += 1;
       const nextTick = tickRef.current;
       setPositions((prev) => advanceMockPositions(prev, nextTick, allowed, jog));
