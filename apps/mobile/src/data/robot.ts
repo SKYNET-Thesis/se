@@ -536,7 +536,7 @@ const READINESS_STATUS: Record<RobotReadiness, RobotStatus> = {
 
 const READINESS_HEADLINE: Record<RobotReadiness, string> = {
   offline: "Chưa kết nối",
-  stopped: "Đang dừng khẩn cấp",
+  stopped: "Đã dừng khẩn cấp",
   "needs-calibration": "Cần hiệu chỉnh",
   ready: "Sẵn sàng hỗ trợ bạn"
 };

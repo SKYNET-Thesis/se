@@ -21,7 +21,12 @@ type Props = {
 // after them keeps the title/subtitle visually tied to the thumb-zone CTAs.
 const CHROME_HEIGHT = 64;
 const TAB_BAR_HEIGHT = 64;
-const HERO_FILL_RATIO = 0.63;
+// 0.60 (was 0.63): a ~5% shorter canvas. The camera fits the model's
+// bounding SPHERE to the canvas height (ArmModelViewer), so the robot simply
+// renders ~95% as large with the same framing and rotation-invariant
+// margins — nothing is cropped at any pose. Phones that already sit at
+// MIN_HERO_HEIGHT are unaffected.
+const HERO_FILL_RATIO = 0.6;
 const MIN_HERO_HEIGHT = 320;
 
 // Idle/presentation Home is a static pose shot, not a live workspace: the
@@ -53,7 +58,10 @@ const HERO_PRESENTATION_CROP = 104;
 // the band still reach the model. Lifted by ratio so it tracks heroHeight
 // across screen sizes. Constant for the life of the screen: it never moves
 // during or after interaction.
-const HERO_COPY_LIFT_RATIO = 0.16;
+// 0.185 (was 0.16): the copy's top now sits at ~81.5% of heroHeight, still
+// inside that empty band and below the floor shadow (~77%), so the name
+// reads closer to the robot without overlapping it.
+const HERO_COPY_LIFT_RATIO = 0.185;
 
 // Robot identity: the 3D model plus who it is and how it's doing, in one
 // human line. Presentation only — readiness is decided by data/robot.ts and

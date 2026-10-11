@@ -10,33 +10,46 @@ type Props = {
   fontsReady: boolean;
   onCalibrate: () => void;
   onConnect: () => void;
-  onOpenSkill: (taskId: string) => void;
-  onOpenSkillsLibrary: () => void;
+  // Manual Control — it still needs its own deliberate "enable" step.
+  onOpenControl: () => void;
   onOpenStatus: () => void;
+  // One quiet line about a multi-arm setup ("2 tay trong hệ thống"); null
+  // for a single arm. Never a per-arm list — that is Status.
+  setupNote?: string | null;
   summary: RobotSummary;
 };
 
-
+// Home says the stopped state in words; the compact "E-STOP" badge label
+// stays for the Robot screens.
+const BADGE_LABEL = { ...READINESS_BADGE_LABEL, stopped: "Đã dừng khẩn cấp" };
 
 // Robot state + the single next action. The CTA always matches the first
-// unmet readiness gate (see data/robot.ts), so the one lime action on Home
-// is never "drive it yourself" — manual control lives in HomeToolsList.
+// unmet readiness gate (see data/robot.ts): connect, then calibrate, then —
+// when ready — open Manual Control (which never arms or moves on its own;
+// choosing a skill is the Skills section's job). Under E-STOP there is no
+// action at all: the message explains it and Reset lives beside the
+// floating E-STOP.
 export function RobotReadinessCard({
   fontsReady,
   onCalibrate,
   onConnect,
-  onOpenSkill,
-  onOpenSkillsLibrary,
+  onOpenControl,
   onOpenStatus,
+  setupNote,
   summary
 }: Props) {
   const { colors } = useSkyNexTokens();
-  const cta = resolveCta(summary, { onCalibrate, onConnect, onOpenSkill, onOpenSkillsLibrary });
+  const cta = resolveCta(summary, { onCalibrate, onConnect, onOpenControl });
 
   return (
     <SkyCard style={styles.card}>
       <View style={styles.headerRow}>
-        <StatusBadge fontsReady={fontsReady} label={READINESS_BADGE_LABEL[summary.readiness]} status={summary.status} />
+        <StatusBadge
+          accessibilityLiveRegion="polite"
+          fontsReady={fontsReady}
+          label={BADGE_LABEL[summary.readiness]}
+          status={summary.status}
+        />
         {/*
           Restrained, text-only way into StatusScreen — the only entry now
           that Status isn't a bottom tab. Must never compete with the CTA.
@@ -60,46 +73,40 @@ export function RobotReadinessCard({
         {summary.message}
       </SkyText>
 
-      <SkyButton
-        accessibilityHint={cta.hint}
-        disabled={cta.disabled}
-        fontsReady={fontsReady}
-        onPress={cta.onPress}
-        size="lg"
-        style={styles.cta}
-      >
-        {cta.label}
-      </SkyButton>
+      {setupNote && (
+        <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
+          {setupNote}
+        </SkyText>
+      )}
+
+      {cta && (
+        <SkyButton accessibilityHint={cta.hint} fontsReady={fontsReady} onPress={cta.onPress} size="lg" style={styles.cta}>
+          {cta.label}
+        </SkyButton>
+      )}
     </SkyCard>
   );
 }
 
 function resolveCta(
   summary: RobotSummary,
-  actions: Pick<Props, "onCalibrate" | "onConnect" | "onOpenSkill" | "onOpenSkillsLibrary">
+  actions: Pick<Props, "onCalibrate" | "onConnect" | "onOpenControl">
 ) {
-  const skill = summary.suggestedSkill;
-  // "Bắt đầu", not "Chạy": the CTA opens the skill's detail screen, where
-  // the actual run happens — the label must not promise immediate motion.
-  const runSkill = skill
-    ? {
-        label: `Bắt đầu ${skill.name}`,
-        hint: `Mở ${skill.name} để xem và chạy kỹ năng`,
-        onPress: () => actions.onOpenSkill(skill.id)
-      }
-    : { label: "Xem kỹ năng", hint: "Mở thư viện kỹ năng", onPress: actions.onOpenSkillsLibrary };
-
   switch (summary.readiness) {
     case "offline":
-      return { label: "Kết nối robot", hint: "Mở màn hình kết nối", onPress: actions.onConnect, disabled: false };
+      return { label: "Kết nối robot", hint: "Mở màn hình kết nối", onPress: actions.onConnect };
     case "needs-calibration":
-      return { label: "Hiệu chỉnh", hint: "Mở màn hình hiệu chỉnh", onPress: actions.onCalibrate, disabled: false };
+      return { label: "Hiệu chỉnh robot", hint: "Mở màn hình hiệu chỉnh", onPress: actions.onCalibrate };
     case "stopped":
-      // Same action the ready state would offer, visibly unavailable — the
-      // card's message explains why and how to resume.
-      return { ...runSkill, hint: "Không khả dụng khi E-STOP đang bật", disabled: true };
+      // No action: a disabled "start" would still read as an invitation to
+      // move the robot. The message says what to do.
+      return null;
     case "ready":
-      return { ...runSkill, disabled: false };
+      return {
+        label: "Điều khiển robot",
+        hint: "Mở điều khiển thủ công. Robot chỉ di chuyển khi bạn bật điều khiển.",
+        onPress: actions.onOpenControl
+      };
   }
 }
 

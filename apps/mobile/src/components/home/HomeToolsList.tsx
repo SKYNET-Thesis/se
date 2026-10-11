@@ -1,4 +1,4 @@
-import { Cable, Camera, ChevronRight, Hand, RotateCcw, Smartphone } from "lucide-react-native";
+import { Bot, Camera, ChevronRight } from "lucide-react-native";
 import { Fragment, useMemo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { corner } from "../../design-system/radius";
@@ -8,62 +8,52 @@ import type { HomeRoute } from "../../screens/HomeScreen";
 import { SkyCard, SkyText } from "../ui";
 
 type Props = {
-  // Decided by HomeScreen (E-STOP rule); this list only renders it.
-  disabledRoutes: readonly HomeRoute[];
   fontsReady: boolean;
   onOpenRoute: (route: HomeRoute) => void;
 };
 
-// Product/navigation terms stay English (Vision matches the tab label);
-// the human description under each stays Vietnamese.
-const TOOLS: readonly { route: HomeRoute; title: string; description: string; icon: typeof Hand }[] = [
-  { route: "teleop", title: "Manual Control", description: "Tự điều khiển từng chuyển động", icon: Hand },
-  { route: "phone-teleop", title: "Phone Control", description: "Điều khiển bằng điện thoại", icon: Smartphone },
-  { route: "camera", title: "Vision", description: "Xem những gì robot đang thấy", icon: Camera },
-  { route: "connect", title: "Connect", description: "Kết nối hoặc đổi robot", icon: Cable },
-  { route: "calibrate", title: "Calibration", description: "Căn chỉnh lại các khớp", icon: RotateCcw }
+// The two other places to go from Home, by their tab names. Skills has its
+// own section right above; Profile is the avatar. Robot opens the Robot hub
+// (where Manual, Phone, Connect, Calibration and Status live) rather than
+// bypassing it. Neither row moves the robot, so neither is locked by E-STOP.
+// Vision says only where it goes — never that a camera is live.
+const DESTINATIONS: readonly { route: HomeRoute; title: string; description: string; icon: typeof Bot }[] = [
+  { route: "robot", title: "Robot", description: "Điều khiển, kết nối và hiệu chỉnh", icon: Bot },
+  { route: "camera", title: "Vision", description: "Góc nhìn camera của robot", icon: Camera }
 ];
 
-// Hardware/operator actions, deliberately secondary to the readiness CTA:
-// one grouped card of quiet rows instead of competing tiles.
-export function HomeToolsList({ disabledRoutes, fontsReady, onOpenRoute }: Props) {
+// Quiet grouped rows — secondary to the readiness CTA, never competing tiles.
+export function HomeToolsList({ fontsReady, onOpenRoute }: Props) {
   const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
     <SkyCard style={styles.card}>
-      {TOOLS.map(({ route, title, description, icon: Icon }, index) => {
-        const disabled = disabledRoutes.includes(route);
-        const iconColor = disabled ? colors.textSecondary : colors.textPrimary;
-
-        return (
-          <Fragment key={route}>
-            {index > 0 && <View style={styles.divider} />}
-            <Pressable
-              accessibilityHint={disabled ? "Tạm khóa khi E-STOP đang bật" : description}
-              accessibilityLabel={title}
-              accessibilityRole="button"
-              accessibilityState={{ disabled }}
-              disabled={disabled}
-              onPress={() => onOpenRoute(route)}
-              style={({ pressed }) => [styles.row, disabled && styles.disabled, pressed && styles.pressed]}
-            >
-              <View style={styles.iconWrap}>
-                <Icon color={iconColor} size={19} />
-              </View>
-              <View style={styles.text}>
-                <SkyText fontsReady={fontsReady} numberOfLines={1} variant="cardTitle">
-                  {title}
-                </SkyText>
-                <SkyText fontsReady={fontsReady} numberOfLines={1} tone="secondary" variant="caption">
-                  {disabled ? "Tạm khóa khi E-STOP đang bật" : description}
-                </SkyText>
-              </View>
-              <ChevronRight color={colors.textSecondary} size={18} />
-            </Pressable>
-          </Fragment>
-        );
-      })}
+      {DESTINATIONS.map(({ route, title, description, icon: Icon }, index) => (
+        <Fragment key={route}>
+          {index > 0 && <View style={styles.divider} />}
+          <Pressable
+            accessibilityHint={description}
+            accessibilityLabel={title}
+            accessibilityRole="button"
+            onPress={() => onOpenRoute(route)}
+            style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+          >
+            <View style={styles.iconWrap}>
+              <Icon color={colors.textPrimary} size={19} />
+            </View>
+            <View style={styles.text}>
+              <SkyText fontsReady={fontsReady} numberOfLines={1} variant="cardTitle">
+                {title}
+              </SkyText>
+              <SkyText fontsReady={fontsReady} numberOfLines={1} tone="secondary" variant="caption">
+                {description}
+              </SkyText>
+            </View>
+            <ChevronRight color={colors.textSecondary} size={18} />
+          </Pressable>
+        </Fragment>
+      ))}
     </SkyCard>
   );
 }
@@ -100,9 +90,6 @@ function createStyles(colors: SkyNexColors) {
     text: {
       flex: 1,
       gap: 2
-    },
-    disabled: {
-      opacity: 0.52
     },
     pressed: {
       opacity: 0.78

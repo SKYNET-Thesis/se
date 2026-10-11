@@ -348,6 +348,10 @@ function HomeMainScreen({
   const handleOpenRoute = (route: HomeRoute) => {
     const parent = navigation.getParent<BottomTabNavigationProp<RootTabParamList>>();
     switch (route) {
+      case "robot":
+        // The Robot tab as the user left it (normally its hub).
+        parent?.navigate("Control");
+        break;
       case "connect":
         parent?.navigate("Control", { screen: "Connect", initial: false });
         break;
