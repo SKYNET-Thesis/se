@@ -551,7 +551,7 @@ const READINESS_MESSAGE: Record<RobotReadiness, string> = {
 // Short label for the readiness badge — shared by Home's readiness card and
 // Skill Detail so the two always name a state the same way.
 export const READINESS_BADGE_LABEL: Record<RobotReadiness, string> = {
-  offline: "Ngoại tuyến",
+  offline: "Chưa kết nối",
   stopped: "E-STOP",
   "needs-calibration": "Cần hiệu chỉnh",
   ready: "Sẵn sàng"

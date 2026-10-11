@@ -95,6 +95,7 @@ export function CalibrateScreen({ emergencyStopped, fontsReady, initialArmId, on
   const targetId = multiArm ? selectedArmId : (activeArms[0]?.id ?? null);
   const arm = activeArms.find((candidate) => candidate.id === targetId) ?? null;
   const targetRef = useRef(targetId);
+  const scrollRef = useRef<ScrollView>(null);
   targetRef.current = targetId;
 
   const connected = arm?.connected ?? false;
@@ -124,6 +125,12 @@ export function CalibrateScreen({ emergencyStopped, fontsReady, initialArmId, on
     setStep("intro");
     setFinishFailed(false);
   }, [connected, targetId]);
+
+  // Each step (and each arm) starts at the top: its arm strip and
+  // instructions first. No animation — motion-safe and immediate.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ animated: false, y: 0 });
+  }, [step, targetId]);
 
   const handleSelectArm = (armId: string) => {
     setSelectedArmId(armId);
@@ -197,6 +204,7 @@ export function CalibrateScreen({ emergencyStopped, fontsReady, initialArmId, on
 
   return (
     <ScrollView
+      ref={scrollRef}
       accessibilityLabel="Hiệu chỉnh robot"
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
@@ -939,7 +947,7 @@ function JointRow({
       style={[styles.jointRow, !first && styles.jointRowDivider]}
     >
       <View style={styles.jointHeader}>
-        <SkyText fontsReady={fontsReady} style={styles.flex}>
+        <SkyText fontsReady={fontsReady} numberOfLines={1} style={styles.flex}>
           {joint.label}
         </SkyText>
         <SkyText fontsReady={fontsReady} style={[styles.jointValue, mono]}>
@@ -948,7 +956,7 @@ function JointRow({
       </View>
 
       <View style={styles.track}>
-        <View style={[styles.trackLine, { backgroundColor: colors.border }]} />
+        <View style={[styles.trackLine, { backgroundColor: colors.borderEmphasis }]} />
         {range ? (
           <View
             style={[
@@ -1055,7 +1063,7 @@ function createStyles(colors: SkyNexColors) {
     },
     content: {
       gap: layout.sectionGap,
-      paddingBottom: space.xxxl,
+      paddingBottom: space.xxxl + layout.floatingEStopClearance,
       paddingHorizontal: layout.screenGutter,
       paddingTop: space.lg
     },
@@ -1295,7 +1303,9 @@ function createStyles(colors: SkyNexColors) {
     },
     jointValue: {
       fontSize: 15,
-      fontVariant: ["tabular-nums"]
+      fontVariant: ["tabular-nums"],
+      minWidth: 48,
+      textAlign: "right"
     },
     // 14px tall so the 12px dot sits on the 2px line without clipping.
     track: {

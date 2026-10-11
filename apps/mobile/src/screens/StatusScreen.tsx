@@ -37,10 +37,6 @@ const SIDE_LABEL: Partial<Record<RobotArmSide, string>> = {
   right: "Phải"
 };
 
-// Clears the floating E-STOP (bottom-left by default, 58pt + caption) so
-// the last action can always be scrolled above it.
-const ESTOP_CLEARANCE = 96;
-
 // Robot Status V2. The overview between the Robot hub and Connect /
 // Calibrate: is the active setup ready, which arms are connected and
 // calibrated, which one needs attention, and what to do next. Readiness is
@@ -539,7 +535,7 @@ function createStyles(colors: SkyNexColors) {
     },
     content: {
       gap: layout.sectionGap,
-      paddingBottom: space.xxxl + ESTOP_CLEARANCE,
+      paddingBottom: space.xxxl + layout.floatingEStopClearance,
       paddingHorizontal: layout.screenGutter,
       paddingTop: space.lg
     },

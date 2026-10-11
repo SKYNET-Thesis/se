@@ -60,10 +60,6 @@ const PRECHECKS = [
 // enough to stay readable in a row.
 const ARM_NAME_MAX = 40;
 
-// Clears the floating E-STOP (bottom-left by default, 58pt + caption) so
-// the last action can always be scrolled above it.
-const ESTOP_CLEARANCE = 96;
-
 // Connect Robot V2, multi-arm. Answers: how many arms make up my setup,
 // which are connected and calibrated, which is connecting, and what do I
 // do next? Each arm connects and disconnects on its own through the shared
@@ -668,7 +664,9 @@ function RenameArmDialog({
 
   return (
     <Modal animationType="fade" onRequestClose={onClose} transparent visible={arm !== null}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalBackdrop}>
+      {/* Android modals don't resize for the keyboard by themselves; "height"
+          keeps Save / Cancel above it on small screens. */}
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalBackdrop}>
         <View accessibilityViewIsModal style={styles.modalCard}>
           <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="title">
             Đổi tên tay robot
@@ -735,7 +733,7 @@ function createStyles(colors: SkyNexColors) {
     },
     content: {
       gap: layout.sectionGap,
-      paddingBottom: space.xxxl + ESTOP_CLEARANCE,
+      paddingBottom: space.xxxl + layout.floatingEStopClearance,
       paddingHorizontal: layout.screenGutter,
       paddingTop: space.lg
     },
@@ -843,8 +841,10 @@ function createStyles(colors: SkyNexColors) {
       gap: space.sm,
       justifyContent: "flex-end"
     },
+    // minWidth keeps "Kết nối" → "Đang kết nối…" from jumping the row.
     armButton: {
       minHeight: 44,
+      minWidth: 120,
       paddingHorizontal: space.md
     },
     action: {

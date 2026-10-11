@@ -97,7 +97,7 @@ function setupRows(readiness: RobotReadiness): HubRow[] {
     {
       key: "connect",
       title: "Kết nối robot",
-      description: readiness === "offline" ? "Robot chưa kết nối." : "Kết nối lại hoặc đổi robot.",
+      description: readiness === "offline" ? "Robot chưa kết nối." : "Quản lý kết nối từng tay robot.",
       icon: Cable,
       target: "connect",
       // Connecting stays allowed under E-STOP (data/robot.ts gate order).
@@ -107,7 +107,7 @@ function setupRows(readiness: RobotReadiness): HubRow[] {
     {
       key: "status",
       title: "Trạng thái",
-      description: "Kết nối, hiệu chỉnh và camera.",
+      description: "Tình trạng từng tay robot.",
       icon: Gauge,
       target: "status",
       disabled: false
@@ -153,7 +153,7 @@ export function RobotHubScreen({ emergencyStopped, fontsReady, onOpenRoute }: Pr
                 <ShieldAlert color={colors.statusDanger} size={18} />
                 <View style={styles.safetyText}>
                   <SkyText fontsReady={fontsReady} style={{ color: colors.statusDanger }} variant="sectionTitle">
-                    E-STOP đang bật
+                    Đã dừng khẩn cấp
                   </SkyText>
                   <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
                     {robot.message}
@@ -168,7 +168,14 @@ export function RobotHubScreen({ emergencyStopped, fontsReady, onOpenRoute }: Pr
           </View>
 
           <SkySection fontsReady={fontsReady} title="Điều khiển">
-            <RowGroup colors={colors} fontsReady={fontsReady} onOpenRoute={onOpenRoute} rows={controlRows(robot.readiness)} styles={styles} />
+            <RowGroup
+              colors={colors}
+              fontsReady={fontsReady}
+              onOpenRoute={onOpenRoute}
+              prominent
+              rows={controlRows(robot.readiness)}
+              styles={styles}
+            />
           </SkySection>
 
           <SkySection fontsReady={fontsReady} title="Thiết lập">
@@ -183,16 +190,21 @@ export function RobotHubScreen({ emergencyStopped, fontsReady, onOpenRoute }: Pr
 // One grouped surface of quiet rows (Home tools' grammar): icon, title, one
 // line of context, chevron — or a lock when the row is unavailable, so the
 // state never rests on dimming alone.
+// `prominent`: the motion controls (Manual, Phone) — the destinations the
+// tab exists for — get a taller row and a larger icon on the robot surface;
+// setup rows stay compact and quiet.
 function RowGroup({
   colors,
   fontsReady,
   onOpenRoute,
+  prominent = false,
   rows,
   styles
 }: {
   colors: SkyNexColors;
   fontsReady: boolean;
   onOpenRoute: (route: RobotHubRoute) => void;
+  prominent?: boolean;
   rows: HubRow[];
   styles: ReturnType<typeof createStyles>;
 }) {
@@ -204,7 +216,7 @@ function RowGroup({
 
         return (
           <Fragment key={key}>
-            {index > 0 && <View style={styles.divider} />}
+            {index > 0 && <View style={[styles.divider, prominent && styles.dividerProminent]} />}
             <Pressable
               accessibilityHint={subtitle}
               accessibilityLabel={title}
@@ -212,10 +224,10 @@ function RowGroup({
               accessibilityState={{ disabled }}
               disabled={disabled}
               onPress={() => onOpenRoute(target)}
-              style={({ pressed }) => [styles.row, disabled && styles.disabled, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.row, prominent && styles.rowProminent, disabled && styles.disabled, pressed && styles.pressed]}
             >
-              <View style={styles.iconWrap}>
-                <Icon color={disabled ? colors.textSecondary : colors.textPrimary} size={19} />
+              <View style={[styles.iconWrap, prominent && styles.iconWrapProminent]}>
+                <Icon color={disabled ? colors.textSecondary : colors.textPrimary} size={prominent ? 22 : 19} />
               </View>
               <View style={styles.rowText}>
                 <SkyText fontsReady={fontsReady} variant="cardTitle">
@@ -235,6 +247,7 @@ function RowGroup({
 }
 
 const ICON_SIZE = 40;
+const PROMINENT_ICON_SIZE = 48;
 
 function createStyles(colors: SkyNexColors) {
   return StyleSheet.create({
@@ -244,7 +257,7 @@ function createStyles(colors: SkyNexColors) {
     },
     content: {
       gap: layout.sectionGap,
-      paddingBottom: space.xxxl,
+      paddingBottom: space.xxxl + layout.floatingEStopClearance,
       paddingHorizontal: layout.screenGutter,
       paddingTop: space.lg
     },
@@ -290,11 +303,18 @@ function createStyles(colors: SkyNexColors) {
       paddingHorizontal: layout.productCardPadding,
       paddingVertical: space.sm
     },
+    rowProminent: {
+      gap: space.md,
+      minHeight: 76
+    },
     // Inset to the text column, iOS grouped-list style.
     divider: {
       backgroundColor: colors.border,
       height: StyleSheet.hairlineWidth,
       marginLeft: layout.productCardPadding + ICON_SIZE + space.sm
+    },
+    dividerProminent: {
+      marginLeft: layout.productCardPadding + PROMINENT_ICON_SIZE + space.md
     },
     iconWrap: {
       alignItems: "center",
@@ -303,6 +323,12 @@ function createStyles(colors: SkyNexColors) {
       height: ICON_SIZE,
       justifyContent: "center",
       width: ICON_SIZE
+    },
+    iconWrapProminent: {
+      backgroundColor: colors.robotSurface,
+      borderRadius: corner.card,
+      height: PROMINENT_ICON_SIZE,
+      width: PROMINENT_ICON_SIZE
     },
     rowText: {
       flex: 1,

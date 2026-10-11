@@ -22,7 +22,11 @@ export const layout = {
   productCardPadding: spacing.lg,
   stackGap: spacing.sm,
   inlineGap: spacing.xs,
-  hairlineGap: spacing.xxs
+  hairlineGap: spacing.xxs,
+  // Extra bottom scroll room on screens under the floating E-STOP (58pt
+  // button + caption, docked bottom-left by default) so the last action can
+  // always be scrolled clear of it. Added to the usual bottom padding.
+  floatingEStopClearance: 96
 } as const;
 
 export type LayoutToken = keyof typeof layout;

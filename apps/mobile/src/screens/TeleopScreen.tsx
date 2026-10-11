@@ -397,7 +397,7 @@ function RobotState({
           <ShieldAlert color={colors.statusDanger} size={18} />
           <View style={styles.safetyText}>
             <SkyText fontsReady={fontsReady} style={{ color: colors.statusDanger }} variant="sectionTitle">
-              E-STOP đang bật
+              Đã dừng khẩn cấp
             </SkyText>
             <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
               {robot.message}
@@ -647,7 +647,7 @@ function Details({
             Chi tiết
           </SkyText>
           <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
-            Vị trí từng motor · dữ liệu mô phỏng
+            Vị trí từng khớp · dữ liệu mô phỏng
           </SkyText>
         </View>
         <Chevron color={colors.textSecondary} size={18} />
@@ -819,7 +819,7 @@ function createStyles(colors: SkyNexColors) {
     },
     content: {
       gap: layout.sectionGap,
-      paddingBottom: space.xxxl,
+      paddingBottom: space.xxxl + layout.floatingEStopClearance,
       paddingHorizontal: layout.screenGutter,
       paddingTop: space.lg
     },

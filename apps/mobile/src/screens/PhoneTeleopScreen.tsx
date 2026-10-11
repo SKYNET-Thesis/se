@@ -361,7 +361,9 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
           : "Đang kiểm tra trạng thái robot…"
     : !MOTION_INPUT_SUPPORTED
       ? "Điều khiển bằng chuyển động cần ứng dụng SkyNex trên điện thoại."
-      : !connected
+      : !sessionAvailable
+        ? "Chưa có tay Follower để điều khiển bằng điện thoại"
+        : !connected
         ? "Kết nối máy chủ điều khiển để bắt đầu"
         : !motionAvailable
           ? "Điện thoại chưa cho phép dùng cảm biến chuyển động"
@@ -424,7 +426,7 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
           <ShieldAlert color={colors.statusDanger} size={18} />
           <View style={styles.safetyText}>
             <SkyText fontsReady={fontsReady} style={{ color: colors.statusDanger }} variant="sectionTitle">
-              E-STOP đang bật
+              Đã dừng khẩn cấp
             </SkyText>
             <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
               {robot.message}
@@ -622,6 +624,13 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
           </Pressable>
         </View>
         <SkyButton
+          accessibilityHint={
+            transport === "connected"
+              ? "Đóng phiên điều khiển của điện thoại. Robot dừng làm theo ngay."
+              : transport === "connecting"
+                ? "Dừng kết nối tới máy chủ điều khiển"
+                : "Mở phiên điều khiển tới máy chủ. Robot chỉ di chuyển khi bạn giữ nút điều khiển."
+          }
           disabled={(emergencyStopped || !sessionAvailable) && transport === "disconnected"}
           fontsReady={fontsReady}
           onPress={handleConnect}
@@ -629,6 +638,14 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
         >
           {transport === "connected" ? "Ngắt kết nối" : transport === "connecting" ? "Hủy kết nối" : "Kết nối máy chủ"}
         </SkyButton>
+        {/* Why the button is unavailable, right under it. */}
+        {transport === "disconnected" && (!sessionAvailable || emergencyStopped) && (
+          <SkyText accessibilityLiveRegion="polite" fontsReady={fontsReady} tone="secondary" variant="caption">
+            {!sessionAvailable
+              ? "Hệ thống chưa có tay Follower dùng được cho điện thoại. Kiểm tra ở Kết nối robot rồi mở lại màn hình này."
+              : "Không thể mở phiên mới khi đang dừng khẩn cấp."}
+          </SkyText>
+        )}
       </View>
 
       <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
@@ -844,7 +861,7 @@ function createStyles(colors: SkyNexColors) {
     screen: { backgroundColor: colors.background, flex: 1 },
     content: {
       gap: layout.sectionGap,
-      paddingBottom: space.xxxl,
+      paddingBottom: space.xxxl + layout.floatingEStopClearance,
       paddingHorizontal: layout.screenGutter,
       paddingTop: space.lg
     },
