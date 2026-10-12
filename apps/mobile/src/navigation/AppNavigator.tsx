@@ -5,17 +5,17 @@ import {
   NavigatorScreenParams
 } from "@react-navigation/native";
 import {
-  BottomTabBar,
   BottomTabNavigationProp,
   BottomTabScreenProps,
   createBottomTabNavigator
 } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator, NativeStackScreenProps } from "@react-navigation/native-stack";
-import { Bot, Camera, Hand, LayoutGrid, Settings as SettingsIcon } from "lucide-react-native";
 import { RefObject, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { enableScreens } from "react-native-screens";
+import { SkyBottomTabBar } from "../components/navigation/SkyBottomTabBar";
+import { SkyNavIcon, SkyNavIconName } from "../components/navigation/SkyNavIcon";
 import { CalibrateScreen } from "../screens/CalibrateScreen";
 import { CameraScreen } from "../screens/CameraScreen";
 import { ConnectScreen } from "../screens/ConnectScreen";
@@ -27,7 +27,7 @@ import { StatusScreen } from "../screens/StatusScreen";
 import { TaskDetailScreen } from "../screens/TaskDetailScreen";
 import { TasksScreen } from "../screens/TasksScreen";
 import { TeleopScreen } from "../screens/TeleopScreen";
-import { font, radius, spacing, type, ThemeColors } from "../theme";
+import { font, radius, type, ThemeColors } from "../theme";
 import { useAppTheme } from "../ThemeContext";
 import { SkyNexTabLabels, SkyNexTabs } from "./navigationContract";
 
@@ -105,13 +105,15 @@ const ControlStack = createNativeStackNavigator<ControlStackParamList>();
 const TaskStack = createNativeStackNavigator<TaskStackParamList>();
 const HomeStack = createNativeStackNavigator<HomeStackParamList>();
 
+// SkyNex's own icon family (components/navigation/SkyNavIcon), keyed by the
+// technical route names; the user-facing names come from tabBarLabel.
 const tabIcons = {
-  Home: Bot,
-  Tasks: LayoutGrid,
-  Control: Hand,
-  Camera,
-  Settings: SettingsIcon
-} satisfies Record<keyof RootTabParamList, typeof Bot>;
+  Home: "home",
+  Tasks: "skills",
+  Control: "robot",
+  Camera: "vision",
+  Settings: "profile"
+} satisfies Record<keyof RootTabParamList, SkyNavIconName>;
 
 // React Navigation's own theme controls the default background/border
 // painted behind screens that don't set their own (and the native-stack
@@ -152,13 +154,10 @@ export function AppNavigator({
     <NavigationContainer ref={navigationRef} theme={navigationTheme}>
       <Tab.Navigator
         initialRouteName="Home"
-        // The stock tab bar, measured: its real height (0 while hidden under
-        // the keyboard) bounds the floating E-STOP's drag region.
-        tabBar={(props) => (
-          <View onLayout={(event) => onTabBarHeightChange(event.nativeEvent.layout.height)}>
-            <BottomTabBar {...props} />
-          </View>
-        )}
+        // The SkyNex floating dock — React Navigation's tab state rendered
+        // in custom chrome. It reports its real height (0 while hidden under
+        // the keyboard), which bounds the floating E-STOP's drag region.
+        tabBar={(props) => <SkyBottomTabBar {...props} onHeightChange={onTabBarHeightChange} />}
         screenOptions={({ route }) => ({
           headerShown: false,
           lazy: true,
@@ -172,38 +171,32 @@ export function AppNavigator({
           // exactly, so the active tab tint is pixel-unchanged there.
           tabBarActiveTintColor: themeColors.accentStrong,
           tabBarHideOnKeyboard: true,
-          tabBarIcon: ({ focused }) => {
-            const Icon = tabIcons[route.name];
-            return (
-              <View
-                style={[
-                  styles.tabIconWrap,
-                  focused && {
-                    backgroundColor: themeColors.surfaceSecondary,
-                    borderColor: themeColors.accentStrong
-                  }
-                ]}
-              >
-                <Icon color={focused ? themeColors.accentStrong : themeColors.textSecondary} size={19} />
-              </View>
-            );
-          },
+          // Active: a soft island behind the accent icon (whose own filled
+          // element carries the selection) — no orange outline. The island is
+          // a fixed size, so the item is identical in both states.
+          tabBarIcon: ({ focused }) => (
+            <View style={[styles.tabIconWrap, focused && { backgroundColor: themeColors.surfaceSecondary }]}>
+              {/* ~8% accent wash over the raised surface: the existing accent
+                  token at low opacity, no new colour — tells the island apart
+                  from the dock in Light and Dark without glowing. */}
+              {focused && (
+                <View pointerEvents="none" style={[styles.tabIslandTint, { backgroundColor: themeColors.accent }]} />
+              )}
+              <SkyNavIcon
+                active={focused}
+                color={focused ? themeColors.accentStrong : themeColors.textSecondary}
+                name={tabIcons[route.name]}
+                // The arm's open silhouette reads lighter than the closed
+                // shapes, so it renders one point larger.
+                size={route.name === "Control" ? 25 : 24}
+              />
+            </View>
+          ),
           tabBarInactiveTintColor: themeColors.textSecondary,
-          tabBarItemStyle: {
-            borderRadius: 0,
-            paddingVertical: spacing.xxs
-          },
+          // Used by the dock where it shows names (wide layouts only).
           tabBarLabelStyle: {
             ...type.small,
             ...font("display", fontsReady)
-          },
-          tabBarStyle: {
-            backgroundColor: themeColors.surface,
-            borderTopColor: themeColors.border,
-            borderTopWidth: 1,
-            minHeight: 64,
-            paddingBottom: spacing.xs,
-            paddingTop: spacing.xs
           }
         })}
       >
@@ -614,13 +607,19 @@ const styles = StyleSheet.create({
   // Layout-only — color (background/border) for the focused state is applied
   // inline from the theme, since this StyleSheet is created once at module
   // load, before any theme is known.
+  // A fixed 38×34 island (same footprint active or not, so nothing shifts).
+  // Only its background changes on focus — it anchors the current tab
+  // inside the dock.
   tabIconWrap: {
     alignItems: "center",
-    borderColor: "transparent",
     borderRadius: radius.button,
-    borderWidth: 1,
+    height: 34,
     justifyContent: "center",
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xxs
+    width: 38
+  },
+  tabIslandTint: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: radius.button,
+    opacity: 0.08
   }
 });
