@@ -89,7 +89,8 @@ export function LoginScreen({ fontsReady, onBack, onCreateAccount }: Props) {
       footerPrompt="Chưa có tài khoản?"
       onBack={onBack}
       onFooterAction={onCreateAccount}
-      subtitle="Đăng nhập để tiếp tục với SkyNex."
+      // Honest before anyone types: accounts aren't connected yet.
+      subtitle="Tài khoản SkyNex sắp ra mắt. Bạn vẫn có thể dùng SkyNex mà không cần tài khoản."
       title="Chào mừng trở lại"
     >
       <View style={authFormStyles.form}>

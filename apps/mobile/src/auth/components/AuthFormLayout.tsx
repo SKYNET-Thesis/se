@@ -2,6 +2,7 @@ import { ChevronLeft, Info } from "lucide-react-native";
 import { ReactNode, useMemo } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SkyTopBarAction } from "../../components/navigation/SkyTopBar";
 import { SkyText } from "../../components/ui";
 import { corner } from "../../design-system/radius";
 import { layout, space } from "../../design-system/spacing";
@@ -100,22 +101,16 @@ export function AuthFormLayout({
   );
 }
 
-// Same back affordance the app uses elsewhere (TaskDetail): a 44pt chevron,
-// announced in Vietnamese.
+// The app's back control (SkyTopBar's): a 40pt squircle in a 44pt target,
+// announced in Vietnamese — so the account screens share the Robot screens'
+// header language without their full bar.
 export function AuthBackButton({ onPress }: { onPress: () => void }) {
   const { colors } = useSkyNexTokens();
-  const styles = useMemo(() => createStyles(colors), [colors]);
 
   return (
-    <Pressable
-      accessibilityLabel="Quay lại"
-      accessibilityRole="button"
-      hitSlop={4}
-      onPress={onPress}
-      style={({ pressed }) => [styles.back, pressed && styles.pressed]}
-    >
-      <ChevronLeft color={colors.textPrimary} size={24} />
-    </Pressable>
+    <SkyTopBarAction accessibilityLabel="Quay lại" onPress={onPress}>
+      <ChevronLeft color={colors.textPrimary} size={22} strokeWidth={2.2} />
+    </SkyTopBarAction>
   );
 }
 
@@ -161,15 +156,6 @@ function createStyles(colors: SkyNexColors) {
       alignSelf: "center",
       maxWidth: FORM_MAX_WIDTH,
       width: "100%"
-    },
-    // Optically aligned with the text below it: the chevron's glyph, not its
-    // 44pt box, sits on the gutter.
-    back: {
-      alignItems: "center",
-      height: 44,
-      justifyContent: "center",
-      marginLeft: -space.sm,
-      width: 44
     },
     intro: {
       gap: space.xs,

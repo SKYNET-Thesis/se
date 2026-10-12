@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SkyButton, SkyText } from "../../components/ui";
 import { layout, space } from "../../design-system/spacing";
 import { SkyNexColors, useSkyNexTokens } from "../../design-system/tokens";
+import { font } from "../../theme";
 import { useAuth } from "../AuthContext";
 import { WelcomeVisual } from "../components/WelcomeVisual";
 import { WELCOME_MEDIA } from "../welcomeMedia";
@@ -29,9 +30,13 @@ const STAGE_MIN_HEIGHT = 200;
 // the rest instead (see panel / stage styles).
 const STAGE_MAX_SHARE = 0.6;
 
-// SkyNex's entrance: the step from the brand story (onboarding) to account
-// access. A dominant visual stage, one line of human copy, and three
-// clearly ranked choices. No form fields, no social login, no robot status.
+// SkyNex's entrance: the step from the brand story (onboarding) into the
+// app. A dominant visual stage, the promise, and the choices ranked by what
+// actually works today: continuing without an account is the real path, so
+// it is the one primary action. Accounts aren't available yet (no backend —
+// see services/authService.ts); Sign in / Create account stay reachable as
+// quiet previews under an honest line, never dressed as the main way in.
+// No form fields, no social login, no robot status.
 export function WelcomeScreen({ fontsReady, onLogin, onSignUp }: Props) {
   const { colors } = useSkyNexTokens();
   const styles = useMemo(() => createStyles(colors), [colors]);
@@ -60,7 +65,12 @@ export function WelcomeScreen({ fontsReady, onLogin, onSignUp }: Props) {
       {/* The one brand presence: the wordmark. The fallback stage shows the
           mark alone, without text, so the name is never repeated. */}
       <View pointerEvents="none" style={[styles.wordmark, { top: insets.top + space.md }]}>
-        <SkyText accessibilityRole="header" fontsReady={fontsReady} variant="sectionTitle">
+        <SkyText
+          accessibilityRole="header"
+          fontsReady={fontsReady}
+          style={font("displayBold", fontsReady)}
+          variant="sectionTitle"
+        >
           SkyNex
         </SkyText>
       </View>
@@ -69,34 +79,82 @@ export function WelcomeScreen({ fontsReady, onLogin, onSignUp }: Props) {
         {/* Headline at the top of the panel, actions at the bottom: on tall
             phones the extra space opens between them and the actions stay
             in thumb reach. */}
-        <SkyText fontsReady={fontsReady} style={styles.headline} variant="title">
-          Trợ lý AI cho cuộc sống hằng ngày.
-        </SkyText>
+        <View style={styles.message}>
+          <SkyText fontsReady={fontsReady} style={styles.headline} variant="title">
+            Trợ lý AI cho cuộc sống hằng ngày.
+          </SkyText>
+          <SkyText fontsReady={fontsReady} style={styles.headline} tone="secondary">
+            Dùng ngay mọi tính năng hiện có, không cần tài khoản.
+          </SkyText>
+        </View>
 
-        {/* Ranked by weight, not color alone: a filled button, an outlined
-            neutral button, then plain text. */}
+        {/* Ranked by what works: one filled action that really enters the
+            app, then the account previews as quiet text under a plain
+            statement of their state. */}
         <View style={styles.actions}>
-          <SkyButton fontsReady={fontsReady} onPress={onLogin} size="lg">
-            Đăng nhập
-          </SkyButton>
-          <SkyButton fontsReady={fontsReady} onPress={onSignUp} size="lg" variant="secondary">
-            Tạo tài khoản
-          </SkyButton>
-          <Pressable
-            accessibilityHint="Dùng SkyNex ngay, có thể tạo tài khoản sau"
-            accessibilityLabel="Tiếp tục không cần tài khoản"
-            accessibilityRole="button"
-            hitSlop={4}
+          <SkyButton
+            accessibilityHint="Vào SkyNex ngay. Bạn có thể tạo tài khoản khi tính năng này ra mắt."
+            fontsReady={fontsReady}
             onPress={continueAsGuest}
-            style={({ pressed }) => [styles.guest, pressed && styles.pressed]}
+            size="lg"
           >
-            <SkyText fontsReady={fontsReady} tone="secondary" variant="cardTitle">
-              Tiếp tục không cần tài khoản
+            Tiếp tục không cần tài khoản
+          </SkyButton>
+
+          <View style={styles.accounts}>
+            <SkyText fontsReady={fontsReady} style={styles.centered} tone="secondary" variant="caption">
+              Tài khoản SkyNex sắp ra mắt.
             </SkyText>
-          </Pressable>
+            <View style={styles.accountLinks}>
+              <AccountLink
+                fontsReady={fontsReady}
+                hint="Xem trước màn hình đăng nhập. Đăng nhập chưa khả dụng."
+                label="Đăng nhập"
+                onPress={onLogin}
+                styles={styles}
+              />
+              <View style={[styles.linkDot, { backgroundColor: colors.border }]} />
+              <AccountLink
+                fontsReady={fontsReady}
+                hint="Xem trước các bước tạo tài khoản. Tạo tài khoản chưa khả dụng."
+                label="Tạo tài khoản"
+                onPress={onSignUp}
+                styles={styles}
+              />
+            </View>
+          </View>
         </View>
       </View>
     </ScrollView>
+  );
+}
+
+// A quiet, text-level action that still has a full 44pt target.
+function AccountLink({
+  fontsReady,
+  hint,
+  label,
+  onPress,
+  styles
+}: {
+  fontsReady: boolean;
+  hint: string;
+  label: string;
+  onPress: () => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <Pressable
+      accessibilityHint={hint}
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+    >
+      <SkyText fontsReady={fontsReady} variant="cardTitle">
+        {label}
+      </SkyText>
+    </Pressable>
   );
 }
 
@@ -130,19 +188,39 @@ function createStyles(colors: SkyNexColors) {
       paddingHorizontal: layout.screenGutter,
       paddingTop: space.xxl
     },
+    message: {
+      gap: space.xs
+    },
     headline: {
-      // Keeps the line short enough to break into two calm lines on every
-      // width instead of one long run on wide phones.
+      // Keeps lines short enough to break calmly on every width instead of
+      // one long run on wide phones.
       maxWidth: 320
     },
     actions: {
-      gap: space.sm
+      gap: space.md
     },
-    // Text-level action, but still a full 44pt target.
-    guest: {
+    accounts: {
+      alignItems: "center",
+      gap: space.xxs
+    },
+    centered: {
+      textAlign: "center"
+    },
+    accountLinks: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: space.xs
+    },
+    link: {
       alignItems: "center",
       justifyContent: "center",
-      minHeight: 44
+      minHeight: 44,
+      paddingHorizontal: space.sm
+    },
+    linkDot: {
+      borderRadius: 2,
+      height: 4,
+      width: 4
     },
     pressed: {
       opacity: 0.7

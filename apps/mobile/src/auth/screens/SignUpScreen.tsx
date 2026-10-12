@@ -109,6 +109,10 @@ function toPayload(draft: SignUpDraft): SignUpPayload {
 
 // Neutral: not a network error, not "this email is taken" — the account
 // service simply isn't connected.
+// Said on the first step, before anyone types: accounts aren't connected
+// yet, and the steps can still be walked through as a preview.
+const PREVIEW_NOTICE = "Tài khoản SkyNex sắp ra mắt. Bạn có thể xem trước quy trình tạo tài khoản.";
+
 const UNAVAILABLE_MESSAGE =
   "Tạo tài khoản chưa khả dụng. Tính năng này sẽ hoạt động khi dịch vụ tài khoản SkyNex được kết nối.";
 
@@ -277,26 +281,29 @@ export function SignUpScreen({ fontsReady, onBack, onLogin }: Props) {
         stepCount={STEPS.length}
       >
         {current.id === "email" && (
-          <AuthTextField
-            autoCapitalize="none"
-            autoComplete="email"
-            autoCorrect={false}
-            autoFocus
-            error={errors.email}
-            fontsReady={fontsReady}
-            inputMode="email"
-            keyboardType="email-address"
-            label="Email"
-            onBlur={() => checkOnBlur("email")}
-            onChangeText={(value) => update("email", value)}
-            onSubmitEditing={handleNext}
-            placeholder="ban@email.com"
-            ref={refs.email}
-            returnKeyType="next"
-            submitBehavior="submit"
-            textContentType="username"
-            value={draft.email}
-          />
+          <View style={styles.firstStep}>
+            <AuthNotice fontsReady={fontsReady} message={PREVIEW_NOTICE} />
+            <AuthTextField
+              autoCapitalize="none"
+              autoComplete="email"
+              autoCorrect={false}
+              autoFocus
+              error={errors.email}
+              fontsReady={fontsReady}
+              inputMode="email"
+              keyboardType="email-address"
+              label="Email"
+              onBlur={() => checkOnBlur("email")}
+              onChangeText={(value) => update("email", value)}
+              onSubmitEditing={handleNext}
+              placeholder="ban@email.com"
+              ref={refs.email}
+              returnKeyType="next"
+              submitBehavior="submit"
+              textContentType="username"
+              value={draft.email}
+            />
+          </View>
         )}
 
         {current.id === "password" && (
@@ -583,6 +590,10 @@ function createStyles(colors: SkyNexColors) {
     reviewText: {
       flex: 1,
       gap: 2
+    },
+    // First step only: the availability notice above the email field.
+    firstStep: {
+      gap: space.lg
     },
     finalAction: {
       flex: 1,
