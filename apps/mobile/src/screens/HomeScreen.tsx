@@ -14,6 +14,7 @@ import { layout, space } from "../design-system/spacing";
 import { useSkyNexTokens } from "../design-system/tokens";
 import { useRobotSetup, useRobotSummary } from "../hooks/useRobotSummary";
 import { getFavorites, toggleFavorite } from "../services/favoritesStorage";
+import { font } from "../theme";
 
 // "robot" opens the Robot tab (its hub); the others are the readiness card's
 // contextual steps and the Vision tab.
@@ -67,7 +68,8 @@ export function HomeScreen({
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const { width: windowWidth } = useWindowDimensions();
 
-  const featuredCardWidth = Math.min(320, Math.max(284, Math.round(windowWidth * 0.74)));
+  // Narrow enough that the next card clearly peeks (≈54–74pt at 390–440).
+  const featuredCardWidth = Math.min(310, Math.max(276, Math.round(windowWidth * 0.715)));
   const featuredCardHeight = windowWidth < 390 ? 196 : 204;
 
   useEffect(() => {
@@ -115,7 +117,12 @@ export function HomeScreen({
         above the hero, so drags elsewhere still reach the robot.
       */}
       <View pointerEvents="box-none" style={homeStyles.topRow}>
-        <SkyText accessibilityRole="header" fontsReady={fontsReady} style={homeStyles.brand} variant="sectionTitle">
+        <SkyText
+          accessibilityRole="header"
+          fontsReady={fontsReady}
+          style={[homeStyles.brand, font("displayBold", fontsReady)]}
+          variant="sectionTitle"
+        >
           SkyNex
         </SkyText>
         <Pressable

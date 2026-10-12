@@ -62,10 +62,10 @@ export function RobotReadinessCard({
           onPress={onOpenStatus}
           style={({ pressed }) => [styles.statusLink, pressed && styles.pressed]}
         >
-          <SkyText fontsReady={fontsReady} style={{ color: colors.accentInk }} variant="status">
+          <SkyText fontsReady={fontsReady} tone="secondary" variant="caption">
             Trạng thái
           </SkyText>
-          <ChevronRight color={colors.accentInk} size={14} />
+          <ChevronRight color={colors.textSecondary} size={14} />
         </Pressable>
       </View>
 
@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
   // A little extra air above the action separates "what's going on" from
   // "what to do", without a divider.
   cta: {
-    marginTop: layout.hairlineGap
+    marginTop: 0
   },
   headerRow: {
     alignItems: "center",

@@ -46,7 +46,7 @@ export function HomeToolsList({ fontsReady, onOpenRoute }: Props) {
               <SkyText fontsReady={fontsReady} numberOfLines={1} variant="cardTitle">
                 {title}
               </SkyText>
-              <SkyText fontsReady={fontsReady} numberOfLines={1} tone="secondary" variant="caption">
+              <SkyText fontsReady={fontsReady} numberOfLines={1} style={styles.description} variant="caption">
                 {description}
               </SkyText>
             </View>
@@ -90,6 +90,13 @@ function createStyles(colors: SkyNexColors) {
     text: {
       flex: 1,
       gap: 2
+    },
+    // A touch stronger than the secondary tone, from the primary text token
+    // (works in Light and Dark; no new colour), still clearly subordinate to
+    // the title.
+    description: {
+      color: colors.textPrimary,
+      opacity: 0.72
     },
     pressed: {
       opacity: 0.78
