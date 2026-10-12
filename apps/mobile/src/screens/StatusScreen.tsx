@@ -1,7 +1,7 @@
 import { Bot, ChevronDown, ChevronUp, CircleAlert, CircleCheck, FlaskConical, ShieldAlert } from "lucide-react-native";
 import { useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { ScreenHeader } from "../components/ScreenHeader";
+import { SkyTopBar } from "../components/navigation/SkyTopBar";
 import { SkyButton, SkyCard, SkyText, StatusBadge } from "../components/ui";
 import { corner } from "../design-system/radius";
 import { layout, space } from "../design-system/spacing";
@@ -64,7 +64,7 @@ export function StatusScreen({ emergencyStopped, fontsReady, onBack, onCalibrate
       showsVerticalScrollIndicator={false}
       style={styles.screen}
     >
-      <ScreenHeader
+      <SkyTopBar
         fontsReady={fontsReady}
         onBack={onBack}
         subtitle="Tổng quan hệ thống và từng tay robot."

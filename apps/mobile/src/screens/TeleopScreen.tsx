@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronUp, CircleAlert, CircleCheck, Lock, Minus, Plus, ShieldAlert, TriangleAlert } from "lucide-react-native";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { ScreenHeader } from "../components/ScreenHeader";
+import { SkyTopBar } from "../components/navigation/SkyTopBar";
 import { SkyButton, SkyCard, SkySection, SkyText, StatusBadge } from "../components/ui";
 import { corner } from "../design-system/radius";
 import { layout, space } from "../design-system/spacing";
@@ -291,7 +291,7 @@ export function TeleopScreen({ emergencyStopped, fontsReady, onBack, onCalibrate
         showsVerticalScrollIndicator={false}
         style={styles.screen}
       >
-        <ScreenHeader
+        <SkyTopBar
           fontsReady={fontsReady}
           onBack={onBack}
           subtitle="Robot làm theo tay điều khiển của bạn."

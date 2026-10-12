@@ -12,7 +12,7 @@ import {
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { ScreenHeader } from "../components/ScreenHeader";
+import { SkyTopBar } from "../components/navigation/SkyTopBar";
 import { SkyButton, SkyCard, SkyText, StatusBadge } from "../components/ui";
 import { corner } from "../design-system/radius";
 import { layout, space } from "../design-system/spacing";
@@ -210,7 +210,7 @@ export function CalibrateScreen({ emergencyStopped, fontsReady, initialArmId, on
       showsVerticalScrollIndicator={false}
       style={styles.screen}
     >
-      <ScreenHeader
+      <SkyTopBar
         fontsReady={fontsReady}
         onBack={handleBack}
         subtitle="Giúp robot hiểu đúng vị trí và phạm vi chuyển động."

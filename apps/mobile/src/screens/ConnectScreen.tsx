@@ -11,7 +11,7 @@ import {
   TextInput,
   View
 } from "react-native";
-import { ScreenHeader } from "../components/ScreenHeader";
+import { SkyTopBar } from "../components/navigation/SkyTopBar";
 import { SkyButton, SkyCard, SkySection, SkyText, StatusBadge } from "../components/ui";
 import { corner } from "../design-system/radius";
 import { layout, space } from "../design-system/spacing";
@@ -161,7 +161,7 @@ export function ConnectScreen({
         showsVerticalScrollIndicator={false}
         style={styles.screen}
       >
-        <ScreenHeader
+        <SkyTopBar
           fontsReady={fontsReady}
           onBack={onBack}
           subtitle={

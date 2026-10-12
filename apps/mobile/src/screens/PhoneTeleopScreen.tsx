@@ -15,7 +15,7 @@ import {
   TextInput,
   View
 } from "react-native";
-import { ScreenHeader } from "../components/ScreenHeader";
+import { SkyTopBar } from "../components/navigation/SkyTopBar";
 import { SkyButton, SkyCard, SkyText, StatusBadge } from "../components/ui";
 import { corner } from "../design-system/radius";
 import { layout, space } from "../design-system/spacing";
@@ -379,11 +379,14 @@ export function PhoneTeleopScreen({ emergencyStopped, fontsReady, onBack, onCali
       showsVerticalScrollIndicator={false}
       style={styles.screen}
     >
-      <ScreenHeader
+      <SkyTopBar
         fontsReady={fontsReady}
         onBack={onBack}
         subtitle="Giữ nút và di chuyển điện thoại, robot sẽ làm theo."
         title="Điều khiển bằng điện thoại"
+        // The one long Robot title: wraps to a second line on narrow phones
+        // rather than truncating or shrinking.
+        titleNumberOfLines={2}
       />
 
       {/* Two layers, two rows: the robot, then this phone. */}
