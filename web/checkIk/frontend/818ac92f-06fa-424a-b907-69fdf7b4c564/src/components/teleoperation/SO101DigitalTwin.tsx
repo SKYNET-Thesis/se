@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { RobotDevice } from '../../types';
@@ -7,6 +7,7 @@ const JOINTS = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wr
 
 export function SO101DigitalTwin({ left, right, live, visibleSide = 'both' }: { left: RobotDevice; right: RobotDevice; live: boolean; visibleSide?: 'left' | 'right' | 'both'; }) {
   const host = useRef<HTMLDivElement>(null);
+  const [view, setView] = useState<'home' | 'front' | 'top'>('home');
   const devices = useRef({ left, right });
   devices.current = { left, right };
 
@@ -16,18 +17,23 @@ export function SO101DigitalTwin({ left, right, live, visibleSide = 'both' }: { 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x090d12);
     const camera = new THREE.PerspectiveCamera(38, 1, 0.01, 20);
-    camera.position.set(0, 0.75, 1.25);
+    const views = {
+      home: [0.78, 0.7, 1.15],
+      front: [0, 0.48, 1.45],
+      top: [0, 1.65, 0.12],
+    } as const;
+    camera.position.set(...views[view]);
     camera.lookAt(0, 0.28, 0);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xddeeff, 0x26313c, 2.5));
-    const key = new THREE.DirectionalLight(0xffffff, 2.2);
+    scene.add(new THREE.HemisphereLight(0xddeeff, 0x26313c, 1.6));
+    const key = new THREE.DirectionalLight(0xffffff, 1.45);
     key.position.set(1, 2, 2);
     scene.add(key);
-    const grid = new THREE.GridHelper(2.2, 22, 0x2a6670, 0x1c2b34);
+    const grid = new THREE.GridHelper(2.2, 12, 0x1b4650, 0x111b22);
     scene.add(grid);
 
     type RenderJoint = {
@@ -121,11 +127,14 @@ export function SO101DigitalTwin({ left, right, live, visibleSide = 'both' }: { 
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [visibleSide]);
+  }, [visibleSide, view]);
 
   return <div className="twin-viewport control-bay relative h-[24rem] overflow-hidden rounded-xl border border-line bg-elev lg:h-[32rem]" ref={host}>
     <span className="pointer-events-none absolute left-3 top-3 z-10 rounded-md border border-line bg-card/85 px-2 py-1 text-xs text-ink2">
       SO-101 {visibleSide === 'both' ? 'digital twins' : `${visibleSide} digital twin`} · {live ? 'live follower joints' : 'last known pose'}
     </span>
+    <div className="absolute right-3 top-3 z-10 inline-flex rounded-lg border border-line bg-card/90 p-1" role="group" aria-label="Robot view">
+      {([['home', 'Reset view'], ['front', 'Front'], ['top', 'Top']] as const).map(([key, label]) => <button key={key} type="button" onClick={() => setView(key)} aria-pressed={view === key} title={label} className={`h-7 rounded-md px-2 text-xs transition-colors ${view === key ? 'bg-subtle text-ink' : 'text-ink2 hover:text-ink'}`}>{label}</button>)}
+    </div>
   </div>;
 }
