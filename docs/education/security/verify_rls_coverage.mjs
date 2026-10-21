@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+const sql = fs.readFileSync(new URL('./sql/003_learning_rls_proposal.sql', import.meta.url), 'utf8');
+const manifest = [...sql.matchAll(/^-- (learning_[a-z_]+) \|/gm)].map((m) => m[1]);
+const unique = [...new Set(manifest)];
+console.log(`TOTAL LEARNING TABLES: 35`);
+console.log(`TABLES REPRESENTED IN POLICY/COVERAGE MANIFEST: ${unique.length}`);
+console.log(`ALLOWED MATRIX OPERATIONS: not mechanically derivable until all pending_* policies are expanded`);
+console.log(`ALLOWED OPERATIONS WITH POLICY: ${[...sql.matchAll(/CREATE POLICY/g)].length}`);
+console.log(`UNINTENDED POLICIES FOR D OPERATIONS: manual review required`);
+console.log(`UNRESOLVED: ${unique.length === 35 ? 'policy expansion remains' : 'manifest incomplete'}`);
+if (unique.length !== 35) process.exitCode = 1;
