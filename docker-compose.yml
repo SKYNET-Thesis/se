@@ -36,5 +36,26 @@ services:
     ports:
       - "8000:8000"
 
+  education-api:
+    build: ./services/education-api
+    env_file:
+      - ./services/education-api/.env.example
+    environment:
+      MQTT_HOST: mqtt
+      ROBOT_RUNTIME_BASE_URL: http://robot-runtime:8015
+    ports:
+      - "3001:3000"
+    depends_on:
+      - postgres
+      - mqtt
+      - robot-runtime
+
+  robot-runtime:
+    build: ./services/robot-runtime
+    environment:
+      VISTA_RUNTIME_TOKEN: local-dev-token
+    expose:
+      - "8015"
+
 volumes:
   pgdata:

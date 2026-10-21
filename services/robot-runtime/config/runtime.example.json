@@ -1,0 +1,28 @@
+{
+  "bindHost": "127.0.0.1",
+  "port": 8015,
+  "checkikStatusUrl": "http://127.0.0.1:8000/api/status",
+  "hardwareEnabled": false,
+  "profiles": {
+    "commissioning": {
+      "maxWaitMs": 60000
+    },
+    "lesson": {
+      "maxWaitMs": 60000
+    }
+  },
+  "arms": {
+    "left": {
+      "enabled": false,
+      "safeHomeJointDegrees": null,
+      "gripperOpen": null,
+      "gripperClosed": null
+    },
+    "right": {
+      "enabled": false,
+      "safeHomeJointDegrees": null,
+      "gripperOpen": null,
+      "gripperClosed": null
+    }
+  }
+}
