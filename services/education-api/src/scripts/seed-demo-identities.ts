@@ -1,7 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 
 type DemoIdentity = {
-  key: "ADMIN" | "INSTRUCTOR" | "STUDENT";
+  key: "ADMIN" | "SCHOOL_ADMIN" | "INSTRUCTOR" | "STUDENT";
   email: string;
   fullName: string;
 };
@@ -10,6 +10,7 @@ type SupabaseUser = { id: string; email?: string };
 
 const demoIdentities: DemoIdentity[] = [
   { key: "ADMIN", email: "admin@vista.demo", fullName: "VISTA Demo Admin" },
+  { key: "SCHOOL_ADMIN", email: "school-admin@vista.demo", fullName: "VISTA Demo School Admin" },
   { key: "INSTRUCTOR", email: "instructor@vista.demo", fullName: "VISTA Demo Instructor" },
   { key: "STUDENT", email: "student@vista.demo", fullName: "VISTA Demo Student" },
 ];

@@ -18,8 +18,11 @@ export class LearningController {
  @Get("lessons/:lessonId") lesson(@CurrentUser() u:AuthenticatedUser,@Param("lessonId") id:string){return this.learning.lesson(u,id)}
  @Get("me/enrollments") enrollments(@CurrentUser() u:AuthenticatedUser,@Query() q:PaginationDto){return this.learning.enrollments(u,q)}
  @Get("me/classrooms") classrooms(@CurrentUser() u:AuthenticatedUser,@Query() q:PaginationDto){return this.learning.classrooms(u,q)}
+ @Get("me/teaching-classrooms") teachingClassrooms(@CurrentUser() u:AuthenticatedUser){return this.learning.teachingClassrooms(u)}
+ @Get("me/learning") myLearning(@CurrentUser() u:AuthenticatedUser){return this.learning.myLearning(u)}
  @Get("classrooms/:classroomId") classroom(@CurrentUser() u:AuthenticatedUser,@Param("classroomId") id:string){return this.learning.classroom(u,id)}
  @Get("classrooms/:classroomId/assignments") assignments(@CurrentUser() u:AuthenticatedUser,@Param("classroomId") id:string){return this.learning.assignments(u,id)}
+ @Get("classrooms/:classroomId/delivery-options") deliveryOptions(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) id:string){return this.learning.deliveryOptions(u,id)}
  @Get("classroom-assignments/:classroomAssignmentId") assignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomAssignmentId",ParseUUIDPipe) id:string){return this.learning.assignment(u,id)}
  @Post("classrooms/:classroomId/assignments") createAssignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomId") id:string,@Body() dto:CreateAssignmentDto){return this.learning.createAssignment(u,id,dto)}
  @Patch("classrooms/:classroomId/assignments/:assignmentId") updateAssignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomId") c:string,@Param("assignmentId") a:string,@Body() dto:UpdateAssignmentDto){return this.learning.updateAssignment(u,c,a,dto)}

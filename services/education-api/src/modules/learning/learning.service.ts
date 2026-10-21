@@ -56,6 +56,46 @@ export class LearningService {
     return { items: rows, page: page.page, pageSize: page.pageSize };
   }
 
+  /** Classroom teaching scope; unlike /me/classrooms this never includes a learner membership. */
+  async teachingClassrooms(user: AuthenticatedUser) {
+    if (this.scope.isSystemAdministrator(user)) {
+      return this.prisma.$queryRaw`SELECT c.id,c.organization_id,c.name,c.code,c.status,o.name AS organization_name,COUNT(DISTINCT cm.id) FILTER (WHERE cm.status='active' AND cm.classroom_role='student')::int AS student_count,COUNT(DISTINCT ca.id)::int AS assignment_count FROM public.learning_classrooms c JOIN public.organizations o ON o.id=c.organization_id LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id=c.id LEFT JOIN public.learning_classroom_assignments ca ON ca.classroom_id=c.id GROUP BY c.id,o.name ORDER BY c.name`;
+    }
+    return this.prisma.$queryRaw`
+      SELECT c.id,c.organization_id,c.name,c.code,c.status,o.name AS organization_name,
+        COUNT(DISTINCT students.id) FILTER (WHERE students.status='active' AND students.classroom_role='student')::int AS student_count,
+        COUNT(DISTINCT ca.id)::int AS assignment_count
+      FROM public.learning_classroom_members mine
+      JOIN public.memberships m ON m.id=mine.membership_id AND m.status='active'
+      JOIN public.learning_classrooms c ON c.id=mine.classroom_id AND c.organization_id=m.organization_id
+      JOIN public.organizations o ON o.id=c.organization_id
+      LEFT JOIN public.learning_classroom_members students ON students.classroom_id=c.id
+      LEFT JOIN public.learning_classroom_assignments ca ON ca.classroom_id=c.id
+      WHERE mine.user_id=${user.vistaUserId}::uuid AND mine.status='active'
+        AND mine.classroom_role IN ('teacher','teaching_assistant')
+        AND EXISTS (SELECT 1 FROM public.role_permissions rp JOIN public.permissions p ON p.id=rp.permission_id WHERE rp.role_id=m.role_id AND p.code='learning.delivery.manage')
+      GROUP BY c.id,o.name ORDER BY c.name`;
+  }
+
+  async myLearning(user: AuthenticatedUser) {
+    return this.prisma.$queryRaw`
+      SELECT ca.id AS classroom_assignment_id,a.title,a.instructions,l.id AS lesson_id,l.title AS lesson_title,
+        c.id AS classroom_id,c.name AS classroom_name,co.title AS course_title,
+        latest.id AS attempt_id,latest.status AS attempt_status,latest.started_at,latest.submitted_at,
+        CASE WHEN latest.submitted_at IS NOT NULL THEN 'completed' WHEN latest.id IS NOT NULL THEN 'started' ELSE 'assigned' END AS learning_status
+      FROM public.learning_classroom_assignments ca
+      JOIN public.learning_assignments a ON a.id=ca.assignment_id
+      JOIN public.learning_lessons l ON l.id=a.lesson_id
+      JOIN public.learning_classrooms c ON c.id=ca.classroom_id
+      JOIN public.learning_course_offerings o ON o.id=c.offering_id
+      JOIN public.learning_courses co ON co.id=o.course_id
+      JOIN public.learning_classroom_members cm ON cm.classroom_id=c.id AND cm.user_id=${user.vistaUserId}::uuid AND cm.classroom_role='student' AND cm.status='active'
+      JOIN public.memberships m ON m.id=cm.membership_id AND m.status='active' AND m.organization_id=c.organization_id
+      LEFT JOIN LATERAL (SELECT id,status,started_at,submitted_at FROM public.learning_assignment_attempts WHERE classroom_assignment_id=ca.id AND learner_user_id=${user.vistaUserId}::uuid ORDER BY started_at DESC LIMIT 1) latest ON true
+      WHERE ca.status='published' AND (ca.available_from IS NULL OR ca.available_from<=now()) AND (ca.close_at IS NULL OR ca.close_at>now())
+      ORDER BY ca.created_at DESC`;
+  }
+
   async classroom(user: AuthenticatedUser, classroomId: string) { await this.scope.assertClassroomAccess(user, classroomId); const rows=await this.prisma.$queryRaw<ClassroomRow[]>`SELECT id,organization_id,offering_id,name,code,description,capacity,status,created_at,updated_at FROM public.learning_classrooms WHERE id=${classroomId}::uuid`; if (!rows[0]) throw new NotFoundException("Classroom was not found."); return rows[0]; }
   async assignments(user: AuthenticatedUser, classroomId: string) {
     await this.classroom(user,classroomId);
@@ -71,6 +111,23 @@ export class LearningService {
     const assignment = await this.prisma.$queryRaw<Record<string, unknown>[]>`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,a.lesson_id,a.challenge_id,a.title,a.instructions,a.allowed_blocks,a.constraints FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id WHERE ca.id=${classroomAssignmentId}::uuid AND (${canManage} OR ca.status='published')`;
     if (!assignment[0]) throw new NotFoundException("Assignment was not found.");
     return assignment[0];
+  }
+  async deliveryOptions(user: AuthenticatedUser, classroomId: string) {
+    await this.scope.assertTeacherClassroomAccess(user, classroomId);
+    return this.prisma.$queryRaw`
+      SELECT l.id AS lesson_id,l.title AS lesson_title,
+        COALESCE(template.title,l.title) AS title,COALESCE(template.instructions,'') AS instructions,template.challenge_id
+      FROM public.learning_classrooms c
+      JOIN public.learning_course_offerings o ON o.id=c.offering_id
+      JOIN public.learning_lessons l ON l.course_id=o.course_id
+      LEFT JOIN LATERAL (
+        SELECT a.title,a.instructions,a.challenge_id FROM public.learning_assignments a
+        JOIN public.learning_classroom_assignments ca ON ca.assignment_id=a.id
+        JOIN public.learning_classrooms source ON source.id=ca.classroom_id
+        WHERE a.lesson_id=l.id AND source.organization_id=c.organization_id
+        ORDER BY ca.created_at DESC LIMIT 1
+      ) template ON true
+      WHERE c.id=${classroomId}::uuid ORDER BY l.ordinal`;
   }
   async createAssignment(user:AuthenticatedUser,classroomId:string,dto:CreateAssignmentDto) { await this.scope.assertTeacherClassroomAccess(user,classroomId); const rows=await this.prisma.$queryRaw<{id:string}[]>`SELECT l.id FROM public.learning_lessons l JOIN public.learning_course_offerings o ON o.course_id=l.course_id JOIN public.learning_classrooms c ON c.offering_id=o.id WHERE l.id=${dto.lessonId}::uuid AND c.id=${classroomId}::uuid`; if(!rows[0]) throw new NotFoundException("Lesson was not found."); const a=await this.prisma.$queryRaw<{id:string}[]>`INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions) VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""}) RETURNING id`; return this.prisma.$queryRaw`INSERT INTO public.learning_classroom_assignments(classroom_id,assignment_id,published_by,status) VALUES(${classroomId}::uuid,${a[0].id}::uuid,${user.vistaUserId}::uuid,'published') RETURNING id,classroom_id,assignment_id,status` }
   async updateAssignment(user:AuthenticatedUser,classroomId:string,assignmentId:string,dto:UpdateAssignmentDto) { await this.scope.assertTeacherClassroomAccess(user,classroomId); const ok=await this.prisma.$queryRaw<{id:string}[]>`SELECT id FROM public.learning_classroom_assignments WHERE classroom_id=${classroomId}::uuid AND assignment_id=${assignmentId}::uuid`; if(!ok[0]) throw new NotFoundException("Assignment was not found."); return this.prisma.learning_assignments.update({where:{id:assignmentId},data:{...(dto.title!==undefined?{title:dto.title}:{}),...(dto.instructions!==undefined?{instructions:dto.instructions}:{})}}); }

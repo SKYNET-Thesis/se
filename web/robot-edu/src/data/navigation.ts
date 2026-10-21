@@ -31,7 +31,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     items: [
     { to: '/', label: 'Dashboard', icon: LayoutDashboardIcon, end: true },
     { to: '/courses', label: 'Courses', icon: BookOpenIcon },
-    { to: '/assignments', label: 'Assignments', icon: ClipboardListIcon }]
+    { to: '/my-learning', label: 'My Learning', icon: ClipboardListIcon }]
 
   },
   {
@@ -47,6 +47,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     title: 'Teaching',
     items: [
     { to: '/teacher', label: 'Overview', icon: LayoutDashboardIcon, end: true },
+    { to: '/teacher/classes', label: 'My Classes', icon: UsersIcon },
     { to: '/teacher/courses', label: 'Courses & lessons', icon: LibraryIcon },
     { to: '/teacher/assignments', label: 'Assignments', icon: ClipboardCheckIcon },
     { to: '/teacher/submissions', label: 'Submissions', icon: InboxIcon }]
@@ -76,6 +77,22 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     { to: '/lab', label: 'Robot Lab', icon: Cpu },
     { to: '/courses', label: 'Course catalogue', icon: BookOpenIcon }]
 
+  }],
+
+  school_admin: [
+  {
+    title: 'School administration',
+    items: [
+    { to: '/school', label: 'School overview', icon: LayoutDashboardIcon, end: true },
+    { to: '/school/users', label: 'Teachers & students', icon: UsersIcon },
+    { to: '/school/classrooms', label: 'Classrooms', icon: LibraryIcon },
+    { to: '/school/import', label: 'Import users', icon: InboxIcon }]
+  },
+  {
+    title: 'Learning',
+    items: [
+    { to: '/courses', label: 'Course catalogue', icon: BookOpenIcon },
+    { to: '/lab', label: 'Robot Lab', icon: Cpu }]
   }]
 
 };
