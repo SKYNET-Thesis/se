@@ -25,6 +25,10 @@ import { AdminSettings } from './pages/admin/AdminSettings';
 import { NotFound } from './pages/NotFound';
 import { Login } from './pages/Login';
 import { LearningLoop } from './pages/LearningLoop';
+import { MyLearning } from './pages/MyLearning';
+import { TeacherClasses } from './pages/teacher/TeacherClasses';
+import { TeacherClassDetail } from './pages/teacher/TeacherClassDetail';
+import { SchoolManagement } from './pages/school/SchoolManagement';
 import { SupabaseSessionProvider } from './contexts/SupabaseSessionContext';
 import { RequireSession } from './components/auth/RequireSession';
 
@@ -43,6 +47,7 @@ export function App() {
                   <Route path="courses/:courseId" element={<CourseDetail />} />
                   <Route path="courses/:courseId/lessons/:lessonId" element={<LessonViewer />} />
                   <Route path="assignments" element={<LearningLoop />} />
+                  <Route path="my-learning" element={<MyLearning />} />
                   <Route path="learning-loop" element={<LearningLoop />} />
                   <Route path="assignments/:assignmentId" element={<AssignmentDetail />} />
                   <Route path="studio" element={<Studio />} />
@@ -50,6 +55,8 @@ export function App() {
                   <Route path="practice/:attemptId" element={<Practice />} />
                   <Route path="lab" element={<RobotLab />} />
                   <Route path="teacher" element={<TeacherOverview />} />
+                  <Route path="teacher/classes" element={<TeacherClasses />} />
+                  <Route path="teacher/classes/:classroomId" element={<TeacherClassDetail />} />
                   <Route path="teacher/courses" element={<TeacherCourses />} />
                   <Route path="teacher/assignments" element={<TeacherAssignments />} />
                   <Route path="teacher/assignments/new" element={<TeacherAssignmentEditor />} />
@@ -58,6 +65,10 @@ export function App() {
                   <Route path="admin/users" element={<AdminUsers />} />
                   <Route path="admin/robots" element={<AdminRobots />} />
                   <Route path="admin/settings" element={<AdminSettings />} />
+                  <Route path="school" element={<SchoolManagement />} />
+                  <Route path="school/users" element={<SchoolManagement initialTab="users" />} />
+                  <Route path="school/classrooms" element={<SchoolManagement initialTab="classrooms" />} />
+                  <Route path="school/import" element={<SchoolManagement initialTab="import" />} />
                   <Route path="*" element={<NotFound />} />
                 </Route>
               </Routes>

@@ -8,6 +8,7 @@
     "prisma:migrate": "prisma migrate dev",
     "seed:demo-identities": "npm run build && node --env-file=.env dist/scripts/seed-demo-identities.js",
     "seed:demo-delivery": "npm run build && node --env-file=.env dist/scripts/seed-demo-delivery.js",
+    "seed:demo-school-admin": "npm run build && node --env-file=.env dist/scripts/seed-demo-school-admin.js",
     "test": "jest --runInBand",
     "start": "node dist/main.js",
     "start:dev": "nest start --watch",

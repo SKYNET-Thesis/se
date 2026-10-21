@@ -4,5 +4,6 @@ import type { Role } from '../types/user';
 export const demoPersonas: Record<Role, {name: string;firstName: string;detail: string;}> = {
   student: { name: 'Maya Okafor', firstName: 'Maya', detail: 'Year 10 · Robotics A' },
   teacher: { name: 'Daniel Reyes', firstName: 'Daniel', detail: 'Engineering faculty' },
-  admin: { name: 'Priya Nair', firstName: 'Priya', detail: 'IT services' }
+  admin: { name: 'Priya Nair', firstName: 'Priya', detail: 'VISTA platform operations' },
+  school_admin: { name: 'Mai Anh Nguyen', firstName: 'Mai Anh', detail: 'School administration · VISTA Academy' }
 };

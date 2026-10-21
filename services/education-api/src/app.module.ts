@@ -7,6 +7,7 @@ import { LearningModule } from "./modules/learning/learning.module";
 import { StatusModule } from "./modules/status/status.module";
 import { RuntimeModule } from "./modules/runtime/runtime.module";
 import { MetadataModule } from "./modules/metadata/metadata.module";
+import { EducationAdminModule } from "./modules/education-admin/education-admin.module";
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { MetadataModule } from "./modules/metadata/metadata.module";
     StatusModule,
     RuntimeModule,
     MetadataModule,
+    EducationAdminModule,
   ],
 })
 export class AppModule {}
