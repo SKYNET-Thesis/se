@@ -8,7 +8,8 @@ import { cn } from '../../utils/cn';
 const roles: Array<{id: Role;label: string;home: string;}> = [
 { id: 'student', label: 'Student', home: '/' },
 { id: 'teacher', label: 'Teacher', home: '/teacher' },
-{ id: 'admin', label: 'Admin', home: '/admin/users' }];
+{ id: 'school_admin', label: 'School', home: '/school' },
+{ id: 'admin', label: 'VISTA', home: '/admin/users' }];
 
 
 export function RoleSwitcher({ onSwitched }: {onSwitched?: () => void;}) {
@@ -30,7 +31,7 @@ export function RoleSwitcher({ onSwitched }: {onSwitched?: () => void;}) {
           <p className="truncate text-2xs text-ink-subtle">{persona.detail}</p>
         </div>
       </div>
-      <div role="radiogroup" aria-label="Preview the demo as" className="mt-3 grid grid-cols-3 gap-0.5 rounded-md bg-sunken p-0.5">
+      <div role="radiogroup" aria-label="Preview the demo as" className="mt-3 grid grid-cols-4 gap-0.5 rounded-md bg-sunken p-0.5">
         {roles.map((r) =>
         <button
           key={r.id}

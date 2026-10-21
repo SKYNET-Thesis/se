@@ -11,7 +11,7 @@ interface RoleContextValue {
 
 const RoleContext = createContext<RoleContextValue | null>(null);
 
-const isRole = (v: unknown): v is Role => v === 'student' || v === 'teacher' || v === 'admin';
+const isRole = (v: unknown): v is Role => v === 'student' || v === 'teacher' || v === 'admin' || v === 'school_admin';
 
 export function RoleProvider({ children }: {children: React.ReactNode;}) {
   const [role, setRole] = usePersistentState<Role>(STORAGE_KEYS.role, 1, () => 'student', isRole);

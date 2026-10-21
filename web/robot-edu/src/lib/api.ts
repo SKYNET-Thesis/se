@@ -26,6 +26,13 @@ export async function apiRequest<T>(path: string, accessToken: string, method: "
 }
 
 export interface ApiClassroom { id: string; name: string; organization_id: string; }
+export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; assignment_count: number; }
+export interface ApiMyLearning { classroom_assignment_id: string; title: string; lesson_id: string; lesson_title: string; classroom_name: string; course_title: string; attempt_id: string | null; attempt_status: string | null; learning_status: 'assigned'|'started'|'completed'; }
+export interface ApiOrganizationMembership { organizationId: string; roleCode: string; status: string; permissionCodes: string[]; }
+export interface ApiSchoolMember { id:string; full_name:string; email:string; status:string; membership_id:string; membership_status:string; role_code:string; }
+export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; }
+export interface ApiOffering { id:string; code:string; title:string; status:string; }
+export interface ApiDeliveryOption { lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; }
 export interface ApiEnrollment { id: string; course_id: string; classroom_id: string | null; status: string; enrolled_at?: string; completed_at?: string | null; }
 export interface ApiClassroomAssignment { id: string; classroom_id: string; assignment_id: string; lesson_id: string; challenge_id: string | null; title: string; instructions: string | null; allowed_blocks?: unknown; constraints?: unknown; status: string; }
 export interface ApiAttempt { id: string; classroom_assignment_id: string; attempt_number?: number; program_id?: string | null; status: string; started_at?: string; submitted_at?: string | null; }
@@ -48,6 +55,7 @@ export const learnerApi = {
   classrooms: (token: string) => apiGet<ApiCollection<ApiClassroom>>("/me/classrooms?page=1&pageSize=100", token),
   assignments: (classroomId: string, token: string) => apiGet<ApiClassroomAssignment[]>(`/classrooms/${classroomId}/assignments`, token),
   attempts: (token: string) => apiGet<ApiAttempt[]>("/me/attempts", token),
+  myLearning: (token: string) => apiGet<ApiMyLearning[]>("/me/learning", token),
   createAttempt: (classroomAssignmentId: string, token: string) => apiRequest<ApiAttempt>(`/classroom-assignments/${classroomAssignmentId}/attempts`, token, "POST"),
   attempt: (attemptId: string, token: string) => apiGet<ApiAttempt>(`/me/attempts/${attemptId}`, token),
   program: (attemptId: string, token: string) => apiGet<ApiProgram>(`/me/attempts/${attemptId}/program`, token),
@@ -68,6 +76,7 @@ export const learnerApi = {
 
 export const instructorApi = {
   classrooms: learnerApi.classrooms,
+  teachingClassrooms: (token: string) => apiGet<ApiTeachingClassroom[]>("/me/teaching-classrooms", token),
   submissions: (classroomId: string, token: string) => apiGet<ApiInstructorSubmission[]>(`/classrooms/${classroomId}/submissions`, token),
   submission: (submissionId: string, token: string) => apiGet<ApiInstructorSubmission[]>(`/submissions/${submissionId}`, token),
   assess: (submissionId: string, token: string, body: { overallFeedback?: string; scores: { criterionId: string; awardedPoints: number; comment?: string }[] }) => apiRequest<ApiInstructorSubmission[]>(`/submissions/${submissionId}/assessment`, token, "POST", body),
@@ -80,8 +89,16 @@ export const identityApi = {
   me: (token: string) => apiGet<ApiIdentity>("/me", token),
   roles: (token: string) => apiGet<ApiRecord[]>("/me/roles", token),
   permissions: (token: string) => apiGet<ApiRecord[]>("/me/permissions", token),
-  memberships: (token: string) => apiGet<ApiRecord[]>("/me/memberships", token),
+  memberships: (token: string) => apiGet<ApiOrganizationMembership[]>("/me/memberships", token),
   updateProfile: (token: string, fullName: string) => apiRequest<ApiIdentity>("/me/profile", token, "PATCH", { fullName }),
+};
+export const educationAdminApi = {
+  offerings: (organizationId:string,token:string) => apiGet<ApiOffering[]>(`/education-admin/organizations/${organizationId}/offerings`,token),
+  members: (organizationId:string, token:string) => apiGet<ApiSchoolMember[]>(`/education-admin/organizations/${organizationId}/members`, token),
+  classrooms: (organizationId:string, token:string) => apiGet<ApiSchoolClassroom[]>(`/education-admin/organizations/${organizationId}/classrooms`, token),
+  classroomMembers: (organizationId:string, classroomId:string, token:string) => apiGet<ApiRecord[]>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`, token),
+  createClassroom: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms`,token,'POST',body),
+  upsertMember: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`,token,'POST',body),
 };
 export const catalogApi = {
   courses: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiCourse>>(`/courses?page=${page}&pageSize=${pageSize}`, token),
@@ -121,6 +138,7 @@ export const assignmentApi = {
   rubric: (id: string, token: string) => apiGet<ApiRubricCriterion[]>(`/assignments/${id}/rubric`, token),
   challengeAssignments: (id: string, token: string) => apiGet<ApiRecord[]>(`/challenges/${id}/assignments`, token),
   create: (classroomId: string, token: string, body: ApiRecord) => apiRequest<ApiRecord>(`/classrooms/${classroomId}/assignments`, token, "POST", body),
+  deliveryOptions: (classroomId:string,token:string) => apiGet<ApiDeliveryOption[]>(`/classrooms/${classroomId}/delivery-options`,token),
   update: (classroomId: string, assignmentId: string, token: string, body: ApiRecord) => apiRequest<ApiRecord>(`/classrooms/${classroomId}/assignments/${assignmentId}`, token, "PATCH", body),
 };
 export const attemptApi = { list: learnerApi.attempts, detail: learnerApi.attempt, create: learnerApi.createAttempt, workspace: (id: string, token: string) => apiGet<ApiRecord>(`/me/attempts/${id}/workspace`, token) };
