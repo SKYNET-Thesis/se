@@ -1,0 +1,132 @@
+/* @import url() FONT IMPORTS MUST ALWAYS BE AT THE VERY TOP OF THIS FILE, ABOVE THE TAILWIND IMPORTS — DO NOT DELETE THIS COMMENT */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* CRITICAL: THE FOLLOWING TAILWIND IMPORTS MUST NEVER BE DELETED OR REORDERED — DO NOT DELETE THIS COMMENT */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* END TAILWIND IMPORTS — ALL OTHER CSS MUST GO BELOW THIS LINE */
+
+:root {
+  --canvas: 247 246 243;
+  --surface: 255 255 255;
+  --sunken: 240 239 235;
+  --ink: 23 25 28;
+  --ink-muted: 78 83 90;
+  --ink-subtle: 112 117 125;
+  --line: 229 227 221;
+  --line-strong: 206 203 196;
+  --accent: 13 115 105;
+  --accent-hover: 9 94 86;
+  --accent-soft: 226 241 238;
+  --accent-ink: 7 78 71;
+  --ok: 30 122 72;
+  --ok-soft: 228 243 233;
+  --warn: 158 98 8;
+  --warn-soft: 251 241 220;
+  --danger: 182 44 44;
+  --danger-soft: 251 233 231;
+}
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  background: rgb(var(--canvas));
+  color: rgb(var(--ink));
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible {
+  outline: 2px solid rgb(var(--accent));
+  outline-offset: 2px;
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+/* ---------- Blockly workspace styling ---------- */
+.vista-blockly .blocklyToolboxDiv {
+  background: #f8faff;
+  border-right: 1px solid #dce4f1;
+  box-shadow: 8px 0 20px rgba(44, 62, 94, 0.035);
+  padding: 10px 7px;
+  width: 146px;
+}
+.vista-blockly .blocklyToolboxCategory {
+  padding: 0;
+}
+.vista-blockly .blocklyTreeRow {
+  height: 38px;
+  line-height: 38px;
+  margin: 2px 0;
+  border-radius: 9px;
+  padding: 0 9px 0 8px !important;
+  border-left-width: 5px !important;
+  box-sizing: border-box;
+  transition: background 140ms ease, transform 140ms ease;
+}
+.vista-blockly .blocklyTreeRow:not(.blocklyTreeSelected):hover {
+  background: #edf2fb;
+  transform: translateX(1px);
+}
+.vista-blockly .blocklyTreeLabel {
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+  font-weight: 650;
+  color: #344056;
+  letter-spacing: -0.01em;
+}
+.vista-blockly .blocklyTreeSelected .blocklyTreeLabel {
+  color: #18243a;
+}
+.vista-blockly .blocklyTreeSelected {
+  background: #e7efff !important;
+  box-shadow: inset 0 0 0 1px rgba(69, 117, 193, 0.12);
+}
+.vista-blockly .blocklyFlyoutBackground {
+  fill: #f6f8fc;
+  fill-opacity: 0.985;
+  stroke: #dce4f1;
+  stroke-width: 1px;
+}
+.vista-blockly .blocklyMainBackground {
+  stroke: none;
+}
+.vista-blockly .blocklyFlyoutLabelText {
+  fill: rgb(var(--ink-muted));
+  font-family: Inter, sans-serif;
+  font-size: 12px;
+}
+.vista-blockly .blocklyText,
+.vista-blockly .blocklyHtmlInput {
+  font-family: Inter, sans-serif !important;
+}
+.vista-blockly .blocklyScrollbarHandle {
+  fill: #c5cede;
+}
+.vista-blockly .blocklyTreeIcon {
+  display: none;
+}
+.vista-blockly .blocklyFlyoutLabelText {
+  fill: #6c7890;
+  font-weight: 600;
+}
+.vista-blockly .blocklyZoom > image,
+.vista-blockly .blocklyTrash > image {
+  opacity: 0.82;
+}
+.vista-blockly .blocklyZoom > image:hover,
+.vista-blockly .blocklyTrash > image:hover {
+  opacity: 1;
+}
