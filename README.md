@@ -27,3 +27,9 @@ docker compose up --build
 - tests/end-to-end
 - docs
 - infra
+
+## RobotEdu web platform
+
+- Web client source: `web/robot-edu` (`npm ci && npm run dev`).
+- NestJS education API: `services/education-api`; Compose publishes `http://localhost:3001/api/v1`.
+- Private runtime: `services/robot-runtime`; it is fail-closed and has no host port.
