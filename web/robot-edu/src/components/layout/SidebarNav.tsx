@@ -10,7 +10,8 @@ interface SidebarNavProps {
 }
 
 export function SidebarNav({ collapsed = false, onNavigate }: SidebarNavProps) {
-  const { role } = useRole();
+  const { role, loading } = useRole();
+  if (loading || !role) return <p className="px-2.5 text-sm text-ink-muted">Loading workspace…</p>;
   const sections = navigationByRole[role];
   return (
     <nav aria-label="Main" className="space-y-5">

@@ -1,0 +1,21 @@
+@startuml
+title WF-01 Classroom Robot Allocation
+|School Admin|
+start
+:Choose classroom and entitled robot;
+|VISTA Web|
+:GET eligible robots; PUT allocation;
+|Education API|
+:Authenticate and verify school_admin allocation permission;
+if (Classroom organization and robot entitlement valid?) then (yes)
+  |Database|
+  :Upsert one allocation per classroom;
+  |Education API|
+  :Return safe robot projection;
+  |Instructor|
+  :Read authorized classroom and allocated robot;
+else (no)
+  :Return not found / authorization rejection;
+endif
+stop
+@enduml

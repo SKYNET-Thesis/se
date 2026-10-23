@@ -1,0 +1,18 @@
+export type ImportKind = 'teachers' | 'students';
+export type ImportStatus = 'Ready' | 'Duplicate' | 'Needs review';
+export type ImportRow = { row:number; firstName:string; lastName:string; fullName:string; email:string; employeeCode?:string; studentCode?:string; gradeLevel?:string; guardianEmail?:string; errors:string[] };
+const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export function template(kind: ImportKind) { return kind === 'teachers' ? 'first_name,last_name,email,employee_code\nNguyen,Van A,teacher@school.edu,GV001\n' : 'first_name,last_name,student_code,grade_level,email,guardian_email\nLe,Van B,HS001,Grade 3,,parent@school.edu\n'; }
+export function parseSchoolCsv(kind: ImportKind | string, source?: string): ImportRow[] {
+  if (source === undefined) { source = kind as string; kind = 'teachers'; }
+  const lines = source.split(/\r?\n/).filter(Boolean); const headers = lines.shift()?.split(',').map(value => value.trim()) ?? []; const required = kind === 'teachers' ? ['first_name','last_name','email','employee_code'] : ['first_name','last_name','student_code','grade_level'];
+  if (required.some(header => !headers.includes(header))) return [{ row:1, firstName:'', lastName:'', fullName:'', email:'', errors:['Missing required CSV columns.'] }];
+  const emails = new Set<string>(); const codes = new Set<string>();
+  return lines.map((line, index) => { const cells = line.split(',').map(value => value.trim()); const value = (header:string) => cells[headers.indexOf(header)] ?? ''; const firstName=value('first_name'), lastName=value('last_name'), email=value('email').toLowerCase(), code=kind==='teachers'?value('employee_code'):value('student_code'), gradeLevel=value('grade_level'), guardianEmail=value('guardian_email').toLowerCase(), errors:string[]=[];
+    if(!firstName)errors.push('First name is required.'); if(!lastName)errors.push('Last name is required.'); if(kind==='teachers'&&(!email||!valid.test(email)))errors.push('Email is required and must be valid.'); if(kind==='teachers'&&!code)errors.push('Employee code is required.'); if(kind==='students'&&!code)errors.push('Student code is required.'); if(kind==='students'&&!gradeLevel)errors.push('Grade level is required.'); if(kind==='students'&&email&&!valid.test(email))errors.push('Email is malformed.'); if(kind==='students'&&guardianEmail&&!valid.test(guardianEmail))errors.push('Guardian email is malformed.'); if(code&&codes.has(code))errors.push(`Duplicate ${kind==='teachers'?'employee':'student'} code in upload.`); if(code)codes.add(code); if(email&&emails.has(email))errors.push('Duplicate email in upload.'); if(email)emails.add(email);
+    return { row:index+2, firstName, lastName, fullName:`${firstName} ${lastName}`.trim(), email, employeeCode:kind==='teachers'?code:undefined, studentCode:kind==='students'?code:undefined, gradeLevel, guardianEmail, errors };
+  });
+}
+export function rowStatus(row:ImportRow):ImportStatus{return row.errors.some(error=>error.startsWith('Duplicate'))?'Duplicate':row.errors.length?'Needs review':'Ready';}
+export function importSummary(rows:ImportRow[]){return rows.reduce((summary,row)=>{summary[rowStatus(row)]++;return summary;},{Records:rows.length,Ready:0,Duplicate:0,'Needs review':0} as Record<'Records'|ImportStatus,number>);}
+export function filterImportRows(rows:ImportRow[],status:'All'|ImportStatus,query:string){const needle=query.trim().toLowerCase();return rows.filter(row=>(status==='All'||rowStatus(row)===status)&&(!needle||[row.fullName,row.email,row.employeeCode,row.studentCode,row.gradeLevel,row.guardianEmail].some(value=>value?.toLowerCase().includes(needle))));}

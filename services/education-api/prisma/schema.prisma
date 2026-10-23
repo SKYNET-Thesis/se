@@ -455,6 +455,7 @@ model organizations {
   leads                     leads?                      @relation(fields: [converted_from_lead_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users                     users?                      @relation(fields: [personal_owner_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   robots                    robots[]
+  education_school_user_profiles education_school_user_profiles[]
 }
 
 model permissions {
@@ -523,6 +524,7 @@ model robots {
   licenses              licenses[]
   org_entitlements      org_entitlements[]
   readiness_checks      readiness_checks[]
+  learning_classroom_robot_allocations learning_classroom_robot_allocations[]
   organizations         organizations?     @relation(fields: [owner_organization_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
@@ -663,7 +665,7 @@ model user_system_roles {
 model users {
   id                              String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   auth_user_id                    String?                           @unique @db.Uuid
-  email                           String
+  email                           String?
   password_hash                   String?
   full_name                       String
   status                          String                            @default("invited")
@@ -688,6 +690,7 @@ model users {
   learning_classroom_assignments  learning_classroom_assignments[]
   learning_classroom_members      learning_classroom_members[]
   learning_classrooms             learning_classrooms[]
+  learning_classroom_robot_allocations learning_classroom_robot_allocations[]
   learning_competency_progress    learning_competency_progress[]
   learning_course_offerings       learning_course_offerings[]
   learning_courses                learning_courses[]
@@ -709,6 +712,26 @@ model users {
   safety_events                   safety_events[]
   training_runs                   training_runs[]
   user_system_roles               user_system_roles[]
+  education_school_user_profiles education_school_user_profiles[]
+}
+
+model education_school_user_profiles {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id String        @db.Uuid
+  user_id         String        @db.Uuid
+  person_type     String
+  employee_code   String?
+  student_code    String?
+  grade_level     String?
+  guardian_email  String?
+  account_state   String
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime      @default(now()) @db.Timestamptz(6)
+  organizations   organizations @relation(fields: [organization_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users           users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([organization_id, user_id])
+  @@index([organization_id, person_type])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -904,10 +927,24 @@ model learning_classrooms {
   learning_course_offerings      learning_course_offerings        @relation(fields: [offering_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   organizations                  organizations                    @relation(fields: [organization_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   learning_enrollments           learning_enrollments[]
+  learning_classroom_robot_allocations learning_classroom_robot_allocations[]
 
   @@unique([organization_id, code])
   @@index([offering_id], map: "idx_classrooms_offering")
   @@index([organization_id], map: "idx_classrooms_org")
+}
+
+model learning_classroom_robot_allocations {
+  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  classroom_id       String              @unique @db.Uuid
+  robot_id           String              @db.Uuid
+  created_by_user_id String              @db.Uuid
+  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  learning_classrooms learning_classrooms @relation(fields: [classroom_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  robots             robots              @relation(fields: [robot_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users              users               @relation(fields: [created_by_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([robot_id], map: "idx_classroom_robot_allocations_robot")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

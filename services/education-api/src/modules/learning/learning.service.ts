@@ -96,7 +96,7 @@ export class LearningService {
       ORDER BY ca.created_at DESC`;
   }
 
-  async classroom(user: AuthenticatedUser, classroomId: string) { await this.scope.assertClassroomAccess(user, classroomId); const rows=await this.prisma.$queryRaw<ClassroomRow[]>`SELECT id,organization_id,offering_id,name,code,description,capacity,status,created_at,updated_at FROM public.learning_classrooms WHERE id=${classroomId}::uuid`; if (!rows[0]) throw new NotFoundException("Classroom was not found."); return rows[0]; }
+  async classroom(user: AuthenticatedUser, classroomId: string) { await this.scope.assertClassroomAccess(user, classroomId); const rows=await this.prisma.$queryRaw<ClassroomRow[]>`SELECT c.id,c.organization_id,c.offering_id,c.name,c.code,c.description,c.capacity,c.status,c.created_at,c.updated_at,CASE WHEN r.id IS NULL THEN NULL ELSE jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name) END AS allocated_robot FROM public.learning_classrooms c LEFT JOIN public.learning_classroom_robot_allocations ar ON ar.classroom_id=c.id LEFT JOIN public.robots r ON r.id=ar.robot_id WHERE c.id=${classroomId}::uuid`; if (!rows[0]) throw new NotFoundException("Classroom was not found."); return rows[0]; }
   async assignments(user: AuthenticatedUser, classroomId: string) {
     await this.classroom(user,classroomId);
     const canManage = await this.scope.canManageClassroom(user, classroomId);

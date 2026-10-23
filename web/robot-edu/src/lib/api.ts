@@ -7,7 +7,8 @@ const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001/api
 
 export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
-    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Cache-Control": "no-store" },
   });
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { message?: string } | null;
@@ -17,20 +18,31 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
 }
 
 export interface ApiCourse { id: string; title: string; description: string | null; status: string; }
-export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; }
+export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
 
-export async function apiRequest<T>(path: string, accessToken: string, method: "POST" | "PATCH" | "DELETE", body?: unknown): Promise<T> {
+export async function apiRequest<T>(path: string, accessToken: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { method, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   if (!response.ok) { const payload = await response.json().catch(() => null) as { message?: string } | null; throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`); }
   return response.json() as Promise<T>;
 }
 
-export interface ApiClassroom { id: string; name: string; organization_id: string; }
+export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; }
+export interface ApiRobotResource { id: string; name: string; serialNo: string; modelName: string; status?: string; }
 export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; assignment_count: number; }
 export interface ApiMyLearning { classroom_assignment_id: string; title: string; lesson_id: string; lesson_title: string; classroom_name: string; course_title: string; attempt_id: string | null; attempt_status: string | null; learning_status: 'assigned'|'started'|'completed'; }
-export interface ApiOrganizationMembership { organizationId: string; roleCode: string; status: string; permissionCodes: string[]; }
-export interface ApiSchoolMember { id:string; full_name:string; email:string; status:string; membership_id:string; membership_status:string; role_code:string; }
-export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; }
+export interface ApiOrganizationMembership { membershipId?: string; organizationId: string; roleCode: string; status: string; permissionCodes?: string[]; }
+export interface ApiAccessContext { systemRoleCodes: string[]; memberships: ApiOrganizationMembership[]; }
+export interface ApiSchoolMember { id:string; full_name:string; email:string|null; status:string; membership_id:string; membership_status:string; role_code:string; employee_code?:string|null; student_code?:string|null; grade_level?:string|null; guardian_email?:string|null; account_state?:'active'|'invited'|'account_setup_pending'; }
+export interface ApiSchoolOverview { studentsCount:number; teachersCount:number; classroomsCount:number; robotResourcesCount:number; accountSetupPendingCount:number; }
+export interface ApiSchoolPerson { id:string; displayName:string; role:'student'|'instructor'; studentCode?:string|null; employeeCode?:string|null; gradeLevel?:string|null; email:string|null; accountState:'active'|'invited'|'account_setup_pending'; }
+export interface ApiMemberCandidate { userId:string; displayName:string; organizationRole:'student'|'instructor'; schoolCode:string|null; accountState:'active'|'invited'|'account_setup_pending'; alreadyMember:boolean; }
+export interface ApiPage<T> { items:T[]; page:number; pageSize:number; total:number; }
+export type ApiImportErrorCode='VALIDATION_ERROR'|'DUPLICATE_USER'|'ACCOUNT_INVITE_FAILED'|'ACCOUNT_PROVISIONING_FAILED'|'DATABASE_WRITE_FAILED'|'NOT_AUTHORIZED'|'UNKNOWN_IMPORT_ERROR';
+export interface ApiSchoolImportResult { processed:number; created:number; unchanged:number; failed:number; results:Array<{row:number;status:'created'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name?:string;schoolCode?:string}>; }
+export interface ApiClassroomStudentPreviewRow { row:number;firstName:string;lastName:string;studentCode:string;gradeLevel:string;email:string|null;status:'new_student'|'existing_student'|'already_in_class'|'needs_review';errors:string[];warnings:string[]; }
+export interface ApiClassroomStudentPreview { processed:number;newStudents:number;existingStudents:number;alreadyInClass:number;needsReview:number;rows:ApiClassroomStudentPreviewRow[]; }
+export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string}>; }
+export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
 export interface ApiOffering { id:string; code:string; title:string; status:string; }
 export interface ApiDeliveryOption { lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; }
 export interface ApiEnrollment { id: string; course_id: string; classroom_id: string | null; status: string; enrolled_at?: string; completed_at?: string | null; }
@@ -87,18 +99,26 @@ export const instructorApi = {
  * `instructorApi` above remain compatibility aliases for already-wired pages. */
 export const identityApi = {
   me: (token: string) => apiGet<ApiIdentity>("/me", token),
-  roles: (token: string) => apiGet<ApiRecord[]>("/me/roles", token),
+  roles: (token: string) => apiGet<ApiAccessContext>("/me/roles", token),
   permissions: (token: string) => apiGet<ApiRecord[]>("/me/permissions", token),
   memberships: (token: string) => apiGet<ApiOrganizationMembership[]>("/me/memberships", token),
   updateProfile: (token: string, fullName: string) => apiRequest<ApiIdentity>("/me/profile", token, "PATCH", { fullName }),
 };
 export const educationAdminApi = {
+  overview: (organizationId:string,token:string) => apiGet<ApiSchoolOverview>(`/education-admin/organizations/${organizationId}/overview`,token),
+  people: (organizationId:string,token:string,filters:{page:number;pageSize:number;search?:string;role?:'student'|'instructor'}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);if(filters.role)query.set('role',filters.role);return apiGet<ApiPage<ApiSchoolPerson>>(`/education-admin/organizations/${organizationId}/people?${query}`,token); },
   offerings: (organizationId:string,token:string) => apiGet<ApiOffering[]>(`/education-admin/organizations/${organizationId}/offerings`,token),
   members: (organizationId:string, token:string) => apiGet<ApiSchoolMember[]>(`/education-admin/organizations/${organizationId}/members`, token),
   classrooms: (organizationId:string, token:string) => apiGet<ApiSchoolClassroom[]>(`/education-admin/organizations/${organizationId}/classrooms`, token),
   classroomMembers: (organizationId:string, classroomId:string, token:string) => apiGet<ApiRecord[]>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`, token),
+  memberCandidates: (organizationId:string,classroomId:string,token:string,filters:{page:number;pageSize:number;search?:string}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);return apiGet<ApiPage<ApiMemberCandidate>>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/member-candidates?${query}`,token); },
   createClassroom: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms`,token,'POST',body),
+  importUsers: (organizationId:string,token:string,body:ApiRecord) => apiRequest<ApiSchoolImportResult>(`/education-admin/organizations/${organizationId}/user-imports`,token,'POST',body),
+  previewClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentPreview>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports/preview`,token,'POST',body),
+  confirmClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentImportResult>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports`,token,'POST',body),
   upsertMember: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`,token,'POST',body),
+  eligibleRobots: (classroomId:string,token:string) => apiGet<ApiRobotResource[]>(`/education-admin/classrooms/${classroomId}/eligible-robots`,token),
+  allocateRobot: (classroomId:string,token:string,robotId:string) => apiRequest<ApiRecord>(`/education-admin/classrooms/${classroomId}/robot-allocation`,token,'PUT',{robotId}),
 };
 export const catalogApi = {
   courses: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiCourse>>(`/courses?page=${page}&pageSize=${pageSize}`, token),
