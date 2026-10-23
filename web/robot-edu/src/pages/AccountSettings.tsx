@@ -1,0 +1,5 @@
+import React from 'react';
+import { PageHeader } from '../components/ui/PageHeader';
+import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
+import { useRole } from '../contexts/RoleContext';
+export function AccountSettings(){const {session}=useSupabaseSession();const {role}=useRole();const name=session?.user.user_metadata?.full_name??session?.user.email??'VISTA account';return <main className="mx-auto max-w-3xl px-5 py-8 sm:px-8"><PageHeader title="Account Settings" description="Your authenticated VISTA identity." /><section className="mt-8 divide-y divide-line border-y border-line text-sm"><div className="py-4"><p className="text-ink-muted">Name</p><p className="mt-1 font-medium text-ink">{String(name)}</p></div><div className="py-4"><p className="text-ink-muted">Email</p><p className="mt-1 font-medium text-ink">{session?.user.email}</p></div><div className="py-4"><p className="text-ink-muted">Current role</p><p className="mt-1 font-medium capitalize text-ink">{role?.replace('_',' ')}</p></div></section></main>;}
