@@ -2,7 +2,7 @@
 
 All learning data goes through Nest at `VITE_API_BASE_URL` (default `http://localhost:3000/api/v1`). Obtain the bearer token exclusively from the existing Supabase session. Do not read or write `learning_*` directly from the browser's Supabase client.
 
-The typed entry points are in `apps/web/src/lib/api.ts`: `identityApi`, `catalogApi`, `classroomApi`, `assignmentApi`, `attemptApi`, `programApi`, `submissionApi`, `experimentApi`, `symbolicEvaluationApi`, `assessmentApi`, `feedbackApi`, `reflectionApi`, `demonstrationApi`, `datasetApi`, `modelApi`, `vlaProvenanceApi`, and `runtimeApi`.
+The typed entry points are in `web/robot-edu/src/lib/api.ts`: `identityApi`, `catalogApi`, `classroomApi`, `assignmentApi`, `attemptApi`, `programApi`, `submissionApi`, `experimentApi`, `symbolicEvaluationApi`, `assessmentApi`, `feedbackApi`, `reflectionApi`, `demonstrationApi`, `datasetApi`, `modelApi`, `vlaProvenanceApi`, and `runtimeApi`.
 
 `organizationApi` and `dashboardApi` provide scoped composite reads. Classroom
 member, summary and dashboard APIs are teacher/TA review-scope APIs, not learner

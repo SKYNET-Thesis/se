@@ -11,7 +11,7 @@ interface DialogProps {
   description?: React.ReactNode;
   children?: React.ReactNode;
   footer?: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
 export function Dialog({ open, onClose, title, description, children, footer, size = 'md' }: DialogProps) {
@@ -78,7 +78,8 @@ export function Dialog({ open, onClose, title, description, children, footer, si
             'relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-t-xl border border-line bg-surface shadow-pop outline-none sm:rounded-xl',
             size === 'sm' && 'sm:max-w-md',
             size === 'md' && 'sm:max-w-xl',
-            size === 'lg' && 'sm:max-w-3xl'
+            size === 'lg' && 'sm:max-w-3xl',
+            size === 'xl' && 'h-[88vh] max-w-[95vw] sm:max-w-[1500px]'
           )}
           initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.97, y: 8 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
