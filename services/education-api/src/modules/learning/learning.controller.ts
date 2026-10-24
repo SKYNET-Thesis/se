@@ -24,8 +24,9 @@ export class LearningController {
  @Get("classrooms/:classroomId/assignments") assignments(@CurrentUser() u:AuthenticatedUser,@Param("classroomId") id:string){return this.learning.assignments(u,id)}
  @Get("classrooms/:classroomId/delivery-options") deliveryOptions(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) id:string){return this.learning.deliveryOptions(u,id)}
  @Get("classroom-assignments/:classroomAssignmentId") assignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomAssignmentId",ParseUUIDPipe) id:string){return this.learning.assignment(u,id)}
- @Post("classrooms/:classroomId/assignments") createAssignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomId") id:string,@Body() dto:CreateAssignmentDto){return this.learning.createAssignment(u,id,dto)}
- @Patch("classrooms/:classroomId/assignments/:assignmentId") updateAssignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomId") c:string,@Param("assignmentId") a:string,@Body() dto:UpdateAssignmentDto){return this.learning.updateAssignment(u,c,a,dto)}
+ @Post("classrooms/:classroomId/assignments") createAssignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) id:string,@Body() dto:CreateAssignmentDto){return this.learning.createAssignment(u,id,dto)}
+ @Post("classrooms/:classroomId/assignments/:assignmentId/publish") publishAssignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) classroomId:string,@Param("assignmentId",ParseUUIDPipe) assignmentId:string){return this.learning.publishAssignment(u,classroomId,assignmentId)}
+ @Patch("classrooms/:classroomId/assignments/:assignmentId") updateAssignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) c:string,@Param("assignmentId",ParseUUIDPipe) a:string,@Body() dto:UpdateAssignmentDto){return this.learning.updateAssignment(u,c,a,dto)}
  @Post("classroom-assignments/:classroomAssignmentId/attempts") startAttempt(@CurrentUser() u:AuthenticatedUser,@Param("classroomAssignmentId",ParseUUIDPipe) id:string){return this.learning.startAttempt(u,id)}
  @Get("me/attempts") attempts(@CurrentUser() u:AuthenticatedUser){return this.learning.myAttempts(u)}
  @Get("me/attempts/:attemptId") attempt(@CurrentUser() u:AuthenticatedUser,@Param("attemptId",ParseUUIDPipe) id:string){return this.learning.myAttempt(u,id)}

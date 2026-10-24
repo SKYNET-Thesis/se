@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../../common/database/prisma.service";
 import { AuthenticatedUser } from "../../identity/auth/authenticated-user.interface";
 import { SymbolicEvaluationPreparationService } from "./symbolic-evaluation-preparation.service";
@@ -35,14 +35,20 @@ export class SymbolicEvaluationService {
           ${prepared.ruleSet.schemaVersion},${prepared.ruleSet.ruleSetHash},${JSON.stringify(snapshot)}::jsonb,${prepared.fingerprint},${preview.verdict},${JSON.stringify(preview.rules)}::jsonb,${JSON.stringify(preview.metrics)}::jsonb
         ) ON CONFLICT (fingerprint) DO NOTHING
         RETURNING id,experiment_id,program_version_id,evaluator_version,rule_set_schema_version,rule_set_hash,verdict,rule_results,metrics,created_at`;
-      if (inserted[0]) return map(inserted[0]);
-      const existing = await tx.$queryRaw<DbEvaluation[]>`
+      let evidence = inserted[0];
+      if (!evidence) {
+        const existing = await tx.$queryRaw<DbEvaluation[]>`
         SELECT se.id,se.experiment_id,se.program_version_id,se.evaluator_version,se.rule_set_schema_version,se.rule_set_hash,se.verdict,se.rule_results,se.metrics,se.created_at
         FROM public.learning_symbolic_evaluations se
         JOIN public.learning_experiments e ON e.id=se.experiment_id
         WHERE se.fingerprint=${prepared.fingerprint} AND se.requested_by_user_id=${user.vistaUserId}::uuid AND e.learner_user_id=${user.vistaUserId}::uuid`;
-      if (!existing[0]) throw new NotFoundException("Symbolic evaluation was not found.");
-      return map(existing[0]);
+        if (!existing[0]) throw new NotFoundException("Symbolic evaluation was not found.");
+        evidence = existing[0];
+      }
+      const response = map(evidence);
+      const finalized=await tx.$queryRaw<{id:string}[]>`UPDATE public.learning_assignment_attempts SET status='evaluated',result_snapshot=${JSON.stringify({ evaluationId: response.id, programVersionId: response.programVersionId, verdict: response.verdict, ruleResults: response.ruleResults, metrics: response.metrics })}::jsonb WHERE id=${prepared.attemptId}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status IN ('submitted','evaluated') RETURNING id`;
+      if(!finalized[0])throw new ConflictException("Attempt could not be finalized after evaluation.");
+      return response;
     });
   }
 
