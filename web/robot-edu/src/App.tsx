@@ -37,6 +37,8 @@ import { AccountSettings } from './pages/AccountSettings';
 import { WebSettings } from './pages/WebSettings';
 import { SchoolImportUsers } from './pages/school/SchoolImportUsers';
 import { SchoolQueryProvider } from './queries/SchoolQueryProvider';
+import { StudentAssignmentDetail } from './pages/StudentAssignmentDetail';
+import { TeacherSubmissionReview } from './pages/teacher/TeacherSubmissionReview';
 
 export function App() {
   return (
@@ -56,15 +58,17 @@ export function App() {
                   <Route path="courses/:courseId/lessons/:lessonId" element={<LessonViewer />} />
                   <Route path="assignments" element={<LearningLoop />} />
                   <Route path="my-learning" element={<MyLearning />} />
+                  <Route path="my-learning/:classroomAssignmentId" element={<StudentAssignmentDetail />} />
                   <Route path="learning-loop" element={<LearningLoop />} />
                   <Route path="assignments/:assignmentId" element={<AssignmentDetail />} />
                   <Route path="studio" element={<Studio />} />
                   <Route path="studio/:programId" element={<Studio />} />
-                  <Route path="practice/:attemptId" element={<Practice />} />
+                  <Route path="practice/:attemptId" element={<Practice mode="learning" />} />
                   <Route path="lab" element={<RobotLab />} />
                   <Route path="teacher" element={<RequireRole roles={['teacher']}><TeacherOverview /></RequireRole>} />
                   <Route path="teacher/classes" element={<RequireRole roles={['teacher']}><TeacherClasses /></RequireRole>} />
                   <Route path="teacher/classes/:classroomId" element={<RequireRole roles={['teacher']}><TeacherClassDetail /></RequireRole>} />
+                  <Route path="teacher/classes/:classroomId/submissions/:submissionId" element={<RequireRole roles={['teacher']}><TeacherSubmissionReview /></RequireRole>} />
                   <Route path="teacher/courses" element={<RequireRole roles={['teacher']}><TeacherCourses /></RequireRole>} />
                   <Route path="teacher/assignments" element={<RequireRole roles={['teacher']}><TeacherAssignments /></RequireRole>} />
                   <Route path="teacher/assignments/new" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
