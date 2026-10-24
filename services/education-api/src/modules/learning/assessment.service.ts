@@ -16,17 +16,22 @@ export class AssessmentService {
     await this.scope.assertTeacherClassroomPermission(user,classroomId,["learning.work.review"]);
     return this.prisma.$queryRaw`
       SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,s.status,s.submitted_at,
-        a.attempt_number,u.full_name,u.email
+        at.attempt_number,u.full_name,u.email,la.title AS assignment_title,
+        CASE WHEN review.id IS NULL THEN 'unreviewed' ELSE 'assessed' END AS review_status
       FROM public.learning_submissions s
-      JOIN public.learning_assignment_attempts a ON a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id
-      JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id
+      JOIN public.learning_assignment_attempts at ON at.program_id=s.program_id AND at.learner_user_id=s.learner_user_id
+      JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id AND ca.assignment_id=s.assignment_id
+      JOIN public.learning_assignments la ON la.id=s.assignment_id
       JOIN public.users u ON u.id=s.learner_user_id
+      LEFT JOIN public.learning_assessments review ON review.submission_id=s.id
       WHERE ca.classroom_id=${classroomId}::uuid ORDER BY s.submitted_at DESC NULLS LAST`;
   }
 
   async instructorSubmission(user:AuthenticatedUser,submissionId:string) {
     const submission=await this.submissionScope(submissionId); await this.scope.assertTeacherClassroomPermission(user,submission.classroom_id,["learning.work.review"]);
-    return this.detail(submissionId);
+    const rows=await this.detail(submissionId);const detail=rows[0] as Record<string,any>|undefined;if(!detail)throw new NotFoundException("Submission was not found.");
+    if(detail.symbolic_evaluation?.programVersionId!==detail.program_version?.id)detail.symbolic_evaluation=null;
+    return detail;
   }
 
   async assessment(user:AuthenticatedUser,submissionId:string) {
@@ -63,7 +68,7 @@ export class AssessmentService {
     return this.prisma.$queryRaw`
       SELECT s.id,s.assignment_id,s.program_id,s.program_version_id,s.status,s.submitted_at
       FROM public.learning_submissions s JOIN public.learning_assignment_attempts a ON a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id
-      JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id
+      JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id
       JOIN public.learning_classroom_members cm ON cm.classroom_id=ca.classroom_id AND cm.user_id=s.learner_user_id AND cm.classroom_role='student' AND cm.status='active'
       JOIN public.memberships m ON m.id=cm.membership_id AND m.status='active'
       JOIN public.learning_classrooms c ON c.id=ca.classroom_id AND c.organization_id=m.organization_id
@@ -103,6 +108,19 @@ export class AssessmentService {
   }
 
   private async ownSubmission(user:AuthenticatedUser,id:string) {const submission=await this.submissionScope(id);if(submission.learner_user_id!==user.vistaUserId) throw new NotFoundException("Submission was not found.");await this.scope.assertStudentClassroomAccess(user,submission.classroom_id);return submission;}
-  private async submissionScope(id:string):Promise<SubmissionScope>{const rows=await this.prisma.$queryRaw<SubmissionScope[]>`SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,ca.classroom_id FROM public.learning_submissions s JOIN public.learning_assignment_attempts a ON a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id WHERE s.id=${id}::uuid`;if(!rows[0])throw new NotFoundException("Submission was not found.");return rows[0];}
-  private detail(submissionId:string, db:Pick<PrismaService,"$queryRaw">=this.prisma){return db.$queryRaw`SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,s.submitted_workspace,s.submitted_program,s.reflection,s.status,s.submitted_at,a.id AS assessment_id,a.reviewer_user_id,a.overall_feedback,a.reviewed_at,COALESCE((SELECT json_agg(json_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points,'ordinal',rc.ordinal) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=s.assignment_id),'[]'::json) AS rubric_criteria FROM public.learning_submissions s LEFT JOIN public.learning_assessments a ON a.submission_id=s.id WHERE s.id=${submissionId}::uuid`;}
+  private async submissionScope(id:string):Promise<SubmissionScope>{const rows=await this.prisma.$queryRaw<SubmissionScope[]>`SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,ca.classroom_id FROM public.learning_submissions s JOIN public.learning_assignment_attempts a ON a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id WHERE s.id=${id}::uuid`;if(rows.length!==1)throw new NotFoundException("Submission was not found.");return rows[0];}
+  private detail(submissionId:string, db:Pick<PrismaService,"$queryRaw">=this.prisma){return db.$queryRaw<Record<string,unknown>[]>`
+    SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,s.status,s.submitted_at,
+      u.full_name,u.email,la.title AS assignment_title,
+      CASE WHEN pv.id IS NULL THEN NULL ELSE json_build_object('id',pv.id,'versionNumber',pv.version_number,'workspaceJson',pv.workspace_json,'robotProgram',pv.robot_program,'validationResult',pv.validation_result,'changeSummary',pv.change_summary,'createdAt',pv.created_at) END AS program_version,
+      CASE WHEN se.id IS NULL THEN NULL ELSE json_build_object('id',se.id,'experimentId',se.experiment_id,'programVersionId',se.program_version_id,'evaluatorVersion',se.evaluator_version,'ruleSetSchemaVersion',se.rule_set_schema_version,'ruleSetHash',se.rule_set_hash,'verdict',se.verdict,'ruleResults',se.rule_results,'metrics',se.metrics,'createdAt',se.created_at) END AS symbolic_evaluation,
+      CASE WHEN ex.id IS NULL THEN NULL ELSE json_build_object('id',ex.id,'status',ex.status,'executionMode',ex.execution_mode,'createdAt',ex.created_at,'endedAt',ex.ended_at) END AS experiment,
+      CASE WHEN a.id IS NULL THEN NULL ELSE json_build_object('id',a.id,'reviewerUserId',a.reviewer_user_id,'overallFeedback',a.overall_feedback,'reviewedAt',a.reviewed_at,'scores',COALESCE((SELECT json_agg(json_build_object('criterionId',sc.criterion_id,'awardedPoints',sc.awarded_points,'comment',sc.comment)) FROM public.learning_assessment_scores sc WHERE sc.assessment_id=a.id),'[]'::json)) END AS assessment,
+      COALESCE((SELECT json_agg(json_build_object('id',f.id,'submissionId',f.submission_id,'authorUserId',f.author_user_id,'feedbackType',f.feedback_type,'content',f.content,'createdAt',f.created_at) ORDER BY f.created_at) FROM public.learning_feedback f WHERE f.submission_id=s.id),'[]'::json) AS feedback,
+      COALESCE((SELECT json_agg(json_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points,'ordinal',rc.ordinal) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=s.assignment_id),'[]'::json) AS rubric_criteria
+    FROM public.learning_submissions s JOIN public.users u ON u.id=s.learner_user_id JOIN public.learning_assignments la ON la.id=s.assignment_id
+    LEFT JOIN public.learning_program_versions pv ON pv.id=s.program_version_id AND pv.program_id=s.program_id
+    LEFT JOIN LATERAL (SELECT e.* FROM public.learning_experiments e WHERE e.submission_id=s.id AND e.learner_user_id=s.learner_user_id AND e.input_snapshot->>'programVersionId'=s.program_version_id::text ORDER BY e.created_at DESC LIMIT 1) ex ON true
+    LEFT JOIN LATERAL (SELECT evidence.* FROM public.learning_symbolic_evaluations evidence WHERE evidence.submission_id=s.id AND evidence.experiment_id=ex.id AND evidence.program_version_id=s.program_version_id ORDER BY evidence.created_at DESC LIMIT 1) se ON true
+    LEFT JOIN public.learning_assessments a ON a.submission_id=s.id WHERE s.id=${submissionId}::uuid`;}
 }

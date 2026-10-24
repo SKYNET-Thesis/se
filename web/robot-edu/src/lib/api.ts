@@ -44,19 +44,21 @@ export interface ApiClassroomStudentPreview { processed:number;newStudents:numbe
 export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string}>; }
 export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
 export interface ApiOffering { id:string; code:string; title:string; status:string; }
-export interface ApiDeliveryOption { lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; }
+export interface ApiDeliveryChallenge { id:string; title:string; }
+export interface ApiDeliveryOption { lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; challenges:ApiDeliveryChallenge[]; }
 export interface ApiEnrollment { id: string; course_id: string; classroom_id: string | null; status: string; enrolled_at?: string; completed_at?: string | null; }
-export interface ApiClassroomAssignment { id: string; classroom_id: string; assignment_id: string; lesson_id: string; challenge_id: string | null; title: string; instructions: string | null; allowed_blocks?: unknown; constraints?: unknown; status: string; }
+export interface ApiClassroomAssignment { id: string; classroom_id: string; assignment_id: string; lesson_id: string; lesson_title?:string; challenge_id: string | null; challenge_title?:string|null; title: string; instructions: string | null; allowed_blocks?: unknown; constraints?: unknown; status: string; available_from?:string|null; due_at?:string|null; close_at?:string|null; max_attempts?:number|null; published_by?:string|null; }
 export interface ApiAttempt { id: string; classroom_assignment_id: string; attempt_number?: number; program_id?: string | null; status: string; started_at?: string; submitted_at?: string | null; }
 export interface ApiProgram { id: string; title: string; workspace_json: Record<string, unknown>; robot_program: Record<string, unknown>; }
 export interface ApiProgramVersion { id: string; version_number: number; robot_program: Record<string, unknown>; }
-export interface ApiSubmission { id: string; program_version_id: string; status: string; }
-export interface ApiExperiment { id: string; status: string; execution_mode: string; }
+export interface ApiSubmission { id: string; program_version_id: string; status: string; assignment_id?:string; program_id?:string; submitted_at?:string|null; }
+export interface ApiExperiment { id: string; status: string; execution_mode: string; input_snapshot?:{attemptId?:string;programVersionId?:string}; submission_id?:string; }
 export interface ApiSymbolicRuleResult { ordinal: number; type: string; passed: boolean; expected: Record<string, unknown>; observed: Record<string, unknown>; evidence: Array<{ timelineIndex?: number }>; reason: string; }
 export interface ApiSymbolicEvaluation { id: string; experimentId: string; programVersionId: string; evaluatorVersion: string; ruleSetSchemaVersion: number; ruleSetHash: string; verdict: "passed" | "failed"; ruleResults: ApiSymbolicRuleResult[]; metrics: { ruleCount: number; passedRuleCount: number }; createdAt: string; }
 export interface ApiFeedback { id: string; submission_id: string; content: string; feedback_type: string; created_at: string; }
 export interface ApiRubricCriterion { id: string; title: string; description: string | null; maxPoints: number | string; ordinal: number; }
-export interface ApiInstructorSubmission { id: string; assignment_id: string; learner_user_id: string; status: string; submitted_at: string | null; full_name?: string; rubric_criteria?: ApiRubricCriterion[]; overall_feedback?: string | null; }
+export interface ApiInstructorSubmission { id: string; assignment_id: string; learner_user_id: string; status: string; submitted_at: string | null; full_name?: string; assignment_title?:string; review_status?:string; rubric_criteria?: ApiRubricCriterion[]; overall_feedback?: string | null; }
+export interface ApiInstructorSubmissionDetail extends ApiInstructorSubmission { email?:string|null;program_version:{id:string;versionNumber:number;workspaceJson:Record<string,unknown>;robotProgram:Record<string,unknown>;validationResult:Record<string,unknown>;changeSummary?:string|null;createdAt:string}|null;experiment:{id:string;status:string;executionMode:string;createdAt:string;endedAt?:string|null}|null;symbolic_evaluation:ApiSymbolicEvaluation|null;assessment:{id:string;overallFeedback:string|null;reviewedAt:string;scores:Array<{criterionId:string;awardedPoints:number;comment?:string|null}>}|null;feedback:Array<{id:string;content:string;createdAt:string}>; }
 export type ApiRecord = Record<string, unknown>;
 export interface ApiIdentity { id: string; fullName: string; email: string; status: string; signupMethod: string; emailVerifiedAt: string | null; createdAt: string; updatedAt: string; }
 export interface ApiReflection { id: string; submission_id: string; prompt_key: string; prompt_text: string; response_text: string | null; created_at: string; }
@@ -81,6 +83,9 @@ export const learnerApi = {
   schematicResult: (experimentId: string, token: string) => apiGet<Record<string, unknown>[]>(`/me/experiments/${experimentId}/result`, token),
   evaluateSymbolic: (experimentId: string, token: string) => apiRequest<ApiSymbolicEvaluation>(`/me/experiments/${experimentId}/evaluate-symbolic`, token, "POST"),
   symbolicEvaluation: (evaluationId: string, token: string) => apiGet<ApiSymbolicEvaluation>(`/me/symbolic-evaluations/${evaluationId}`, token),
+  submissions: (token:string) => apiGet<ApiSubmission[]>("/me/submissions",token),
+  experiments: (token:string) => apiGet<ApiExperiment[]>("/me/experiments",token),
+  symbolicEvaluations: (token:string) => apiGet<ApiSymbolicEvaluation[]>("/me/symbolic-evaluations",token),
   artifacts: (experimentId: string, token: string) => apiGet<Record<string, unknown>[]>(`/me/experiments/${experimentId}/artifacts`, token),
   myFeedback: (submissionId: string, token: string) => apiGet<ApiFeedback[]>(`/me/submissions/${submissionId}/feedback`, token),
   createReflection: (submissionId: string, token: string, body: { promptKey: string; promptText: string; responseText: string }) => apiRequest<Record<string, unknown>>(`/me/submissions/${submissionId}/reflections`, token, "POST", body),
@@ -90,7 +95,7 @@ export const instructorApi = {
   classrooms: learnerApi.classrooms,
   teachingClassrooms: (token: string) => apiGet<ApiTeachingClassroom[]>("/me/teaching-classrooms", token),
   submissions: (classroomId: string, token: string) => apiGet<ApiInstructorSubmission[]>(`/classrooms/${classroomId}/submissions`, token),
-  submission: (submissionId: string, token: string) => apiGet<ApiInstructorSubmission[]>(`/submissions/${submissionId}`, token),
+  submission: (submissionId: string, token: string) => apiGet<ApiInstructorSubmissionDetail>(`/submissions/${submissionId}`, token),
   assess: (submissionId: string, token: string, body: { overallFeedback?: string; scores: { criterionId: string; awardedPoints: number; comment?: string }[] }) => apiRequest<ApiInstructorSubmission[]>(`/submissions/${submissionId}/assessment`, token, "POST", body),
   feedback: (submissionId: string, token: string, content: string) => apiRequest<ApiFeedback>(`/submissions/${submissionId}/feedback`, token, "POST", { content }),
 };
@@ -160,6 +165,7 @@ export const assignmentApi = {
   create: (classroomId: string, token: string, body: ApiRecord) => apiRequest<ApiRecord>(`/classrooms/${classroomId}/assignments`, token, "POST", body),
   deliveryOptions: (classroomId:string,token:string) => apiGet<ApiDeliveryOption[]>(`/classrooms/${classroomId}/delivery-options`,token),
   update: (classroomId: string, assignmentId: string, token: string, body: ApiRecord) => apiRequest<ApiRecord>(`/classrooms/${classroomId}/assignments/${assignmentId}`, token, "PATCH", body),
+  publish: (classroomId:string,assignmentId:string,token:string) => apiRequest<ApiClassroomAssignment>(`/classrooms/${classroomId}/assignments/${assignmentId}/publish`,token,"POST"),
 };
 export const attemptApi = { list: learnerApi.attempts, detail: learnerApi.attempt, create: learnerApi.createAttempt, workspace: (id: string, token: string) => apiGet<ApiRecord>(`/me/attempts/${id}/workspace`, token) };
 export const programApi = { getForAttempt: learnerApi.program, create: learnerApi.createProgram, update: learnerApi.updateProgram, versions: learnerApi.versions, createVersion: learnerApi.createVersion, submit: learnerApi.submit };
