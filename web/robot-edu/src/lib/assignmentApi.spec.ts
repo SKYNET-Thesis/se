@@ -17,7 +17,9 @@ describe('assignmentApi Gate 1 mutations', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'delivery-1', status: 'published' }), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await (assignmentApi as unknown as { publish: Function }).publish('class-1', 'assignment-1', 'token');
+    await (assignmentApi as unknown as {
+      publish: (classroomId: string, assignmentId: string, token: string) => Promise<unknown>;
+    }).publish('class-1', 'assignment-1', 'token');
 
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining('/classrooms/class-1/assignments/assignment-1/publish'),
