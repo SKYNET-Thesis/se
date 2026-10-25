@@ -67,7 +67,7 @@ export class IdentityService {
   }
 
   private toProfile(user: {
-    id: string; email: string; full_name: string; status: string; signup_method: string;
+    id: string; email: string | null; full_name: string; status: string; signup_method: string;
     email_verified_at: Date | null; created_at: Date; updated_at: Date;
   }) {
     return {
