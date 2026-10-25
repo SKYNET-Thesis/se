@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent))
-from runtime import ContractError, Runtime  # noqa: E402
+from runtime import CheckikHttpAdapter, ContractError, Runtime  # noqa: E402
 
 
 def load_config(path: Path) -> dict:
@@ -51,6 +51,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/health":
             self.reply(HTTPStatus.OK, {"ok": True, "runtime": "vista-r1"})
         elif self.path == "/status":
+            if not self.authorized():
+                self.reply(HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+                return
             self.reply(HTTPStatus.OK, self.runtime.status())
         elif self.path.startswith("/runs/"):
             if not self.authorized():
@@ -88,7 +91,14 @@ def main() -> None:
     parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args()
     config = load_config(args.config)
-    Handler.runtime = Runtime(config)
+    adapter = None
+    if config.get("adapterMode") == "fake_follower":
+        adapter_url = config.get("checkikAdapterUrl")
+        adapter_token = os.environ.get("VISTA_CHECKIK_ADAPTER_TOKEN", "")
+        if not isinstance(adapter_url, str) or not adapter_url or not adapter_token:
+            raise SystemExit("Explicit fake-follower adapter URL and VISTA_CHECKIK_ADAPTER_TOKEN are required")
+        adapter = CheckikHttpAdapter(adapter_url, adapter_token)
+    Handler.runtime = Runtime(config, adapter)
     Handler.token = os.environ.get("VISTA_RUNTIME_TOKEN", "")
     if not Handler.token:
         raise SystemExit("VISTA_RUNTIME_TOKEN is required")

@@ -1,0 +1,27 @@
+{
+  "bindHost": "127.0.0.1",
+  "port": 8015,
+  "hardwareEnabled": true,
+  "adapterMode": "fake_follower",
+  "checkikAdapterUrl": "http://127.0.0.1:8016",
+  "profiles": {
+    "lesson": {
+      "maxWaitMs": 60000,
+      "maxRunMs": 120000
+    }
+  },
+  "arms": {
+    "left": {
+      "enabled": true,
+      "safeHomeJointDegrees": [0, -35, 70, -35, 0],
+      "gripperOpen": 100,
+      "gripperClosed": 0
+    },
+    "right": {
+      "enabled": false,
+      "safeHomeJointDegrees": null,
+      "gripperOpen": null,
+      "gripperClosed": null
+    }
+  }
+}

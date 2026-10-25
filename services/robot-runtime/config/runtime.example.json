@@ -2,6 +2,8 @@
   "bindHost": "127.0.0.1",
   "port": 8015,
   "checkikStatusUrl": "http://127.0.0.1:8000/api/status",
+  "adapterMode": "disabled",
+  "checkikAdapterUrl": null,
   "hardwareEnabled": false,
   "profiles": {
     "commissioning": {
