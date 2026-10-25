@@ -1,13 +1,14 @@
 name: Mobile CI
-
-on:
-  pull_request:
-  push:
-    branches: [main]
-
+on: [pull_request]
+permissions: { contents: read }
 jobs:
-  test:
+  typecheck:
     runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apps/mobile } }
     steps:
       - uses: actions/checkout@v4
-      - run: 'echo "TODO: add mobile CI"'
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: apps/mobile/package-lock.json }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx expo install --check
