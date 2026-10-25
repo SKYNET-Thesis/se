@@ -31,6 +31,7 @@ export class AssessmentService {
     const submission=await this.submissionScope(submissionId); await this.scope.assertTeacherClassroomPermission(user,submission.classroom_id,["learning.work.review"]);
     const rows=await this.detail(submissionId);const detail=rows[0] as Record<string,any>|undefined;if(!detail)throw new NotFoundException("Submission was not found.");
     if(detail.symbolic_evaluation?.programVersionId!==detail.program_version?.id)detail.symbolic_evaluation=null;
+    detail.experiments=await this.evidence(submission);
     return detail;
   }
 
@@ -60,7 +61,7 @@ export class AssessmentService {
 
   async feedback(user:AuthenticatedUser,submissionId:string,dto:CreateFeedbackDto) {
     const submission=await this.submissionScope(submissionId); await this.scope.assertTeacherClassroomPermission(user,submission.classroom_id,["learning.work.review"]);
-    const rows=await this.prisma.$queryRaw<{id:string;submission_id:string;author_user_id:string;feedback_type:string;content:string;created_at:Date}[]>`INSERT INTO public.learning_feedback(submission_id,author_user_id,feedback_type,content) VALUES(${submissionId}::uuid,${user.vistaUserId}::uuid,'teacher_feedback',${dto.content}) RETURNING id,submission_id,author_user_id,feedback_type,content,created_at`;
+    const rows=await this.prisma.$queryRaw<{id:string;submission_id:string;author_user_id:string;feedback_type:string;content:string;created_at:Date}[]>`INSERT INTO public.learning_feedback(submission_id,author_user_id,feedback_type,content) VALUES(${submissionId}::uuid,${user.vistaUserId}::uuid,${"comment"},${dto.content}) RETURNING id,submission_id,author_user_id,feedback_type,content,created_at`;
     return rows[0];
   }
 
@@ -109,6 +110,68 @@ export class AssessmentService {
 
   private async ownSubmission(user:AuthenticatedUser,id:string) {const submission=await this.submissionScope(id);if(submission.learner_user_id!==user.vistaUserId) throw new NotFoundException("Submission was not found.");await this.scope.assertStudentClassroomAccess(user,submission.classroom_id);return submission;}
   private async submissionScope(id:string):Promise<SubmissionScope>{const rows=await this.prisma.$queryRaw<SubmissionScope[]>`SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,ca.classroom_id FROM public.learning_submissions s JOIN public.learning_assignment_attempts a ON a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id WHERE s.id=${id}::uuid`;if(rows.length!==1)throw new NotFoundException("Submission was not found.");return rows[0];}
+  private async evidence(submission:SubmissionScope) {
+    const rows=await this.prisma.$queryRaw<Record<string,unknown>[]>`
+      SELECT e.id,e.execution_mode AS "executionMode",e.method,e.status,e.started_at AS "startedAt",
+        e.ended_at AS "endedAt",e.created_at AS "createdAt",
+        jsonb_build_object('programVersionId',e.input_snapshot->>'programVersionId') AS provenance,
+        CASE WHEN e.execution_mode='real_robot' THEN jsonb_build_object(
+          'state',e.output_snapshot->>'state','errorCode',e.output_snapshot->>'errorCode',
+          'startedAtMs',e.output_snapshot->'startedAtMs','endedAtMs',e.output_snapshot->'endedAtMs'
+        ) ELSE e.output_snapshot END AS result,
+        e.metrics,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object(
+          'index',ev.event_index,'type',ev.event_type,'occurredAt',ev.occurred_at,
+          'state',ev.event_data->>'state','errorCode',ev.event_data->>'errorCode'
+        ) ORDER BY ev.event_index) FROM public.learning_experiment_events ev WHERE ev.experiment_id=e.id),'[]'::jsonb) AS events,
+        COALESCE((SELECT jsonb_agg(jsonb_build_object(
+          'id',a.id,'type',a.artifact_type,'mimeType',a.mime_type,'createdAt',a.created_at,
+          'availability',CASE WHEN a.storage_path IS NULL AND a.external_uri IS NULL THEN 'unavailable'
+            WHEN COALESCE(a.external_uri,'') LIKE 'local://%' THEN 'local_only' ELSE 'metadata_only' END
+        ) ORDER BY a.created_at) FROM public.learning_experiment_artifacts a WHERE a.experiment_id=e.id),'[]'::jsonb) AS artifacts,
+        CASE WHEN cs.id IS NULL THEN NULL ELSE jsonb_build_object(
+          'id',cs.id,'state',cs.state,'startedAt',cs.started_at,'endedAt',cs.ended_at,
+          'robot',jsonb_build_object('id',r.id,'name',r.name,'model',r.model_name,'serial',r.serial_no)
+        ) END AS "controlSession",
+        CASE WHEN d.id IS NULL THEN NULL ELSE jsonb_build_object(
+          'id',d.id,'status',d.outcome,'startedAt',d.started_at,'endedAt',d.ended_at,
+          'frameCount',d.frame_count,'checksum',d.checksum,
+          'durationS',d.metrics->'durationS',
+          'artifactAvailability',CASE WHEN d.storage_uri IS NULL THEN 'unavailable'
+            WHEN d.storage_uri LIKE 'local://%' THEN 'local_only' ELSE 'metadata_only' END,
+          'segments',COALESCE((SELECT jsonb_agg(jsonb_build_object(
+            'index',seg.segment_index,'startMs',seg.start_ms,'endMs',seg.end_ms,
+            'action',seg.semantic_action,'arm',seg.arm_side,'object',seg.object_label
+          ) ORDER BY seg.segment_index) FROM public.learning_demonstration_segments seg WHERE seg.demonstration_episode_id=d.id),'[]'::jsonb),
+          'reflection',(SELECT jsonb_build_object('prompt',ref.prompt_text,'response',ref.response_text,'createdAt',ref.created_at)
+            FROM public.learning_reflections ref WHERE ref.experiment_id=e.id AND ref.learner_user_id=e.learner_user_id ORDER BY ref.created_at DESC LIMIT 1),
+          'datasets',COALESCE((SELECT jsonb_agg(jsonb_build_object(
+            'id',dv.id,'name',dv.name,'version',dv.version,'split',de.split,'frozen',dv.is_frozen,
+            'huggingFaceRepo',dv.huggingface_repo,'huggingFaceRevision',dv.huggingface_revision
+          ) ORDER BY dv.created_at DESC) FROM public.dataset_episodes de JOIN public.dataset_versions dv ON dv.id=de.dataset_version_id
+            WHERE de.demonstration_episode_id=d.id AND dv.organization_id=c.organization_id),'[]'::jsonb)
+        ) END AS demonstration,
+        CASE WHEN er.id IS NULL THEN NULL ELSE jsonb_build_object(
+          'evaluationRunId',er.id,'status',er.status,'outcome',er.outcome,'createdAt',er.created_at,
+          'checkpoint',jsonb_build_object('id',mc.id,'version',mc.version,'step',mc.step),
+          'model',jsonb_build_object('id',model.id,'name',model.name,'status',model.status)
+        ) END AS "modelMetadata"
+      FROM public.learning_experiments e
+      JOIN public.learning_submissions s ON s.id=e.submission_id AND s.learner_user_id=e.learner_user_id
+      JOIN public.learning_assignment_attempts at ON at.program_id=s.program_id AND at.learner_user_id=s.learner_user_id
+      JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id AND ca.assignment_id=s.assignment_id
+      JOIN public.learning_classrooms c ON c.id=ca.classroom_id
+      LEFT JOIN public.control_sessions cs ON cs.id=e.control_session_id AND cs.organization_id=c.organization_id
+      LEFT JOIN public.robots r ON r.id=cs.robot_id
+      LEFT JOIN public.demonstration_episodes d ON d.id=e.demonstration_episode_id AND d.organization_id=c.organization_id
+      LEFT JOIN public.evaluation_runs er ON er.id=e.evaluation_run_id
+      LEFT JOIN public.model_checkpoints mc ON mc.id=er.model_checkpoint_id
+      LEFT JOIN public.ai_models model ON model.id=mc.ai_model_id AND (model.visibility='public' OR model.owner_organization_id=c.organization_id OR model.owner_user_id=e.learner_user_id)
+      WHERE e.submission_id=${submission.id}::uuid AND e.learner_user_id=${submission.learner_user_id}::uuid
+        AND ca.classroom_id=${submission.classroom_id}::uuid
+      ORDER BY e.created_at DESC`;
+    return rows??[];
+  }
   private detail(submissionId:string, db:Pick<PrismaService,"$queryRaw">=this.prisma){return db.$queryRaw<Record<string,unknown>[]>`
     SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,s.status,s.submitted_at,
       u.full_name,u.email,la.title AS assignment_title,
@@ -121,6 +184,6 @@ export class AssessmentService {
     FROM public.learning_submissions s JOIN public.users u ON u.id=s.learner_user_id JOIN public.learning_assignments la ON la.id=s.assignment_id
     LEFT JOIN public.learning_program_versions pv ON pv.id=s.program_version_id AND pv.program_id=s.program_id
     LEFT JOIN LATERAL (SELECT e.* FROM public.learning_experiments e WHERE e.submission_id=s.id AND e.learner_user_id=s.learner_user_id AND e.input_snapshot->>'programVersionId'=s.program_version_id::text ORDER BY e.created_at DESC LIMIT 1) ex ON true
-    LEFT JOIN LATERAL (SELECT evidence.* FROM public.learning_symbolic_evaluations evidence WHERE evidence.submission_id=s.id AND evidence.experiment_id=ex.id AND evidence.program_version_id=s.program_version_id ORDER BY evidence.created_at DESC LIMIT 1) se ON true
+    LEFT JOIN LATERAL (SELECT evidence.* FROM public.learning_symbolic_evaluations evidence WHERE evidence.submission_id=s.id AND evidence.program_version_id=s.program_version_id ORDER BY evidence.created_at DESC LIMIT 1) se ON true
     LEFT JOIN public.learning_assessments a ON a.submission_id=s.id WHERE s.id=${submissionId}::uuid`;}
 }

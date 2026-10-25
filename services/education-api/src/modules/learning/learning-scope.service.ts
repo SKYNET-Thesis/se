@@ -58,14 +58,18 @@ export class LearningScopeService {
 
   async assertTeacherClassroomPermission(user: AuthenticatedUser, classroomId: string, permissions: string[]): Promise<void> {
     if (this.isSystemAdministrator(user)) return;
-    if (!user.memberships.some((m) => m.status === "active" && permissions.every((permission) => m.permissions.includes(permission)))) {
-      throw new NotFoundException("Classroom was not found.");
-    }
     const rows = await this.prisma.$queryRaw<{ classroom_id: string }[]>`
       SELECT cm.classroom_id FROM public.learning_classroom_members cm JOIN public.memberships m ON m.id=cm.membership_id
       JOIN public.learning_classrooms c ON c.id=cm.classroom_id
       WHERE cm.classroom_id=${classroomId}::uuid AND cm.user_id=${user.vistaUserId}::uuid AND cm.status='active' AND m.status='active'
-        AND m.organization_id=c.organization_id AND cm.classroom_role IN ('teacher','teaching_assistant')`;
+        AND m.organization_id=c.organization_id AND cm.classroom_role IN ('teacher','teaching_assistant')
+        AND NOT EXISTS (
+          SELECT 1 FROM unnest(${permissions}::text[]) required(code)
+          WHERE NOT EXISTS (
+            SELECT 1 FROM public.role_permissions rp JOIN public.permissions p ON p.id=rp.permission_id
+            WHERE rp.role_id=m.role_id AND p.code=required.code
+          )
+        )`;
     if (!rows.length) throw new NotFoundException("Classroom was not found.");
   }
 

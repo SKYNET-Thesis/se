@@ -28,6 +28,14 @@ accepted. This first commit implements validation, run state, cancellation,
 readiness and the HTTP contract. A hardware driver is deliberately not enabled
 until the per-arm commissioning values are supplied and verified.
 
+## WF-03 fake-follower adapter
+
+`config/runtime.fake-follower.example.json` explicitly selects the checked
+`fake_follower` adapter. Start the private CHECKIK adapter separately with
+`VISTA_CHECKIK_MODE=fake_follower` and `VISTA_CHECKIK_ADAPTER_TOKEN`, then start
+R1 with the same adapter token plus `VISTA_RUNTIME_TOKEN`. This configuration
+never imports or opens a real follower and never falls back to one.
+
 ## Local non-hardware check
 
 ```bash
