@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { provisionDemoPhysicalPolicy } from "./demo-physical-policy";
 
 const prisma = new PrismaClient();
 const emails = { admin: "admin@vista.demo", instructor: "instructor@vista.demo", student: "student@vista.demo" };
@@ -43,6 +44,16 @@ async function main() {
       ? await tx.learning_assignments.update({ where: { id: assignment.id }, data: { challenge_id: challenge.id, instructions: "Select the left arm. Open its gripper, wait at least one second, then close it." } })
       : await tx.learning_assignments.create({ data: { lesson_id: lesson.id, challenge_id: challenge.id, title: "Gripper Sequence Challenge", instructions: "Select the left arm. Open its gripper, wait at least one second, then close it." } });
     await tx.learning_classroom_assignments.upsert({ where: { classroom_id_assignment_id: { classroom_id: classroom.id, assignment_id: delivery.id } }, update: { status: "published", published_by: instructorId }, create: { classroom_id: classroom.id, assignment_id: delivery.id, status: "published", published_by: instructorId } });
+    const baseSafetyProfile = await tx.safety_profiles.findUnique({
+      where: { name: "student-sandbox" },
+      select: { max_speed_pct: true, workspace_limit: true, max_session_minutes: true, require_estop_ack: true },
+    });
+    if (!baseSafetyProfile) throw new Error("Required student-sandbox safety profile is missing.");
+    const physicalPolicy = await provisionDemoPhysicalPolicy(tx, {
+      studentMembershipId: studentMembership.id,
+      assignmentId: delivery.id,
+      baseSafetyProfile,
+    });
     const reachLesson = await tx.learning_lessons.upsert({ where: { course_id_ordinal: { course_id: course.id, ordinal: 2 } }, update: { title: "Reach a Target", content: { summary: "Learn X, Y, Z by matching Target A in the Learning Preview Coordinate Frame." } }, create: { course_id: course.id, ordinal: 2, title: "Reach a Target", content: { summary: "Learn X, Y, Z by matching Target A in the Learning Preview Coordinate Frame." } } });
     const reachChallenge = await tx.learning_challenges.findFirst({ where: { organization_id: organization.id, title: "Reach Target A" } }) ?? await tx.learning_challenges.create({ data: { organization_id: organization.id, creator_user_id: adminId, title: "Reach Target A", description: "Declare a left-arm learning preview position that matches Target A.", status: "published" } });
     const target = { x: 240, y: 220, z: 120 };
@@ -64,8 +75,11 @@ async function main() {
     const demoAssignment = await tx.learning_assignments.findFirst({ where: { lesson_id: demoLesson.id, title: "Teach by Demonstration" } });
     const demoDelivery = demoAssignment ? await tx.learning_assignments.update({ where: { id: demoAssignment.id }, data: { challenge_id: demoChallenge.id, instructions: "Prepare the offline VR session, record one demonstration episode, review observation versus action, then reflect." } }) : await tx.learning_assignments.create({ data: { lesson_id: demoLesson.id, challenge_id: demoChallenge.id, title: "Teach by Demonstration", instructions: "Prepare the offline VR session, record one demonstration episode, review observation versus action, then reflect." } });
     await tx.learning_classroom_assignments.upsert({ where: { classroom_id_assignment_id: { classroom_id: classroom.id, assignment_id: demoDelivery.id } }, update: { status: "published", published_by: instructorId }, create: { classroom_id: classroom.id, assignment_id: demoDelivery.id, status: "published", published_by: instructorId } });
-    return { organization, classroom };
+    return { organization, classroom, physicalPolicy };
   }, { timeout: 15000 });
   console.log(`VISTA Academy: ${result.organization.id}`); console.log(`Robotics Class A: ${result.classroom.id}`);
+  console.log(`Blockly Control Mode: ${result.physicalPolicy.controlModeId}`);
+  console.log(`Student Blockly Safety Profile: ${result.physicalPolicy.safetyProfileId}`);
+  console.log(`Gripper rubric criterion: ${result.physicalPolicy.rubricCriterionId}`);
 }
 void main().finally(() => prisma.$disconnect());

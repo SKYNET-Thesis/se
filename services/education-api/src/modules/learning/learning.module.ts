@@ -20,5 +20,8 @@ import { VrLessonController } from "./vr-lesson.controller";
 import { VrLessonService } from "./vr-lesson.service";
 import { DemonstrationLessonController } from "./demonstration-lesson.controller";
 import { DemonstrationLessonService } from "./demonstration-lesson.service";
-@Module({imports:[IdentityModule],controllers:[LearningController,ProgrammingController,AssessmentController,ExperimentController,LearningInsightsController,VrLessonController,DemonstrationLessonController],providers:[LearningService,LearningScopeService,ProgrammingService,AssessmentService,ExperimentService,SchematicEngineService,SymbolicRuleCompilerService,SymbolicRuleEvaluatorService,SymbolicEvaluationPreparationService,SymbolicEvaluationService,LearningInsightsService,VrLessonService,DemonstrationLessonService],exports:[LearningScopeService]})
+import { PhysicalExecutionController } from "./physical-execution.controller";
+import { PhysicalExecutionService } from "./physical-execution.service";
+import { RobotRuntimeClient } from "./robot-runtime.client";
+@Module({imports:[IdentityModule],controllers:[LearningController,ProgrammingController,AssessmentController,ExperimentController,LearningInsightsController,VrLessonController,DemonstrationLessonController,PhysicalExecutionController],providers:[LearningService,LearningScopeService,ProgrammingService,AssessmentService,ExperimentService,SchematicEngineService,SymbolicRuleCompilerService,SymbolicRuleEvaluatorService,SymbolicEvaluationPreparationService,SymbolicEvaluationService,LearningInsightsService,VrLessonService,DemonstrationLessonService,RobotRuntimeClient,PhysicalExecutionService],exports:[LearningScopeService]})
 export class LearningModule {}
