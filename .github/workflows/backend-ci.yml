@@ -1,13 +1,27 @@
-name: Backend CI
-
-on:
-  pull_request:
-  push:
-    branches: [main]
-
+name: Education CI
+on: [pull_request]
+permissions: { contents: read }
 jobs:
-  test:
+  api:
     runs-on: ubuntu-latest
+    defaults: { run: { working-directory: services/education-api } }
+    env: { DATABASE_URL: "postgresql://review2:review2@127.0.0.1:5432/review2" }
     steps:
       - uses: actions/checkout@v4
-      - run: 'echo "TODO: add backend CI"'
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: services/education-api/package-lock.json }
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npx prisma validate --schema prisma/schema.prisma
+  web:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: web/robot-edu } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/robot-edu/package-lock.json }
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build

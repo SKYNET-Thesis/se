@@ -1,13 +1,11 @@
 name: AI CI
-
-on:
-  pull_request:
-  push:
-    branches: [main]
-
+on: [pull_request]
+permissions: { contents: read }
 jobs:
-  test:
+  syntax:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: 'echo "TODO: add AI integration CI"'
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python -m compileall -q services/ai-integration/src
