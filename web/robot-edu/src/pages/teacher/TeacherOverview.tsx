@@ -1,132 +1,27 @@
-import React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ClipboardCheckIcon, LibraryIcon, PlusIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { InboxIcon, LibraryIcon, PlusIcon } from 'lucide-react';
-import { useLearning } from '../../contexts/LearningContext';
-import { demoPersonas } from '../../data/demoPersonas';
-import { PageHeader } from '../../components/ui/PageHeader';
-import { DemoNotice } from '../../components/ui/DemoNotice';
-import { LinkButton } from '../../components/ui/LinkButton';
-import { SectionHeading } from '../../components/ui/SectionHeading';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { Badge } from '../../components/ui/Badge';
-import { describeDue, formatRelative } from '../../utils/format';
+import { LinkButton } from '../../components/ui/LinkButton';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
+import { instructorApi } from '../../lib/api';
+import { teacherLearningKeys } from '../../queries/teacherLearningQueries';
 
 export function TeacherOverview() {
-  const { submissions, assignments, courses, getAssignment } = useLearning();
-  const pending = submissions.filter((s) => !s.review).sort((a, b) => b.submittedAt.localeCompare(a.submittedAt));
-  const upcoming = [...assignments].filter((a) => new Date(a.dueDate).getTime() >= Date.now() - 86_400_000).sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 5);
+  const { session } = useSupabaseSession();
+  const token = session?.access_token ?? '';
+  const classrooms = useQuery({ queryKey: teacherLearningKeys.teachingClassrooms, queryFn: () => instructorApi.teachingClassrooms(token), enabled: Boolean(token) });
+  const assignmentCount = (classrooms.data ?? []).reduce((sum, classroom) => sum + classroom.assignment_count, 0);
+  const studentCount = (classrooms.data ?? []).reduce((sum, classroom) => sum + classroom.student_count, 0);
 
-  return (
-    <div className="mx-auto w-full max-w-[1180px] px-4 py-6 md:px-8 md:py-9">
-      <PageHeader
-        title={`Welcome back, ${demoPersonas.teacher.firstName}`}
-        description="Review student work, adjust course content and set new programming tasks."
-        actions={
-        <>
-            <LinkButton to="/teacher/courses" icon={<LibraryIcon className="h-4 w-4" />}>
-              Manage courses
-            </LinkButton>
-            <LinkButton to="/teacher/assignments/new" variant="primary" icon={<PlusIcon className="h-4 w-4" />}>
-              New assignment
-            </LinkButton>
-          </>
-        } />
-      
-      <DemoNotice className="mt-6">
-        Teacher tools are a functional prototype. Courses, assignments and reviews are saved in this browser's demo storage, and student submissions shown here are demo records or local drafts
-        from this browser.
-      </DemoNotice>
-
-      <div className="mt-9 grid gap-10 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-        <section aria-labelledby="review-heading">
-          <SectionHeading
-            id="review-heading"
-            title={`Needs review (${pending.length})`}
-            action={
-            <Link to="/teacher/submissions" className="font-medium text-accent hover:text-accent-hover">
-                All submissions
-              </Link>
-            } />
-          
-          {pending.length === 0 ?
-          <EmptyState compact icon={<InboxIcon />} title="Nothing waiting for review" /> :
-
-          <ul className="divide-y divide-line border-y border-line">
-              {pending.slice(0, 5).map((s) =>
-            <li key={s.id}>
-                  <Link to={`/teacher/submissions?id=${s.id}`} className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-3 hover:bg-sunken/70">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-ink">{s.studentName}</p>
-                      <p className="truncate text-xs text-ink-subtle">
-                        {getAssignment(s.assignmentId)?.title ?? 'Removed assignment'} · {formatRelative(s.submittedAt)}
-                      </p>
-                    </div>
-                    <Badge tone={s.lastRunOutcome === 'completed' ? 'ok' : s.lastRunOutcome === 'failed' ? 'danger' : 'neutral'}>
-                      {s.lastRunOutcome === 'not_run' ? 'Not simulated' : `Run ${s.lastRunOutcome}`}
-                    </Badge>
-                  </Link>
-                </li>
-            )}
-            </ul>
-          }
-        </section>
-
-        <section aria-labelledby="due-heading">
-          <SectionHeading id="due-heading" title="Coming due" />
-          <ul className="divide-y divide-line border-y border-line">
-            {upcoming.map((a) => {
-              const count = submissions.filter((s) => s.assignmentId === a.id).length;
-              return (
-                <li key={a.id}>
-                  <Link to={`/teacher/assignments/${a.id}/edit`} className="-mx-2 flex items-center justify-between gap-4 rounded-md px-2 py-3 hover:bg-sunken/70">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-ink">{a.title}</p>
-                      <p className="text-xs text-ink-subtle">{describeDue(a.dueDate).label}</p>
-                    </div>
-                    <span className="tabular shrink-0 text-xs text-ink-muted">
-                      {count} submission{count === 1 ? '' : 's'}
-                    </span>
-                  </Link>
-                </li>);
-
-            })}
-          </ul>
-        </section>
-      </div>
-
-      <section aria-labelledby="teacher-courses-heading" className="mt-12">
-        <SectionHeading id="teacher-courses-heading" title="Your courses" />
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-line text-xs text-ink-subtle">
-                <th className="py-2 pr-4 font-medium">Course</th>
-                <th className="py-2 pr-4 font-medium">Level</th>
-                <th className="py-2 pr-4 text-right font-medium">Lessons</th>
-                <th className="py-2 pr-4 text-right font-medium">Assignments</th>
-                <th className="py-2 text-right font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {courses.map((c) =>
-              <tr key={c.id}>
-                  <td className="py-3 pr-4">
-                    <Link to={`/teacher/courses?id=${c.id}`} className="font-medium text-ink hover:text-accent">
-                      {c.code} · {c.title}
-                    </Link>
-                  </td>
-                  <td className="py-3 pr-4 text-ink-muted">{c.level}</td>
-                  <td className="tabular py-3 pr-4 text-right text-ink-muted">{c.lessons.length}</td>
-                  <td className="tabular py-3 pr-4 text-right text-ink-muted">{assignments.filter((a) => a.courseId === c.id).length}</td>
-                  <td className="py-3 text-right">
-                    <Badge tone={c.published ? 'ok' : 'outline'}>{c.published ? 'Published' : 'Draft'}</Badge>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>);
-
+  return <main className="mx-auto w-full max-w-[1180px] px-4 py-6 md:px-8 md:py-9">
+    <PageHeader title="Teaching overview" description="Your authorized classrooms and assignment delivery from the Education API." actions={<><LinkButton to="/teacher/classes" icon={<LibraryIcon className="h-4 w-4" />}>My classes</LinkButton><LinkButton to="/teacher/assignments/new" variant="primary" icon={<PlusIcon className="h-4 w-4" />}>New assignment</LinkButton></>} />
+    {classrooms.error && <p role="alert" className="mt-6 border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-800">{classrooms.error instanceof Error ? classrooms.error.message : 'Teaching data could not be loaded.'}</p>}
+    {classrooms.isLoading && <p className="mt-6 text-sm text-ink-muted">Loading teaching data…</p>}
+    {classrooms.data && <><section className="mt-8 grid gap-4 sm:grid-cols-3"><article className="bg-[#edf1ed] p-5"><p className="text-sm text-ink-muted">Teaching classrooms</p><p className="mt-5 text-3xl font-semibold text-ink">{classrooms.data.length}</p></article><article className="bg-[#edf1ed] p-5"><p className="text-sm text-ink-muted">Students across classes</p><p className="mt-5 text-3xl font-semibold text-ink">{studentCount}</p></article><article className="bg-[#edf1ed] p-5"><p className="text-sm text-ink-muted">Classroom assignments</p><p className="mt-5 text-3xl font-semibold text-ink">{assignmentCount}</p></article></section>
+      <section className="mt-10"><div className="flex items-end justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#176255]">Current delivery</p><h2 className="mt-2 text-xl font-semibold text-ink">Your classrooms</h2></div><Link to="/teacher/assignments" className="text-sm font-semibold text-[#176255] underline underline-offset-4">All assignments</Link></div>
+        {classrooms.data.length === 0 ? <div className="mt-5"><EmptyState icon={<ClipboardCheckIcon />} title="No teaching classrooms" description="Ask a school administrator to add you to a classroom." /></div> : <div className="mt-5 grid gap-4 md:grid-cols-2">{classrooms.data.map((classroom) => <article key={classroom.id} className="border border-line p-5"><p className="text-xs text-ink-muted">{classroom.organization_name}</p><h3 className="mt-2 text-lg font-semibold text-ink">{classroom.name}</h3><p className="mt-4 text-sm text-ink-muted">{classroom.student_count} students · {classroom.assignment_count} assignments</p><Link to={`/teacher/classes/${classroom.id}`} className="mt-5 inline-block text-sm font-semibold text-[#176255] underline underline-offset-4">Open classroom</Link></article>)}</div>}
+      </section></>}
+  </main>;
 }

@@ -26,4 +26,16 @@ describe('assignmentApi Gate 1 mutations', () => {
       expect.objectContaining({ method: 'POST' }),
     );
   });
+
+  it('updates supported assignment content through the classroom-scoped endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'assignment-1', title: 'Updated' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await assignmentApi.update('class-1', 'assignment-1', 'token', { title: 'Updated', instructions: 'Persisted' });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/classrooms/class-1/assignments/assignment-1'),
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ title: 'Updated', instructions: 'Persisted' }) }),
+    );
+  });
 });
