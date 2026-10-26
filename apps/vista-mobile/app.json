@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "VISTA Mobile",
+    "slug": "vista-education-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "vista-mobile",
+    "userInterfaceStyle": "light",
+    "plugins": ["expo-router"],
+    "web": { "bundler": "metro", "output": "single" },
+    "experiments": { "typedRoutes": true }
+  }
+}
