@@ -2,7 +2,7 @@ import type { ApiAttempt } from '../lib/api';
 
 export const studentLearningKeys = {
   all: ['student-learning'] as const,
-  list: () => [...studentLearningKeys.all, 'list'] as const,
+  list: (userId = '', sessionRevision = 0) => [...studentLearningKeys.all, 'list', userId, sessionRevision] as const,
   assignment: (classroomAssignmentId:string) => [...studentLearningKeys.all, 'assignment', classroomAssignmentId] as const,
   attempts: (classroomAssignmentId:string) => [...studentLearningKeys.assignment(classroomAssignmentId), 'attempts'] as const,
   practice: (attemptId:string) => [...studentLearningKeys.all, 'practice', attemptId] as const,
