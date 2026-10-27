@@ -1,0 +1,23 @@
+You are reviewing the SRS and SDD of a software capstone project against its
+registration form and source code. Report only; do not change any file.
+Inputs: the registration form, SRS, SDD (with diagrams), source code and
+database script in this repository.
+Check:
+1. Scope: FRs in the SRS not covered by the registration form, and
+registration items with no FR.
+2. Requirements: FRs without an actor or testable acceptance criteria;
+NFRs without metric, threshold and measurement method.
+3. Data: entities missing from the Logical ERD; ERD entities or attributes
+missing from the database script, and tables not in the ERD.
+4. States: for each main entity, states used in code but missing from its
+state machine; transitions with no triggering FR; states with no exit.
+5. Flows: main business flows in activity diagrams with no implementation
+or no test.
+6. Architecture: components or third-party services in code but not in the
+architecture diagram, and the reverse.
+7. Design vs code: modules, APIs or business rules implemented differently
+from the SDD.
+Output one table: ID | Category | Location | Finding | Severity
+(High/Medium/Low) | Evidence. Then list the 5 most important findings.
+If something cannot be verified from the repository, say so; do not guess.
+
