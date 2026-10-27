@@ -61,6 +61,8 @@ packages/
 
 # Generated SQL scripts (optional)
 *.sql
+!database/*.sql
+!database/**/*.sql
 
 ########################################
 # ASP.NET Core
