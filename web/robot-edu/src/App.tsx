@@ -72,7 +72,7 @@ export function App() {
                   <Route path="teacher/courses" element={<RequireRole roles={['teacher']}><TeacherCourses /></RequireRole>} />
                   <Route path="teacher/assignments" element={<RequireRole roles={['teacher']}><TeacherAssignments /></RequireRole>} />
                   <Route path="teacher/assignments/new" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
-                  <Route path="teacher/assignments/:assignmentId/edit" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
+                  <Route path="teacher/assignments/:classroomId/:assignmentId/edit" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
                   <Route path="teacher/submissions" element={<RequireRole roles={['teacher']}><TeacherSubmissions /></RequireRole>} />
                   <Route path="admin/users" element={<RequireRole roles={['admin']}><AdminUsers /></RequireRole>} />
                   <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />

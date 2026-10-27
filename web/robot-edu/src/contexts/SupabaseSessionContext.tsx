@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
+import { nextSessionRevision } from "./sessionRevision";
 
-interface SessionContextValue { session: Session | null; client: SupabaseClient | null; loading: boolean; configurationError: string | null; }
+interface SessionContextValue { session: Session | null; client: SupabaseClient | null; loading: boolean; configurationError: string | null; sessionRevision: number; }
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 function configuredClient(): { client: SupabaseClient | null; error: string | null } {
@@ -14,14 +15,23 @@ function configuredClient(): { client: SupabaseClient | null; error: string | nu
 export function SupabaseSessionProvider({ children }: { children: React.ReactNode }) {
   const [{ client, error }] = useState(configuredClient);
   const [session, setSession] = useState<Session | null>(null);
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const sessionToken = useRef<string | null>(null);
   const [loading, setLoading] = useState(Boolean(client));
+  const applySession = useCallback((next: Session | null) => {
+    const previousToken = sessionToken.current;
+    const nextToken = next?.access_token ?? null;
+    sessionToken.current = nextToken;
+    setSession(next);
+    setSessionRevision((current) => nextSessionRevision(previousToken, nextToken, current));
+  }, []);
   useEffect(() => {
     if (!client) return;
-    void client.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
-    const { data: subscription } = client.auth.onAuthStateChange((_event, next) => setSession(next));
+    void client.auth.getSession().then(({ data }) => applySession(data.session)).finally(() => setLoading(false));
+    const { data: subscription } = client.auth.onAuthStateChange((_event, next) => { applySession(next); setLoading(false); });
     return () => subscription.subscription.unsubscribe();
-  }, [client]);
-  const value = useMemo(() => ({ session, client, loading, configurationError: error }), [session, client, loading, error]);
+  }, [applySession, client]);
+  const value = useMemo(() => ({ session, client, loading, configurationError: error, sessionRevision }), [session, client, loading, error, sessionRevision]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 

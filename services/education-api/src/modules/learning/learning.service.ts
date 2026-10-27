@@ -115,7 +115,7 @@ export class LearningService {
   async deliveryOptions(user: AuthenticatedUser, classroomId: string) {
     await this.scope.assertTeacherClassroomAccess(user, classroomId);
     return this.prisma.$queryRaw`
-      SELECT l.id AS lesson_id,l.title AS lesson_title,
+      SELECT co.id AS course_id,co.title AS course_title,l.id AS lesson_id,l.title AS lesson_title,
         COALESCE(template.title,l.title) AS title,COALESCE(template.instructions,'') AS instructions,template.challenge_id,
         COALESCE((
           SELECT jsonb_agg(jsonb_build_object('id',ch.id,'title',ch.title) ORDER BY ch.title)
@@ -130,6 +130,7 @@ export class LearningService {
         ),'[]'::jsonb) AS challenges
       FROM public.learning_classrooms c
       JOIN public.learning_course_offerings o ON o.id=c.offering_id
+      JOIN public.learning_courses co ON co.id=o.course_id
       JOIN public.learning_lessons l ON l.course_id=o.course_id
       LEFT JOIN LATERAL (
         SELECT a.title,a.instructions,a.challenge_id FROM public.learning_assignments a
@@ -203,7 +204,13 @@ export class LearningService {
       return current[0];
     });
   }
-  async updateAssignment(user:AuthenticatedUser,classroomId:string,assignmentId:string,dto:UpdateAssignmentDto) { await this.scope.assertTeacherClassroomAccess(user,classroomId); const ok=await this.prisma.$queryRaw<{id:string}[]>`SELECT id FROM public.learning_classroom_assignments WHERE classroom_id=${classroomId}::uuid AND assignment_id=${assignmentId}::uuid`; if(!ok[0]) throw new NotFoundException("Assignment was not found."); return this.prisma.learning_assignments.update({where:{id:assignmentId},data:{...(dto.title!==undefined?{title:dto.title}:{}),...(dto.instructions!==undefined?{instructions:dto.instructions}:{})}}); }
+  async updateAssignment(user:AuthenticatedUser,classroomId:string,assignmentId:string,dto:UpdateAssignmentDto) {
+    const deliveries=await this.prisma.$queryRaw<{classroom_id:string}[]>`SELECT classroom_id FROM public.learning_classroom_assignments WHERE assignment_id=${assignmentId}::uuid`;
+    const classroomIds=[...new Set(deliveries.map((delivery)=>delivery.classroom_id))];
+    if(!classroomIds.includes(classroomId)) throw new NotFoundException("Assignment was not found.");
+    for(const deliveryClassroomId of classroomIds) await this.scope.assertTeacherClassroomAccess(user,deliveryClassroomId);
+    return this.prisma.learning_assignments.update({where:{id:assignmentId},data:{...(dto.title!==undefined?{title:dto.title}:{}),...(dto.instructions!==undefined?{instructions:dto.instructions}:{})}});
+  }
   async startAttempt(user:AuthenticatedUser,classroomAssignmentId:string) {
     const assignment = await this.prisma.$queryRaw<{ classroom_id:string; max_attempts:number|null }[]>`
       SELECT classroom_id,max_attempts FROM public.learning_classroom_assignments

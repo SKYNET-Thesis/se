@@ -45,7 +45,7 @@ export interface ApiClassroomStudentImportResult { processed:number;createdAndAd
 export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
 export interface ApiOffering { id:string; code:string; title:string; status:string; }
 export interface ApiDeliveryChallenge { id:string; title:string; }
-export interface ApiDeliveryOption { lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; challenges:ApiDeliveryChallenge[]; }
+export interface ApiDeliveryOption { course_id:string; course_title:string; lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; challenges:ApiDeliveryChallenge[]; }
 export interface ApiEnrollment { id: string; course_id: string; classroom_id: string | null; status: string; enrolled_at?: string; completed_at?: string | null; }
 export interface ApiClassroomAssignment { id: string; classroom_id: string; assignment_id: string; lesson_id: string; lesson_title?:string; challenge_id: string | null; challenge_title?:string|null; title: string; instructions: string | null; allowed_blocks?: unknown; constraints?: unknown; status: string; available_from?:string|null; due_at?:string|null; close_at?:string|null; max_attempts?:number|null; published_by?:string|null; }
 export interface ApiAttempt { id: string; classroom_assignment_id: string; attempt_number?: number; program_id?: string | null; status: string; started_at?: string; submitted_at?: string | null; }
