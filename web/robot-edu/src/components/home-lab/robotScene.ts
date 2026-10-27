@@ -3,6 +3,7 @@ import URDFLoader from 'urdf-loader';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { JAW } from './jaw';
+import { StlWorkerClient } from './stlWorkerClient';
 
 /**
  * Home Lab 3D stage: the SO-101 from the repository URDF, lit like a product shot.
@@ -90,8 +91,10 @@ export class RobotScene {
   private overlayParts: Record<'x' | 'y' | 'z' | 'axes' | 'target', THREE.Material & { opacity: number }> | null = null;
   private overlayLevel: Animated = { current: 0, target: 0 };
   private focusAxis: StageAxis | null = null;
-  private worker: Worker | null = null;
+  private meshWorker = new StlWorkerClient();
   private envReady: Promise<void> = Promise.resolve();
+  private cancelEnvironment: (() => void) | null = null;
+  private cancelLoad: (() => void) | null = null;
   private meshCache = new Map<string, Promise<THREE.BufferGeometry>>();
   /** Frame timing samples (ms), read by the browser QA script. */
   readonly frameTimes: number[] = [];
@@ -180,9 +183,24 @@ export class RobotScene {
   }
 
   load(): Promise<void> {
+    if (this.disposed) return Promise.reject(new Error('The preview scene was disposed.'));
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const request = new AbortController();
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        this.cancelLoad = null;
+        this.meshWorker.dispose();
+        if (error) { request.abort(); this.cancelEnvironment?.(); reject(error); } else resolve();
+      };
+      // Also bound URDF fetching, reflections and shader compilation, not just individual meshes.
+      const timeout = setTimeout(() => finish(new Error('The 3D preview load timed out.')), 45_000);
+      this.cancelLoad = () => finish(new Error('The preview scene was disposed.'));
       const manager = new THREE.LoadingManager();
       const loader = new URDFLoader(manager);
+      loader.fetchOptions = { ...loader.fetchOptions, signal: request.signal };
       const stl = new STLLoader(manager);
       // Five URDF visuals share one servo mesh: each file is fetched, parsed and uploaded once.
       const geometryFor = (file: string): Promise<THREE.BufferGeometry> => {
@@ -204,16 +222,17 @@ export class RobotScene {
         const token = `mesh:${file}:${Math.random()}`;
         manager.itemStart(token);
         geometryFor(file).then((geometry) => {
+          if (settled || this.disposed) { done(new THREE.Group(), new Error('The preview load was cancelled.')); return; }
           const mesh = new THREE.Mesh(geometry, material.name === 'sts3215' || file.startsWith('sts3215') ? this.servo : this.printed);
           mesh.castShadow = true; mesh.receiveShadow = true;
           done(mesh);
-        }).catch((err) => { failed ??= file; done(new THREE.Group(), err instanceof Error ? err : new Error(`Could not load ${file}`)); })
+        }).catch((err) => { failed ??= file; const error = err instanceof Error ? err : new Error(`Could not load ${file}`); done(new THREE.Group(), error); finish(error); })
           .finally(() => manager.itemEnd(token));
       };
       let robot: RobotScene['robot'] = null;
       manager.onLoad = () => {
-        if (this.disposed) return;
-        if (failed) { reject(new Error(`Could not load ${failed}`)); return; }
+        if (settled || this.disposed) return;
+        if (failed) { finish(new Error(`Could not load ${failed}`)); return; }
         if (!robot) return;
         // urdf-loader applies the URDF <material> after loading, so map by its name: servos vs printed parts.
         robot.traverse((node) => {
@@ -231,18 +250,30 @@ export class RobotScene {
         const center = scaled.getCenter(new THREE.Vector3());
         this.pivot.position.set(-center.x, -scaled.min.y, -center.z);
         this.key.target.position.set(0, 0.45, 0);
-        this.worker?.terminate(); this.worker = null;
+        this.meshWorker.dispose();
         if (this.opts.precompile) {
           // Wait for the reflections first, so the materials compile once, with their environment map.
-          this.envReady.then(() => this.renderer.compileAsync(this.scene, this.camera)).catch(() => undefined).then(() => { if (!this.disposed) { this.kick(); resolve(); } });
+          this.envReady.then(() => { if (!settled) return this.renderer.compileAsync(this.scene, this.camera); }).catch(() => undefined).then(() => { if (!settled) { this.kick(); finish(); } });
         } else {
           this.kick();
-          resolve();
+          finish();
         }
       };
-      manager.onError = (url) => reject(new Error(`Could not load ${url}`));
-      loader.load('/assets/so101/urdf/so101_new_calib.urdf', (result) => { robot = result as RobotScene['robot']; }, undefined, (err) => reject(err instanceof Error ? err : new Error('URDF failed to load')));
+      manager.onError = (url) => finish(new Error(`Could not load ${url}`));
+      try {
+        loader.load('/assets/so101/urdf/so101_new_calib.urdf', (result) => { robot = result as RobotScene['robot']; }, undefined, (err) => finish(err instanceof Error ? err : new Error('URDF failed to load')));
+      } catch (error) { finish(error instanceof Error ? error : new Error('URDF failed to load')); }
     });
+  }
+
+  /** Update a live preview without reloading its model or WebGL context. */
+  setReducedMotion(reduced: boolean) {
+    this.opts.reducedMotion = reduced;
+    if (reduced) {
+      for (const value of [...Object.values(this.rig), ...Object.values(this.joints), this.light, this.glow, this.stageLevel, this.overlayLevel]) value.current = value.target;
+      this.pointer = { x: 0, y: 0, tx: 0, ty: 0 };
+    }
+    this.kick();
   }
 
   /** Eases the named joints to new values (instantly with reduced motion). */
@@ -285,46 +316,53 @@ export class RobotScene {
   private environmentFromWorker(): Promise<void> {
     performance.mark('so101:env-worker');
     return new Promise((resolve) => {
-      const worker = new Worker(new URL('./envWorker.ts', import.meta.url), { type: 'module' });
-      const fallback = () => { worker.terminate(); if (!this.disposed) this.buildEnvironmentHere(); resolve(); };
-      worker.onerror = fallback;
-      worker.onmessage = (event: MessageEvent<{ width?: number; height?: number; data?: Uint16Array; error?: string }>) => {
-        const { width, height, data, error } = event.data;
-        if (error || !data || !width || !height) { fallback(); return; }
-        worker.terminate();
-        if (this.disposed) { resolve(); return; }
-        // The worker's PMREM output, uploaded as the same cube-UV half-float texture three.js would make here.
-        const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.HalfFloatType);
-        texture.mapping = THREE.CubeUVReflectionMapping as THREE.Mapping;
-        texture.minFilter = THREE.LinearFilter; texture.magFilter = THREE.LinearFilter;
-        texture.generateMipmaps = false; texture.colorSpace = THREE.LinearSRGBColorSpace;
-        texture.needsUpdate = true;
-        this.scene.environment = texture;
-        performance.measure('so101:environment-worker', 'so101:env-worker');
-        this.kick();
+      let worker: Worker | null = null;
+      let settled = false;
+      const finish = (fallback: boolean) => {
+        if (settled) return;
+        settled = true; clearTimeout(timeout); this.cancelEnvironment = null;
+        if (worker) { worker.onmessage = null; worker.onerror = null; worker.onmessageerror = null; worker.terminate(); }
+        if (fallback && !this.disposed) {
+          // Reflections are optional: retain direct lighting if both environment paths fail.
+          try { this.buildEnvironmentHere(); } catch { /* The scene still has its key, rim and fill. */ }
+        }
         resolve();
       };
-      worker.postMessage({ sigma: 0.04 });
+      const timeout = setTimeout(() => finish(true), 10_000);
+      this.cancelEnvironment = () => finish(false);
+      try {
+        worker = new Worker(new URL('./envWorker.ts', import.meta.url), { type: 'module' });
+        worker.onerror = (event) => { event.preventDefault(); finish(true); };
+        worker.onmessageerror = () => finish(true);
+        worker.onmessage = (event: MessageEvent<unknown>) => {
+          const result = event.data;
+          if (!result || typeof result !== 'object' || !('width' in result) || !('height' in result) || !('data' in result) ||
+              typeof result.width !== 'number' || typeof result.height !== 'number' || result.width <= 0 || result.height <= 0 ||
+              !(result.data instanceof Uint16Array) || result.data.length !== result.width * result.height * 4) { finish(true); return; }
+          if (this.disposed) { finish(false); return; }
+          try {
+            const texture = new THREE.DataTexture(result.data, result.width, result.height, THREE.RGBAFormat, THREE.HalfFloatType);
+            texture.mapping = THREE.CubeUVReflectionMapping as THREE.Mapping;
+            texture.minFilter = THREE.LinearFilter; texture.magFilter = THREE.LinearFilter;
+            texture.generateMipmaps = false; texture.colorSpace = THREE.LinearSRGBColorSpace;
+            texture.needsUpdate = true;
+            this.scene.environment = texture;
+            performance.measure('so101:environment-worker', 'so101:env-worker');
+            this.kick(); finish(false);
+          } catch { finish(true); }
+        };
+        worker.postMessage({ sigma: 0.04 });
+      } catch { finish(true); }
     });
   }
 
   private parseInWorker(url: string): Promise<THREE.BufferGeometry> {
-    if (!this.worker) this.worker = new Worker(new URL('./stlWorker.ts', import.meta.url), { type: 'module' });
-    const worker = this.worker;
-    const id = Math.floor(Math.random() * 1e9);
-    return new Promise((resolve, reject) => {
-      const onMessage = (event: MessageEvent<{ id: number; position?: Float32Array; normal?: Float32Array; error?: string }>) => {
-        if (event.data.id !== id) return;
-        worker.removeEventListener('message', onMessage);
-        if (event.data.error || !event.data.position) { reject(new Error(event.data.error ?? 'Mesh parse failed')); return; }
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(event.data.position, 3));
-        if (event.data.normal) geometry.setAttribute('normal', new THREE.BufferAttribute(event.data.normal, 3));
-        else geometry.computeVertexNormals();
-        resolve(geometry);
-      };
-      worker.addEventListener('message', onMessage);
-      worker.postMessage({ id, url });
+    return this.meshWorker.parse(url).then(({ position, normal }) => {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
+      if (normal) geometry.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+      else geometry.computeVertexNormals();
+      return geometry;
     });
   }
 
@@ -488,12 +526,21 @@ export class RobotScene {
   };
 
   dispose() {
+    if (this.disposed) return;
     this.disposed = true;
+    this.cancelLoad?.();
+    this.cancelEnvironment?.();
     cancelAnimationFrame(this.raf);
     this.observer?.disconnect();
-    this.worker?.terminate();
+    this.meshWorker.dispose();
     document.removeEventListener('visibilitychange', this.kick);
-    this.scene.traverse((node) => { if (node instanceof THREE.Mesh) node.geometry.dispose(); });
+    const geometries = new Set<THREE.BufferGeometry>();
+    const disposeGeometry = (geometry: THREE.BufferGeometry) => { if (!geometries.has(geometry)) { geometries.add(geometry); geometry.dispose(); } };
+    this.scene.traverse((node) => { if (node instanceof THREE.Mesh) disposeGeometry(node.geometry); });
+    // A failed load may never attach its robot to the scene. Release those cached meshes too.
+    for (const pending of this.meshCache.values()) void pending.then(disposeGeometry, () => undefined);
+    this.meshCache.clear();
+    this.scene.environment?.dispose(); this.scene.environment = null;
     this.printed.dispose(); this.servo.dispose();
     this.renderer.dispose();
   }

@@ -31,7 +31,7 @@ export interface Role { id: 'student' | 'teacher' | 'school'; word: string; name
 export const ROLES: Role[] = [
   { id: 'student', word: 'Students', name: 'Students', lead: 'Practise one lesson at a time and watch every step before you submit.', points: ['My Learning lists the lessons assigned through your classrooms.', 'Rule checks mark each rule passed or failed. They are not a grade.'], asset: 'home.roles.student', accent: '#7fd8c8' },
   { id: 'teacher', word: 'Teachers', name: 'Teachers', lead: 'See your own classes and answer the work your students submit.', points: ['My Classes lists only the classrooms where you teach.', 'Send written feedback, and assess against the rubric when an assignment has one.'], asset: 'home.roles.teacher', accent: '#c9aedb' },
-  { id: 'school', word: 'Schools', name: 'School administrators', lead: 'Set up your school’s people and classrooms in one place.', points: ['Create classrooms, then assign teachers and enrol students.', 'CSV import offers templates and a local preview. It does not create accounts yet.'], asset: 'home.roles.school', accent: '#aeb9c7' },
+  { id: 'school', word: 'Schools', name: 'School administrators', lead: 'Set up your school’s people and classrooms in one place.', points: ['Create classrooms, then assign teachers and enrol students.', 'Preview CSV rows locally, then confirm import to provision eligible accounts and school memberships.'], asset: 'home.roles.school', accent: '#aeb9c7' },
 ];
 
 export type ModeAvailability = 'practice' | 'session';
@@ -49,7 +49,7 @@ export const LEARNING_MODES: LearningMode[] = [
   { id: 'demonstration', name: 'Teach by demonstration', status: 'Records one episode at a time', availability: 'session', text: 'Students record what the robot observed and what they commanded.', limits: 'No model is trained.', asset: 'home.modes.demonstration' },
 ];
 
-/** Condensed from the physical execution safety boundary (docs/robot-safety-boundary.md). */
+/** Condensed from the physical execution safety boundary (docs/education/robot-safety-boundary.md). */
 export const SAFETY_GATES = [
   'A signed-in learner with permission and an active classroom.',
   'A submitted program version that has not changed.',

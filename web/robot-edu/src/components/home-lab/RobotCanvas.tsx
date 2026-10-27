@@ -26,9 +26,14 @@ export const RobotCanvas = forwardRef<RobotScene | null, RobotCanvasProps>(funct
   const canvas = useRef<HTMLCanvasElement>(null);
   const scene = useRef<RobotScene | null>(null);
   const [status, setStatus] = useState<StageStatus>('loading');
+  const reducedMotion = options.reducedMotion ?? false;
+  const latestReducedMotion = useRef(reducedMotion);
+  latestReducedMotion.current = reducedMotion;
   // The scene is created after first paint, so the parent's ref is refreshed when the status changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useImperativeHandle(ref, () => scene.current as RobotScene, [status]);
+
+  useEffect(() => { scene.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
 
   useEffect(() => {
     const node = canvas.current;
@@ -41,14 +46,18 @@ export const RobotCanvas = forwardRef<RobotScene | null, RobotCanvasProps>(funct
     // browser is idle, so the headline and controls never wait for WebGL.
     const start = () => {
       if (cancelled) return;
-      try { instance = new RobotScene(node, rig, options); } catch { setStatus('error'); onStatus?.('error'); return; }
+      try { instance = new RobotScene(node, rig, { ...options, reducedMotion: latestReducedMotion.current }); } catch { setStatus('error'); onStatus?.('error'); return; }
       const created = instance;
       scene.current = created;
       (window as unknown as { __labScene?: RobotScene }).__labScene = created;
       resize.observe(node);
       created.load()
         .then(() => { if (cancelled) return; setStatus('ready'); onStatus?.('ready'); onReady?.(created); })
-        .catch(() => { if (!cancelled) { setStatus('error'); onStatus?.('error'); } });
+        .catch(() => {
+          if (cancelled) return;
+          resize.disconnect(); created.dispose(); instance = null; scene.current = null;
+          setStatus('error'); onStatus?.('error');
+        });
     };
     const idle = window.requestIdleCallback ? window.requestIdleCallback(start, { timeout: 700 }) : window.setTimeout(start, 120);
     return () => {

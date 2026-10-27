@@ -74,25 +74,21 @@ resolver for relative imports, imitating a Linux file system. No TARGET file was
 | Motion (headings, hero exit, Loop and Modes timing; with and without reduced motion) | **8/8** |
 | Checkpoint prerequisites (Target A contrast, covered Loop screens inert and unfocusable, Roles captions) at 4 sizes | **18/18** |
 
-**Not completed when this report was written** (the QA run was still going: alive, not hung; results
-land in the session scratch folder `integ/qa.log` and `integ/qa/`):
+**Completed afterwards** (the same QA run, which finished on its own):
 
-| Step | Status |
+| Step | Result on TARGET |
 | --- | --- |
-| Loading (all 3D windows, including Safety) | Running |
-| Failure → poster | Not yet run |
-| Teach-by-demonstration framing (4 sizes) | Not yet run |
-| Learning Loop on phone, continuous scroll | Not yet run |
-| Closing Scene gap on phone | Not yet run |
-| Frame timing: p95, frames over 33 ms, long tasks | Not yet run |
+| Loading: every framed 3D window, **including Safety**, shows the plate, which clears when ready | **4/4** |
+| Failure → poster (meshes blocked inside the STL worker) | **4/4**: the scene goes to the poster, never false-ready |
+| Teach-by-demonstration framing at 1440, 1366, 768, 390 | **No cut at any size**; arm 58–59% of the window height; overlay on arm ≤ 4% |
+| Learning Loop on phone (390 × 844) | Fast flick: **0 frames without a drawn screen**, settled 460 ms after scrolling stops. Continuous: 2 of 4 entrances cut short (the known phone item; no blank frame) |
+| Closing Scene on phone | Captured (`integ/qa/final-390.jpg`); same layout as SOURCE, about 150 px between arm and headline |
+| Captures at 1440 and 390 | All chapters; **0 page errors** |
+| Frame timing, whole page | Desktop: rAF p95 **20.8 / 14.3 ms**, frames over 33 ms **12 / 7**. Phone: p95 **14.0 / 13.9 ms**, frames over 33 ms **3 / 0**. **No long tasks** |
 
-In SOURCE (H6.9 Checkpoint 3), on the same code, these measured:
-- **Failure → poster:** 4/4.
-- **Demonstration framing:** no cut at 4 sizes.
-- **Phone Loop:** a flick settles in about 0.46 s.
-- **Frame timing:** desktop p95 20.7 ms; frames over 33 ms 8 / 16; no long tasks.
-
-Re-check them on TARGET before acceptance.
+These match or better SOURCE's H6.9 Checkpoint 3 figures (desktop p95 20.7 ms, frames over 33 ms
+8 / 16). QA outputs live in the session scratch folder (`integ/qa.log`, `integ/qa/`), not in this
+repository.
 
 **Not testable here:**
 - **Signed-in flows** (Dashboard, Teacher, Student, School Admin content): TARGET has no `.env.local`,
@@ -108,11 +104,11 @@ Re-check them on TARGET before acceptance.
    - No approved Homepage media (0 of 19).
    - No Apache-2.0 licence copy or attribution file next to `public/assets/so101`.
    - SO-101 meshes 16 MB raw (5.9 MB gzipped).
-4. **H6.9 QA checklist still to confirm on TARGET:**
-   - Phone Loop under continuous scroll.
-   - Demonstration framing.
-   - Closing Scene gap on a phone.
-   - Frame timing.
-   - Real-device testing.
+4. **H6.9 QA checklist, as measured on TARGET:**
+   - Demonstration framing: no cut.
+   - Frame timing: no long tasks; desktop p95 14–21 ms.
+   - Still open: phone Loop under continuous scroll (2 of 4 entrances cut short; no blank frame).
+   - Still open: Closing Scene gap on a phone (about 150 px).
+   - Still open: real-device testing.
 5. **`/home-v2` stays a preview route:** it is not the homepage and is not in a default production
    build.
