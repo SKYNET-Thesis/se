@@ -40,6 +40,10 @@ import { SchoolQueryProvider } from './queries/SchoolQueryProvider';
 import { StudentAssignmentDetail } from './pages/StudentAssignmentDetail';
 import { TeacherSubmissionReview } from './pages/teacher/TeacherSubmissionReview';
 
+// Homepage V2 preview, a public page outside RequireSession. Registered only in development builds, or in a
+// build that sets VITE_HOME_V2_PREVIEW=true; a default production build does not include the route.
+const HomeV2 = import.meta.env.DEV || import.meta.env.VITE_HOME_V2_PREVIEW === 'true' ? React.lazy(() => import('./pages/home-v2/HomeV2')) : null;
+
 export function App() {
   return (
     <SupabaseSessionProvider><SchoolQueryProvider><BrowserRouter>
@@ -49,6 +53,7 @@ export function App() {
             <ProgramsProvider>
               <Routes>
                 <Route path="login" element={<Login />} />
+                {HomeV2 && <Route path="home-v2" element={<React.Suspense fallback={null}><HomeV2 /></React.Suspense>} />}
                 <Route element={<RequireSession><AppShell /></RequireSession>}>
                   <Route index element={<RoleHome />} />
                   <Route path="account" element={<AccountSettings />} />

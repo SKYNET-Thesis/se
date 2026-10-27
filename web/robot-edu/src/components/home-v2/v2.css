@@ -1,0 +1,429 @@
+/* VISTA Homepage V2 (H6.2). Scoped to `.vista-v2`; it never styles /home, /home-lab or app screens. */
+@import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap'); /* taste-skill-ignore: mono is for literal code only */
+
+.vista-v2 {
+  --v2-void: #08090a;
+  --v2-graphite: #0d1012;
+  --v2-graphite-2: #14181b;
+  --v2-graphite-3: #1c2125;
+  --v2-line: rgba(232, 238, 236, 0.09);
+  --v2-line-strong: rgba(232, 238, 236, 0.2);
+  --v2-text: #eef2f0;
+  --v2-soft: #c6cfcc;
+  --v2-muted: #929d9a;
+  --v2-teal: #3fd1bc;
+  --v2-teal-dim: rgba(63, 209, 188, 0.14);
+  --v2-margin: clamp(20px, 3.4vw, 64px);
+  /* H6.8 viewport discipline: spacing and display sizes answer the screen's height as well as its
+     width, so a short laptop screen is not given a tall screen's gaps. One heading size for every
+     chapter; the statement size for the two closing lines; the hero keeps its own. */
+  --v2-section: clamp(64px, min(10vw, 15svh), 176px);
+  --v2-head: clamp(32px, min(4vw, 7svh), 68px);
+  --v2-statement: clamp(44px, min(6.4vw, 11svh), 120px); /* always below the hero headline (H6.9 CP3) */
+  --v2-index: clamp(22px, min(2.4vw, 4.6svh), 44px);
+  --v2-lead: clamp(18px, 0.9rem + 0.45vw, 21px);
+  --v2-loop-step: 44svh;
+  --v2-header: 68px;
+  /* Motion tokens (design-taste motion.md): one easing family, durations by frequency of use. */
+  --v2-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --v2-ease-io: cubic-bezier(0.76, 0, 0.24, 1);
+  --v2-ease-soft: cubic-bezier(0.33, 1, 0.68, 1);
+  --v2-t-press: 140ms;
+  --v2-t-ui: 240ms;
+  --v2-t-media: 820ms;
+  --v2-t-reveal: 1000ms;
+  /* Screen tokens for the designed fallbacks: they stand in for light VISTA app screens. */
+  --vh-ground: #f7f6f3;
+  --vh-paper-2: #efeee9;
+  --vh-surface: #ffffff;
+  --vh-ink: #17191c;
+  --vh-muted: #5f646b;
+  --vh-deep: #15251f;
+  --vh-deep-2: #1e3a31;
+  --vh-teal: #0d7369;
+  --vh-teal-on-deep: #a8ddd0;
+  --vh-on-deep-soft: #dce5e0;
+  --vh-line: rgba(21, 37, 31, 0.1);
+  --vh-line-strong: rgba(21, 37, 31, 0.2);
+  --vh-tab-h: 24px;
+  min-height: 100dvh;
+  background: var(--v2-void);
+  color: var(--v2-text);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+}
+
+.vista-v2 :focus-visible {
+  outline: 2px solid var(--v2-teal);
+  outline-offset: 3px;
+}
+
+.v2-display {
+  font-family: 'Inter Tight', Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.045em;
+  line-height: 0.92;
+  text-wrap: balance;
+}
+
+/* Literal code only: canonical program steps and URDF joint names. */
+.v2-mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace; /* taste-skill-ignore: literal code */
+  font-variant-numeric: tabular-nums;
+}
+
+/* Counters and measurements: steady figures in the text face. */
+.v2-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Keyboard focus and in-page links never land under the fixed header. */
+html:has(.vista-v2) {
+  scroll-padding-top: calc(var(--v2-header, 68px) + 16px);
+}
+
+/* Anchors rely on the html scroll-padding above; no extra margin, or the two would add up. */
+[id].v2-anchor {
+  scroll-margin-top: 0;
+}
+/* H6.8: a chapter that opens with its own section spacing lands with its heading just under the header,
+   not a full spacing lower; one that already clears the header inside (S2, S4) lands flush with the top. */
+[id].v2-anchor.v2-anchor-tight {
+  scroll-margin-top: calc(24px - var(--v2-section));
+}
+[id].v2-anchor.v2-anchor-flush {
+  scroll-margin-top: calc(-1 * (var(--v2-header) + 16px));
+}
+
+.v2-line {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.08em;
+}
+.v2-line > span {
+  display: block;
+}
+
+
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.vista-v2) {
+    scroll-behavior: smooth;
+  }
+  .v2-enter .v2-line > span {
+    animation: v2-unmask 1100ms var(--v2-ease) both;
+    animation-delay: calc(var(--d, 0) * 1ms);
+  }
+  .v2-enter .v2-rise {
+    animation: v2-rise 900ms var(--v2-ease) both;
+    animation-delay: calc(var(--d, 0) * 1ms);
+  }
+  /* Chapter entrances (H6.9 CP2): one grammar for every chapter, taken from the hero. The heading
+     unmasks upward into place, as the hero's lines do; supporting words then settle a short way, in
+     reading order. No fly-ins: the heading never travels further than its own mask. */
+  .v2-reveal h2[data-reveal] {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0 0 100% 0);
+    translate: 0 0.32em;
+    transition: clip-path 1000ms var(--v2-ease), translate 1000ms var(--v2-ease);
+    transition-delay: calc(var(--d, 0) * 1ms);
+  }
+  .v2-reveal.is-in h2[data-reveal] {
+    clip-path: inset(-0.1em -0.1em -0.25em -0.1em);
+    translate: 0 0;
+  }
+  .v2-reveal [data-reveal] {
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity 700ms var(--v2-ease), transform 700ms var(--v2-ease);
+    transition-delay: calc(var(--d, 0) * 1ms + 180ms);
+  }
+  .v2-reveal.is-in [data-reveal] {
+    opacity: 1;
+    transform: none;
+  }
+  /* Media opens from an edge like a shutter (used once per chapter, on its main picture). */
+  .v2-reveal [data-shutter] {
+    clip-path: inset(0 0 0 100%);
+    transition: clip-path 1200ms var(--v2-ease-io);
+    transition-delay: calc(var(--d, 0) * 1ms);
+  }
+  .v2-reveal.is-in [data-shutter] {
+    clip-path: inset(0 0 0 0);
+  }
+  /* S3 timings (H6.9 CP3, measured): entrances fit inside the time a step stays on screen at a steady
+     scroll (about 0.8 s per step at ~500 px/s), so the frame comes to rest between steps.
+     S3 (H6.9): one frame. The arriving screen enters with its step's own transformation over the one it
+     replaces, which stays beneath until the entrance ends; the band's words unmask in reading order and
+     its parts (steps, rules) arrive one by one. Interruptible; transform, clip-path, opacity only. */
+  .v2-loop-screen {
+    transition: opacity 0s linear 600ms, visibility 0s linear 600ms;
+  }
+  .v2-loop-screen.is-on {
+    transition: none;
+    animation-duration: 560ms;
+    animation-timing-function: var(--v2-ease);
+    animation-fill-mode: both;
+  }
+  /* Learn: the page unrolls top-down, as it is read. */
+  .v2-loop-screen.is-on[data-step='learn'] { animation-name: v2-ls-learn; }
+  /* Program: the composition slides into the frame from the left, as blocks are placed. */
+  .v2-loop-screen.is-on[data-step='program'] { animation-name: v2-ls-program; animation-timing-function: var(--v2-ease-io); }
+  /* Preview: the camera pushes in on the arm and settles; the preview takes focus. */
+  .v2-loop-screen.is-on[data-step='preview'] { animation-name: v2-ls-preview; animation-duration: 680ms; transform-origin: 52% 44%; }
+  /* Evaluate: the screen is checked; one scan line passes over it. */
+  .v2-loop-screen.is-on[data-step='evaluate'] { animation-name: v2-ls-fade; animation-duration: 280ms; }
+  #v2-journey .v2-loop-scan { display: block; animation: v2-ls-scan 760ms var(--v2-ease-io) 80ms both; }
+  /* Reflect: the frame pulls back; the loop closes. */
+  .v2-loop-screen.is-on[data-step='reflect'] { animation-name: v2-ls-reflect; animation-duration: 600ms; }
+  /* The screen leads; the band's words follow once its entrance is under way (screen, then words). */
+  .v2-loop-in > * {
+    animation: v2-mask-up 480ms var(--v2-ease) 160ms both;
+  }
+  .v2-loop-in > *:nth-child(2) { animation-delay: 210ms; }
+  .v2-loop-in > *:nth-child(3) { animation-delay: 260ms; }
+  .v2-loop-part {
+    transition: background-color 360ms var(--v2-ease), color 360ms var(--v2-ease), opacity 360ms var(--v2-ease);
+  }
+  .v2-loop-part.is-on {
+    animation: v2-part-in 420ms var(--v2-ease) both;
+  }
+  /* 3D windows while the model loads: the only motion is the bar saying it is still working. */
+  .v2-loading-bar > span {
+    animation: v2-loading 1400ms var(--v2-ease-io) infinite;
+  }
+  .v2-edge {
+    transition: stroke-dashoffset 900ms var(--v2-ease-io);
+  }
+  /* S2: the active block's edge grows in; the run's progress fills; the rules pulse as the trace is read. */
+  .v2-row-edge {
+    transition: transform 280ms var(--v2-ease), opacity 200ms ease;
+  }
+  .v2-progress {
+    transition: transform 420ms var(--v2-ease);
+  }
+  .v2-rule-check {
+    animation: v2-rule 900ms var(--v2-ease) both;
+    animation-delay: calc(var(--d, 0) * 1ms);
+  }
+  /* S6 (from the cinematic concept): overlays cross over through a short upward mask, and the
+     experience's name and words arrive in reading order on every switch. */
+  .v2-modes-layer {
+    transition: opacity 320ms var(--v2-ease), visibility 0s linear 320ms;
+  }
+  /* The camera leads (the director eases to the experience's preset); its overlay follows a beat later. */
+  .v2-modes-layer.is-on {
+    animation: v2-modes-layer-in 620ms var(--v2-ease) 180ms both;
+    transition: opacity 520ms var(--v2-ease), visibility 0s;
+  }
+  .v2-modes-in > * {
+    animation: v2-rise 620ms var(--v2-ease) both;
+  }
+  .v2-modes-in > *:nth-child(2) { animation-delay: 70ms; }
+  .v2-modes-in > *:nth-child(3) { animation-delay: 130ms; }
+  /* S5: each role's screen is revealed side to side as its chapter takes the stage. */
+  .v2-role-screen {
+    transition: clip-path 900ms var(--v2-ease-io), transform 1300ms var(--v2-ease-soft), visibility 0s;
+  }
+  .v2-role-screen[data-off] {
+    transition-delay: 0s, 0s, 900ms;
+  }
+  /* S7: one sequence when the chapter arrives. Idle = before it; the finished state is the base style. */
+  .is-idle .v2-route-fill,
+  .is-idle .v2-route-stop {
+    transform: scaleX(0);
+  }
+  .is-idle .v2-route-dest {
+    background-color: var(--v2-graphite-3);
+    color: var(--v2-soft);
+  }
+  .is-idle .v2-boundary-note {
+    opacity: 0;
+  }
+  .is-run .v2-route-fill {
+    animation: v2-fill 1100ms var(--v2-ease-io) 250ms both;
+  }
+  .is-run .v2-route-dest {
+    animation: v2-light 520ms var(--v2-ease) 1250ms both;
+  }
+  .is-run .v2-route-stop {
+    animation: v2-fill 900ms var(--v2-ease-io) 650ms both;
+  }
+  .is-run .v2-boundary,
+  .is-run .v2-boundary-lock {
+    animation: v2-hit 460ms var(--v2-ease) 1500ms both;
+  }
+  .is-run .v2-boundary-note {
+    animation: v2-rise 600ms var(--v2-ease) 1650ms both;
+  }
+  .v2-wait-ring circle:last-child {
+    animation: v2-wait 1000ms linear forwards;
+  }
+  .v2-signal-path {
+    stroke-dasharray: 6 10;
+    animation: v2-dash 900ms linear;
+  }
+  /* Menus open from their trigger (bottom-left), small and quick. */
+  .v2-pop:not([hidden]) {
+    transform-origin: bottom left;
+    animation: v2-pop 200ms var(--v2-ease) both;
+  }
+  .v2-wordmark-letter {
+    transform: translateY(102%);
+    transition: transform 1100ms var(--v2-ease);
+    transition-delay: calc(var(--d, 0) * 1ms);
+  }
+  .is-in .v2-wordmark-letter {
+    transform: none;
+  }
+}
+
+/* S8 relationship edges: hidden until their step is reached, then drawn (finished state without motion). */
+.v2-edge {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+.v2-edge.is-lit {
+  stroke-dashoffset: 0;
+}
+
+/* S5: a role's screen that is not on stage is hidden once its wipe has finished. */
+.v2-role-screen[data-off] {
+  visibility: hidden;
+}
+
+/* S6: each experience's stage overlay. Finished state: only the chosen one shows. */
+.v2-modes-layer {
+  opacity: 0;
+  visibility: hidden;
+}
+.v2-modes-layer.is-on {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* S7 finished state: the preview destination is lit. */
+.v2-route-dest {
+  background-color: var(--v2-teal);
+  color: var(--v2-void);
+}
+
+/* S3 finished state: only the current screen shows; no scan line without motion. */
+.v2-loop-screen {
+  opacity: 0;
+  visibility: hidden;
+  z-index: 1;
+}
+.v2-loop-screen.is-on {
+  opacity: 1;
+  visibility: visible;
+  z-index: 2;
+}
+.v2-loop-scan {
+  display: none;
+}
+
+/* S3: the progress rail follows the reader's position in the loop (set from the scroll, no easing). */
+.v2-loop-rail {
+  transform: scaleY(var(--loop-p, 0));
+  transform-origin: top;
+}
+@media (max-width: 1023px) {
+  .vista-v2 { --v2-loop-step: 36svh; }
+}
+/* S3 desktop stage (H6.9): one plate holds the screen and the band, and sizes to the stage both ways. */
+.v2-loop-box {
+  container: loop / size;
+}
+.v2-loop-plate {
+  --pad: clamp(10px, 1.1vw, 16px);
+  --band: 124px;
+  --sw: min(calc(100cqw - 2 * var(--pad)), calc((100cqh - var(--band) - 3 * var(--pad)) * 1.6));
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  gap: var(--pad);
+  padding: var(--pad);
+  border-radius: 6px;
+  background: var(--v2-graphite-2);
+}
+.v2-loop-screen-box {
+  width: var(--sw);
+  aspect-ratio: 16 / 10;
+}
+.v2-loop-band {
+  height: var(--band);
+  container: loopband / inline-size;
+}
+/* A wide, short stage (a 1920 × 700 window): the band moves beside the screen, and the screen grows. */
+@container loop (min-aspect-ratio: 17 / 10) and (max-height: 620px) {
+  .v2-loop-plate {
+    --side: 300px;
+    grid-template-columns: auto var(--side);
+    --sw: min(calc(100cqw - var(--side) - 3 * var(--pad)), calc((100cqh - 2 * var(--pad)) * 1.6));
+  }
+  .v2-loop-band {
+    height: auto;
+  }
+}
+/* The band's layout: label to the left of its content when the band is wide enough. */
+@container loopband (min-width: 560px) {
+  .v2-thread-grid {
+    grid-template-columns: minmax(150px, 0.32fr) 1fr;
+    column-gap: 28px;
+    align-items: start;
+  }
+  .v2-thread-grid > :first-child { grid-row: span 3; }
+  .v2-thread-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 20px; }
+  .v2-thread-rules { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 20px; }
+}
+
+/* Hero exit (H6.9 CP2): as the reader scrolls on, the headline yields a short way and dims while the
+   camera carries the arm to the lesson. Scroll-linked, no script; travel stays under 8% (motion.md);
+   static where scroll timelines are missing or motion is reduced. */
+@supports (animation-timeline: scroll()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .v2-hero-copy {
+      animation: v2-hero-exit linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 60vh;
+    }
+  }
+}
+@keyframes v2-hero-exit { to { opacity: 0.25; transform: translateY(-6%); } }
+@keyframes v2-ls-learn { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes v2-ls-program { from { clip-path: inset(0 100% 0 0); transform: translateX(-3%); } to { clip-path: inset(0 0 0 0); transform: none; } }
+@keyframes v2-ls-preview { from { opacity: 0; transform: scale(1.14); } 35% { opacity: 1; } to { opacity: 1; transform: none; } }
+@keyframes v2-ls-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes v2-ls-reflect { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
+@keyframes v2-ls-scan { from { transform: translateY(0); opacity: 1; } 85% { opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
+@keyframes v2-loading { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+@keyframes v2-mask-up { from { clip-path: inset(0 0 100% 0); transform: translateY(10px); } to { clip-path: inset(0 0 0 0); transform: none; } }
+@keyframes v2-part-in { from { opacity: 0.35; transform: translateX(10px); } to { opacity: 1; transform: none; } }
+@keyframes v2-unmask { from { transform: translateY(108%); } to { transform: none; } }
+@keyframes v2-rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes v2-modes-layer-in { from { clip-path: inset(18% 0 0 0); transform: translateY(14px); } to { clip-path: inset(0 0 0 0); transform: none; } }
+@keyframes v2-rule { 0%, 100% { background-color: rgba(63, 209, 188, 0); } 30% { background-color: rgba(63, 209, 188, 0.2); } }
+@keyframes v2-pop { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes v2-fill { from { transform: scaleX(0); } to { transform: none; } }
+@keyframes v2-light { from { background-color: var(--v2-graphite-3); color: var(--v2-soft); } to { background-color: var(--v2-teal); color: var(--v2-void); } }
+@keyframes v2-hit { 0%, 100% { scale: 1; } 42% { scale: 1.16; } }
+@keyframes v2-wait { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes v2-dash { from { stroke-dashoffset: 64; } to { stroke-dashoffset: 0; } }
+
+.v2-wait-ring {
+  transform: rotate(-90deg);
+}
+
+.v2-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 44px;
+  background: transparent;
+  cursor: pointer;
+}
+.v2-range::-webkit-slider-runnable-track { height: 4px; border-radius: 999px; background: var(--v2-line-strong); }
+.v2-range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--v2-line-strong); }
+.v2-range::-webkit-slider-thumb { -webkit-appearance: none; margin-top: -10px; width: 24px; height: 24px; border-radius: 6px; background: var(--v2-teal); border: 3px solid var(--v2-graphite); }
+.v2-range::-moz-range-thumb { width: 18px; height: 18px; border-radius: 6px; background: var(--v2-teal); border: 3px solid var(--v2-graphite); }
