@@ -1,5 +1,12 @@
 # Container Architecture
 
+> **Legacy subsystem view.** This diagram describes the local robot-learning and
+> teleoperation containers. The canonical education-platform container diagram
+> is [C4 Level 2 — Containers](../diagrams/architecture/c4-2-container.md), with
+> the complete diagram index in [VISTA Diagrams](../diagrams/README.md). Use the
+> canonical diagram for Report 4 and this file only for runtime implementation
+> detail.
+
 ```mermaid
 flowchart LR
   OP[Local Operator] --> WEB[Web dashboard / WebXR]

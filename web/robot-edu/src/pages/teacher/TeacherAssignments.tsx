@@ -1,104 +1,41 @@
-import React, { useState } from 'react';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ClipboardCheckIcon, PencilIcon, PlusIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { ClipboardCheckIcon, PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react';
-import { toast } from 'sonner';
-import type { Assignment } from '../../types/learning';
-import { useLearning } from '../../contexts/LearningContext';
-import { PageHeader } from '../../components/ui/PageHeader';
-import { DemoTag } from '../../components/ui/DemoTag';
-import { LinkButton } from '../../components/ui/LinkButton';
-import { IconButton } from '../../components/ui/IconButton';
 import { Badge } from '../../components/ui/Badge';
-import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { describeDue } from '../../utils/format';
+import { LinkButton } from '../../components/ui/LinkButton';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
+import { assignmentApi, instructorApi } from '../../lib/api';
+import { assignmentStatusLabel, canPublishAssignment, flattenTeacherAssignments, teacherAssignmentEditPath, teacherLearningInvalidations, teacherLearningKeys, type TeacherAssignmentRow } from '../../queries/teacherLearningQueries';
 
 export function TeacherAssignments() {
-  const { assignments, getCourse, submissions, deleteAssignment } = useLearning();
-  const [toDelete, setToDelete] = useState<Assignment | null>(null);
-  const sorted = [...assignments].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const { session } = useSupabaseSession();
+  const token = session?.access_token ?? '';
+  const queryClient = useQueryClient();
+  const classrooms = useQuery({ queryKey: teacherLearningKeys.teachingClassrooms, queryFn: () => instructorApi.teachingClassrooms(token), enabled: Boolean(token) });
+  const classroomAssignments = useQueries({ queries: (classrooms.data ?? []).map((classroom) => ({ queryKey: teacherLearningKeys.assignments(classroom.id), queryFn: () => assignmentApi.list(classroom.id, token), enabled: Boolean(token) })) });
+  const rows = flattenTeacherAssignments((classrooms.data ?? []).map((classroom, index) => ({ classroom, assignments: classroomAssignments[index]?.data ?? [] })));
+  const publish = useMutation({
+    mutationFn: (assignment: TeacherAssignmentRow) => assignmentApi.publish(assignment.classroomId, assignment.assignment_id, token),
+    onSuccess: async (_result, assignment) => { await Promise.all(teacherLearningInvalidations(assignment.classroomId).map((queryKey) => queryClient.invalidateQueries({ queryKey }))); },
+  });
+  const loading = classrooms.isLoading || classroomAssignments.some((query) => query.isLoading);
+  const error = classrooms.error ?? classroomAssignments.find((query) => query.error)?.error ?? publish.error;
 
-  return (
-    <div className="mx-auto w-full max-w-[1180px] px-4 py-6 md:px-8 md:py-9">
-      <PageHeader
-        eyebrow={<DemoTag label="Saved in this browser" />}
-        title="Assignments"
-        description="Create programming tasks with automatic checks the Studio evaluates live."
-        actions={
-        <LinkButton to="/teacher/assignments/new" variant="primary" icon={<PlusIcon className="h-4 w-4" />}>
-            New assignment
-          </LinkButton>
-        } />
-      
-      {sorted.length === 0 ?
-      <EmptyState icon={<ClipboardCheckIcon />} title="No assignments yet" action={<LinkButton to="/teacher/assignments/new">Create assignment</LinkButton>} /> :
-
-      <div className="mt-6 overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-line text-xs text-ink-subtle">
-                <th className="py-2 pr-4 font-medium">Assignment</th>
-                <th className="py-2 pr-4 font-medium">Course</th>
-                <th className="py-2 pr-4 font-medium">Due</th>
-                <th className="py-2 pr-4 text-right font-medium">Criteria</th>
-                <th className="py-2 pr-4 text-right font-medium">Submissions</th>
-                <th className="py-2 pr-4 font-medium">Status</th>
-                <th className="py-2" aria-label="Actions" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {sorted.map((a) => {
-              const subs = submissions.filter((s) => s.assignmentId === a.id);
-              const pending = subs.filter((s) => !s.review).length;
-              return (
-                <tr key={a.id}>
-                    <td className="py-3 pr-4">
-                      <Link to={`/teacher/assignments/${a.id}/edit`} className="font-medium text-ink hover:text-accent">
-                        {a.title}
-                      </Link>
-                      <p className="text-xs text-ink-subtle">{a.points} pts</p>
-                    </td>
-                    <td className="py-3 pr-4 text-ink-muted">{getCourse(a.courseId)?.code ?? '—'}</td>
-                    <td className="py-3 pr-4 text-ink-muted">{describeDue(a.dueDate).label}</td>
-                    <td className="tabular py-3 pr-4 text-right text-ink-muted">{a.criteria.length}</td>
-                    <td className="tabular py-3 pr-4 text-right">
-                      <Link to="/teacher/submissions" className="text-ink-muted hover:text-accent">
-                        {subs.length}
-                        {pending > 0 && <span className="ml-1 text-warn">({pending} to review)</span>}
-                      </Link>
-                    </td>
-                    <td className="py-3 pr-4">
-                      <Badge tone={a.published ? 'ok' : 'outline'}>{a.published ? 'Published' : 'Draft'}</Badge>
-                    </td>
-                    <td className="py-3 text-right">
-                      <div className="inline-flex">
-                        <Link to={`/teacher/assignments/${a.id}/edit`} aria-label={`Edit ${a.title}`} title="Edit" className="inline-flex h-7 w-7 items-center justify-center rounded-md text-ink-muted hover:bg-sunken hover:text-ink">
-                          <PencilIcon className="h-3.5 w-3.5" />
-                        </Link>
-                        <IconButton label={`Delete ${a.title}`} size="sm" className="hover:bg-danger-soft hover:text-danger" onClick={() => setToDelete(a)}>
-                          <Trash2Icon />
-                        </IconButton>
-                      </div>
-                    </td>
-                  </tr>);
-
-            })}
-            </tbody>
-          </table>
-        </div>
-      }
-      <ConfirmDialog
-        open={toDelete !== null}
-        title={`Delete “${toDelete?.title}”?`}
-        description="Students will no longer see this assignment. Existing demo submissions remain listed."
-        confirmLabel="Delete assignment"
-        onCancel={() => setToDelete(null)}
-        onConfirm={() => {
-          if (toDelete) deleteAssignment(toDelete.id);
-          setToDelete(null);
-          toast.success('Assignment deleted');
-        }} />
-      
-    </div>);
-
+  return <main className="mx-auto w-full max-w-[1180px] px-4 py-6 md:px-8 md:py-9">
+    <PageHeader eyebrow={<span className="text-xs font-semibold uppercase tracking-[.16em] text-[#176255]">Classroom learning</span>} title="Assignments" description="Create persistent classroom drafts, then publish them when they are ready for students." actions={<LinkButton to="/teacher/assignments/new" variant="primary" icon={<PlusIcon className="h-4 w-4" />}>New assignment</LinkButton>} />
+    {error && <p role="alert" className="mt-6 border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-800">{error instanceof Error ? error.message : 'Assignments could not be loaded.'}</p>}
+    {loading && <p className="mt-6 text-sm text-ink-muted">Loading assignments from Education API…</p>}
+    {!loading && !error && rows.length === 0 && <EmptyState icon={<ClipboardCheckIcon />} title="No assignments yet" description="Create a draft for one of your teaching classrooms." action={<LinkButton to="/teacher/assignments/new">Create assignment</LinkButton>} />}
+    {!loading && rows.length > 0 && <div className="mt-6 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-sm">
+      <thead><tr className="border-b border-line text-xs text-ink-subtle"><th className="py-2 pr-4 font-medium">Assignment</th><th className="py-2 pr-4 font-medium">Classroom</th><th className="py-2 pr-4 font-medium">Lesson</th><th className="py-2 pr-4 font-medium">Status</th><th className="py-2 text-right font-medium">Actions</th></tr></thead>
+      <tbody className="divide-y divide-line">{rows.map((assignment) => <tr key={assignment.id}>
+        <td className="py-4 pr-4"><p className="font-medium text-ink">{assignment.title}</p>{assignment.challenge_title && <p className="mt-1 text-xs text-ink-subtle">{assignment.challenge_title}</p>}</td>
+        <td className="py-4 pr-4 text-ink-muted">{assignment.classroomName}</td><td className="py-4 pr-4 text-ink-muted">{assignment.lesson_title ?? '—'}</td>
+        <td className="py-4 pr-4"><Badge tone={assignment.status === 'published' ? 'ok' : 'outline'}>{assignmentStatusLabel(assignment.status)}</Badge></td>
+        <td className="py-4 text-right"><div className="inline-flex items-center gap-3"><Link className="inline-flex items-center gap-1 text-sm font-semibold text-[#176255] underline underline-offset-4" to={teacherAssignmentEditPath(assignment.classroomId, assignment.assignment_id)}><PencilIcon className="h-3.5 w-3.5" />Edit</Link>{canPublishAssignment(assignment.status) && <button type="button" disabled={publish.isPending} onClick={() => publish.mutate(assignment)} className="h-9 bg-[#176255] px-3 text-sm font-semibold text-white disabled:opacity-50">Publish</button>}</div></td>
+      </tr>)}</tbody>
+    </table></div>}
+  </main>;
 }

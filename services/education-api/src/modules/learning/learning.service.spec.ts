@@ -22,6 +22,23 @@ describe("LearningService assignment delivery", () => {
     assertStudentClassroomAccess.mockResolvedValue(undefined);
   });
 
+  it("returns classroom curriculum identity with delivery options", async () => {
+    const curriculumQuery = jest.fn().mockResolvedValue([{
+      course_id: "course-1", course_title: "Robotics Foundations", lesson_id: "lesson-1", lesson_title: "Gripper",
+    }]);
+    const curriculumService = new LearningService(
+      { $queryRaw: curriculumQuery } as never,
+      { assertTeacherClassroomAccess: jest.fn().mockResolvedValue(undefined) } as never,
+    );
+
+    await expect(curriculumService.deliveryOptions(user, "class-1")).resolves.toEqual([
+      expect.objectContaining({ course_id: "course-1", course_title: "Robotics Foundations" }),
+    ]);
+    const sql = String(curriculumQuery.mock.calls[0][0]);
+    expect(sql).toContain("co.id AS course_id");
+    expect(sql).toContain("co.title AS course_title");
+  });
+
   it("derives learner identity from CurrentUser and creates the next own attempt", async () => {
     queryRaw.mockResolvedValue([{ classroom_id:"class-a", max_attempts:3 }]);
     transaction.mockImplementation(async (work) => work({
@@ -187,6 +204,23 @@ describe("LearningService assignment delivery", () => {
 
     await expect((publishService as unknown as { publishAssignment: Function }).publishAssignment(user, "class-1", "assignment-from-class-2"))
       .rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("denies editing shared assignment content unless the instructor can manage every delivery", async () => {
+    const assertTeacherClassroomAccess = jest.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new NotFoundException("Classroom was not found."));
+    const update = jest.fn();
+    const sharedService = new LearningService(
+      { $queryRaw: jest.fn().mockResolvedValue([{ classroom_id: "class-1" }, { classroom_id: "class-other-org" }]), learning_assignments: { update } } as never,
+      { assertTeacherClassroomAccess } as never,
+    );
+
+    await expect(sharedService.updateAssignment(user, "class-1", "assignment-shared", { title: "Forged edit" }))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(assertTeacherClassroomAccess).toHaveBeenNthCalledWith(1, user, "class-1");
+    expect(assertTeacherClassroomAccess).toHaveBeenNthCalledWith(2, user, "class-other-org");
+    expect(update).not.toHaveBeenCalled();
   });
 
   it("keeps drafts hidden and returns published work from the authoritative learner query", async () => {
