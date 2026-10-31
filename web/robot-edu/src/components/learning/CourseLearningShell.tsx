@@ -11,13 +11,15 @@ export function CourseLearningShell({ courseId, lessonId, lesson, pathOverride, 
   const location = useLocation();
   const focusedRoute = focused || /\/activities\//.test(location.pathname);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [focusedNavigatorCollapsed, setFocusedNavigatorCollapsed] = useState(false);
   const pathQuery = useQuery({ queryKey: ['course-learning-shell', courseId, session?.user.id], queryFn: () => progressionApi.coursePath(courseId, session?.access_token ?? ''), enabled: Boolean(session?.access_token && courseId), staleTime: 30_000 });
   const lessons = pathOverride?.lessons ?? pathQuery.data?.lessons ?? [];
 
   const activities = focusedRoute ? buildLessonActivities(lesson) : [];
-  return <div className={`mx-auto flex w-full flex-col gap-5 px-4 py-5 md:px-8 md:py-8 lg:flex-row lg:gap-10 ${focusedRoute ? 'max-w-none min-h-screen' : 'max-w-[1520px]'}`}>
+  return <div className={`mx-auto flex w-full flex-col gap-5 px-4 py-5 md:px-8 md:py-8 lg:flex-row ${focusedRoute ? 'max-w-none min-h-screen lg:gap-3' : 'max-w-[1520px] lg:gap-10'}`}>
     <button type="button" className="inline-flex items-center gap-2 self-start rounded-lg border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink shadow-hairline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden" aria-expanded={mobileOpen} aria-controls="course-material-nav" onClick={() => setMobileOpen((open) => !open)}><MenuIcon className="h-4 w-4" /> Course Material</button>
-    <aside id="course-material-nav" aria-label="Course Material" className={`${mobileOpen ? 'block' : 'hidden'} w-full shrink-0 lg:block lg:w-72`}>
+    {focusedRoute && <button type="button" className="hidden h-10 w-10 shrink-0 items-center justify-center self-start rounded-lg border border-line bg-surface text-ink transition-colors duration-200 ease-out hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-reduce:transition-none lg:inline-flex" aria-label={focusedNavigatorCollapsed ? 'Show course material' : 'Hide course material'} aria-expanded={!focusedNavigatorCollapsed} aria-controls="course-material-nav" onClick={() => setFocusedNavigatorCollapsed((collapsed) => !collapsed)}><MenuIcon className="h-4 w-4" /></button>}
+    <aside id="course-material-nav" aria-label="Course Material" className={`${mobileOpen ? 'block' : 'hidden'} w-full shrink-0 transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none lg:block ${focusedRoute ? (focusedNavigatorCollapsed ? 'lg:w-0 lg:overflow-hidden lg:opacity-0' : 'lg:w-80 lg:opacity-100') : 'lg:w-72'}`}>
       <div className={`rounded-xl border border-line bg-surface p-5 shadow-hairline ${focusedRoute ? 'lg:sticky lg:top-0 lg:h-[100dvh] lg:overflow-y-auto' : 'sticky top-5'}`}>
         <Link to={`/courses/${courseId}`} className="flex items-start gap-2 rounded-lg p-2 text-sm font-semibold text-ink hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"><BookOpenIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent-ink" /><span>Robotics Fundamentals</span></Link>
         <p className="px-2 pb-2 pt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">Course Material</p>

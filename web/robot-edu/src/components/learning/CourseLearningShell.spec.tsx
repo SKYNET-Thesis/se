@@ -37,4 +37,17 @@ describe('CourseLearningShell', () => {
     expect(container.querySelector('.lg\\:w-72')).not.toBeNull();
     expect(container.querySelector('a[href="/courses/course-1/lessons/lesson-3"]')).toBeNull();
   });
+
+  it('collapses and restores the focused navigator without changing the selected activity', async () => {
+    const pathOverride = { lessons: [] as never };
+    await act(async () => { root.render(<QueryClientProvider client={client}><MemoryRouter><CourseLearningShell courseId="course-1" lessonId="lesson-2" lesson={lesson} pathOverride={pathOverride} focused activityId="lesson-2-reading-1"><div data-testid="activity-content">Activity content</div></CourseLearningShell></MemoryRouter></QueryClientProvider>); await Promise.resolve(); });
+    const toggle = container.querySelector('button[aria-label="Hide course material"]') as HTMLButtonElement;
+    expect(toggle).toBeTruthy();
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    await act(async () => { toggle.click(); });
+    expect(container.querySelector('button[aria-label="Show course material"]')?.getAttribute('aria-expanded')).toBe('false');
+    expect(container.querySelector('[data-testid="activity-content"]')).not.toBeNull();
+    await act(async () => { (container.querySelector('button[aria-label="Show course material"]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('button[aria-label="Hide course material"]')?.getAttribute('aria-expanded')).toBe('true');
+  });
 });
