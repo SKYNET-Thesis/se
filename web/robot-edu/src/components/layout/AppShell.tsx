@@ -11,6 +11,7 @@ import { useRole } from '../../contexts/RoleContext';
 export function AppShell() {
   const location = useLocation();
   const isStudio = location.pathname.startsWith('/studio');
+  const isFocusedLearning = /^\/courses\/[^/]+\/lessons\/[^/]+\/activities\//.test(location.pathname);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false); const { client, session } = useSupabaseSession(); const { role } = useRole(); const navigate = useNavigate();
   const email=session?.user.email??''; const label=session?.user.user_metadata?.full_name ?? email; const initials=String(label).split(/\s+|@/).filter(Boolean).slice(0,2).map((part)=>part[0]).join('').toUpperCase();
@@ -27,7 +28,7 @@ export function AppShell() {
       <aside
         className={cn(
           'hidden shrink-0 flex-col border-r border-line bg-surface lg:flex',
-          isStudio ? 'w-[60px] items-stretch px-2 py-4' : 'w-[240px] px-3 py-5'
+          isStudio ? 'w-[60px] items-stretch px-2 py-4' : isFocusedLearning ? 'hidden' : 'w-[240px] px-3 py-5'
         )}>
         
         <Link to="/" className={cn('mb-7 flex rounded-md', isStudio ? 'justify-center' : 'px-2')} aria-label="VISTA home">
@@ -39,7 +40,7 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="hidden h-14 shrink-0 items-center justify-end gap-2 border-b border-line bg-surface px-5 lg:flex"><Link to="/settings" className="rounded-md p-2 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Web settings"><SettingsIcon className="h-5 w-5" /></Link><div className="relative"><button type="button" onClick={()=>setAccountOpen((open)=>!open)} className="grid h-9 w-9 place-items-center rounded-full bg-[#176255] text-xs font-semibold text-white" aria-label="Account menu" aria-expanded={accountOpen}>{initials||'V'}</button>{accountOpen&&<div className="absolute right-0 top-11 z-30 w-64 border border-line bg-surface p-3 shadow-pop"><p className="truncate text-sm font-semibold text-ink">{String(label)}</p><p className="mt-1 truncate text-xs text-ink-muted">{email}</p><p className="mt-2 text-xs capitalize text-ink-muted">{role?.replace('_',' ')}</p><Link to="/account" onClick={()=>setAccountOpen(false)} className="mt-3 block rounded px-2 py-2 text-sm hover:bg-sunken">Account Settings</Link><button type="button" onClick={()=>void logout()} className="mt-1 flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-sunken"><LogOutIcon className="h-4 w-4" />Logout</button></div>}</div></header>
+        {!isFocusedLearning && <header className="hidden h-14 shrink-0 items-center justify-end gap-2 border-b border-line bg-surface px-5 lg:flex"><Link to="/settings" className="rounded-md p-2 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Web settings"><SettingsIcon className="h-5 w-5" /></Link><div className="relative"><button type="button" onClick={()=>setAccountOpen((open)=>!open)} className="grid h-9 w-9 place-items-center rounded-full bg-[#176255] text-xs font-semibold text-white" aria-label="Account menu" aria-expanded={accountOpen}>{initials||'V'}</button>{accountOpen&&<div className="absolute right-0 top-11 z-30 w-64 border border-line bg-surface p-3 shadow-pop"><p className="truncate text-sm font-semibold text-ink">{String(label)}</p><p className="mt-1 truncate text-xs text-ink-muted">{email}</p><p className="mt-2 text-xs capitalize text-ink-muted">{role?.replace('_',' ')}</p><Link to="/account" onClick={()=>setAccountOpen(false)} className="mt-3 block rounded px-2 py-2 text-sm hover:bg-sunken">Account Settings</Link><button type="button" onClick={()=>void logout()} className="mt-1 flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-sunken"><LogOutIcon className="h-4 w-4" />Logout</button></div>}</div></header>}
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface px-4 lg:hidden">
           <Link to="/" aria-label="VISTA home">
             <VistaMark />
