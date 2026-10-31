@@ -7,14 +7,12 @@ import {
   BookOpenIcon,
   CheckCircle2Icon,
   ChevronLeftIcon,
-  ClockIcon,
   CpuIcon,
   FileQuestionIcon,
   LockIcon,
   PlayCircleIcon,
   RotateCcwIcon,
   ShieldAlertIcon,
-  SparklesIcon,
   TargetIcon,
 } from 'lucide-react';
 import { catalogApi, learnerApi, type LessonDetailResponse } from '../lib/api';
@@ -185,6 +183,8 @@ export function LessonViewer() {
         </span>
       </nav>
 
+      <header className="mt-6 border-b border-line pb-6"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-accent-ink">Learning module</p><div className="mt-2 flex flex-wrap items-center justify-between gap-3"><h1 className="text-3xl font-extrabold tracking-tight text-ink">C1-L{lesson.ordinal} — {lesson.title}</h1><Badge tone={isCompleted ? 'ok' : isLocked ? 'neutral' : 'accent'}>{isCompleted ? 'Completed' : isLocked ? 'Locked' : isInProgress ? 'In progress' : 'Current'}</Badge></div>{lesson.content?.summary && <p className="mt-3 max-w-3xl text-lg leading-relaxed text-ink-muted">{lesson.content.summary}</p>}{isL5 && lesson.qualification && <p className="mt-3 text-sm font-semibold text-accent-ink">Continue to Physical Lab</p>}</header>
+
       <LessonActivitySections lesson={lesson} onAction={(activity) => {
         if (activity.action === 'knowledge_check') {
           setShowQuiz(true);
@@ -199,53 +199,6 @@ export function LessonViewer() {
       <div className="mt-8">
         {/* Left Column: Educational Content */}
         <div className="space-y-8">
-          {/* Header Card */}
-          <header className="rounded-xl border border-line bg-surface p-6 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-                Course 1 · Lesson {lesson.ordinal}
-              </span>
-              <div>
-                {isCompleted && <Badge tone="ok">✓ Completed</Badge>}
-                {isCurrent && <Badge tone="accent">▶ Current</Badge>}
-                {isInProgress && <Badge tone="accent">• In Progress</Badge>}
-                {isLocked && <Badge tone="neutral">🔒 Locked</Badge>}
-              </div>
-            </div>
-
-            <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-ink">
-              C1-L{lesson.ordinal} — {lesson.title}
-            </h1>
-
-            {lesson.content?.summary && (
-              <p className="mt-3 text-lg leading-relaxed text-ink-muted">
-                {lesson.content.summary}
-              </p>
-            )}
-
-            {/* Metadata Badges */}
-            <div className="mt-5 flex flex-wrap items-center gap-4 border-t border-line pt-4 text-xs font-medium text-ink-muted">
-              {lesson.content?.estimatedMinutes && (
-                <div className="flex items-center gap-1.5">
-                  <ClockIcon className="h-4 w-4 text-accent" />
-                  <span>~{lesson.content.estimatedMinutes} minutes</span>
-                </div>
-              )}
-              {lesson.objectives?.length > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <TargetIcon className="h-4 w-4 text-accent" />
-                  <span>{lesson.objectives.length} Learning Objectives</span>
-                </div>
-              )}
-              {lesson.progressPercent > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <SparklesIcon className="h-4 w-4 text-ok" />
-                  <span>{lesson.progressPercent}% progress</span>
-                </div>
-              )}
-            </div>
-          </header>
-
           {/* Locked Notice Banner */}
           {isLocked && (
             <section
