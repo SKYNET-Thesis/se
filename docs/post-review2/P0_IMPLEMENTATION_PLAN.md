@@ -194,9 +194,9 @@ Progress semantics: `not_started` → `in_progress` when the learner starts the 
 
 **Acceptance criteria:**
 
-- [ ] L2 PASS is based on final task state, not only presence/order of a block.
-- [ ] Result is tied to exact ProgramVersion and challenge snapshot.
-- [ ] Failure identifies the incorrect pose/joint constraint in student language.
+- [x] L2 PASS is based on final task state, not only presence/order of a block.
+- [x] Result is tied to exact ProgramVersion and challenge snapshot.
+- [x] Failure identifies the incorrect pose/joint constraint in student language.
 
 **Dependencies:** P0.4.
 

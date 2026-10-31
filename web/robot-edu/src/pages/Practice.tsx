@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as Blockly from 'blockly';
+import { useQueryClient } from '@tanstack/react-query';
 import { BookOpenIcon, CheckCircle2Icon, ChevronLeftIcon, ChevronRightIcon, CircleHelpIcon, CircleIcon, FileQuestionIcon, PauseIcon, PlayIcon, RotateCcwIcon, SparklesIcon, TriangleAlertIcon, XCircleIcon } from 'lucide-react';
 import { ApiError, assignmentApi, catalogApi, learnerApi, type ApiAttempt, type ApiClassroomAssignment, type ApiProgram, type ApiSymbolicEvaluation, type LessonDetailResponse } from '../lib/api';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
+import { studentLearningKeys } from '../queries/studentLearningQueries';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { BlocklyCanvas } from '../components/studio/BlocklyCanvas';
@@ -30,6 +32,7 @@ const emptyRobotProgram = { kind: 'robot_program', schemaVersion: 1, steps: [] }
 export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'physical-enabled' }) {
   const { attemptId = '' } = useParams();
   const { session } = useSupabaseSession();
+  const queryClient = useQueryClient();
   const [data, setData] = useState<PracticeState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +45,8 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [evaluation, setEvaluation] = useState<ApiSymbolicEvaluation | null>(null);
   const [evaluating, setEvaluating] = useState(false);
+  const [simulating, setSimulating] = useState(false);
+  const [simulationSystemError, setSimulationSystemError] = useState<string | null>(null);
   const evaluationLock = useRef(false);
   const [evidenceStage, setEvidenceStage] = useState<EvidenceStage>('none');
   const [evaluationError, setEvaluationError] = useState<string | null>(null);
@@ -57,6 +62,9 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
   const [confirmRobotRun, setConfirmRobotRun] = useState(false);
   const [robotStarting, setRobotStarting] = useState(false);
   const [lastProgramVersionId, setLastProgramVersionId] = useState<string | null>(null);
+  const [activeVersion, setActiveVersion] = useState<{ id: string; version_number: number } | null>(null);
+  const lastVersionSnapshot = useRef<string | null>(null);
+  const [isDirtyAfterVersion, setIsDirtyAfterVersion] = useState(false);
   const [disallowedBlocks, setDisallowedBlocks] = useState<string[] | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -77,8 +85,19 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
       }
       const [versions,submissions,experiments,evaluations]=await Promise.all([learnerApi.versions(program.id,session.access_token),learnerApi.submissions(session.access_token),learnerApi.experiments(session.access_token),learnerApi.symbolicEvaluations(session.access_token)]);
       const recovered=recoverEvidence(versions,submissions,experiments.filter(item=>item.input_snapshot?.attemptId===attempt.id),evaluations);
-      if(active&&recovered){setLastProgramVersionId(recovered.version.id);setEvaluation(recovered.evaluation);setEvidenceStage('evaluation_persisted');}
-      else if (active && versions[0]) setLastProgramVersionId(versions[0].id);
+      if(active&&recovered){
+        setLastProgramVersionId(recovered.version.id);
+        setActiveVersion({ id: recovered.version.id, version_number: recovered.version.version_number });
+        lastVersionSnapshot.current = JSON.stringify(program.workspace_json);
+        setIsDirtyAfterVersion(false);
+        setEvaluation(recovered.evaluation);
+        setEvidenceStage('evaluation_persisted');
+      } else if (active && versions[0]) {
+        setLastProgramVersionId(versions[0].id);
+        setActiveVersion({ id: versions[0].id, version_number: versions[0].version_number });
+        lastVersionSnapshot.current = JSON.stringify(program.workspace_json);
+        setIsDirtyAfterVersion(false);
+      }
       if (assignment.challenge_id) {
         const objects = await catalogApi.challengeObjects(assignment.challenge_id, session.access_token);
         const object = objects.find((item) => item.object_key === 'target-a');
@@ -196,7 +215,7 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
       if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
       await saveChain.current.catch(() => undefined);
       setSaveState('saving');
-      const result=await runC1Evidence({saveProgram:async()=>{await learnerApi.updateProgram(data.program.id,session.access_token,{workspaceJson,robotProgram:canonical.program});setSaveState('saved');setEvidenceStage('program_saved');},createVersion:async()=>{const version=await learnerApi.createVersion(data.program.id,session.access_token,'Student lesson evaluation');setLastProgramVersionId(version.id);setEvidenceStage('version_created');return version;},submit:async versionId=>{const submission=await learnerApi.submit(data.attempt.id,session.access_token,versionId);setEvidenceStage('submission_persisted');return submission;},createExperiment:async versionId=>{const experiment=await learnerApi.createSchematic(data.attempt.id,session.access_token,versionId);setEvidenceStage('experiment_created');return experiment;},runExperiment:async experimentId=>{const output=await learnerApi.runSchematic(experimentId,session.access_token);setEvidenceStage('experiment_run');return output;},evaluate:async experimentId=>{const evidence=await learnerApi.evaluateSymbolic(experimentId,session.access_token);setEvidenceStage('evaluation_persisted');return evidence;}});
+      const result=await runC1Evidence({saveProgram:async()=>{await learnerApi.updateProgram(data.program.id,session.access_token,{workspaceJson,robotProgram:canonical.program});setSaveState('saved');setEvidenceStage('program_saved');},createVersion:async()=>{const version=await learnerApi.createVersion(data.program.id,session.access_token,'Student lesson evaluation');setLastProgramVersionId(version.id);setActiveVersion({ id: version.id, version_number: version.version_number });lastVersionSnapshot.current = JSON.stringify(workspaceJson);setIsDirtyAfterVersion(false);setEvidenceStage('version_created');return version;},submit:async versionId=>{const submission=await learnerApi.submit(data.attempt.id,session.access_token,versionId);setEvidenceStage('submission_persisted');return submission;},createExperiment:async versionId=>{const experiment=await learnerApi.createSchematic(data.attempt.id,session.access_token,versionId);setEvidenceStage('experiment_created');return experiment;},runExperiment:async experimentId=>{const output=await learnerApi.runSchematic(experimentId,session.access_token);setEvidenceStage('experiment_run');return output;},evaluate:async experimentId=>{const evidence=await learnerApi.evaluateSymbolic(experimentId,session.access_token);setEvidenceStage('evaluation_persisted');return evidence;}});
       setEvaluation(result.evaluation);
     } catch (requestError) { setEvaluationError(requestError instanceof Error ? requestError.message : 'Could not evaluate this program.'); }
     finally { evaluationLock.current=false; setEvaluating(false); }
@@ -205,7 +224,7 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
   const saveCurriculumVersion = async () => {
     const workspace = workspaceRef.current;
     if (!workspace || !session || !data || evaluationLock.current) return;
-    evaluationLock.current = true; setEvaluating(true); setEvaluationError(null); setValidationMessage(null);
+    evaluationLock.current = true; setEvaluating(true); setEvaluationError(null); setValidationMessage(null); setSimulationSystemError(null);
     try {
       const snapshot = Blockly.serialization.workspaces.save(workspace);
       const disallowed = validateWorkspaceBlockTypes(snapshot, allowedBlockTypes);
@@ -224,9 +243,44 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
       }));
       setSaveState('saved');
       setLastProgramVersionId(version.id);
-      setValidationMessage(`Immutable ProgramVersion ${version.version_number} created. Preview did not mark this lesson PASS.`);
+      setActiveVersion({ id: version.id, version_number: version.version_number });
+      lastVersionSnapshot.current = JSON.stringify(snapshot);
+      setIsDirtyAfterVersion(false);
+      setValidationMessage(`Immutable ProgramVersion ${version.version_number} saved. Ready for simulation.`);
     } catch (requestError) { setEvaluationError(requestError instanceof Error ? requestError.message : 'Could not create a ProgramVersion.'); }
     finally { evaluationLock.current = false; setEvaluating(false); }
+  };
+
+  const runSimulation = async () => {
+    const workspace = workspaceRef.current;
+    if (!session || !data || !activeVersion || isDirtyAfterVersion || evaluationLock.current) return;
+    evaluationLock.current = true;
+    setSimulating(true);
+    setSimulationSystemError(null);
+    setEvaluationError(null);
+    setValidationMessage(null);
+    try {
+      if (workspace) {
+        const snapshot = Blockly.serialization.workspaces.save(workspace);
+        const disallowed = isCurriculumProgramming ? validateWorkspaceBlockTypes(snapshot, allowedBlockTypes) : [];
+        if (disallowed.length) throw new Error('Your workspace contains disallowed blocks. Remove them before running simulation.');
+      }
+      await learnerApi.submit(data.attempt.id, session.access_token, activeVersion.id);
+      const experiment = await learnerApi.createSchematic(data.attempt.id, session.access_token, activeVersion.id);
+      if (experiment.status === 'pending') {
+        await learnerApi.runSchematic(experiment.id, session.access_token);
+      }
+      const evalResult = await learnerApi.evaluateSymbolic(experiment.id, session.access_token);
+      setEvaluation(evalResult);
+      if (evalResult.verdict === 'passed') {
+        await queryClient.invalidateQueries({ queryKey: studentLearningKeys.all }).catch(() => undefined);
+      }
+    } catch (requestError) {
+      setSimulationSystemError(requestError instanceof Error ? requestError.message : 'Simulation evaluation encountered an error.');
+    } finally {
+      evaluationLock.current = false;
+      setSimulating(false);
+    }
   };
 
   const resetPreview = () => { setPreviewPlaying(false); setPreviewIndex(0); setPreviewSelectedArm('left'); setPreviewState(createInitialState()); };
@@ -258,8 +312,8 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
     {data.lesson && <header className="mt-4"><p className="text-xs font-medium uppercase tracking-wide text-ink-subtle">{data.lesson.course_title} · C1-L{data.lesson.ordinal}</p><h1 className="mt-1 text-xl font-semibold text-ink">{data.lesson.title}</h1><p className="mt-2 max-w-3xl text-sm text-ink-muted"><strong className="text-ink">Completion goal:</strong> {data.lesson.content.completionCriteria}</p></header>}
     {isReachTarget && <section className="mt-5 rounded-xl border border-[#b8d9d3] bg-[#effaf7] p-4 text-sm text-ink"><strong>Learn · Predict</strong><p className="mt-1 text-ink-muted">X, Y and Z describe a lesson-only coordinate frame. Predict where Target A is, then build and compare your answer.</p><p className="mt-2 font-medium text-accent-ink">Visual learning preview — not physical robot reachability.</p></section>}
     <div className="mt-5 grid gap-6 xl:grid-cols-[minmax(640px,1.35fr)_minmax(420px,0.85fr)]">
-      <main className="min-w-0 rounded-xl border border-line bg-surface p-4 md:p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-medium uppercase tracking-wide text-accent-ink">Practice workspace · Task</p><h2 className="mt-2 text-2xl font-semibold text-ink">{data.assignment.title}</h2><p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-ink-muted">{data.assignment.instructions ?? 'Follow the mission instructions, then validate your Blockly program.'}</p></div><div data-tour="actions" className="flex items-center gap-2"><span role="status" className={saveState === 'error' ? 'text-xs text-danger' : 'text-xs text-ink-subtle'}>{saveState === 'unsaved' ? 'Unsaved changes' : saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved to VISTA' : 'Save failed'}</span><Button size="sm" variant="secondary" disabled={Boolean(toolboxError)} onClick={validateProgram}>Validate</Button><Button size="sm" variant="primary" loading={evaluating} disabled={Boolean(toolboxError || savedDisallowed.length)} onClick={() => void (isCurriculumProgramming ? saveCurriculumVersion() : submitAndEvaluate())}>{isCurriculumProgramming ? 'Save version' : 'Submit & evaluate'}</Button></div></div>{lastProgramVersionId && <p role="status" className="mt-3 text-xs text-ink-muted">Immutable ProgramVersion: <code>{lastProgramVersionId}</code></p>}{toolboxError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{toolboxError}</p>}{savedDisallowed.length > 0 && <p role="alert" className="mt-3 rounded-md bg-warning-soft px-3 py-2 text-xs text-ink">Your saved workspace contains blocks outside this lesson’s toolbox ({savedDisallowed.join(', ')}). Nothing was deleted; remove them before creating valid evidence.</p>}{saveError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{saveError}</p>}{validationMessage && <p role="status" className="mt-3 rounded-md bg-accent-soft px-3 py-2 text-xs text-accent-ink">{validationMessage}</p>}{evaluationError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{evidenceStage==='submission_persisted'||evidenceStage==='experiment_created'||evidenceStage==='experiment_run'?'Submission persisted · ':''}{evaluationError}</p>}<div data-tour="workspace" className="relative mt-5 h-[min(62vh,680px)] min-h-[460px] overflow-hidden rounded-lg border border-line bg-[#FBFAF8]"><BlocklyCanvas key={data.program.id} initialState={data.program.workspace_json} toolbox={toolbox} onReady={(workspace) => { workspaceRef.current = workspace; refreshGeneration(workspace); setDisallowedBlocks(isCurriculumProgramming ? validateWorkspaceBlockTypes(data.program.workspace_json, allowedBlockTypes) : []); }} onChange={() => { if (workspaceRef.current) { refreshGeneration(workspaceRef.current); persistWorkspace(workspaceRef.current); setEvaluation(null); } }} onBeforeDispose={(workspace) => persistWorkspace(workspace, true)} /></div><p className="mt-3 text-xs text-ink-subtle">Your workspace is saved to VISTA. Preview is explanatory; authoritative results require persisted server evidence for an immutable ProgramVersion.</p></main>
-      <aside className="space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto xl:pr-1"><ProgramPreview state={previewState} steps={previewSteps} index={previewIndex} playing={previewPlaying} speed={previewSpeed} onToggle={togglePreview} onReset={resetPreview} onSpeed={setPreviewSpeed} target={isReachTarget ? learningTarget : null} />{isReachTarget ? <ReachTargetPanel target={learningTarget} steps={previewSteps} evaluation={evaluation} /> : <><LessonGuide onStartTour={() => setTourOpen(true)} onOpenGuide={() => setGuideOpen(true)} /><section className="rounded-xl border border-line bg-surface p-5"><p className="text-xs font-medium uppercase tracking-wide text-accent-ink">Mission</p><h2 className="mt-2 text-base font-semibold text-ink">{data.assignment.title}</h2><p className="mt-2 text-[13px] leading-relaxed text-ink-muted">{data.assignment.instructions}</p>{!isCurriculumProgramming && <ul className="mt-5 space-y-3"><MissionItem done={mission.selectedLeft}>Select the left arm</MissionItem><MissionItem done={mission.opened}>Open gripper action found</MissionItem><MissionItem done={mission.ordered}>Open → wait → close</MissionItem><MissionItem done={mission.waited}>Wait at least 1 second</MissionItem><MissionItem done={mission.closed}>Finish with the left gripper closed</MissionItem></ul>}</section></>}{mode==='physical-enabled'&&<PhysicalExecutionPanel status={robotStatus} execution={robotExecution} canRun={Boolean(!isCurriculumProgramming&&!isReachTarget&&robotStatus?.eligible)} previewOnly={isCurriculumProgramming||isReachTarget} onRequestRun={() => setConfirmRobotRun(true)} onStop={() => void stopRobot()} error={robotError} />}{evaluation && <EvaluationResult evaluation={evaluation} />}<p className="px-1 text-xs leading-relaxed text-ink-subtle">{isCurriculumProgramming || isReachTarget ? 'Visual learning preview — not an authoritative PASS and not physical robot reachability.' : mode==='physical-enabled'?'Physical authorization is always verified by VISTA before a run starts.':'This learning workspace creates schematic evidence only; no robot command is sent.'}</p></aside>
+      <main className="min-w-0 rounded-xl border border-line bg-surface p-4 md:p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-medium uppercase tracking-wide text-accent-ink">Practice workspace · Task</p><h2 className="mt-2 text-2xl font-semibold text-ink">{data.assignment.title}</h2><p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-ink-muted">{data.assignment.instructions ?? 'Follow the mission instructions, then validate your Blockly program.'}</p></div><div data-tour="actions" className="flex items-center gap-2"><span role="status" className={saveState === 'error' ? 'text-xs text-danger' : 'text-xs text-ink-subtle'}>{saveState === 'unsaved' ? 'Unsaved changes' : saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved to VISTA' : 'Save failed'}</span><Button size="sm" variant="secondary" disabled={Boolean(toolboxError)} onClick={validateProgram}>Validate</Button><Button size="sm" variant="secondary" loading={evaluating} disabled={Boolean(toolboxError || savedDisallowed.length)} onClick={() => void (isCurriculumProgramming ? saveCurriculumVersion() : submitAndEvaluate())}>{isCurriculumProgramming ? 'Save version' : 'Submit & evaluate'}</Button>{isCurriculumProgramming && <Button size="sm" variant="primary" loading={simulating} disabled={Boolean(simulating || evaluating || toolboxError || savedDisallowed.length || !activeVersion || isDirtyAfterVersion)} onClick={() => void runSimulation()}>Run simulation</Button>}</div></div>{lastProgramVersionId && <p role="status" className="mt-3 text-xs text-ink-muted">Immutable ProgramVersion: <code>{lastProgramVersionId}</code></p>}{isCurriculumProgramming && isDirtyAfterVersion && activeVersion && <p role="status" className="mt-3 rounded-md bg-warning-soft px-3 py-2 text-xs font-medium text-ink">Save a new version before running simulation.</p>}{toolboxError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{toolboxError}</p>}{savedDisallowed.length > 0 && <p role="alert" className="mt-3 rounded-md bg-warning-soft px-3 py-2 text-xs text-ink">Your saved workspace contains blocks outside this lesson’s toolbox ({savedDisallowed.join(', ')}). Nothing was deleted; remove them before creating valid evidence.</p>}{saveError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{saveError}</p>}{validationMessage && <p role="status" className="mt-3 rounded-md bg-accent-soft px-3 py-2 text-xs text-accent-ink">{validationMessage}</p>}{simulationSystemError && <div role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger flex items-start gap-2"><TriangleAlertIcon className="h-4 w-4 shrink-0 mt-0.5" /><div><strong>System error:</strong> {simulationSystemError}</div></div>}{evaluationError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{evidenceStage==='submission_persisted'||evidenceStage==='experiment_created'||evidenceStage==='experiment_run'?'Submission persisted · ':''}{evaluationError}</p>}<div data-tour="workspace" className="relative mt-5 h-[min(62vh,680px)] min-h-[460px] overflow-hidden rounded-lg border border-line bg-[#FBFAF8]"><BlocklyCanvas key={data.program.id} initialState={data.program.workspace_json} toolbox={toolbox} onReady={(workspace) => { workspaceRef.current = workspace; refreshGeneration(workspace); setDisallowedBlocks(isCurriculumProgramming ? validateWorkspaceBlockTypes(data.program.workspace_json, allowedBlockTypes) : []); }} onChange={() => { if (workspaceRef.current) { refreshGeneration(workspaceRef.current); persistWorkspace(workspaceRef.current); if (lastVersionSnapshot.current !== null) { const currentJson = JSON.stringify(Blockly.serialization.workspaces.save(workspaceRef.current)); setIsDirtyAfterVersion(currentJson !== lastVersionSnapshot.current); } } }} onBeforeDispose={(workspace) => persistWorkspace(workspace, true)} /></div><p className="mt-3 text-xs text-ink-subtle">Preview lets you see how your program moves the robot locally. Run Simulation checks whether your saved program completes the lesson task.</p></main>
+      <aside className="space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto xl:pr-1"><ProgramPreview state={previewState} steps={previewSteps} index={previewIndex} playing={previewPlaying} speed={previewSpeed} onToggle={togglePreview} onReset={resetPreview} onSpeed={setPreviewSpeed} target={isReachTarget ? learningTarget : null} />{isReachTarget ? <ReachTargetPanel target={learningTarget} steps={previewSteps} evaluation={evaluation} /> : <><LessonGuide onStartTour={() => setTourOpen(true)} onOpenGuide={() => setGuideOpen(true)} /><section className="rounded-xl border border-line bg-surface p-5"><p className="text-xs font-medium uppercase tracking-wide text-accent-ink">Mission</p><h2 className="mt-2 text-base font-semibold text-ink">{data.assignment.title}</h2><p className="mt-2 text-[13px] leading-relaxed text-ink-muted">{data.assignment.instructions}</p>{!isCurriculumProgramming && <ul className="mt-5 space-y-3"><MissionItem done={mission.selectedLeft}>Select the left arm</MissionItem><MissionItem done={mission.opened}>Open gripper action found</MissionItem><MissionItem done={mission.ordered}>Open → wait → close</MissionItem><MissionItem done={mission.waited}>Wait at least 1 second</MissionItem><MissionItem done={mission.closed}>Finish with the left gripper closed</MissionItem></ul>}</section></>}{mode==='physical-enabled'&&<PhysicalExecutionPanel status={robotStatus} execution={robotExecution} canRun={Boolean(!isCurriculumProgramming&&!isReachTarget&&robotStatus?.eligible)} previewOnly={isCurriculumProgramming||isReachTarget} onRequestRun={() => setConfirmRobotRun(true)} onStop={() => void stopRobot()} error={robotError} />}{evaluation && <EvaluationResult evaluation={evaluation} lesson={data.lesson} onEditProgram={() => { workspaceRef.current?.scrollIntoView?.({ behavior: 'smooth' }); }} onPreviewAgain={() => { resetPreview(); setPreviewPlaying(true); }} />}<p className="px-1 text-xs leading-relaxed text-ink-subtle">{isCurriculumProgramming || isReachTarget ? 'Visual learning preview — not an authoritative PASS and not physical robot reachability.' : mode==='physical-enabled'?'Physical authorization is always verified by VISTA before a run starts.':'This learning workspace creates schematic evidence only; no robot command is sent.'}</p></aside>
     </div>
     <PracticeWalkthrough open={tourOpen} onClose={() => setTourOpen(false)} />
     <QuickGuide open={guideOpen} onClose={() => setGuideOpen(false)} onStartTour={() => { setGuideOpen(false); setTourOpen(true); }} />
@@ -271,9 +325,14 @@ function MissionItem({ done, children }: { done: boolean; children: React.ReactN
   return <li className="flex items-start gap-2 text-[13px] text-ink"><span className="mt-px shrink-0">{done ? <CheckCircle2Icon className="h-4 w-4 text-ok" /> : <CircleIcon className="h-4 w-4 text-line-strong" />}</span><span>{children}</span></li>;
 }
 
-function EvaluationResult({ evaluation }: { evaluation: ApiSymbolicEvaluation }) {
+function EvaluationResult({ evaluation, lesson, onEditProgram, onPreviewAgain }: { evaluation: ApiSymbolicEvaluation; lesson: LessonDetailResponse | null; onEditProgram?: () => void; onPreviewAgain?: () => void }) {
   const passed = evaluation.verdict === 'passed';
-  return <section className={passed ? 'rounded-xl border border-ok/30 bg-ok-soft p-5' : 'rounded-xl border border-danger/25 bg-danger-soft p-5'}><div className="flex items-start gap-3"><span className={passed ? 'text-ok' : 'text-danger'}>{passed ? <CheckCircle2Icon className="h-5 w-5" /> : <XCircleIcon className="h-5 w-5" />}</span><div><h2 className="font-semibold text-ink">{passed ? 'Mission completed' : 'Almost there!'}</h2><p className="mt-1 text-xs text-ink-muted">{evaluation.metrics.passedRuleCount}/{evaluation.metrics.ruleCount} mission checks passed</p></div></div><ul className="mt-4 space-y-2">{evaluation.ruleResults.map((rule) => <li key={rule.ordinal} className="flex items-start gap-2 text-[13px] text-ink"><span className="mt-px shrink-0">{rule.passed ? <CheckCircle2Icon className="h-4 w-4 text-ok" /> : <TriangleAlertIcon className="h-4 w-4 text-danger" />}</span><span><span className="font-medium">{ruleLabel(rule.type)}</span><span className="block text-xs text-ink-muted">{rule.reason}</span></span></li>)}</ul><p className="mt-4 text-xs font-semibold uppercase tracking-wide text-ink">{passed ? 'Pass' : 'Needs revision'}</p></section>;
+  const feedbackMessage = evaluation.feedback?.message;
+  const targetRule = evaluation.ruleResults.find((r) => r.type === 'preview_target_match');
+  if (passed) {
+    return <section className="rounded-xl border border-ok/30 bg-ok-soft p-5"><div className="flex items-start gap-3"><span className="mt-0.5 shrink-0 text-ok"><CheckCircle2Icon className="h-5 w-5" /></span><div className="space-y-1"><h2 className="text-base font-semibold text-ink">Simulation Passed</h2><p className="text-sm font-medium text-ok-ink">Target A reached successfully.</p><p className="text-xs text-ink-muted">{lesson ? `C1-L${lesson.ordinal} ${lesson.title} completed.` : 'Lesson completed.'}</p><div className="mt-3 rounded-lg border border-ok/20 bg-surface/80 p-3 text-xs text-ink"><p className="font-semibold text-ink">Next lesson unlocked:</p><p className="mt-0.5 font-medium text-accent-ink">Grab & Release (C1-L3)</p></div><div className="mt-4 pt-1"><Link to={lesson ? `/courses/${lesson.course_id}` : '/courses'} className="inline-flex h-8 items-center rounded-md bg-accent px-3 text-xs font-semibold text-white shadow-hairline hover:bg-accent/90">Continue to Course Path</Link></div></div></div></section>;
+  }
+  return <section className="rounded-xl border border-danger/25 bg-danger-soft p-5"><div className="flex items-start gap-3"><span className="mt-0.5 shrink-0 text-danger"><XCircleIcon className="h-5 w-5" /></span><div className="w-full space-y-2"><h2 className="text-base font-semibold text-ink">Simulation Needs Changes</h2><p className="text-sm font-medium text-danger">{feedbackMessage ?? targetRule?.message ?? 'The robot did not reach Target A.'}</p><p className="text-xs text-ink-muted">Review your Move to Position block and try again.</p>{evaluation.ruleResults.length > 0 && <ul className="mt-3 space-y-2 rounded-lg border border-line bg-surface/80 p-3">{evaluation.ruleResults.map((rule) => <li key={rule.ordinal} className="flex items-start gap-2 text-xs text-ink"><span className="mt-0.5 shrink-0">{rule.passed ? <CheckCircle2Icon className="h-3.5 w-3.5 text-ok" /> : <TriangleAlertIcon className="h-3.5 w-3.5 text-danger" />}</span><div><span className="font-medium">{rule.message ?? ruleLabel(rule.type)}</span><span className="block text-xs text-ink-muted">{rule.reason}</span></div></li>)}</ul>}<div className="mt-4 flex gap-2 pt-1">{onEditProgram && <Button size="sm" variant="secondary" onClick={onEditProgram}>Edit Program</Button>}{onPreviewAgain && <Button size="sm" variant="secondary" onClick={onPreviewAgain}>Preview Again</Button>}</div></div></div></section>;
 }
 
 function ProgramPreview({ state, steps, index, playing, speed, onToggle, onReset, onSpeed, target }: { state: SimState; steps: CanonicalNestStep[]; index: number; playing: boolean; speed: number; onToggle: () => void; onReset: () => void; onSpeed: (speed: number) => void; target: LearningTarget | null }) {
