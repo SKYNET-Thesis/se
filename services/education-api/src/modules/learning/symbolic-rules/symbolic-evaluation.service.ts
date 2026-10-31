@@ -1,13 +1,15 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../../common/database/prisma.service";
 import { AuthenticatedUser } from "../../identity/auth/authenticated-user.interface";
+import { ProgressionProjection } from "../dto/course-path.dto";
+import { ProgressionService } from "../progression.service";
 import { SymbolicEvaluationPreparationService } from "./symbolic-evaluation-preparation.service";
 import { SymbolicRuleEvaluatorService } from "./symbolic-rule-evaluator.service";
 
 export interface SymbolicEvaluationResponse {
   id: string; experimentId: string; programVersionId: string; evaluatorVersion: string;
   ruleSetSchemaVersion: number; ruleSetHash: string; verdict: "passed" | "failed";
-  ruleResults: unknown; metrics: unknown; createdAt: Date;
+  ruleResults: unknown; metrics: unknown; createdAt: Date; progression?: ProgressionProjection;
 }
 
 /** Append-only persistence for completed deterministic symbolic evidence. */
@@ -17,6 +19,7 @@ export class SymbolicEvaluationService {
     private readonly prisma: PrismaService,
     private readonly preparation: SymbolicEvaluationPreparationService,
     private readonly evaluator: SymbolicRuleEvaluatorService,
+    private readonly progression: ProgressionService,
   ) {}
 
   async evaluateOwnExperiment(user: AuthenticatedUser, experimentId: string): Promise<SymbolicEvaluationResponse> {
@@ -48,7 +51,13 @@ export class SymbolicEvaluationService {
       const response = map(evidence);
       const finalized=await tx.$queryRaw<{id:string}[]>`UPDATE public.learning_assignment_attempts SET status='evaluated',result_snapshot=${JSON.stringify({ evaluationId: response.id, programVersionId: response.programVersionId, verdict: response.verdict, ruleResults: response.ruleResults, metrics: response.metrics })}::jsonb WHERE id=${prepared.attemptId}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status IN ('submitted','evaluated') RETURNING id`;
       if(!finalized[0])throw new ConflictException("Attempt could not be finalized after evaluation.");
-      return response;
+      const progression = await this.progression.projectSymbolicPass(tx, user, {
+        evaluationId: response.id,
+        attemptId: prepared.attemptId,
+        programVersionId: response.programVersionId,
+        verdict: response.verdict,
+      });
+      return { ...response, progression };
     });
   }
 
