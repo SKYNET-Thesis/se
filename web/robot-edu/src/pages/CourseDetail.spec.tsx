@@ -26,12 +26,18 @@ import { CourseDetail } from './CourseDetail';
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const coursePathFixture = {
-  course: { id: 'c1-uuid', title: 'Robotics Fundamentals', status: 'published' },
+  course: {
+    id: 'c1-uuid', title: 'Robotics Fundamentals', status: 'published', label: 'Course 1',
+    description: 'A five-lesson robotics foundation.', level: 'Beginner', recommendedGrades: 'Grades 6–8',
+    learningOutcome: 'Student can independently program a Pick & Place task in simulation and then execute the qualified program on a physical robot.',
+    competencies: [{ code: 'C1.SAFETY.AWARENESS', title: 'Robot safety awareness' }, { code: 'C1.MOTION.SEQUENCE', title: 'Motion sequencing' }],
+  },
   progressPercent: 40,
   currentLessonId: 'lesson-3-uuid',
   lessons: [
     {
       id: 'lesson-1-uuid',
+      code: 'C1-L1',
       ordinal: 1,
       title: 'Meet Your Robot',
       status: 'completed' as const,
@@ -39,9 +45,11 @@ const coursePathFixture = {
       prerequisite: [],
       lockReason: null,
       completedAt: '2026-10-31T00:00:00Z',
+      summary: 'Identify robot components and essential safety procedures.', learningItems: ['Robot anatomy', 'Safety knowledge check'], estimatedMinutes: 15,
     },
     {
       id: 'lesson-2-uuid',
+      code: 'C1-L2',
       ordinal: 2,
       title: 'Move the Robot',
       status: 'completed' as const,
@@ -49,9 +57,11 @@ const coursePathFixture = {
       prerequisite: [{ lessonId: 'lesson-1-uuid', title: 'Meet Your Robot', required: true, minimumScore: null }],
       lockReason: null,
       completedAt: '2026-10-31T01:00:00Z',
+      summary: 'Build deterministic robot motion sequences.', learningItems: ['Motion sequencing', 'Simulation practice'], estimatedMinutes: 25,
     },
     {
       id: 'lesson-3-uuid',
+      code: 'C1-L3',
       ordinal: 3,
       title: 'Grab & Release',
       status: 'current' as const,
@@ -59,9 +69,11 @@ const coursePathFixture = {
       prerequisite: [{ lessonId: 'lesson-2-uuid', title: 'Move the Robot', required: true, minimumScore: null }],
       lockReason: null,
       completedAt: null,
+      summary: 'Coordinate approach, grasp, lift, and release.', learningItems: ['Gripper control', 'Grab and release task'], estimatedMinutes: 30,
     },
     {
       id: 'lesson-4-uuid',
+      code: 'C1-L4',
       ordinal: 4,
       title: 'Pick & Place',
       status: 'locked' as const,
@@ -74,9 +86,11 @@ const coursePathFixture = {
         message: 'Complete Grab & Release to unlock this lesson.',
       },
       completedAt: null,
+      summary: 'Build and verify a complete pick-and-place sequence.', learningItems: ['Pick & Place program', 'Authoritative simulation'], estimatedMinutes: 35,
     },
     {
       id: 'lesson-5-uuid',
+      code: 'C1-L5',
       ordinal: 5,
       title: 'Physical Robot Lab',
       status: 'locked' as const,
@@ -89,6 +103,7 @@ const coursePathFixture = {
         message: 'Complete Pick & Place to unlock this lesson.',
       },
       completedAt: null,
+      summary: 'Execute the qualified program under physical lab safety controls.', learningItems: ['Readiness review', 'Physical experiment'], estimatedMinutes: 30,
     },
   ],
 };
@@ -152,7 +167,7 @@ describe('CourseDetail / Course Path', () => {
     expect(container.textContent).toContain('2 / 5 lessons completed');
     expect(container.textContent).toContain('40%');
 
-    const text = container.textContent ?? '';
+    const text = Array.from(container.querySelectorAll('[data-testid="lesson-row"]')).map((row) => row.textContent).join(' ');
     const l1Index = text.indexOf('Meet Your Robot');
     const l2Index = text.indexOf('Move the Robot');
     const l3Index = text.indexOf('Grab & Release');
@@ -166,11 +181,41 @@ describe('CourseDetail / Course Path', () => {
     expect(l5Index).toBeGreaterThan(l4Index);
   });
 
+  it('renders the authoritative overview without an enrollment action', async () => {
+    await renderRoute();
+
+    expect(container.textContent).toContain('Beginner');
+    expect(container.textContent).toContain('Grades 6–8');
+    expect(container.textContent).toContain('What you’ll learn');
+    expect(container.textContent).toContain('independently program a Pick & Place task');
+    expect(container.textContent).toContain('Competencies & skills');
+    expect(container.textContent).toContain('Robot safety awareness');
+    expect(container.textContent).not.toContain('Student Enroll');
+  });
+
+  it('expands a locked lesson preview while keeping its activity unavailable', async () => {
+    await renderRoute();
+
+    const lesson4Item = container.querySelectorAll('[data-testid="lesson-row"]')[3];
+    const toggle = lesson4Item.querySelector('button[aria-expanded]');
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+
+    await act(async () => { toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    expect(lesson4Item.textContent).toContain('Build and verify a complete pick-and-place sequence.');
+    expect(lesson4Item.textContent).toContain('Pick & Place program');
+    expect(lesson4Item.textContent).toContain('Complete Grab & Release to unlock this lesson.');
+    expect(lesson4Item.querySelector('a')).toBeNull();
+    expect(lesson4Item.querySelector('button[disabled]')).not.toBeNull();
+  });
+
   it('completed lesson displays completed state and review button', async () => {
     await renderRoute();
 
-    const lesson1Item = container.querySelectorAll('li')[0];
+    const lesson1Item = container.querySelectorAll('[data-testid="lesson-row"]')[0];
     expect(lesson1Item.textContent).toContain('Meet Your Robot');
+    expect(lesson1Item.textContent).toContain('C1-L1');
     expect(lesson1Item.textContent).toContain('✓ Completed');
     expect(lesson1Item.textContent).toContain('Review lesson');
 
@@ -181,7 +226,7 @@ describe('CourseDetail / Course Path', () => {
   it('current lesson displays current state and primary start/continue button', async () => {
     await renderRoute();
 
-    const lesson3Item = container.querySelectorAll('li')[2];
+    const lesson3Item = container.querySelectorAll('[data-testid="lesson-row"]')[2];
     expect(lesson3Item.textContent).toContain('Grab & Release');
     expect(lesson3Item.textContent).toContain('▶ Current');
     expect(lesson3Item.textContent).toContain('Start lesson');
@@ -200,7 +245,7 @@ describe('CourseDetail / Course Path', () => {
     mocks.coursePath.mockResolvedValue(withInProgress);
     await renderRoute();
 
-    const lesson3Item = container.querySelectorAll('li')[2];
+    const lesson3Item = container.querySelectorAll('[data-testid="lesson-row"]')[2];
     expect(lesson3Item.textContent).toContain('Grab & Release');
     expect(lesson3Item.textContent).toContain('• In Progress');
     expect(lesson3Item.textContent).toContain('Continue lesson');
@@ -209,12 +254,12 @@ describe('CourseDetail / Course Path', () => {
   it('locked lesson displays locked state with server lock reason and disabled button', async () => {
     await renderRoute();
 
-    const lesson4Item = container.querySelectorAll('li')[3];
+    const lesson4Item = container.querySelectorAll('[data-testid="lesson-row"]')[3];
     expect(lesson4Item.textContent).toContain('Pick & Place');
     expect(lesson4Item.textContent).toContain('🔒 Locked');
     expect(lesson4Item.textContent).toContain('Complete Grab & Release to unlock this lesson.');
 
-    const lockedButton = lesson4Item.querySelector('button');
+    const lockedButton = lesson4Item.querySelector('button[disabled]');
     expect(lockedButton).toBeDefined();
     expect(lockedButton?.disabled).toBe(true);
     expect(lockedButton?.getAttribute('aria-disabled')).toBe('true');

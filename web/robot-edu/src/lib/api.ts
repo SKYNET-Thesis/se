@@ -38,6 +38,7 @@ export interface LessonPrerequisite {
 
 export interface CoursePathLesson {
   id: string;
+  code: string | null;
   ordinal: number;
   title: string;
   status: LessonProgressStatus;
@@ -45,10 +46,23 @@ export interface CoursePathLesson {
   prerequisite: LessonPrerequisite[];
   lockReason: LessonLockReason | null;
   completedAt: string | null;
+  summary: string | null;
+  learningItems: string[];
+  estimatedMinutes: number | null;
 }
 
 export interface CoursePathResponse {
-  course: { id: string; title: string; status: string };
+  course: {
+    id: string;
+    title: string;
+    status: string;
+    description: string | null;
+    label: string | null;
+    level: string | null;
+    recommendedGrades: string | null;
+    learningOutcome: string | null;
+    competencies: Array<{ code: string; title: string }>;
+  };
   progressPercent: number;
   currentLessonId: string | null;
   lessons: CoursePathLesson[];

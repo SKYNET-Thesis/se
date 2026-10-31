@@ -9,6 +9,7 @@ export interface CoursePathLockReason {
 
 export interface CoursePathLesson {
   id: string;
+  code: string | null;
   ordinal: number;
   title: string;
   status: LessonPathStatus;
@@ -16,10 +17,25 @@ export interface CoursePathLesson {
   prerequisite: Array<{ lessonId: string; title: string; required: boolean; minimumScore: number | null }>;
   lockReason: CoursePathLockReason | null;
   completedAt: Date | null;
+  summary: string | null;
+  learningItems: string[];
+  estimatedMinutes: number | null;
 }
 
+export interface CourseOverviewCompetency { code: string; title: string; }
+
 export interface CoursePathResponse {
-  course: { id: string; title: string; status: string };
+  course: {
+    id: string;
+    title: string;
+    status: string;
+    description: string | null;
+    label: string | null;
+    level: string | null;
+    recommendedGrades: string | null;
+    learningOutcome: string | null;
+    competencies: CourseOverviewCompetency[];
+  };
   progressPercent: number;
   currentLessonId: string | null;
   lessons: CoursePathLesson[];

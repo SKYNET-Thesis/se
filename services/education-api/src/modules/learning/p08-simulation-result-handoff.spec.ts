@@ -238,7 +238,7 @@ describe("P0.8 — Simulation Result, Evidence & Physical-Lab Handoff", () => {
           return [{ id: "course-1", title: "Robotics Fundamentals", status: "published" }];
         }
 
-        if (query.includes("FROM public.learning_objectives o")) {
+        if (query.includes("SELECT o.code") && query.includes("FROM public.learning_objectives o")) {
           return [];
         }
 
