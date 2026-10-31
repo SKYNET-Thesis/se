@@ -185,14 +185,9 @@ export function LessonViewer() {
 
       <header className="mt-6 border-b border-line pb-6"><p className="text-xs font-semibold uppercase tracking-[0.12em] text-accent-ink">Learning module</p><div className="mt-2 flex flex-wrap items-center justify-between gap-3"><h1 className="text-3xl font-extrabold tracking-tight text-ink">C1-L{lesson.ordinal} — {lesson.title}</h1><Badge tone={isCompleted ? 'ok' : isLocked ? 'neutral' : 'accent'}>{isCompleted ? 'Completed' : isLocked ? 'Locked' : isInProgress ? 'In progress' : 'Current'}</Badge></div>{lesson.content?.summary && <p className="mt-3 max-w-3xl text-lg leading-relaxed text-ink-muted">{lesson.content.summary}</p>}{isL5 && lesson.qualification && <p className="mt-3 text-sm font-semibold text-accent-ink">Continue to Physical Lab</p>}</header>
 
-      <LessonActivitySections lesson={lesson} onAction={(activity) => {
-        if (activity.action === 'knowledge_check') {
-          setShowQuiz(true);
-          document.getElementById('knowledge-check-section')?.scrollIntoView({ behavior: 'smooth' });
-        } else if (activity.action === 'practice') {
-          void handleStartPractice();
-        }
-      }} />
+      <LessonActivitySections lesson={lesson} />
+      {isLocked && <button type="button" disabled className="mt-3 rounded-lg border border-line px-3 py-2 text-sm font-semibold text-ink-muted">Locked</button>}
+      {isInProgress && <button type="button" className="mt-3 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-white" onClick={() => void handleStartPractice()}>Continue Practice</button>}
       {startError && <div role="alert" className="mt-4 rounded-lg bg-danger-soft p-3 text-sm text-danger">{startError}</div>}
 
       {/* Main educational workspace */}
