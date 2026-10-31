@@ -10,6 +10,7 @@ import { Dashboard } from './pages/Dashboard';
 import { Courses } from './pages/Courses';
 import { CourseDetail } from './pages/CourseDetail';
 import { LessonViewer } from './pages/LessonViewer';
+import { CourseInfo } from './pages/CourseInfo';
 import { AssignmentDetail } from './pages/AssignmentDetail';
 import { Studio } from './pages/Studio';
 import { Practice } from './pages/Practice';
@@ -56,6 +57,7 @@ export function App() {
                   <Route path="settings" element={<WebSettings />} />
                   <Route path="courses" element={<Courses />} />
                   <Route path="courses/:courseId" element={<CourseDetail />} />
+                  <Route path="courses/:courseId/info" element={<CourseInfo />} />
                   <Route path="courses/:courseId/lessons/:lessonId" element={<LessonViewer />} />
                   <Route path="assignments" element={<LearningLoop />} />
                   <Route path="my-learning" element={<MyLearning />} />

@@ -17,7 +17,7 @@ export function CourseLearningShell({ courseId, lessonId, lesson, pathOverride, 
       <div className="sticky top-5 rounded-xl border border-line bg-surface p-5 shadow-hairline">
         <Link to={`/courses/${courseId}`} className="flex items-start gap-2 rounded-lg p-2 text-sm font-semibold text-ink hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"><BookOpenIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent-ink" /><span>Robotics Fundamentals</span></Link>
         <p className="px-2 pb-2 pt-5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">Course Material</p>
-        <nav aria-label="Course lessons" className="space-y-1">{lessons.map((item) => <LessonNavItem key={item.id} courseId={courseId} lesson={item} active={item.id === lessonId} />)}</nav>
+        <nav aria-label="Course lessons" className="space-y-1">{lessons.map((item) => <LessonNavItem key={item.id} courseId={courseId} lesson={item} active={item.id === lessonId} />)}</nav><Link to={`/courses/${courseId}/info`} className="mt-3 flex items-center gap-2 border-t border-line px-2 pt-4 text-sm font-semibold text-ink-muted transition-colors hover:bg-accent-soft hover:text-accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"><BookOpenIcon className="h-4 w-4" /> Course Info</Link>
       </div>
     </aside>
     <div className="min-w-0 flex-1">{children}</div>
