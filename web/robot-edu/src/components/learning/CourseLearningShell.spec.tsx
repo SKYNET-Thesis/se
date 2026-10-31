@@ -32,8 +32,9 @@ describe('CourseLearningShell', () => {
     expect(container.querySelector('[aria-label="Course lessons"]')?.children.length).toBe(5);
     const menu = container.querySelector('button[aria-controls="course-material-nav"]');
     expect(menu?.getAttribute('aria-expanded')).toBe('false');
-    expect(container.textContent).toContain('Learning activities');
-    expect(container.textContent).toContain('Guided Practice');
+    expect(container.textContent).toContain('Lesson content');
+    expect(container.textContent).not.toContain('Learning activities');
+    expect(container.querySelector('.lg\\:w-72')).not.toBeNull();
     expect(container.querySelector('a[href="/courses/course-1/lessons/lesson-3"]')).toBeNull();
   });
 });

@@ -25,6 +25,7 @@ import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { LinkButton } from '../components/ui/LinkButton';
 import { CourseLearningShell } from '../components/learning/CourseLearningShell';
+import { LessonActivitySections } from '../components/learning/LessonActivitySections';
 
 export function LessonViewer() {
   const { courseId = '', lessonId = '' } = useParams<{ courseId: string; lessonId: string }>();
@@ -171,7 +172,7 @@ export function LessonViewer() {
 
   return (
     <CourseLearningShell courseId={courseId} lessonId={lessonId} lesson={lesson}>
-    <main className="mx-auto w-full max-w-6xl px-0 py-2 md:px-0 md:py-4">
+    <main className="mx-auto w-full px-0 py-2 md:py-4" aria-busy={starting}>
       {/* Breadcrumb Navigation */}
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-ink-muted">
         <Link to={`/courses/${courseId}`} className="inline-flex items-center gap-1 hover:text-ink">
@@ -184,8 +185,18 @@ export function LessonViewer() {
         </span>
       </nav>
 
-      {/* Main Grid: Educational Content (Left) + Action / Practice Sidebar (Right) */}
-      <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <LessonActivitySections lesson={lesson} onAction={(activity) => {
+        if (activity.action === 'knowledge_check') {
+          setShowQuiz(true);
+          document.getElementById('knowledge-check-section')?.scrollIntoView({ behavior: 'smooth' });
+        } else if (activity.action === 'practice') {
+          void handleStartPractice();
+        }
+      }} />
+      {startError && <div role="alert" className="mt-4 rounded-lg bg-danger-soft p-3 text-sm text-danger">{startError}</div>}
+
+      {/* Main educational workspace */}
+      <div className="mt-8">
         {/* Left Column: Educational Content */}
         <div className="space-y-8">
           {/* Header Card */}
@@ -598,87 +609,6 @@ export function LessonViewer() {
           )}
         </div>
 
-        {/* Right Sidebar: Practice & Progression Actions */}
-        <aside className="space-y-6">
-          <div className="sticky top-6 rounded-xl border border-line bg-surface p-6 shadow-sm">
-            <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-              Next Step
-            </span>
-
-            <h2 className="mt-2 text-xl font-bold text-ink">
-              {isLocked
-                ? 'Lesson Locked'
-                : isCompleted
-                ? 'Lesson Completed'
-                : isInProgress
-                ? 'Continue Practice'
-                : 'Start Practice'}
-            </h2>
-
-            <p className="mt-2 text-sm leading-relaxed text-ink-muted">
-              {isLocked
-                ? (lesson.lockReason?.message ?? 'Complete prerequisite lessons before practicing.')
-                : isCompleted
-                ? 'You have already met the completion criteria for this lesson. You may review your practice anytime.'
-                : isKnowledgeCheck
-                ? 'Answer the server-provided questions below to complete this lesson.'
-                : 'Enter the practice workspace to program your robot and verify pass criteria.'}
-            </p>
-
-            {startError && (
-              <div role="alert" className="mt-4 rounded-lg bg-danger-soft p-3 text-xs text-danger">
-                {startError}
-              </div>
-            )}
-
-            <div className="mt-6 space-y-3">
-              {isLocked ? (
-                <Button variant="secondary" className="w-full cursor-not-allowed opacity-60" disabled>
-                  <LockIcon className="mr-2 h-4 w-4" /> Locked
-                </Button>
-              ) : isKnowledgeCheck ? (
-                <Button
-                  variant="primary"
-                  className="w-full"
-                  onClick={() => {
-                    setShowQuiz(true);
-                    const el = document.getElementById('knowledge-check-section');
-                    el?.scrollIntoView({ behavior: 'smooth' });
-                  }}
-                >
-                  {isCompleted ? 'Review Knowledge Check' : 'Take Knowledge Check'}
-                </Button>
-              ) : isL5 ? (
-                <Button
-                  variant="primary"
-                  className="w-full"
-                  disabled={!lesson.qualification || isLocked}
-                  loading={starting}
-                  onClick={() => void handleStartPractice()}
-                >
-                  Continue to Physical Lab
-                </Button>
-              ) : (
-                <Button
-                  variant="primary"
-                  className="w-full"
-                  loading={starting}
-                  onClick={() => void handleStartPractice()}
-                >
-                  {isCompleted
-                    ? 'Review Practice'
-                    : isInProgress
-                    ? 'Continue Practice'
-                    : 'Start Practice'}
-                </Button>
-              )}
-
-              <LinkButton to={`/courses/${courseId}`} variant="secondary" className="w-full justify-center">
-                View Course Path
-              </LinkButton>
-            </div>
-          </div>
-        </aside>
       </div>
     </main>
     </CourseLearningShell>
