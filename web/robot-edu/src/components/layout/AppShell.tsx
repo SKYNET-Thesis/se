@@ -18,6 +18,7 @@ export function AppShell() {
   const logout=async()=>{await client?.auth.signOut();navigate('/login',{replace:true});};
 
   useEffect(() => setDrawerOpen(false), [location.pathname]);
+  useEffect(() => { if (!drawerOpen) return; const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setDrawerOpen(false); }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown); }, [drawerOpen]);
 
   return (
     <div className="flex h-full w-full bg-canvas">
@@ -41,7 +42,7 @@ export function AppShell() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {!isFocusedLearning && <header className="hidden h-14 shrink-0 items-center justify-end gap-2 border-b border-line bg-surface px-5 lg:flex"><Link to="/settings" className="rounded-md p-2 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Web settings"><SettingsIcon className="h-5 w-5" /></Link><div className="relative"><button type="button" onClick={()=>setAccountOpen((open)=>!open)} className="grid h-9 w-9 place-items-center rounded-full bg-[#176255] text-xs font-semibold text-white" aria-label="Account menu" aria-expanded={accountOpen}>{initials||'V'}</button>{accountOpen&&<div className="absolute right-0 top-11 z-30 w-64 border border-line bg-surface p-3 shadow-pop"><p className="truncate text-sm font-semibold text-ink">{String(label)}</p><p className="mt-1 truncate text-xs text-ink-muted">{email}</p><p className="mt-2 text-xs capitalize text-ink-muted">{role?.replace('_',' ')}</p><Link to="/account" onClick={()=>setAccountOpen(false)} className="mt-3 block rounded px-2 py-2 text-sm hover:bg-sunken">Account Settings</Link><button type="button" onClick={()=>void logout()} className="mt-1 flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-sunken"><LogOutIcon className="h-4 w-4" />Logout</button></div>}</div></header>}
-        <header className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface px-4 lg:hidden">
+        <header className={`flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface px-4 ${isFocusedLearning ? '' : 'lg:hidden'}`}>
           <Link to="/" aria-label="VISTA home">
             <VistaMark />
           </Link>
@@ -63,7 +64,7 @@ export function AppShell() {
 
       <AnimatePresence>
         {drawerOpen &&
-        <div className="fixed inset-0 z-40 lg:hidden">
+        <div className={`fixed inset-0 z-40 ${isFocusedLearning ? '' : 'lg:hidden'}`}>
             <motion.div
             className="absolute inset-0 bg-ink/30"
             initial={{ opacity: 0 }}

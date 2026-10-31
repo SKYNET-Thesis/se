@@ -118,10 +118,18 @@ const lockedLessonFixture: LessonDetailResponse = {
   content: {
     ...baseLessonFixture.content,
     summary: 'Learn deterministic motion sequencing by homing the robot and commanding it to reach a defined target position.',
-    conceptSections: [{ title: 'Deterministic Sequencing', content: 'Robots execute instructions one step at a time.' }],
+    conceptSections: [
+      { title: 'Deterministic Sequencing', content: 'Robots execute instructions one step at a time.' },
+      { title: 'Target Positioning', content: 'The robot plans the motion needed to reach a 3D target.' },
+      { title: 'Pauses & Motion Timing', content: 'Wait commands let the system stabilize between maneuvers.' },
+    ],
     robotConcept: 'The robot computes the required arm pose to place the gripper at the target.',
     taskPreview: 'Program the left arm to home, move to Target A, and wait for motion stabilization.',
     completionCriteria: 'Complete the target-position simulation successfully with all required actions in order.',
+  },
+  assignment: {
+    ...baseLessonFixture.assignment,
+    allowedBlocks: ['arm.select', 'home', 'preview.move_xyz', 'wait'],
   },
 };
 
@@ -217,6 +225,27 @@ describe('LessonViewer / Guided Learning Experience', () => {
     expect(container.textContent).toContain('Complete the safety knowledge check to verify your readiness');
     expect(container.textContent).toContain('How This Lesson Is Completed');
     expect(container.textContent).toContain('Pass the safety knowledge check with a score of at least 80%.');
+  });
+
+  it('keeps C1-L2 explanatory information in the required lesson-info order', async () => {
+    mocks.lessonDetail.mockResolvedValueOnce(lockedLessonFixture);
+    await renderRoute('course-1', 'lesson-c1-l2');
+
+    const text = container.textContent ?? '';
+    const concepts = text.indexOf('Learn the Concepts');
+    const robotConcept = text.indexOf('Robot Concept in Action');
+    const safety = text.indexOf('Safety Protocols');
+    const mission = text.indexOf('Your Practice Mission');
+    const completion = text.indexOf('How This Lesson Is Completed');
+
+    expect(concepts).toBeGreaterThan(-1);
+    expect(robotConcept).toBeGreaterThan(concepts);
+    expect(safety).toBeGreaterThan(robotConcept);
+    expect(mission).toBeGreaterThan(safety);
+    expect(completion).toBeGreaterThan(mission);
+    expect(text).toContain('Target Positioning');
+    expect(text).toContain('Pauses & Motion Timing');
+    expect(text).toContain('arm.select');
   });
 
   it('locked lesson shows server lock reason and disables the practice CTA', async () => {

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRightIcon, ChevronDownIcon, ChevronLeftIcon, CircleDotIcon, Clock3Icon, FileQuestionIcon, GraduationCapIcon, LockIcon, SparklesIcon } from 'lucide-react';
+import { ArrowRightIcon, ChevronDownIcon, ChevronLeftIcon, CircleDotIcon, Clock3Icon, FileQuestionIcon, LockIcon } from 'lucide-react';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -34,7 +34,6 @@ export function CourseDetail() {
   const error = pathQuery.error;
   const path = pathQuery.data;
   const course = path?.course ?? courseQuery.data;
-  const description = path?.course.description ?? courseQuery.data?.description;
 
   if (loading) {
     return (
@@ -81,15 +80,12 @@ export function CourseDetail() {
 
       <header className="mt-5 grid gap-7 border-b border-line pb-9 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         <div className="max-w-3xl">
-          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-            {course.label && <Badge tone="accent">{course.label}</Badge>}
-            {course.level && <span className="rounded-full border border-line px-3 py-1 text-ink-muted">{course.level}</span>}
-            {course.recommendedGrades && <span className="rounded-full border border-line px-3 py-1 text-ink-muted">{course.recommendedGrades}</span>}
-          </div>
           <h1 className="mt-4 text-[clamp(2rem,5vw,3.5rem)] font-semibold leading-[1.02] tracking-[-0.045em] text-ink text-balance">
             {course.title}
           </h1>
-          {description && <p className="mt-5 max-w-[65ch] text-[16px] leading-7 text-ink-muted">{description}</p>}
+          <LinkButton to={`/courses/${course.id}/info`} variant="secondary" className="mt-5">
+            Course Info
+          </LinkButton>
         </div>
 
         <aside className="rounded-xl border border-line bg-surface p-5 shadow-hairline" aria-label="Course progress">
@@ -118,19 +114,6 @@ export function CourseDetail() {
           </div>
         </aside>
       </header>
-
-      <section className="grid gap-8 border-b border-line py-9 md:grid-cols-2" aria-label="Course overview">
-        <div>
-          <div className="flex items-center gap-2 text-accent-ink"><SparklesIcon className="h-4 w-4" /><h2 className="text-lg font-semibold text-ink">What you’ll learn</h2></div>
-          {course.learningOutcome && <p className="mt-3 max-w-[62ch] text-[15px] leading-7 text-ink-muted">{course.learningOutcome}</p>}
-        </div>
-        <div>
-          <div className="flex items-center gap-2"><GraduationCapIcon className="h-5 w-5 text-accent-ink" /><h2 className="text-lg font-semibold text-ink">Competencies &amp; skills</h2></div>
-          <ul className="mt-4 flex flex-wrap gap-2">
-            {(course.competencies ?? []).map((competency) => <li key={competency.code} className="rounded-md bg-sunken px-3 py-2 text-sm font-medium text-ink">{competency.title}</li>)}
-          </ul>
-        </div>
-      </section>
 
       <section className="mt-10" aria-labelledby="lessons-heading">
         <div className="max-w-3xl">

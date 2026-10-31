@@ -181,15 +181,14 @@ describe('CourseDetail / Course Path', () => {
     expect(l5Index).toBeGreaterThan(l4Index);
   });
 
-  it('renders the authoritative overview without an enrollment action', async () => {
+  it('renders navigation structure and links course information without an enrollment action', async () => {
     await renderRoute();
 
-    expect(container.textContent).toContain('Beginner');
-    expect(container.textContent).toContain('Grades 6–8');
-    expect(container.textContent).toContain('What you’ll learn');
-    expect(container.textContent).toContain('independently program a Pick & Place task');
-    expect(container.textContent).toContain('Competencies & skills');
-    expect(container.textContent).toContain('Robot safety awareness');
+    expect(container.textContent).toContain('Curriculum');
+    expect(container.querySelector('a[href="/courses/c1-uuid/info"]')?.textContent).toContain('Course Info');
+    expect(container.textContent).not.toContain('What you’ll learn');
+    expect(container.textContent).not.toContain('Competencies & skills');
+    expect(container.textContent).not.toContain('Robot safety awareness');
     expect(container.textContent).not.toContain('Student Enroll');
   });
 
@@ -269,7 +268,7 @@ describe('CourseDetail / Course Path', () => {
   it('top Continue Learning CTA navigates to currentLessonId', async () => {
     await renderRoute();
 
-    const topContinue = container.querySelector('header a');
+    const topContinue = container.querySelector('header a[href="/courses/c1-uuid/lessons/lesson-3-uuid"]');
     expect(topContinue?.textContent).toContain('Continue Learning');
     expect(topContinue?.getAttribute('href')).toBe('/courses/c1-uuid/lessons/lesson-3-uuid');
 
