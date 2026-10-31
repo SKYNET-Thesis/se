@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../identity/auth/current-user.decorator";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
@@ -15,7 +15,7 @@ export class ExperimentController { constructor(private readonly experiments:Exp
  @Post("me/experiments/:experimentId/cancel") cancel(@CurrentUser()u:AuthenticatedUser,@Param("experimentId")id:string){return this.experiments.cancel(u,id)}
  @Post("me/experiments/:experimentId/run-schematic") runSchematic(@CurrentUser()u:AuthenticatedUser,@Param("experimentId")id:string){return this.experiments.runSchematic(u,id)}
  @Post("me/experiments/:experimentId/evaluate-symbolic") evaluateSymbolic(@CurrentUser()u:AuthenticatedUser,@Param("experimentId",ParseUUIDPipe)id:string){return this.symbolicEvaluations.evaluateOwnExperiment(u,id)}
- @Get("me/symbolic-evaluations") listSymbolicEvaluations(@CurrentUser()u:AuthenticatedUser){return this.symbolicEvaluations.mine(u)}
+ @Get("me/symbolic-evaluations") listSymbolicEvaluations(@CurrentUser()u:AuthenticatedUser,@Query("attemptId")attemptId?:string){return this.symbolicEvaluations.mine(u,attemptId)}
  @Get("me/symbolic-evaluations/:evaluationId") symbolicEvaluation(@CurrentUser()u:AuthenticatedUser,@Param("evaluationId",ParseUUIDPipe)id:string){return this.symbolicEvaluations.own(u,id)}
  @Get("me/experiments/:experimentId/result") result(@CurrentUser()u:AuthenticatedUser,@Param("experimentId")id:string){return this.experiments.result(u,id)}
  @Get("me/experiments/:experimentId/events") events(@CurrentUser()u:AuthenticatedUser,@Param("experimentId")id:string){return this.experiments.events(u,id)}

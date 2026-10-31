@@ -13,6 +13,7 @@ import { LessonViewer } from './pages/LessonViewer';
 import { AssignmentDetail } from './pages/AssignmentDetail';
 import { Studio } from './pages/Studio';
 import { Practice } from './pages/Practice';
+import { SimulationResult } from './pages/SimulationResult';
 import { RobotLab } from './pages/RobotLab';
 import { TeacherOverview } from './pages/teacher/TeacherOverview';
 import { TeacherCourses } from './pages/teacher/TeacherCourses';
@@ -64,6 +65,7 @@ export function App() {
                   <Route path="studio" element={<Studio />} />
                   <Route path="studio/:programId" element={<Studio />} />
                   <Route path="practice/:attemptId" element={<Practice mode="physical-enabled" />} />
+                  <Route path="practice/:attemptId/result/:evaluationId" element={<SimulationResult />} />
                   <Route path="lab" element={<RobotLab />} />
                   <Route path="teacher" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherOverview /></RequireRole>} />
                   <Route path="teacher/classes" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherClasses /></RequireRole>} />
