@@ -149,6 +149,8 @@ Progress semantics: `not_started` → `in_progress` when the learner starts the 
 
 ## Phase P0.4 — Server-driven Blockly integration
 
+**Implementation status (2026-10-31): COMPLETE on `feat/course1-blockly-practice` (automated verification).** Course 1 Practice now reuses the existing Blockly → canonical program → SO-101 preview pipeline with an assignment-driven toolbox, server-enforced capability and workspace validation, recoverable draft persistence, and visible immutable ProgramVersion creation. Curriculum Practice does not submit/evaluate or project PASS in this phase; authoritative task results remain P0.5–P0.7. LIVE E2E remains unverified.
+
 **Goal:** Make lesson-specific block palettes and server-backed Program/ProgramVersion the only curriculum-authoritative path.
 
 **Existing code reused:** block definitions, generator, validator, canonical NEST adapter, ProgrammingController/Service, Practice evidence orchestrator.
@@ -165,10 +167,10 @@ Progress semantics: `not_started` → `in_progress` when the learner starts the 
 
 **Acceptance criteria:**
 
-- [ ] Palette is driven by assignment data, not English titles.
-- [ ] Save/version/reload preserves workspace and canonical program.
-- [ ] Immutable version identity is visible before evaluation.
-- [ ] Standalone Studio remains available as a non-authoritative sandbox.
+- [x] Palette is driven by assignment data, not English titles.
+- [x] Save/version/reload preserves workspace and canonical program.
+- [x] Immutable version identity is visible before evaluation.
+- [x] Standalone Studio remains available as a non-authoritative sandbox.
 
 **Dependencies:** P0.3.
 
