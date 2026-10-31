@@ -124,6 +124,15 @@ export interface LessonDetailResponse {
   progressPercent: number;
   lockReason: LessonLockReason | null;
   prerequisites: LessonPrerequisite[];
+  qualification?: {
+    lessonId: string;
+    evaluationId: string;
+    experimentId: string;
+    programVersionId: string;
+    versionNumber: number;
+    attemptId: string;
+    passedAt: string;
+  } | null;
   assignment: LessonAssignmentInfo | null;
   activeAttempt: LessonAttemptSummary | null;
   priorAttempt: LessonAttemptSummary | null;
@@ -182,7 +191,27 @@ export interface ApiSubmission { id: string; program_version_id: string; status:
 export interface ApiExperiment { id: string; status: string; execution_mode: string; input_snapshot?:{attemptId?:string;programVersionId?:string}; submission_id?:string; }
 export interface ApiSymbolicRuleResult { ordinal: number; type: string; passed: boolean; expected: Record<string, unknown>; observed: Record<string, unknown>; evidence: Array<{ timelineIndex?: number }>; reason: string; code?: string; message?: string; }
 export interface ApiObjectState { objectId: string; position: { x: number; y: number; z: number }; graspedBy: "left" | "right" | null; state: "free" | "grasped" | "carried" | "released"; }
-export interface ApiSymbolicEvaluation { id: string; experimentId: string; programVersionId: string; evaluatorVersion: string; ruleSetSchemaVersion: number; ruleSetHash: string; verdict: "passed" | "failed"; ruleResults: ApiSymbolicRuleResult[]; metrics: { ruleCount: number; passedRuleCount: number }; createdAt: string; status?: "success" | "failed"; taskState?: "not_started" | "in_progress" | "success" | "failed"; robotState?: Record<string, unknown>; objectState?: ApiObjectState | null; feedback?: { code: string; message: string; ruleResults: Array<{ ordinal: number; type: string; passed: boolean; code?: string; message?: string; reason: string }> }; evidence?: { experimentId: string; evaluationId: string; programVersionId: string }; }
+export interface ApiSymbolicEvaluation {
+  id: string;
+  experimentId: string;
+  programVersionId: string;
+  versionNumber?: number;
+  evaluatorVersion: string;
+  ruleSetSchemaVersion: number;
+  ruleSetHash: string;
+  verdict: "passed" | "failed";
+  ruleResults: ApiSymbolicRuleResult[];
+  metrics: { ruleCount: number; passedRuleCount: number };
+  createdAt: string;
+  status?: "success" | "failed";
+  taskState?: "not_started" | "in_progress" | "success" | "failed";
+  robotState?: Record<string, unknown>;
+  objectState?: ApiObjectState | null;
+  attemptId?: string;
+  lesson?: { id: string; title: string; ordinal: number; courseId: string; courseTitle: string };
+  feedback?: { summary?: string; code?: string; message?: string; messages?: string[]; ruleResults?: Array<{ ordinal: number; type: string; passed: boolean; code?: string; message?: string; reason: string }> };
+  evidence?: { experimentId: string; evaluationId: string; programVersionId: string; versionNumber?: number };
+}
 export interface ApiFeedback { id: string; submission_id: string; content: string; feedback_type: string; created_at: string; }
 export interface ApiRubricCriterion { id: string; title: string; description: string | null; maxPoints: number | string; ordinal: number; }
 export interface ApiInstructorSubmission { id: string; assignment_id: string; learner_user_id: string; status: string; submitted_at: string | null; full_name?: string; assignment_title?:string; review_status?:string; rubric_criteria?: ApiRubricCriterion[]; overall_feedback?: string | null; }
@@ -214,7 +243,7 @@ export const learnerApi = {
   symbolicEvaluation: (evaluationId: string, token: string) => apiGet<ApiSymbolicEvaluation>(`/me/symbolic-evaluations/${evaluationId}`, token),
   submissions: (token:string) => apiGet<ApiSubmission[]>("/me/submissions",token),
   experiments: (token:string) => apiGet<ApiExperiment[]>("/me/experiments",token),
-  symbolicEvaluations: (token:string) => apiGet<ApiSymbolicEvaluation[]>("/me/symbolic-evaluations",token),
+  symbolicEvaluations: (token: string, attemptId?: string) => apiGet<ApiSymbolicEvaluation[]>(attemptId ? `/me/symbolic-evaluations?attemptId=${encodeURIComponent(attemptId)}` : "/me/symbolic-evaluations", token),
   artifacts: (experimentId: string, token: string) => apiGet<Record<string, unknown>[]>(`/me/experiments/${experimentId}/artifacts`, token),
   myFeedback: (submissionId: string, token: string) => apiGet<ApiFeedback[]>(`/me/submissions/${submissionId}/feedback`, token),
   createReflection: (submissionId: string, token: string, body: { promptKey: string; promptText: string; responseText: string }) => apiRequest<Record<string, unknown>>(`/me/submissions/${submissionId}/reflections`, token, "POST", body),
@@ -226,6 +255,8 @@ export const learnerApi = {
 
 export const progressionApi = {
   coursePath: (courseId: string, token: string) => apiGet<CoursePathResponse>(`/me/courses/${courseId}/path`, token),
+  qualifiedL4Version: (courseId: string, token: string) =>
+    apiGet<{ lessonId: string; evaluationId: string; experimentId: string; programVersionId: string; versionNumber: number; attemptId: string; passedAt: string } | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
   coursePaths: async (token: string): Promise<CoursePathResponse[]> => {
     const coursesRes = await catalogApi.courses(token, 1, 50).catch(() => ({ items: [] as ApiCourse[] }));
     let courseIds = coursesRes.items.map((c) => c.id);

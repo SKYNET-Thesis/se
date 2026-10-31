@@ -100,6 +100,19 @@ export class LearningService {
 
     const validatedContent = normalizeLessonContent(lesson.content, lesson.title, lesson.ordinal);
 
+    let qualification: {
+      lessonId: string;
+      evaluationId: string;
+      experimentId: string;
+      programVersionId: string;
+      versionNumber: number;
+      attemptId: string;
+      passedAt: Date;
+    } | null = null;
+    if (lesson.ordinal === 5 && this.progression) {
+      qualification = await this.progression.resolveQualifiedL4ProgramVersion(user, lesson.course_id).catch(() => null);
+    }
+
     return {
       id: lesson.id,
       course_id: lesson.course_id,
@@ -117,6 +130,7 @@ export class LearningService {
       progressPercent: progressionLesson?.progressPercent ?? 0,
       lockReason: progressionLesson?.lockReason ?? null,
       prerequisites: progressionLesson?.prerequisite ?? [],
+      qualification,
       assignment: assignment ? {
         id: assignment.assignment_id,
         classroomAssignmentId: assignment.classroom_assignment_id,

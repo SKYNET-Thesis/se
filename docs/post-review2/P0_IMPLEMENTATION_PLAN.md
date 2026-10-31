@@ -276,10 +276,10 @@ Progress semantics: `not_started` → `in_progress` when the learner starts the 
 
 **Acceptance criteria:**
 
-- [ ] FAIL never unlocks.
-- [ ] PASS unlocks only after evidence transaction commits.
-- [ ] Result survives reload and teacher sees the same verdict.
-- [ ] C1-L4 PASS unlocks C1-L5.
+- [x] FAIL never unlocks.
+- [x] PASS unlocks only after evidence transaction commits.
+- [x] Result survives reload and teacher sees the same verdict.
+- [x] C1-L4 PASS unlocks C1-L5.
 
 **Dependencies:** P0.1, P0.5–P0.7.
 

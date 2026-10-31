@@ -18,6 +18,11 @@ export class ProgressionController {
     return this.progression.coursePath(user, courseId);
   }
 
+  @Get("me/courses/:courseId/qualification/c1-l4")
+  qualifiedL4Version(@CurrentUser() user: AuthenticatedUser, @Param("courseId", ParseUUIDPipe) courseId: string) {
+    return this.progression.resolveQualifiedL4ProgramVersion(user, courseId);
+  }
+
   @Post("me/attempts/:attemptId/knowledge-check")
   submitKnowledgeCheck(
     @CurrentUser() user: AuthenticatedUser,

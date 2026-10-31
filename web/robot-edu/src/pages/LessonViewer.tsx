@@ -64,6 +64,7 @@ export function LessonViewer() {
   const isCurrent = lesson?.status === 'current';
   const isInProgress = lesson?.status === 'in_progress';
   const isL1 = lesson?.ordinal === 1;
+  const isL5 = lesson?.ordinal === 5;
 
   const handleStartPractice = async () => {
     if (!session || !lesson || isLocked) return;
@@ -400,6 +401,75 @@ export function LessonViewer() {
             </p>
           </section>
 
+          {/* L5 Physical Lab Qualification & Readiness */}
+          {isL5 && (
+            <section aria-labelledby="qualification-heading" className="rounded-xl border border-line bg-surface p-6 shadow-sm">
+              <div className="flex items-center gap-2 text-ink">
+                <CpuIcon className="h-5 w-5 text-accent" />
+                <h2 id="qualification-heading" className="text-xl font-bold">
+                  Physical Lab Qualification & Readiness
+                </h2>
+              </div>
+              <p className="mt-2 text-sm text-ink-muted">
+                Physical robot execution requires an authoritative pass from C1-L4 Pick &amp; Place simulation.
+              </p>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-line bg-sunken p-3.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted block">
+                    Simulation Prerequisite
+                  </span>
+                  <div className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-ink">
+                    {lesson.qualification ? (
+                      <>
+                        <CheckCircle2Icon className="h-4 w-4 text-ok" />
+                        <span className="text-ok">Pick &amp; Place simulation passed</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircleIcon className="h-4 w-4 text-warn" />
+                        <span>Incomplete (Pick &amp; Place simulation required)</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-line bg-sunken p-3.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted block">
+                    Qualified Program
+                  </span>
+                  <span className="mt-1 text-sm font-semibold text-ink block">
+                    {lesson.qualification ? `Version ${lesson.qualification.versionNumber}` : 'None'}
+                  </span>
+                </div>
+
+                <div className="rounded-lg border border-line bg-sunken p-3.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted block">
+                    Simulation Result
+                  </span>
+                  <span className="mt-1 text-sm font-semibold text-ink block">
+                    {lesson.qualification ? 'Passed' : 'Awaiting simulation pass'}
+                  </span>
+                </div>
+
+                <div className="rounded-lg border border-line bg-sunken p-3.5">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted block">
+                    Physical Execution
+                  </span>
+                  <span className="mt-1 text-sm font-semibold text-ink-muted block">
+                    Not started
+                  </span>
+                </div>
+              </div>
+
+              {lesson.qualification && (
+                <div className="mt-4 rounded-lg bg-accent-soft p-3 text-xs text-accent-ink">
+                  Your immutable ProgramVersion {lesson.qualification.versionNumber} will qualify for physical robot execution. Physical execution will be unlocked in Course 1 Phase P0.9.
+                </div>
+              )}
+            </section>
+          )}
+
           {/* L1 Interactive Knowledge Check Quiz */}
           {isL1 && (showQuiz || isCurrent || isInProgress || isCompleted) && (
             <section
@@ -584,6 +654,16 @@ export function LessonViewer() {
                   }}
                 >
                   {isCompleted ? 'Review Knowledge Check' : 'Take Knowledge Check'}
+                </Button>
+              ) : isL5 ? (
+                <Button
+                  variant="primary"
+                  className="w-full"
+                  disabled={!lesson.qualification || isLocked}
+                  loading={starting}
+                  onClick={() => void handleStartPractice()}
+                >
+                  Continue to Physical Lab
                 </Button>
               ) : (
                 <Button

@@ -91,12 +91,13 @@ export class ProgressionService {
     return this.completeLesson(db, user.vistaUserId, chain.lesson_id);
   }
 
-  async resolveQualifiedL4ProgramVersion(user: AuthenticatedUser, courseId?: string): Promise<{ programVersionId: string; evaluationId: string; attemptId: string; passedAt: Date } | null> {
-    const rows = await this.prisma.$queryRaw<Array<{ program_version_id: string; evaluation_id: string; attempt_id: string; passed_at: Date }>>`
-      SELECT se.program_version_id, se.id AS evaluation_id, a.id::text AS attempt_id, se.created_at AS passed_at
+  async resolveQualifiedL4ProgramVersion(user: AuthenticatedUser, courseId?: string): Promise<{ lessonId: string; evaluationId: string; experimentId: string; programVersionId: string; versionNumber: number; attemptId: string; passedAt: Date } | null> {
+    const rows = await this.prisma.$queryRaw<Array<{ program_version_id: string; evaluation_id: string; experiment_id: string; lesson_id: string; version_number: number; attempt_id: string; passed_at: Date }>>`
+      SELECT se.program_version_id, se.id AS evaluation_id, e.id::text AS experiment_id, l.id::text AS lesson_id, COALESCE(pv.version_number, 1) AS version_number, a.id::text AS attempt_id, se.created_at AS passed_at
       FROM public.learning_symbolic_evaluations se
       JOIN public.learning_experiments e ON e.id=se.experiment_id AND e.learner_user_id=se.requested_by_user_id
         AND e.status='succeeded' AND e.execution_mode='schematic'
+      LEFT JOIN public.learning_program_versions pv ON pv.id=se.program_version_id
       JOIN public.learning_submissions s ON s.id=se.submission_id AND s.learner_user_id=se.requested_by_user_id
         AND s.program_version_id=se.program_version_id AND s.status='submitted'
       JOIN public.learning_assignment_attempts a ON a.id::text=e.input_snapshot->>'attemptId'
@@ -113,8 +114,11 @@ export class ProgressionService {
     const match = rows[0];
     if (!match) return null;
     return {
-      programVersionId: match.program_version_id,
+      lessonId: match.lesson_id,
       evaluationId: match.evaluation_id,
+      experimentId: match.experiment_id,
+      programVersionId: match.program_version_id,
+      versionNumber: Number(match.version_number ?? 1),
       attemptId: match.attempt_id,
       passedAt: match.passed_at,
     };

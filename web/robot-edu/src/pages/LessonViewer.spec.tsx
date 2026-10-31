@@ -379,4 +379,85 @@ describe('LessonViewer / Guided Learning Experience', () => {
     expect(mocks.lessonDetail).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('Meet Your Robot');
   });
+
+  describe('P0.8 — C1-L5 Physical Lab Qualification and Readiness', () => {
+    it('renders qualification summary and qualified ProgramVersion when L4 is passed', async () => {
+      mocks.lessonDetail.mockResolvedValueOnce({
+        id: 'lesson-c1-l5',
+        course_id: 'course-1',
+        course_title: 'Robotics Fundamentals',
+        title: 'Physical Robot Lab',
+        ordinal: 5,
+        status: 'in_progress',
+        progressPercent: 0,
+        lockReason: null,
+        prerequisites: [],
+        qualification: {
+          lessonId: 'lesson-c1-l4',
+          evaluationId: 'eval-l4-pass',
+          experimentId: 'exp-l4-pass',
+          programVersionId: 'version-l4-2',
+          versionNumber: 2,
+          attemptId: 'att-l4',
+          passedAt: '2026-10-31T12:00:00Z',
+        },
+        content: {
+          version: 1,
+          summary: 'Execute your verified Pick & Place program on the physical SO-101 robot arm.',
+          learningObjectives: ['Execute validated program on physical hardware.'],
+          keyTakeaways: ['Simulation verification is mandatory before physical execution.'],
+          completionCriteria: 'Successfully execute program on the physical robot.',
+        },
+        assignment: null,
+        activeAttempt: null,
+        priorAttempt: null,
+        created_at: '2026-10-31T00:00:00Z',
+      });
+
+      await renderRoute('course-1', 'lesson-c1-l5');
+
+      expect(container.textContent).toContain('Physical Lab Qualification & Readiness');
+      expect(container.textContent).toContain('Pick & Place simulation passed');
+      expect(container.textContent).toContain('Version 2');
+      expect(container.textContent).toContain('Passed');
+      expect(container.textContent).toContain('Not started');
+      expect(container.textContent).toContain('Continue to Physical Lab');
+      expect(container.textContent).not.toContain('Run on robot');
+    });
+
+    it('renders incomplete prerequisite status when L4 simulation has not passed', async () => {
+      mocks.lessonDetail.mockResolvedValueOnce({
+        id: 'lesson-c1-l5',
+        course_id: 'course-1',
+        course_title: 'Robotics Fundamentals',
+        title: 'Physical Robot Lab',
+        ordinal: 5,
+        status: 'locked',
+        progressPercent: 0,
+        lockReason: { code: 'PREREQUISITE_NOT_COMPLETED', message: 'Complete Pick & Place first.' },
+        prerequisites: [],
+        qualification: null,
+        content: {
+          version: 1,
+          summary: 'Physical Lab',
+          learningObjectives: [],
+          keyTakeaways: [],
+          completionCriteria: 'Physical execution.',
+        },
+        assignment: null,
+        activeAttempt: null,
+        priorAttempt: null,
+        created_at: '2026-10-31T00:00:00Z',
+      });
+
+      await renderRoute('course-1', 'lesson-c1-l5');
+
+      expect(container.textContent).toContain('Physical Lab Qualification & Readiness');
+      expect(container.textContent).toContain('Incomplete (Pick & Place simulation required)');
+      expect(container.textContent).toContain('None');
+      expect(container.textContent).toContain('Awaiting simulation pass');
+      expect(container.textContent).toContain('Not started');
+    });
+  });
 });
+
