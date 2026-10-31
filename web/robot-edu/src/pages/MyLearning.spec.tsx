@@ -8,12 +8,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   sessionState: { session: null as null | { access_token: string; expires_at?: number; user: { id: string } }, loading: true, sessionRevision: 0 },
   myLearning: vi.fn(),
+  coursePaths: vi.fn(),
 }));
 
 vi.mock('../contexts/SupabaseSessionContext', () => ({ useSupabaseSession: () => mocks.sessionState }));
 vi.mock('../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api')>();
-  return { ...actual, learnerApi: { ...actual.learnerApi, myLearning: mocks.myLearning } };
+  return {
+    ...actual,
+    learnerApi: { ...actual.learnerApi, myLearning: mocks.myLearning, coursePaths: mocks.coursePaths },
+    progressionApi: { ...actual.progressionApi, coursePaths: mocks.coursePaths },
+  };
 });
 
 import { MyLearning } from './MyLearning';
@@ -22,6 +27,19 @@ import { MyLearning } from './MyLearning';
 
 const published = [{ classroom_assignment_id: 'delivery-1', title: 'Published gripper task', lesson_id: 'lesson-1', lesson_title: 'Gripper', classroom_name: 'Robotics Class A', course_title: 'Robotics', attempt_id: null, attempt_status: null, learning_status: 'assigned' as const }];
 
+const course1Path = {
+  course: { id: 'c1-uuid', title: 'Robotics Fundamentals', status: 'published' },
+  progressPercent: 40,
+  currentLessonId: 'lesson-3-uuid',
+  lessons: [
+    { id: 'lesson-1-uuid', ordinal: 1, title: 'Meet Your Robot', status: 'completed' as const, progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T00:00:00Z' },
+    { id: 'lesson-2-uuid', ordinal: 2, title: 'Move the Robot', status: 'completed' as const, progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T01:00:00Z' },
+    { id: 'lesson-3-uuid', ordinal: 3, title: 'Grab & Release', status: 'current' as const, progressPercent: 0, prerequisite: [], lockReason: null, completedAt: null },
+    { id: 'lesson-4-uuid', ordinal: 4, title: 'Pick & Place', status: 'locked' as const, progressPercent: 0, prerequisite: [{ lessonId: 'lesson-3-uuid', title: 'Grab & Release', required: true, minimumScore: null }], lockReason: { code: 'PREREQUISITE_NOT_COMPLETED' as const, prerequisiteLessonId: 'lesson-3-uuid', prerequisiteLessonTitle: 'Grab & Release', message: 'Complete Grab & Release to unlock this lesson.' }, completedAt: null },
+    { id: 'lesson-5-uuid', ordinal: 5, title: 'Physical Robot Lab', status: 'locked' as const, progressPercent: 0, prerequisite: [{ lessonId: 'lesson-4-uuid', title: 'Pick & Place', required: true, minimumScore: null }], lockReason: { code: 'PREREQUISITE_NOT_COMPLETED' as const, prerequisiteLessonId: 'lesson-4-uuid', prerequisiteLessonTitle: 'Pick & Place', message: 'Complete Pick & Place to unlock this lesson.' }, completedAt: null },
+  ],
+};
+
 describe('My Learning auth and route lifecycle', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -29,7 +47,7 @@ describe('My Learning auth and route lifecycle', () => {
 
   const renderRoute = async () => {
     await act(async () => {
-      root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/my-learning']}><Routes><Route path="/my-learning" element={<MyLearning />} /></Routes></MemoryRouter></QueryClientProvider>);
+      root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/my-learning']}><Routes><Route path="/my-learning" element={<MyLearning />} /><Route path="/courses/:courseId" element={<div data-testid="course-path-page">Course Path Page</div>} /><Route path="/courses/:courseId/lessons/:lessonId" element={<div data-testid="lesson-detail-page">Lesson Detail Page</div>} /></Routes></MemoryRouter></QueryClientProvider>);
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -42,7 +60,8 @@ describe('My Learning auth and route lifecycle', () => {
     root = createRoot(container);
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     mocks.sessionState = { session: null, loading: true, sessionRevision: 0 };
-    mocks.myLearning.mockReset();
+    mocks.myLearning.mockReset().mockResolvedValue([]);
+    mocks.coursePaths.mockReset().mockResolvedValue([]);
   });
   afterEach(() => { act(() => root.unmount()); client.clear(); container.remove(); });
 
@@ -103,5 +122,69 @@ describe('My Learning auth and route lifecycle', () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
     expect(container.textContent).toContain('Refresh failed');
     expect(container.textContent).not.toContain('Published gripper task');
+  });
+
+  it('renders Robotics Fundamentals course card with authoritative progress and current lesson', async () => {
+    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
+    mocks.coursePaths.mockResolvedValue([course1Path]);
+    mocks.myLearning.mockResolvedValue(published);
+    await renderRoute();
+
+    expect(container.textContent).toContain('Robotics Fundamentals');
+    expect(container.textContent).toContain('40%');
+    expect(container.textContent).toContain('2 / 5 lessons completed');
+    expect(container.textContent).toContain('C1-L3 — Grab & Release');
+    expect(container.textContent).toContain('Continue Learning');
+    expect(container.textContent).toContain('View Course Path');
+    expect(container.textContent).toContain('Published gripper task');
+  });
+
+  it('Continue Learning navigates to currentLessonId', async () => {
+    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
+    mocks.coursePaths.mockResolvedValue([course1Path]);
+    await renderRoute();
+
+    const continueButton = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Continue Learning'));
+    expect(continueButton).toBeDefined();
+
+    await act(async () => {
+      continueButton?.click();
+    });
+
+    expect(container.textContent).toContain('Lesson Detail Page');
+  });
+
+  it('View Course Path navigates to /courses/:courseId', async () => {
+    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
+    mocks.coursePaths.mockResolvedValue([course1Path]);
+    await renderRoute();
+
+    const pathButton = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('View Course Path'));
+    expect(pathButton).toBeDefined();
+
+    await act(async () => {
+      pathButton?.click();
+    });
+
+    expect(container.textContent).toContain('Course Path Page');
+  });
+
+  it('course-complete state displays completed message and does not invent a current lesson', async () => {
+    const completedCourse = {
+      ...course1Path,
+      progressPercent: 100,
+      currentLessonId: null,
+      lessons: course1Path.lessons.map((l) => ({ ...l, status: 'completed' as const, progressPercent: 100 })),
+    };
+
+    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
+    mocks.coursePaths.mockResolvedValue([completedCourse]);
+    await renderRoute();
+
+    expect(container.textContent).toContain('Robotics Fundamentals');
+    expect(container.textContent).toContain('5 / 5 lessons completed');
+    expect(container.textContent).toContain('Course completed! You have finished all lessons');
+    expect(container.textContent).not.toContain('Continue Learning');
+    expect(container.textContent).toContain('Review Course');
   });
 });

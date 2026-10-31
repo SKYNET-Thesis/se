@@ -51,6 +51,13 @@ Only the routes in this section are registered by Nest and appear in Swagger.
 | POST | `/me/experiments/:experimentId/evaluate-symbolic` | own completed schematic experiment | IMPLEMENTED | yes |
 | GET | `/me/symbolic-evaluations`, `/me/symbolic-evaluations/:evaluationId` | own evaluation through own experiment chain | IMPLEMENTED | yes |
 
+## Learner progression
+
+| Method | Route | Auth / scope | Status | Frontend |
+|---|---|---|---|---|
+| GET | `/me/courses/:courseId/path` | own active enrollment or active student classroom delivery | IMPLEMENTED | no |
+| POST | `/me/attempts/:attemptId/knowledge-check` | own writable active student classroom attempt; server-graded answers | IMPLEMENTED | no |
+
 The schematic interpreter is deterministic symbolic computation only: not a physics simulation, IK engine, collision detector, VLA provider or robot executor. The authoritative result remains in `output_snapshot`; it does not manufacture a storage artifact.
 
 ## Teacher assessment, feedback and reflection
