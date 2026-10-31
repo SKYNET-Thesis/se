@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRightIcon, BellIcon, BookOpenIcon, Clock3Icon, GraduationCapIcon, SearchIcon, SearchXIcon, SparklesIcon, UsersIcon } from "lucide-react";
-import { catalogApi, learnerApi, type ApiAttempt, type ApiCourse, type ApiEnrollment } from "../lib/api";
+import { catalogApi, learnerApi, progressionApi, type ApiAttempt, type ApiCourse, type ApiEnrollment, type CoursePathResponse } from "../lib/api";
 import { useSupabaseSession } from "../contexts/SupabaseSessionContext";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Badge } from "../components/ui/Badge";
 import { ProgressBar } from "../components/ui/ProgressBar";
 
-interface CourseCard extends ApiCourse { lessonCount: number; access: "enrolled" | "teacher"; }
+interface CourseCard extends ApiCourse { lessonCount: number; access: "enrolled" | "teacher"; progressPercent: number; }
 
 /** The authenticated learner's course home; access is determined by Nest. */
 export function Courses() {
@@ -22,13 +22,14 @@ export function Courses() {
     if (!session) return;
     let active = true;
     void (async () => {
-      const [result, enrollments, ownAttempts] = await Promise.all([
-        catalogApi.courses(session.access_token, 1, 100), learnerApi.enrollments(session.access_token), learnerApi.attempts(session.access_token),
+      const [result, enrollments, ownAttempts, paths] = await Promise.all([
+        catalogApi.courses(session.access_token, 1, 100), learnerApi.enrollments(session.access_token), learnerApi.attempts(session.access_token), progressionApi.coursePaths(session.access_token),
       ]);
       const enrolled = new Set(enrollments.filter((entry: ApiEnrollment) => entry.status === "active").map((entry) => entry.course_id));
       const lessonCounts = await Promise.all(result.items.map((course) => catalogApi.lessons(course.id, session.access_token).then((lessons) => lessons.length)));
       if (!active) return;
-      setCourses(result.items.map((course, index) => ({ ...course, lessonCount: lessonCounts[index], access: enrolled.has(course.id) ? "enrolled" : "teacher" })));
+      const pathByCourse = new Map((paths as CoursePathResponse[]).map((path) => [path.course.id, path]));
+      setCourses(result.items.map((course, index) => ({ ...course, lessonCount: lessonCounts[index], access: enrolled.has(course.id) ? "enrolled" : "teacher", progressPercent: pathByCourse.get(course.id)?.progressPercent ?? 0 })));
       setAttempts(ownAttempts);
     })().catch((requestError: unknown) => { if (active) setError(requestError instanceof Error ? requestError.message : "Could not load your learning space."); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -58,7 +59,7 @@ export function Courses() {
 }
 
 function CourseTile({ course }: { course: CourseCard }) {
-  return <article className="group relative overflow-hidden rounded-xl border border-line bg-surface p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#9acdc3] hover:shadow-[0_14px_28px_rgba(21,97,86,0.09)]"><div className="absolute inset-x-0 top-0 h-1 bg-accent opacity-0 transition-opacity group-hover:opacity-100" /><div className="flex items-start justify-between gap-3"><Badge tone={course.access === "enrolled" ? "ok" : "accent"} dot>{course.access === "enrolled" ? "Enrolled" : "Teacher assigned"}</Badge><span className="text-xs font-medium uppercase tracking-wide text-ink-subtle">{course.status}</span></div><h3 className="mt-5 text-xl font-semibold tracking-[-0.02em] text-ink">{course.title}</h3><p className="mt-2 min-h-10 text-sm leading-relaxed text-ink-muted">{course.description ?? "A guided VISTA robotics course."}</p><div className="mt-5 flex items-center justify-between text-xs text-ink-muted"><span className="inline-flex items-center gap-1.5"><BookOpenIcon className="h-3.5 w-3.5" />{course.lessonCount} lesson{course.lessonCount === 1 ? "" : "s"}</span><span className="inline-flex items-center gap-1.5"><Clock3Icon className="h-3.5 w-3.5" />Self-paced</span></div><div className="mt-5"><div className="mb-2 flex justify-between text-xs text-ink-muted"><span>Ready to start</span><span>0%</span></div><ProgressBar value={0} label={`${course.title} progress`} /></div><Link to={`/courses/${course.id}`} className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-white transition-colors hover:bg-accent-hover active:scale-[0.98]">Open course<ArrowRightIcon className="h-4 w-4" /></Link></article>;
+  return <article className="group relative overflow-hidden rounded-xl border border-line bg-surface p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[#9acdc3] hover:shadow-[0_14px_28px_rgba(21,97,86,0.09)]"><div className="absolute inset-x-0 top-0 h-1 bg-accent opacity-0 transition-opacity group-hover:opacity-100" /><div className="flex items-start justify-between gap-3"><Badge tone={course.access === "enrolled" ? "ok" : "accent"} dot>{course.access === "enrolled" ? "Enrolled" : "Teacher assigned"}</Badge><span className="text-xs font-medium uppercase tracking-wide text-ink-subtle">{course.status}</span></div><h3 className="mt-5 text-xl font-semibold tracking-[-0.02em] text-ink">{course.title}</h3><p className="mt-2 min-h-10 text-sm leading-relaxed text-ink-muted">{course.description ?? "A guided VISTA robotics course."}</p><div className="mt-5 flex items-center justify-between text-xs text-ink-muted"><span className="inline-flex items-center gap-1.5"><BookOpenIcon className="h-3.5 w-3.5" />{course.lessonCount} lesson{course.lessonCount === 1 ? "" : "s"}</span><span className="inline-flex items-center gap-1.5"><Clock3Icon className="h-3.5 w-3.5" />Self-paced</span></div><div className="mt-5"><div className="mb-2 flex justify-between text-xs text-ink-muted"><span>{course.progressPercent > 0 ? "In progress" : "Ready to start"}</span><span>{course.progressPercent}%</span></div><ProgressBar value={course.progressPercent} label={`${course.title} progress`} /></div><Link to={`/courses/${course.id}`} className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-white transition-colors hover:bg-accent-hover active:scale-[0.98]">Open course<ArrowRightIcon className="h-4 w-4" /></Link></article>;
 }
 
 function CourseSkeletons() { return <div className="mt-5 grid gap-4 md:grid-cols-2">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-[260px] animate-pulse rounded-xl border border-line bg-sunken/60" />)}</div>; }
