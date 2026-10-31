@@ -184,9 +184,9 @@ describe('LessonViewer / Guided Learning Experience', () => {
     mocks.lessonDetail.mockResolvedValueOnce(baseLessonFixture);
     await renderRoute();
 
-    expect(container.textContent).toContain('What You Will Learn');
+    expect(container.textContent).not.toContain('What You Will Learn');
     expect(container.textContent).toContain('C1-L1');
-    expect(container.textContent).toContain('Identify robot components, joints, gripper, camera, workspace bounds');
+    expect(container.textContent).toContain('Identify safe robot-lab behavior');
   });
 
   it('concept sections (LEARN) render properly', async () => {

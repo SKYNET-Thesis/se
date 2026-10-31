@@ -13,7 +13,6 @@ import {
   PlayCircleIcon,
   RotateCcwIcon,
   ShieldAlertIcon,
-  TargetIcon,
 } from 'lucide-react';
 import { catalogApi, learnerApi, type LessonDetailResponse } from '../lib/api';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
@@ -216,29 +215,6 @@ export function LessonViewer() {
                   </div>
                 </div>
               </div>
-            </section>
-          )}
-
-          {/* Learning Objectives */}
-          {lesson.objectives?.length > 0 && (
-            <section aria-labelledby="objectives-heading" className="rounded-xl border border-line bg-surface p-6 shadow-sm">
-              <div className="flex items-center gap-2 text-ink">
-                <TargetIcon className="h-5 w-5 text-accent" />
-                <h2 id="objectives-heading" className="text-xl font-bold">
-                  What You Will Learn
-                </h2>
-              </div>
-              <ul className="mt-4 space-y-3">
-                {lesson.objectives.map((obj) => (
-                  <li key={obj.code} className="flex items-start gap-3 rounded-lg bg-sunken p-3">
-                    <CheckCircle2Icon className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
-                    <div>
-                      <span className="font-semibold text-ink">{obj.code}</span>
-                      <p className="text-sm text-ink-muted">{obj.description}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
             </section>
           )}
 
