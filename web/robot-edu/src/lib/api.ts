@@ -258,11 +258,11 @@ export const progressionApi = {
   qualifiedL4Version: (courseId: string, token: string) =>
     apiGet<{ lessonId: string; evaluationId: string; experimentId: string; programVersionId: string; versionNumber: number; attemptId: string; passedAt: string } | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
   coursePaths: async (token: string): Promise<CoursePathResponse[]> => {
-    const coursesRes = await catalogApi.courses(token, 1, 50).catch(() => ({ items: [] as ApiCourse[] }));
-    let courseIds = coursesRes.items.map((c) => c.id);
+    const enrollments = await learnerApi.enrollments(token).catch(() => [] as ApiEnrollment[]);
+    let courseIds = enrollments.filter((e) => e.status === "active" && e.course_id).map((e) => e.course_id);
     if (!courseIds.length) {
-      const enrollments = await learnerApi.enrollments(token).catch(() => [] as ApiEnrollment[]);
-      courseIds = enrollments.filter((e) => e.status === "active" && e.course_id).map((e) => e.course_id);
+      const coursesRes = await catalogApi.courses(token, 1, 50).catch(() => ({ items: [] as ApiCourse[] }));
+      courseIds = coursesRes.items.map((c) => c.id);
     }
     if (!courseIds.length) return [];
     const uniqueIds = Array.from(new Set(courseIds));

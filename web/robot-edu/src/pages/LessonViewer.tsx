@@ -17,21 +17,13 @@ import {
   SparklesIcon,
   TargetIcon,
 } from 'lucide-react';
-import { catalogApi, learnerApi, type LessonDetailResponse, type KnowledgeCheckQuestion } from '../lib/api';
+import { catalogApi, learnerApi, type LessonDetailResponse } from '../lib/api';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { LinkButton } from '../components/ui/LinkButton';
-
-const DEFAULT_L1_QUESTIONS: KnowledgeCheckQuestion[] = [
-  { id: 'q1', prompt: 'Which robot component connects links and allows rotational motion?', options: ['joint', 'linkage', 'chassis'] },
-  { id: 'q2', prompt: 'What is the primary role of the camera in the workspace?', options: ['visual_inspection', 'power_supply', 'joint_braking'] },
-  { id: 'q3', prompt: 'Before commanding the gripper to grasp, what workspace condition must be confirmed?', options: ['clear_workspace', 'blind_approach', 'maximum_speed'] },
-  { id: 'q4', prompt: 'Which command returns all robot arm joints to a known safe configuration?', options: ['home', 'emergency_power', 'open_gripper'] },
-  { id: 'q5', prompt: 'What is the required immediate safety response to unexpected motion in the workspace?', options: ['stop', 'continue', 'ignore'] },
-];
 
 export function LessonViewer() {
   const { courseId = '', lessonId = '' } = useParams<{ courseId: string; lessonId: string }>();
@@ -63,7 +55,7 @@ export function LessonViewer() {
   const isCompleted = lesson?.status === 'completed';
   const isCurrent = lesson?.status === 'current';
   const isInProgress = lesson?.status === 'in_progress';
-  const isL1 = lesson?.ordinal === 1;
+  const isKnowledgeCheck = lesson?.assignment?.constraints?.kind === 'knowledge_check';
   const isL5 = lesson?.ordinal === 5;
 
   const handleStartPractice = async () => {
@@ -72,8 +64,7 @@ export function LessonViewer() {
     setStartError(null);
 
     try {
-      // If L1, open the knowledge check section directly
-      if (isL1) {
+      if (isKnowledgeCheck) {
         setShowQuiz(true);
         setStarting(false);
         return;
@@ -173,10 +164,7 @@ export function LessonViewer() {
     );
   }
 
-  const questions =
-    (lesson.assignment?.constraints?.questions && lesson.assignment.constraints.questions.length > 0)
-      ? lesson.assignment.constraints.questions
-      : DEFAULT_L1_QUESTIONS;
+  const questions = isKnowledgeCheck ? (lesson.assignment?.constraints?.questions ?? []) : [];
 
   const allQuestionsAnswered = questions.every((q) => Boolean(answers[q.id]));
 
@@ -470,8 +458,8 @@ export function LessonViewer() {
             </section>
           )}
 
-          {/* L1 Interactive Knowledge Check Quiz */}
-          {isL1 && (showQuiz || isCurrent || isInProgress || isCompleted) && (
+          {/* Server-authored interactive knowledge check */}
+          {isKnowledgeCheck && (showQuiz || isCurrent || isInProgress || isCompleted) && (
             <section
               id="knowledge-check-section"
               aria-labelledby="quiz-heading"
@@ -487,7 +475,7 @@ export function LessonViewer() {
                   </h2>
                 </div>
                 <Badge tone={isCompleted ? 'ok' : 'accent'}>
-                  {isCompleted ? '✓ Completed' : 'Passing Score: 80%'}
+                  {isCompleted ? '✓ Completed' : 'Server graded'}
                 </Badge>
               </div>
 
@@ -512,8 +500,8 @@ export function LessonViewer() {
                       </h3>
                       <p className="mt-1 text-sm">
                         {quizResult.passed
-                          ? `Your score: ${quizResult.score}%. Meet Your Robot is complete, and Move the Robot (L2) is now unlocked!`
-                          : `Your score: ${quizResult.score}%. An 80% passing score is required. Review the safety rules above and try again.`}
+                          ? `Your score: ${quizResult.score}%. This lesson is complete and the next eligible lesson is unlocked.`
+                          : `Your score: ${quizResult.score}%. Review the lesson material and try again.`}
                       </p>
                       <div className="mt-4 flex flex-wrap gap-3">
                         {quizResult.passed ? (
@@ -546,8 +534,11 @@ export function LessonViewer() {
                 </div>
               )}
 
-              {/* Questions List */}
-              <div className="mt-6 space-y-6">
+              {questions.length === 0 ? (
+                <div role="alert" className="mt-6 rounded-lg bg-danger-soft p-4 text-sm text-danger">
+                  Knowledge check content is unavailable. Please contact your instructor.
+                </div>
+              ) : <div className="mt-6 space-y-6">
                 {questions.map((q, idx) => (
                   <fieldset
                     key={q.id}
@@ -584,7 +575,7 @@ export function LessonViewer() {
                     </div>
                   </fieldset>
                 ))}
-              </div>
+              </div>}
 
               {!isCompleted && (
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-line pt-4">
@@ -627,8 +618,8 @@ export function LessonViewer() {
                 ? (lesson.lockReason?.message ?? 'Complete prerequisite lessons before practicing.')
                 : isCompleted
                 ? 'You have already met the completion criteria for this lesson. You may review your practice anytime.'
-                : isL1
-                ? 'Answer the 5 safety questions below to complete this lesson and unlock Move the Robot.'
+                : isKnowledgeCheck
+                ? 'Answer the server-provided questions below to complete this lesson.'
                 : 'Enter the practice workspace to program your robot and verify pass criteria.'}
             </p>
 
@@ -643,7 +634,7 @@ export function LessonViewer() {
                 <Button variant="secondary" className="w-full cursor-not-allowed opacity-60" disabled>
                   <LockIcon className="mr-2 h-4 w-4" /> Locked
                 </Button>
-              ) : isL1 ? (
+              ) : isKnowledgeCheck ? (
                 <Button
                   variant="primary"
                   className="w-full"

@@ -37,6 +37,17 @@ describe("ProgressionService", () => {
     expect(transaction).not.toHaveBeenCalled();
   });
 
+  it("scopes the authoritative path through one active enrollment identity chain", async () => {
+    queryRaw.mockResolvedValueOnce([{ id: "course-1", title: "Robotics Fundamentals", status: "published" }]).mockResolvedValueOnce(lessons);
+    await service.coursePath(student, "course-1");
+    const accessSql = (queryRaw.mock.calls[0][0] as TemplateStringsArray).join("?");
+    expect(accessSql).toContain("learning_enrollments");
+    expect(accessSql).toContain("e.offering_id=o.id");
+    expect(accessSql).toContain("e.classroom_id=classroom.id");
+    expect(accessSql).toContain("o.course_id=c.id");
+    expect(accessSql).not.toContain(" OR EXISTS");
+  });
+
   it("uses the lowest eligible incomplete lesson as current and preserves completed progress after reload", async () => {
     const persisted = lessons.map((lesson, index) => {
       if (index === 0) return { ...lesson, progress_status: "completed", progress_percent: 100, completed_at: new Date("2026-10-31T00:00:00Z") };
@@ -46,6 +57,7 @@ describe("ProgressionService", () => {
     queryRaw.mockResolvedValueOnce([{ id: "course-1", title: "Robotics Fundamentals", status: "published" }]).mockResolvedValueOnce(persisted);
     const path = await service.coursePath(student, "course-1");
     expect(path.currentLessonId).toBe("lesson-2");
+    expect(path.progressPercent).toBe(20);
     expect(path.lessons.map((lesson: { status: string }) => lesson.status)).toEqual(["completed", "current", "locked", "locked", "locked"]);
   });
 
@@ -84,6 +96,7 @@ describe("ProgressionService", () => {
     transaction.mockImplementation(async (work) => work({ $queryRaw: txQuery }));
     await expect(service.submitKnowledgeCheck(student, "attempt-1", { answers: [{ questionId: "safety", optionId: "stop" }] })).resolves.toMatchObject({ passed: true, score: 100, completedLessonId: "lesson-1", newlyUnlockedLessonIds: ["lesson-2"] });
     expect(txQuery).toHaveBeenCalledTimes(6);
+    expect((txQuery.mock.calls[3][0] as TemplateStringsArray).join("?")).toContain("IS NULL AS locked");
   });
 
   it("persists a failed knowledge check without projecting completion", async () => {

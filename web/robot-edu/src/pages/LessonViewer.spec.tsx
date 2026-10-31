@@ -248,6 +248,11 @@ describe('LessonViewer / Guided Learning Experience', () => {
       status: 'in_progress',
       lockReason: null,
       ordinal: 2,
+      assignment: {
+        ...baseLessonFixture.assignment!,
+        title: 'Reach Target A',
+        constraints: { kind: 'symbolic_program' },
+      },
       activeAttempt: { id: 'attempt-in-progress', status: 'in_progress', score: null },
     };
     mocks.lessonDetail.mockResolvedValueOnce(l2ActiveFixture);
@@ -265,6 +270,35 @@ describe('LessonViewer / Guided Learning Experience', () => {
     });
 
     expect(container.textContent).toContain('Practice Workspace Screen');
+  });
+
+  it('does not infer a knowledge check from ordinal 1 for a legacy symbolic lesson', async () => {
+    mocks.lessonDetail.mockResolvedValueOnce({
+      ...baseLessonFixture,
+      course_title: 'Robot Discovery',
+      title: 'Open & Close Gripper',
+      assignment: {
+        ...baseLessonFixture.assignment!,
+        title: 'Gripper Sequence Challenge',
+        constraints: { kind: 'symbolic_program' },
+      },
+    });
+    await renderRoute('legacy-course', 'legacy-lesson-1');
+    expect(container.textContent).not.toContain('Safety Knowledge Check');
+    expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+  });
+
+  it('does not fabricate fallback questions when the server returns no question set', async () => {
+    mocks.lessonDetail.mockResolvedValueOnce({
+      ...baseLessonFixture,
+      assignment: {
+        ...baseLessonFixture.assignment!,
+        constraints: { kind: 'knowledge_check', questions: [] },
+      },
+    });
+    await renderRoute();
+    expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+    expect(container.textContent).toContain('Knowledge check content is unavailable');
   });
 
   it('L1 knowledge check FAIL shows feedback and does not claim completion', async () => {

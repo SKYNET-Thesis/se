@@ -18,6 +18,14 @@ describe("Course 1 seed blueprint", () => {
     expect(COURSE_1_BLUEPRINT.lessons[4].challenge.conditions).toEqual([]);
   });
 
+  it("uses only competency domains accepted by the existing database constraint", () => {
+    const allowedDomains = new Set([
+      "computational_thinking", "programming", "robotics", "dual_arm_coordination",
+      "computer_vision", "ai_vla", "experimentation", "safety", "debugging",
+    ]);
+    expect(COURSE_1_BLUEPRINT.competencies.every((item) => allowedDomains.has(item.domain))).toBe(true);
+  });
+
   it("keeps L5 physical completion out of the seed contract", () => {
     expect(COURSE_1_BLUEPRINT.lessons[4].assignment.constraints).toMatchObject({
       kind: "physical_lab",
@@ -100,6 +108,7 @@ describe("Course 1 seed blueprint", () => {
     const result = await seedCourse1(mockPrisma as never, "org-1", "user-1");
 
     expect(result).toEqual({ courseId: "c1-course-id", lessonCount: 5 });
+    expect(mockPrisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 30_000 });
     expect(deleteSpy).not.toHaveBeenCalled();
     expect(deleteManySpy).not.toHaveBeenCalled();
   });

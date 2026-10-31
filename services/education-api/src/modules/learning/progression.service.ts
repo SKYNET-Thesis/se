@@ -33,6 +33,11 @@ export class ProgressionService {
         JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.status='published'
         JOIN public.learning_assignments la ON la.id=ca.assignment_id
         JOIN public.learning_lessons l ON l.id=la.lesson_id
+        JOIN public.learning_course_offerings o ON o.course_id=l.course_id AND o.status='active'
+        JOIN public.learning_classrooms enrolled_classroom ON enrolled_classroom.id=ca.classroom_id
+          AND enrolled_classroom.offering_id=o.id AND enrolled_classroom.status='active'
+        JOIN public.learning_enrollments enrollment ON enrollment.course_id=l.course_id AND enrollment.offering_id=o.id
+          AND enrollment.classroom_id=enrolled_classroom.id AND enrollment.learner_user_id=a.learner_user_id AND enrollment.status='active'
         JOIN public.learning_challenges ch ON ch.id=la.challenge_id AND ch.status='published'
         JOIN public.learning_classroom_members cm ON cm.classroom_id=ca.classroom_id
           AND cm.user_id=a.learner_user_id AND cm.classroom_role='student' AND cm.status='active'
@@ -127,15 +132,15 @@ export class ProgressionService {
   private async coursePathWithDb(db: QueryDb, user: AuthenticatedUser, courseId: string): Promise<CoursePathResponse> {
     const courses = await db.$queryRaw<CourseRow[]>`
       SELECT c.id,c.title,c.status FROM public.learning_courses c
-      WHERE c.id=${courseId}::uuid AND c.status='published' AND (
-        EXISTS (SELECT 1 FROM public.learning_enrollments e WHERE e.course_id=c.id AND e.learner_user_id=${user.vistaUserId}::uuid AND e.status='active')
-        OR EXISTS (
-          SELECT 1 FROM public.learning_course_offerings o
-          JOIN public.learning_classrooms classroom ON classroom.offering_id=o.id AND classroom.status='active'
-          JOIN public.learning_classroom_members cm ON cm.classroom_id=classroom.id AND cm.user_id=${user.vistaUserId}::uuid AND cm.classroom_role='student' AND cm.status='active'
-          JOIN public.memberships m ON m.id=cm.membership_id AND m.user_id=${user.vistaUserId}::uuid AND m.organization_id=classroom.organization_id AND m.status='active'
-          WHERE o.course_id=c.id AND o.status='active'
-        )
+      WHERE c.id=${courseId}::uuid AND c.status='published' AND EXISTS (
+        SELECT 1 FROM public.learning_enrollments e
+        JOIN public.learning_course_offerings o ON e.offering_id=o.id AND o.course_id=c.id AND o.status='active'
+        JOIN public.learning_classrooms classroom ON e.classroom_id=classroom.id AND classroom.offering_id=o.id AND classroom.status='active'
+        JOIN public.learning_classroom_members cm ON cm.classroom_id=classroom.id AND cm.user_id=e.learner_user_id
+          AND cm.classroom_role='student' AND cm.status='active'
+        JOIN public.memberships m ON m.id=cm.membership_id AND m.user_id=e.learner_user_id
+          AND m.organization_id=classroom.organization_id AND m.status='active'
+        WHERE e.course_id=c.id AND e.learner_user_id=${user.vistaUserId}::uuid AND e.status='active'
       )`;
     const course = courses[0];
     if (!course) throw new NotFoundException("Course was not found.");
@@ -198,7 +203,7 @@ export class ProgressionService {
   }
 
   private async completeLesson(db: QueryDb, learnerId: string, lessonId: string): Promise<ProgressionProjection> {
-    await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${learnerId}:${lessonId}`},0))`;
+    await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${learnerId}:${lessonId}`},0)) IS NULL AS locked`;
     const completed = await db.$queryRaw<Array<{ id: string; already_completed?: boolean }>>`
       WITH existing AS (
         SELECT status FROM public.learning_lesson_progress

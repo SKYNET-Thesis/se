@@ -21,7 +21,7 @@ export const COURSE_1_BLUEPRINT = {
     { code: "C1.MOTION.SEQUENCE", title: "Motion sequencing", description: "Builds deterministic robot motion programs.", domain: "robotics" },
     { code: "C1.MANIPULATION.GRIPPER", title: "Gripper manipulation", description: "Controls grasp and release sequences.", domain: "robotics" },
     { code: "C1.MANIPULATION.PICK_PLACE", title: "Pick and place", description: "Builds a complete pick-and-place sequence.", domain: "robotics" },
-    { code: "C1.RUNTIME.SAFETY", title: "Physical runtime safety", description: "Uses persisted evidence before physical execution.", domain: "scientific_practice" },
+    { code: "C1.RUNTIME.SAFETY", title: "Physical runtime safety", description: "Uses persisted evidence before physical execution.", domain: "safety" },
   ],
   lessons: [
     {
@@ -355,7 +355,7 @@ export async function seedCourse1(prisma: PrismaClient, organizationId: string, 
       await tx.learning_lesson_prerequisites.upsert({ where: { lesson_id_prerequisite_lesson_id: { lesson_id: lessons.get(item.ordinal)!, prerequisite_lesson_id: lessons.get(item.prerequisiteOrdinal)! } }, update: { required: true, minimum_score: null }, create: { lesson_id: lessons.get(item.ordinal)!, prerequisite_lesson_id: lessons.get(item.prerequisiteOrdinal)!, required: true } });
     }
     return { courseId: course.id, lessonCount: lessons.size };
-  });
+  }, { timeout: 30_000 });
 }
 
 async function main(): Promise<void> {

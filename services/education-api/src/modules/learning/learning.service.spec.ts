@@ -48,6 +48,70 @@ describe("LearningService assignment delivery", () => {
     const result = await service.startAttempt(user, "classroom-assignment-a");
     expect(assertStudentClassroomAccess).toHaveBeenCalledWith(user, "class-a");
     expect(result).toEqual({ id:"attempt-2", learner_user_id:"user-1", attempt_number:2 });
+    const deliverySql = (queryRaw.mock.calls[0][0] as TemplateStringsArray).join("?");
+    expect(deliverySql).toContain("learning_enrollments");
+    expect(deliverySql).toContain("enrollment.course_id=lesson.course_id");
+    expect(deliverySql).toContain("enrollment.offering_id=offering.id");
+    expect(deliverySql).toContain("enrollment.classroom_id=classroom.id");
+  });
+
+  it("returns current learning only from an active enrollment matching course, offering, and classroom", async () => {
+    const scopedQuery = jest.fn().mockResolvedValue([]);
+    const scopedService = new LearningService({ $queryRaw: scopedQuery } as never, {} as never);
+    await scopedService.myLearning(user);
+    const sql = (scopedQuery.mock.calls[0][0] as TemplateStringsArray).join("?");
+    expect(sql).toContain("learning_enrollments");
+    expect(sql).toContain("e.course_id=co.id");
+    expect(sql).toContain("e.offering_id=o.id");
+    expect(sql).toContain("e.classroom_id=c.id");
+    expect(sql).toContain("e.status='active'");
+  });
+
+  it("lists learner courses only through one exact active authoritative delivery chain", async () => {
+    const scopedQuery = jest.fn().mockResolvedValue([]);
+    const scopedService = new LearningService(
+      { $queryRaw: scopedQuery } as never,
+      { classroomIds: jest.fn().mockResolvedValue([]), isSystemAdministrator: jest.fn().mockReturnValue(false) } as never,
+    );
+
+    await scopedService.courses(user, { page: 1, pageSize: 20 });
+
+    const sql = (scopedQuery.mock.calls[0][0] as TemplateStringsArray).join("?");
+    expect(sql).toContain("EXISTS");
+    expect(sql).toContain("e.course_id=c.id");
+    expect(sql).toContain("o.id=e.offering_id");
+    expect(sql).toContain("cl.id=e.classroom_id");
+    expect(sql).toContain("cl.offering_id=o.id");
+    expect(sql).not.toContain("OR m.id IS NOT NULL");
+  });
+
+  it("rejects direct reads of a locked lesson before returning its content", async () => {
+    const lockedQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: "lesson-2", course_id: "course-1", title: "Move", content: {}, ordinal: 2, created_at: new Date() }])
+      .mockResolvedValueOnce([{ id: "course-1", title: "Robotics Fundamentals" }]);
+    const lockedService = new LearningService(
+      { $queryRaw: lockedQuery } as never,
+      { classroomIds: jest.fn().mockResolvedValue([]), isSystemAdministrator: jest.fn().mockReturnValue(false) } as never,
+      { coursePath: jest.fn().mockResolvedValue({ lessons: [{ id: "lesson-2", status: "locked", lockReason: "Complete L1" }] }) } as never,
+    );
+
+    await expect(lockedService.lesson(user, "lesson-2")).rejects.toBeInstanceOf(ConflictException);
+    expect(lockedQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed when the authoritative progression path cannot be resolved", async () => {
+    const pathFailure = new Error("progression unavailable");
+    const scopedQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: "lesson-2", course_id: "course-1", title: "Move", content: {}, ordinal: 2, created_at: new Date() }])
+      .mockResolvedValueOnce([{ id: "course-1", title: "Robotics Fundamentals" }]);
+    const scopedService = new LearningService(
+      { $queryRaw: scopedQuery } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(false) } as never,
+      { coursePath: jest.fn().mockRejectedValue(pathFailure) } as never,
+    );
+
+    await expect(scopedService.lesson(user, "lesson-2")).rejects.toBe(pathFailure);
+    expect(scopedQuery).toHaveBeenCalledTimes(2);
   });
 
   it("returns the existing in-progress attempt for an idempotent retry",async()=>{queryRaw.mockResolvedValue([{classroom_id:"class-a",max_attempts:3}]);const existing={id:"attempt-1",classroom_assignment_id:"classroom-assignment-a",learner_user_id:"user-1",attempt_number:1,status:"in_progress",started_at:new Date()};transaction.mockImplementation(async work=>work({$executeRaw:executeRaw,$queryRaw:jest.fn().mockResolvedValueOnce([existing])}));await expect(service.startAttempt(user,"classroom-assignment-a")).resolves.toEqual(existing);});
@@ -260,7 +324,7 @@ describe("LearningService assignment delivery", () => {
 
     const enrichedService = new LearningService(
       { $queryRaw: lessonQuery } as never,
-      { classroomIds: jest.fn().mockResolvedValue([]), isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      { classroomIds: jest.fn().mockResolvedValue([]), isSystemAdministrator: jest.fn().mockReturnValue(false) } as never,
       mockProgression as never,
     );
 
