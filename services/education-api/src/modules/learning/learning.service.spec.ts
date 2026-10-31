@@ -239,4 +239,59 @@ describe("LearningService assignment delivery", () => {
       expect(sql).toContain("m.organization_id=c.organization_id");
     }
   });
+
+  it("returns enriched lesson read model with normalized content, objectives, and progression status", async () => {
+    const lessonQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: "lesson-1", course_id: "course-1", title: "Meet Your Robot", content: { version: 1, summary: "Identify safe robot-lab behavior" }, ordinal: 1, created_at: new Date() }]) // lesson
+      .mockResolvedValueOnce([{ id: "course-1", title: "Robotics Fundamentals" }]) // courses
+      .mockResolvedValueOnce([{ code: "C1-L1", description: "Identify robot components", competency_code: "C1.SAFETY", competency_title: "Safety" }]) // objectives
+      .mockResolvedValueOnce([{ assignment_id: "assign-1", classroom_assignment_id: "ca-1", title: "Safety Knowledge Check", instructions: "Answer", allowed_blocks: [], constraints: { kind: "knowledge_check" } }]) // assignments
+      .mockResolvedValueOnce([]); // attempts
+
+    const mockProgression = {
+      coursePath: jest.fn().mockResolvedValue({
+        course: { id: "course-1", title: "Robotics Fundamentals" },
+        progressPercent: 0,
+        currentLessonId: "lesson-1",
+        lessons: [{ id: "lesson-1", status: "current", progressPercent: 0, lockReason: null, prerequisite: [] }],
+      }),
+      assertPrerequisites: jest.fn(),
+    };
+
+    const enrichedService = new LearningService(
+      { $queryRaw: lessonQuery } as never,
+      { classroomIds: jest.fn().mockResolvedValue([]), isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      mockProgression as never,
+    );
+
+    const result = await enrichedService.lesson(user, "lesson-1");
+    expect(result.id).toBe("lesson-1");
+    expect(result.title).toBe("Meet Your Robot");
+    expect(result.status).toBe("current");
+    expect(result.content.summary).toBe("Identify safe robot-lab behavior");
+    expect(result.objectives).toHaveLength(1);
+    expect(result.objectives[0].code).toBe("C1-L1");
+    expect(result.assignment).toMatchObject({ classroomAssignmentId: "ca-1" });
+  });
+
+  it("blocks starting an attempt on a locked lesson with ConflictException", async () => {
+    const mockProgression = {
+      assertPrerequisites: jest.fn().mockRejectedValue(new ConflictException({
+        code: "PREREQUISITE_NOT_COMPLETED",
+        prerequisiteLessonId: "lesson-1",
+        message: "Complete Meet Your Robot before starting this lesson.",
+      })),
+    };
+
+    const blockedService = new LearningService(
+      { $queryRaw: jest.fn().mockResolvedValue([{ classroom_id: "class-1", lesson_id: "lesson-2", max_attempts: 3 }]) } as never,
+      { assertStudentClassroomAccess: jest.fn().mockResolvedValue(undefined) } as never,
+      mockProgression as never,
+    );
+
+    await expect(blockedService.startAttempt(user, "ca-locked"))
+      .rejects.toThrow(ConflictException);
+    expect(mockProgression.assertPrerequisites).toHaveBeenCalledWith(expect.anything(), user.vistaUserId, "lesson-2");
+  });
 });
+

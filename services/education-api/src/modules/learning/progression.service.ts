@@ -5,7 +5,7 @@ import { CoursePathLesson, CoursePathLockReason, CoursePathResponse, Progression
 import { SubmitKnowledgeCheckDto } from "./dto/submit-knowledge-check.dto";
 import { LearningScopeService } from "./learning-scope.service";
 
-interface QueryDb { $queryRaw<T = unknown>(query: TemplateStringsArray | unknown, ...values: unknown[]): Promise<T>; }
+export interface QueryDb { $queryRaw<T = unknown>(query: TemplateStringsArray | unknown, ...values: unknown[]): Promise<T>; }
 interface CourseRow { id: string; title: string; status: string; }
 interface PrerequisiteRow { lessonId: string; title: string; required: boolean; minimumScore: number | string | null; status: string | null; progressPercent: number | string | null; }
 interface LessonRow { id: string; ordinal: number; title: string; progress_status: string | null; progress_percent: number | string | null; completed_at: Date | null; prerequisites: PrerequisiteRow[] | null; }
@@ -145,7 +145,7 @@ export class ProgressionService {
     };
   }
 
-  private async assertPrerequisites(db: QueryDb, learnerId: string, lessonId: string): Promise<void> {
+  async assertPrerequisites(db: QueryDb, learnerId: string, lessonId: string): Promise<void> {
     const rows = await db.$queryRaw<Array<{ prerequisite_lesson_id: string; title: string; minimum_score: number | string | null; status: string | null; progress_percent: number | string | null }>>`
       SELECT pr.prerequisite_lesson_id,pre.title,pr.minimum_score,lp.status,score.score AS progress_percent
       FROM public.learning_lesson_prerequisites pr

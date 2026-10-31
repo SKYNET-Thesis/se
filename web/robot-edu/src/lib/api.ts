@@ -54,6 +54,99 @@ export interface CoursePathResponse {
   lessons: CoursePathLesson[];
 }
 
+export interface LessonObjective {
+  code: string;
+  description: string;
+  competencyCode?: string | null;
+  competencyTitle?: string | null;
+}
+
+export interface LessonConceptSection {
+  title: string;
+  content: string;
+}
+
+export interface LessonContent {
+  version: number;
+  summary: string;
+  learningObjectives: string[];
+  conceptSections: LessonConceptSection[];
+  robotConcept: string;
+  taskPreview: string;
+  estimatedMinutes?: number;
+  safetyNotes: string[];
+  completionCriteria: string;
+  objective?: string;
+  lessonType?: string;
+}
+
+export interface KnowledgeCheckQuestion {
+  id: string;
+  prompt: string;
+  options: string[];
+}
+
+export interface LessonAssignmentConstraints {
+  kind?: string;
+  questions?: KnowledgeCheckQuestion[];
+  target?: Record<string, unknown>;
+  unlocksPhysicalLesson?: boolean;
+  completionAuthority?: string;
+}
+
+export interface LessonAssignmentInfo {
+  id: string;
+  classroomAssignmentId: string;
+  title: string;
+  instructions: string;
+  allowedBlocks: string[];
+  constraints?: LessonAssignmentConstraints;
+  challengeTitle?: string | null;
+  challengeDescription?: string | null;
+}
+
+export interface LessonAttemptSummary {
+  id: string;
+  status: string;
+  score: number | null;
+  submittedAt?: string | null;
+}
+
+export interface LessonDetailResponse {
+  id: string;
+  course_id: string;
+  course_title: string;
+  title: string;
+  ordinal: number;
+  content: LessonContent;
+  objectives: LessonObjective[];
+  status: LessonProgressStatus;
+  progressPercent: number;
+  lockReason: LessonLockReason | null;
+  prerequisites: LessonPrerequisite[];
+  assignment: LessonAssignmentInfo | null;
+  activeAttempt: LessonAttemptSummary | null;
+  priorAttempt: LessonAttemptSummary | null;
+  created_at: string;
+}
+
+export interface KnowledgeCheckAnswerInput {
+  questionId: string;
+  optionId: string;
+}
+
+export interface SubmitKnowledgeCheckDto {
+  answers: KnowledgeCheckAnswerInput[];
+}
+
+export interface KnowledgeCheckSubmissionResult {
+  attemptId: string;
+  passed: boolean;
+  score: number;
+  completedLessonId: string | null;
+  newlyUnlockedLessonIds: string[];
+}
+
 export async function apiRequest<T>(path: string, accessToken: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { method, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   if (!response.ok) { const payload = await response.json().catch(() => null) as { message?: string } | null; throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`); }
@@ -126,6 +219,8 @@ export const learnerApi = {
   createReflection: (submissionId: string, token: string, body: { promptKey: string; promptText: string; responseText: string }) => apiRequest<Record<string, unknown>>(`/me/submissions/${submissionId}/reflections`, token, "POST", body),
   coursePath: (courseId: string, token: string) => progressionApi.coursePath(courseId, token),
   coursePaths: (token: string) => progressionApi.coursePaths(token),
+  submitKnowledgeCheck: (attemptId: string, dto: SubmitKnowledgeCheckDto, token: string) =>
+    progressionApi.submitKnowledgeCheck(attemptId, dto, token),
 };
 
 export const progressionApi = {
@@ -144,6 +239,8 @@ export const progressionApi = {
     );
     return paths.filter((p): p is CoursePathResponse => Boolean(p));
   },
+  submitKnowledgeCheck: (attemptId: string, dto: SubmitKnowledgeCheckDto, token: string) =>
+    apiRequest<KnowledgeCheckSubmissionResult>(`/me/attempts/${attemptId}/knowledge-check`, token, "POST", dto),
 };
 
 export const instructorApi = {
@@ -185,6 +282,7 @@ export const catalogApi = {
   course: (courseId: string, token: string) => apiGet<ApiCourse>(`/courses/${courseId}`, token),
   lessons: (courseId: string, token: string) => apiGet<ApiRecord[]>(`/courses/${courseId}/lessons`, token),
   lesson: (lessonId: string, token: string) => apiGet<ApiRecord>(`/lessons/${lessonId}`, token),
+  lessonDetail: (lessonId: string, token: string) => apiGet<LessonDetailResponse>(`/lessons/${lessonId}`, token),
   levels: (token: string) => apiGet<ApiRecord[]>("/learning-levels", token),
   competencies: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiRecord>>(`/competencies?page=${page}&pageSize=${pageSize}`, token),
   myCompetencies: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiRecord>>(`/me/competencies?page=${page}&pageSize=${pageSize}`, token),

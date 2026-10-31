@@ -26,35 +26,202 @@ export const COURSE_1_BLUEPRINT = {
   lessons: [
     {
       ordinal: 1, title: "Meet Your Robot", prerequisiteOrdinal: null,
-      content: { objective: "Identify safe robot-lab behavior, components, joints, gripper, camera, workspace bounds, and essential commands.", media: [], lessonType: "knowledge_check" },
+      content: {
+        version: 1,
+        summary: "Identify safe robot-lab behavior, components, joints, gripper, camera, workspace bounds, and essential commands.",
+        learningObjectives: [
+          "Identify the main structural components of the robot arm and joints.",
+          "Understand the role of visual workspace inspection and camera view.",
+          "Know the home command and required safety response to unexpected motion.",
+        ],
+        conceptSections: [
+          {
+            title: "Robot Arm Anatomy & Joints",
+            content: "A robotic arm consists of rigid links connected by motorized joints that provide rotational degrees of freedom, ending in a specialized tool called an end-effector (gripper).",
+          },
+          {
+            title: "Workspace & Camera View",
+            content: "Before commanding any robot movement, the workspace must be inspected via camera to confirm no obstacles or humans are within the robot's reachable envelope.",
+          },
+          {
+            title: "Home Position & Emergency Stop",
+            content: "The home command returns all joints to a known safe configuration. If any unexpected motion occurs, you must immediately trigger a stop.",
+          },
+        ],
+        robotConcept: "The robot operates inside a defined 3D workspace. Motors and joints execute commands sequentially, but physical robots have no awareness of obstacles unless sensors and cameras are checked beforehand.",
+        taskPreview: "Complete the safety knowledge check to verify your readiness before beginning robot motion programming.",
+        estimatedMinutes: 15,
+        safetyNotes: [
+          "Always ensure the robot workspace is clear of obstacles before starting motion.",
+          "Never place hands within reach of the robot while a program is running.",
+          "Identify the emergency stop location before operating any robotic equipment.",
+        ],
+        completionCriteria: "Pass the safety knowledge check with a score of at least 80%.",
+        objective: "Identify safe robot-lab behavior, components, joints, gripper, camera, workspace bounds, and essential commands.",
+        media: [],
+        lessonType: "knowledge_check",
+      },
       objective: { code: "C1-L1", description: "Identify robot components, joints, gripper, camera, workspace bounds, and safety procedures.", competencyCode: "C1.SAFETY.AWARENESS" },
       challenge: { title: "Safety Knowledge Check", description: "Demonstrate the safety knowledge required before programming.", successCriteria: { kind: "knowledge_check", passPercent: 80, answerKey: { q1: "joint", q2: "visual_inspection", q3: "clear_workspace", q4: "home", q5: "stop" } }, conditions: [] as Condition[] },
       assignment: { title: "Safety Knowledge Check", instructions: "Answer every question. The server calculates the result.", allowedBlocks: [], constraints: { kind: "knowledge_check", questions: knowledgeQuestions } },
     },
     {
       ordinal: 2, title: "Move the Robot", prerequisiteOrdinal: 1,
-      content: { objective: "Move the robot to a target pose with a deterministic sequence.", media: [], lessonType: "symbolic" },
+      content: {
+        version: 1,
+        summary: "Learn deterministic motion sequencing by homing the robot and commanding it to reach a defined target position.",
+        learningObjectives: [
+          "Use home, target motion, wait, and sequence blocks in order.",
+          "Understand how the robot plans motion to reach a 3D target position.",
+          "Observe preview simulation to verify the robot trajectory before execution.",
+        ],
+        conceptSections: [
+          {
+            title: "Deterministic Sequencing",
+            content: "Robots execute instructions one step at a time in sequence. The home command ensures the robot starts from an exact, known position.",
+          },
+          {
+            title: "Target Positioning",
+            content: "Instead of manual joint angles, modern robotics specifies target positions in 3D workspace coordinates. The system calculates the motion required to reach the target.",
+          },
+          {
+            title: "Pauses & Motion Timing",
+            content: "Adding wait commands allows mechanical vibrations to settle and lets the system stabilize between rapid maneuvers.",
+          },
+        ],
+        robotConcept: "The robot computes the required arm pose to place the gripper at the commanded 3D coordinates. Sequencing home -> move to target -> wait creates safe, reproducible movement.",
+        taskPreview: "Program the left arm to home, move to Target A, and wait for motion stabilization.",
+        estimatedMinutes: 20,
+        safetyNotes: [
+          "Confirm the target coordinates are within the safe reachable envelope.",
+          "Always include a home step at the start of a program to reset joint state.",
+        ],
+        completionCriteria: "Complete the target-position simulation successfully with all required actions in order.",
+        objective: "Move the robot to a target pose with a deterministic sequence.",
+        media: [],
+        lessonType: "symbolic",
+      },
       objective: { code: "C1-L2", description: "Use home, target motion, wait, and sequence correctly.", competencyCode: "C1.MOTION.SEQUENCE" },
       challenge: { title: "Reach Target A", description: "Home the left arm and move it to Target A.", successCriteria: { kind: "symbolic_rules" }, conditions: [{ ruleKey: "ordered_actions", ruleConfig: { actions: ["home", "preview.move_xyz", "wait"] }, description: "Motion actions appear in order." }, { ruleKey: "preview_target_match", ruleConfig: { frame: "learning_preview_v1", arm: "left", position: { x: 240, y: 220, z: 120 } }, description: "The preview target matches Target A." }] },
       assignment: { title: "Reach Target A", instructions: "Build and submit the target-pose sequence.", allowedBlocks: ["arm.select", "home", "preview.move_xyz", "wait"], constraints: { kind: "symbolic_program", target: { frame: "learning_preview_v1", arm: "left", position: { x: 240, y: 220, z: 120 } } } },
     },
     {
       ordinal: 3, title: "Grab & Release", prerequisiteOrdinal: 2,
-      content: { objective: "Control a gripper with an observable sequence.", media: [], lessonType: "symbolic" },
+      content: {
+        version: 1,
+        summary: "Master gripper manipulation by coordinating approach, grasp, lift, and release actions.",
+        learningObjectives: [
+          "Control gripper opening and closing at precise points in a motion sequence.",
+          "Understand why approaching an object must precede closing the gripper.",
+          "Execute a safe lift and release cycle without collision.",
+        ],
+        conceptSections: [
+          {
+            title: "The Grasping Sequence",
+            content: "Closing the gripper does not automatically mean an object is grasped. The robot must first approach the object to align the fingers before gripping.",
+          },
+          {
+            title: "Gripper States",
+            content: "The gripper has distinct open and closed states. Gripper commands must be synchronized with arm positioning to ensure the object is securely held.",
+          },
+          {
+            title: "Safe Release",
+            content: "After lifting, releasing an object requires moving to a designated drop position and commanding gripper open, ensuring the arm finishes in an open state.",
+          },
+        ],
+        robotConcept: "Gripping requires precise spatial alignment. If the gripper closes prematurely while moving, it risks knocking the object away or damaging mechanical linkages.",
+        taskPreview: "Program the left arm to approach the object, close the gripper, lift the object, and finish with the gripper open.",
+        estimatedMinutes: 25,
+        safetyNotes: [
+          "Never close the gripper while moving at high speeds toward an object.",
+          "Verify that the final gripper state is open so the robot is ready for the next task.",
+        ],
+        completionCriteria: "Successfully grasp, lift, and release the required object with the gripper finishing open.",
+        objective: "Control a gripper with an observable sequence.",
+        media: [],
+        lessonType: "symbolic",
+      },
       objective: { code: "C1-L3", description: "Approach, grasp, lift, and release an object deterministically.", competencyCode: "C1.MANIPULATION.GRIPPER" },
       challenge: { title: "Grab and Release an Object", description: "Approach, close the left gripper, lift, then release.", successCriteria: { kind: "symbolic_rules" }, conditions: [{ ruleKey: "ordered_actions", ruleConfig: { actions: ["preview.move_xyz", "gripper.close", "preview.move_xyz", "gripper.open"] }, description: "Manipulation actions appear in order." }, { ruleKey: "final_gripper_state", ruleConfig: { arm: "left", state: "open" }, description: "The gripper finishes open." }] },
       assignment: { title: "Grab and Release an Object", instructions: "Build and submit the required manipulation sequence.", allowedBlocks: ["arm.select", "preview.move_xyz", "gripper.open", "wait", "gripper.close"], constraints: { kind: "symbolic_program" } },
     },
     {
       ordinal: 4, title: "Pick & Place", prerequisiteOrdinal: 3,
-      content: { objective: "Produce immutable qualifying simulation evidence.", media: [], lessonType: "symbolic" },
+      content: {
+        version: 1,
+        summary: "Synthesize movement and manipulation into a complete, verified pick-and-place sequence that qualifies for physical execution.",
+        learningObjectives: [
+          "Build an end-to-end pick-and-place workflow: Approach -> Grasp -> Lift -> Transfer -> Release -> Home.",
+          "Interpret deterministic simulation feedback to verify object placement in the target zone.",
+          "Produce an immutable qualified ProgramVersion required for the physical robot lab.",
+        ],
+        conceptSections: [
+          {
+            title: "End-to-End Pick & Place",
+            content: "Pick-and-place is the foundational task of industrial robotics: picking an item from an initial pickup zone and accurately placing it in a target destination.",
+          },
+          {
+            title: "Waypoints & Obstacle Clearance",
+            content: "A direct straight-line move between pick and place locations can cause collisions. Moving to a clearance height after grasping ensures the object clears the surface.",
+          },
+          {
+            title: "Authoritative Evidence Qualification",
+            content: "Successful completion in deterministic simulation produces a verified program version that serves as the prerequisite proof for physical lab operation.",
+          },
+        ],
+        robotConcept: "The robot must lift the object sufficiently high before translating horizontally toward the target zone, then lower and release it, and finally return home to clear the workspace.",
+        taskPreview: "Program the robot to pick up the object, transfer it to the target zone, release it, and return to home.",
+        estimatedMinutes: 30,
+        safetyNotes: [
+          "Ensure sufficient lift height so the carried object does not scrape the table surface.",
+          "End the sequence with a home command to leave the robot in a safe neutral state.",
+        ],
+        completionCriteria: "Release the required object inside the target zone according to the deterministic task simulator.",
+        objective: "Produce immutable qualifying simulation evidence.",
+        media: [],
+        lessonType: "symbolic",
+      },
       objective: { code: "C1-L4", description: "Complete pick-and-place and interpret authoritative feedback.", competencyCode: "C1.MANIPULATION.PICK_PLACE" },
       challenge: { title: "Pick and Place to Target Zone", description: "Pick up the object and release it at the target zone.", successCriteria: { kind: "symbolic_rules" }, conditions: [{ ruleKey: "ordered_actions", ruleConfig: { actions: ["home", "preview.move_xyz", "gripper.close", "preview.move_xyz", "gripper.open", "home"] }, description: "The complete pick-and-place sequence appears in order." }, { ruleKey: "home_action_present", ruleConfig: { arm: "left" }, description: "A symbolic left-arm home action is present." }] },
       assignment: { title: "Pick and Place to Target Zone", instructions: "Submit the exact program version that must qualify for physical execution.", allowedBlocks: ["arm.select", "home", "preview.move_xyz", "gripper.open", "wait", "gripper.close"], constraints: { kind: "symbolic_program", unlocksPhysicalLesson: true } },
     },
     {
       ordinal: 5, title: "Physical Robot Lab", prerequisiteOrdinal: 4,
-      content: { objective: "Run the qualified immutable program under physical safety controls.", media: [], lessonType: "physical" },
+      content: {
+        version: 1,
+        summary: "Execute your qualified Pick & Place program on the physical robot under strict safety protocols and review persisted execution evidence.",
+        learningObjectives: [
+          "Understand why simulated validation is mandatory before running on physical hardware.",
+          "Inspect robot readiness, physical workspace clearance, and emergency stop awareness.",
+          "Execute the exact qualified ProgramVersion from C1-L4 on the physical robot.",
+          "Analyze physical experiment telemetry and verify real-world task completion.",
+        ],
+        conceptSections: [
+          {
+            title: "Simulation to Reality (Sim-to-Real)",
+            content: "In physical robotics, you do not write new untested code on hardware. You execute the exact immutable program version that passed simulated validation in C1-L4.",
+          },
+          {
+            title: "Pre-Flight Safety Protocols",
+            content: "Before authorizing execution: verify power, ensure the physical workspace is clear of bystanders, and keep your hand ready near the software/hardware emergency stop.",
+          },
+          {
+            title: "Telemetry & Execution Evidence",
+            content: "During physical execution, joint states and telemetry are recorded to produce a permanent experiment artifact confirming safe, successful completion.",
+          },
+        ],
+        robotConcept: "Physical robots have mass, inertia, and real-world friction. Pre-validated programs ensure that physical motion matches simulated trajectories without damaging hardware or surroundings.",
+        taskPreview: "Authorize and monitor the physical robot execution using your validated Pick & Place program from C1-L4.",
+        estimatedMinutes: 20,
+        safetyNotes: [
+          "E-Stop Awareness: Maintain visual focus on the robot arm throughout the run.",
+          "Do not enter the safety envelope until the physical run status is reported as complete.",
+        ],
+        completionCriteria: "Complete the physical robot experiment successfully with validated telemetry evidence.",
+        objective: "Run the qualified immutable program under physical safety controls.",
+        media: [],
+        lessonType: "physical",
+      },
       objective: { code: "C1-L5", description: "Execute and review an authorized physical experiment safely.", competencyCode: "C1.RUNTIME.SAFETY" },
       challenge: { title: "Run the Qualified Program", description: "Use the exact L4-qualified ProgramVersion; runtime eligibility is always rechecked.", successCriteria: { kind: "physical_evidence", implementationPhase: "P0.9" }, conditions: [] as Condition[] },
       assignment: { title: "Run the Qualified Program", instructions: "Physical completion is based on future persisted experiment evidence, never this seed.", allowedBlocks: [], constraints: { kind: "physical_lab", completionAuthority: "future_physical_evidence", requiresPriorSymbolicPass: true } },
