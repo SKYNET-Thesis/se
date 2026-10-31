@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { LessonActivitySections } from './LessonActivitySections';
 import type { LessonDetailResponse } from '../../lib/api';
 
@@ -11,7 +12,7 @@ describe('LessonActivitySections', () => {
   it('renders ordered expandable activities without fake completion', async () => {
     const container = document.createElement('div');
     const root = createRoot(container);
-    await act(async () => { root.render(<LessonActivitySections lesson={lesson} />); });
+    await act(async () => { root.render(<MemoryRouter><LessonActivitySections lesson={lesson} /></MemoryRouter>); });
     expect(container.textContent).toContain('Guided Practice');
     expect(container.textContent).toContain('3D Simulation');
     expect(container.textContent).not.toContain('Completed');
