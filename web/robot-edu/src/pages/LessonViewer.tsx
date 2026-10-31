@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -24,6 +24,7 @@ import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { LinkButton } from '../components/ui/LinkButton';
+import { CourseLearningShell } from '../components/learning/CourseLearningShell';
 
 export function LessonViewer() {
   const { courseId = '', lessonId = '' } = useParams<{ courseId: string; lessonId: string }>();
@@ -169,7 +170,8 @@ export function LessonViewer() {
   const allQuestionsAnswered = questions.every((q) => Boolean(answers[q.id]));
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-4 py-8 md:px-8">
+    <CourseLearningShell courseId={courseId} lessonId={lessonId} lesson={lesson}>
+    <main className="mx-auto w-full max-w-6xl px-0 py-2 md:px-0 md:py-4">
       {/* Breadcrumb Navigation */}
       <nav aria-label="Breadcrumb" className="flex items-center gap-2 text-sm text-ink-muted">
         <Link to={`/courses/${courseId}`} className="inline-flex items-center gap-1 hover:text-ink">
@@ -679,5 +681,6 @@ export function LessonViewer() {
         </aside>
       </div>
     </main>
+    </CourseLearningShell>
   );
 }

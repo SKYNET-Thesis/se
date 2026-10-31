@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRightIcon, ChevronDownIcon, ChevronLeftIcon, CircleDotIcon, Clock3Icon, FileQuestionIcon, GraduationCapIcon, LockIcon, SparklesIcon } from 'lucide-react';
@@ -127,7 +127,7 @@ export function CourseDetail() {
         <div>
           <div className="flex items-center gap-2"><GraduationCapIcon className="h-5 w-5 text-accent-ink" /><h2 className="text-lg font-semibold text-ink">Competencies &amp; skills</h2></div>
           <ul className="mt-4 flex flex-wrap gap-2">
-            {course.competencies.map((competency) => <li key={competency.code} className="rounded-md bg-sunken px-3 py-2 text-sm font-medium text-ink">{competency.title}</li>)}
+            {(course.competencies ?? []).map((competency) => <li key={competency.code} className="rounded-md bg-sunken px-3 py-2 text-sm font-medium text-ink">{competency.title}</li>)}
           </ul>
         </div>
       </section>

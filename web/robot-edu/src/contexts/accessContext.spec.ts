@@ -16,4 +16,13 @@ describe('access context loading', () => {
     expect(roles).toHaveBeenCalledTimes(1);
     expect(memberships).not.toHaveBeenCalled();
   });
+
+  it('preserves the authoritative teaching assistant role', async () => {
+    const roles = vi.fn().mockResolvedValue({
+      systemRoleCodes: [],
+      memberships: [{ membershipId: 'membership-ta', organizationId: 'org-a', roleCode: 'teaching_assistant', status: 'active' }],
+    });
+
+    await expect(loadAccessContext('token', { roles })).resolves.toMatchObject({ role: 'teaching_assistant' });
+  });
 });

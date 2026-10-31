@@ -17,7 +17,7 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export interface ApiCourse { id: string; title: string; description: string | null; status: string; }
+export interface ApiCourse { id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
 export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
 
 export type LessonProgressStatus = "completed" | "current" | "available" | "locked" | "in_progress";

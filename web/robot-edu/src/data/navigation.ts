@@ -62,6 +62,15 @@ export const navigationByRole: Record<Role, NavSection[]> = {
 
   }],
 
+  teaching_assistant: [
+  {
+    title: 'Teaching',
+    items: [
+    { to: '/teacher', label: 'Overview', icon: LayoutDashboardIcon, end: true },
+    { to: '/teacher/classes', label: 'My Classes', icon: UsersIcon },
+    { to: '/teacher/submissions', label: 'Submissions', icon: InboxIcon }]
+  }],
+
   admin: [
   {
     title: 'Administration',
