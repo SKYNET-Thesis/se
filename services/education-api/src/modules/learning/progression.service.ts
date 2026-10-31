@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { CoursePathLesson, CoursePathLockReason, CoursePathResponse, ProgressionProjection } from "./dto/course-path.dto";
@@ -88,6 +89,35 @@ export class ProgressionService {
     }
     await this.assertPrerequisites(db, user.vistaUserId, chain.lesson_id);
     return this.completeLesson(db, user.vistaUserId, chain.lesson_id);
+  }
+
+  async resolveQualifiedL4ProgramVersion(user: AuthenticatedUser, courseId?: string): Promise<{ programVersionId: string; evaluationId: string; attemptId: string; passedAt: Date } | null> {
+    const rows = await this.prisma.$queryRaw<Array<{ program_version_id: string; evaluation_id: string; attempt_id: string; passed_at: Date }>>`
+      SELECT se.program_version_id, se.id AS evaluation_id, a.id::text AS attempt_id, se.created_at AS passed_at
+      FROM public.learning_symbolic_evaluations se
+      JOIN public.learning_experiments e ON e.id=se.experiment_id AND e.learner_user_id=se.requested_by_user_id
+        AND e.status='succeeded' AND e.execution_mode='schematic'
+      JOIN public.learning_submissions s ON s.id=se.submission_id AND s.learner_user_id=se.requested_by_user_id
+        AND s.program_version_id=se.program_version_id AND s.status='submitted'
+      JOIN public.learning_assignment_attempts a ON a.id::text=e.input_snapshot->>'attemptId'
+        AND a.learner_user_id=se.requested_by_user_id AND a.program_id=s.program_id
+      JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id
+      JOIN public.learning_assignments la ON la.id=ca.assignment_id AND la.challenge_id=e.challenge_id
+      JOIN public.learning_lessons l ON l.id=la.lesson_id
+      WHERE se.requested_by_user_id=${user.vistaUserId}::uuid
+        AND se.verdict='passed'
+        AND l.ordinal=4
+        ${courseId ? Prisma.sql`AND l.course_id=${courseId}::uuid` : Prisma.empty}
+      ORDER BY se.created_at DESC
+      LIMIT 1`;
+    const match = rows[0];
+    if (!match) return null;
+    return {
+      programVersionId: match.program_version_id,
+      evaluationId: match.evaluation_id,
+      attemptId: match.attempt_id,
+      passedAt: match.passed_at,
+    };
   }
 
   private async coursePathWithDb(db: QueryDb, user: AuthenticatedUser, courseId: string): Promise<CoursePathResponse> {

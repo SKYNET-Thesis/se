@@ -8,6 +8,15 @@ export interface SchematicObjectConfig {
   liftMinZ?: number;
 }
 
+export interface SchematicZoneConfig {
+  zoneId: string;
+  label?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface SchematicObjectState {
   objectId: string;
   position: { x: number; y: number; z: number };
@@ -22,10 +31,13 @@ export interface SchematicManipulationSummary {
   graspAttempts: number;
   successfulGrasps: number;
   releasePosition: { x: number; y: number; z: number } | null;
+  placedInZoneId: string | null;
+  targetZoneDistance: number | null;
 }
 
 export interface SchematicRenderOptions {
   challengeObjects?: SchematicObjectConfig[];
+  targetZones?: SchematicZoneConfig[];
 }
 
 export interface SchematicArtifact {
@@ -39,6 +51,7 @@ export interface SchematicArtifact {
     learningPreviewPosition: { frame: "learning_preview_v1"; arm: "left" | "right"; x: number; y: number; z: number } | null;
     objectState?: SchematicObjectState;
     manipulation?: SchematicManipulationSummary;
+    targetZones?: SchematicZoneConfig[];
   };
   warnings: string[];
 }
@@ -72,6 +85,11 @@ export class SchematicEngineService {
     const graspMaxZ = objCfg.graspMaxZ ?? 50;
     const liftMinZ = objCfg.liftMinZ ?? 70;
 
+    const defaultTargetZones: SchematicZoneConfig[] = [
+      { zoneId: "A", label: "Bin A", x: 60, y: 280, w: 120, h: 90 },
+    ];
+    const targetZones = options?.targetZones?.length ? options.targetZones : defaultTargetZones;
+
     const objectState: SchematicObjectState = {
       objectId: objCfg.objectId,
       position: { ...objCfg.position },
@@ -86,6 +104,8 @@ export class SchematicEngineService {
       graspAttempts: 0,
       successfulGrasps: 0,
       releasePosition: null,
+      placedInZoneId: null,
+      targetZoneDistance: null,
     };
 
     const timeline: Array<Record<string, unknown>> = [];
@@ -143,9 +163,34 @@ export class SchematicEngineService {
             objectState.position.z = 0;
             manipulation.wasReleased = true;
             manipulation.releasePosition = { ...objectState.position };
+
+            const matchedZone = targetZones.find(
+              (z) =>
+                objectState.position.x >= z.x &&
+                objectState.position.x <= z.x + z.w &&
+                objectState.position.y >= z.y &&
+                objectState.position.y <= z.y + z.h,
+            );
+            if (matchedZone) {
+              manipulation.placedInZoneId = matchedZone.zoneId;
+              manipulation.targetZoneDistance = 0;
+            } else {
+              manipulation.placedInZoneId = null;
+              let minD = Infinity;
+              for (const z of targetZones) {
+                const dx = Math.max(0, z.x - objectState.position.x, objectState.position.x - (z.x + z.w));
+                const dy = Math.max(0, z.y - objectState.position.y, objectState.position.y - (z.y + z.h));
+                const d = Math.round(Math.hypot(dx, dy));
+                if (d < minD) minD = d;
+              }
+              manipulation.targetZoneDistance = Number.isFinite(minD) ? minD : null;
+            }
+
             event.released = true;
             event.objectId = objectState.objectId;
             event.releasePosition = { ...objectState.position };
+            event.placedInZoneId = manipulation.placedInZoneId;
+            event.targetZoneDistance = manipulation.targetZoneDistance;
           }
         }
         event.objectState = { ...objectState, position: { ...objectState.position } };
@@ -198,6 +243,7 @@ export class SchematicEngineService {
         learningPreviewPosition,
         objectState: { ...objectState, position: { ...objectState.position } },
         manipulation: { ...manipulation, releasePosition: manipulation.releasePosition ? { ...manipulation.releasePosition } : null },
+        targetZones: targetZones.map((z) => ({ ...z })),
       },
       warnings,
     };

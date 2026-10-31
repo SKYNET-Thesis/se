@@ -202,7 +202,35 @@ export const COURSE_1_BLUEPRINT = {
         lessonType: "symbolic",
       },
       objective: { code: "C1-L4", description: "Complete pick-and-place and interpret authoritative feedback.", competencyCode: "C1.MANIPULATION.PICK_PLACE" },
-      challenge: { title: "Pick and Place to Target Zone", description: "Pick up the object and release it at the target zone.", successCriteria: { kind: "symbolic_rules" }, conditions: [{ ruleKey: "ordered_actions", ruleConfig: { actions: ["home", "preview.move_xyz", "gripper.close", "preview.move_xyz", "gripper.open", "home"] }, description: "The complete pick-and-place sequence appears in order." }, { ruleKey: "home_action_present", ruleConfig: { arm: "left" }, description: "A symbolic left-arm home action is present." }] },
+      challenge: {
+        title: "Pick and Place to Target Zone",
+        description: "Pick up the object and release it at the target zone.",
+        successCriteria: { kind: "symbolic_rules" },
+        conditions: [
+          { ruleKey: "ordered_actions", ruleConfig: { actions: ["preview.move_xyz", "gripper.close", "preview.move_xyz", "gripper.open"] }, description: "Pick, transfer, and release actions appear in order." },
+          { ruleKey: "object_grasped", ruleConfig: { arm: "left" }, description: "The object is grasped." },
+          { ruleKey: "object_lifted", ruleConfig: { minZ: 70 }, description: "The object is lifted after grasping." },
+          { ruleKey: "object_released", ruleConfig: {}, description: "The object is released." },
+          { ruleKey: "object_in_target_zone", ruleConfig: { objectId: "cube-red", zoneId: "A" }, description: "The object is placed inside target zone A." },
+          { ruleKey: "final_gripper_state", ruleConfig: { arm: "left", state: "open" }, description: "The gripper finishes open." },
+        ],
+        objects: [
+          {
+            objectKey: "cube-red",
+            objectType: "manipulation_cube",
+            label: "Red Cube",
+            initialPose: { frame: "learning_preview_v1", position: { x: 120, y: 150, z: 0 } },
+            properties: { graspRadius: 30, graspMaxZ: 50, liftMinZ: 70, targetZoneId: "A" },
+          },
+          {
+            objectKey: "target-zone-a",
+            objectType: "target_zone",
+            label: "Bin A",
+            initialPose: { frame: "learning_preview_v1", position: { x: 120, y: 325, z: 0 } },
+            properties: { zoneId: "A", x: 60, y: 280, w: 120, h: 90 },
+          },
+        ],
+      },
       assignment: { title: "Pick and Place to Target Zone", instructions: "Submit the exact program version that must qualify for physical execution.", allowedBlocks: ["arm.select", "home", "preview.move_xyz", "gripper.open", "wait", "gripper.close"], constraints: { kind: "symbolic_program", unlocksPhysicalLesson: true } },
     },
     {

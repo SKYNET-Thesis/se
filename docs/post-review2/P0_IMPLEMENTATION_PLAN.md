@@ -232,6 +232,8 @@ Progress semantics: `not_started` → `in_progress` when the learner starts the 
 
 ## Phase P0.7 — L4 pick-and-place task
 
+**Implementation status (2026-10-31): COMPLETE on `feat/course1-l4-pick-place-simulation` (automated verification).** Course 1 L4 Pick & Place now executes authoritative target-zone task simulation, evaluating pick, lift, carry, and release within the configured deterministic target zone. ProgramVersion authority, provenance, and multiple-pass resolution are strictly verified. PASS projects progression unlocking C1-L5. Practice UI renders authoritative PASS / FAIL cards with target-zone visualization and near-miss distance guidance. LIVE E2E remains unverified.
+
 **Goal:** Evaluate complete pick-and-place into a configured target zone.
 
 **Existing code reused:** zone membership, object carry/release, challenge success conditions, symbolic evaluation evidence.
@@ -248,9 +250,9 @@ Progress semantics: `not_started` → `in_progress` when the learner starts the 
 
 **Acceptance criteria:**
 
-- [ ] PASS requires object released inside target zone.
-- [ ] Result includes machine reason code, observed state and educational message.
-- [ ] Retry creates new evidence without mutating previous evaluation.
+- [x] PASS requires object released inside target zone.
+- [x] Result includes machine reason code, observed state and educational message.
+- [x] Retry creates new evidence without mutating previous evaluation.
 
 **Dependencies:** P0.6.
 

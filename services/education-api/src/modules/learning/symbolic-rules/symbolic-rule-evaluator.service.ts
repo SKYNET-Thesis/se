@@ -23,7 +23,17 @@ export interface SchematicOutputV1 {
       graspAttempts: number;
       successfulGrasps: number;
       releasePosition: { x: number; y: number; z: number } | null;
+      placedInZoneId?: string | null;
+      targetZoneDistance?: number | null;
     };
+    targetZones?: Array<{
+      zoneId: string;
+      label?: string;
+      x: number;
+      y: number;
+      w: number;
+      h: number;
+    }>;
   };
   warnings: string[];
 }
@@ -206,6 +216,98 @@ export class SymbolicRuleEvaluatorService {
         reason: passed ? "object was released from gripper" : "object was not released",
         code,
         message,
+      };
+    }
+    if (rule.type === "object_in_target_zone") {
+      const manip = output.finalState.manipulation;
+      const objState = output.finalState.objectState;
+      const zoneId = rule.zoneId ?? "A";
+      const bounds = rule.bounds ?? { x: 60, y: 280, w: 120, h: 90 };
+      const releasePos = manip?.releasePosition ?? (objState?.state === "released" ? objState.position : null);
+
+      if (!manip?.wasGrasped) {
+        return {
+          ordinal: rule.ordinal,
+          type: rule.type,
+          passed: false,
+          expected: { zoneId, bounds, objectId: rule.objectId ?? "cube-red" },
+          observed: { wasGrasped: false, placedInTargetZone: false },
+          evidence: [],
+          reason: "object was never grasped",
+          code: (manip?.graspAttempts ?? 0) > 0 ? "GRASP_NOT_ESTABLISHED" : "OBJECT_NEVER_GRASPED",
+          message: (manip?.graspAttempts ?? 0) > 0
+            ? "The gripper closed, but the object was not grasped."
+            : "Move closer to the object and close the gripper before moving to the target zone.",
+        };
+      }
+
+      if (!manip?.wasLifted) {
+        return {
+          ordinal: rule.ordinal,
+          type: rule.type,
+          passed: false,
+          expected: { zoneId, bounds, objectId: rule.objectId ?? "cube-red" },
+          observed: { wasGrasped: true, wasLifted: false, placedInTargetZone: false },
+          evidence: [],
+          reason: "object was not lifted before transfer",
+          code: "OBJECT_NOT_LIFTED",
+          message: "Lift the object before moving toward the target.",
+        };
+      }
+
+      if (!manip?.wasReleased || objState?.state !== "released" || !releasePos) {
+        return {
+          ordinal: rule.ordinal,
+          type: rule.type,
+          passed: false,
+          expected: { zoneId, bounds, objectId: rule.objectId ?? "cube-red" },
+          observed: { wasGrasped: true, wasLifted: true, wasReleased: Boolean(manip?.wasReleased), placedInTargetZone: false },
+          evidence: [],
+          reason: "object was not released in target zone",
+          code: "OBJECT_NOT_RELEASED",
+          message: "Open the gripper to place the object.",
+        };
+      }
+
+      const inside =
+        releasePos.x >= bounds.x &&
+        releasePos.x <= bounds.x + bounds.w &&
+        releasePos.y >= bounds.y &&
+        releasePos.y <= bounds.y + bounds.h;
+
+      const evidence = output.timeline
+        .map((event, index) => ({ event, index }))
+        .filter(({ event }) => event.released === true)
+        .map(({ index }) => ({ timelineIndex: index }));
+
+      if (inside) {
+        return {
+          ordinal: rule.ordinal,
+          type: rule.type,
+          passed: true,
+          expected: { zoneId, bounds, objectId: rule.objectId ?? "cube-red" },
+          observed: { releasePosition: releasePos, placedInTargetZone: true, zoneId },
+          evidence,
+          reason: `Object released inside target zone at (${releasePos.x}, ${releasePos.y}, ${releasePos.z}).`,
+          code: "OBJECT_PLACED_IN_TARGET_ZONE",
+          message: "The object was successfully placed inside the target zone.",
+        };
+      }
+
+      const dx = Math.max(0, bounds.x - releasePos.x, releasePos.x - (bounds.x + bounds.w));
+      const dy = Math.max(0, bounds.y - releasePos.y, releasePos.y - (bounds.y + bounds.h));
+      const dist = Math.round(Math.hypot(dx, dy));
+
+      return {
+        ordinal: rule.ordinal,
+        type: rule.type,
+        passed: false,
+        expected: { zoneId, bounds, objectId: rule.objectId ?? "cube-red" },
+        observed: { releasePosition: releasePos, placedInTargetZone: false, targetZoneDistance: dist },
+        evidence,
+        reason: `The object was released ${dist} mm outside the target area. Move the object farther into the target area before opening the gripper.`,
+        code: "OBJECT_RELEASED_OUTSIDE_TARGET",
+        message: "The object was released outside the target zone.",
       };
     }
     const waits = output.timeline.map((event, index) => ({ event, index })).filter(({ event }) => event.type === "wait" && Number.isInteger(event.durationMs)).map(({ event, index }) => ({ durationMs: event.durationMs as number, index }));

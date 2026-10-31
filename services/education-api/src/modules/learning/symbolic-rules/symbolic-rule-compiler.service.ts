@@ -20,7 +20,8 @@ export type SymbolicRule =
   | { ordinal: number; type: "preview_target_match"; frame: "learning_preview_v1"; arm: Arm; position: { x: number; y: number; z: number } }
   | { ordinal: number; type: "object_grasped"; arm?: Arm; objectId?: string }
   | { ordinal: number; type: "object_lifted"; minZ?: number; objectId?: string }
-  | { ordinal: number; type: "object_released"; objectId?: string };
+  | { ordinal: number; type: "object_released"; objectId?: string }
+  | { ordinal: number; type: "object_in_target_zone"; objectId?: string; zoneId?: string; bounds?: { x: number; y: number; w: number; h: number } };
 
 export interface NormalizedRuleSetV1 {
   kind: "symbolic_rule_set";
@@ -91,6 +92,24 @@ export class SymbolicRuleCompilerService {
         this.allowedKeys(condition, config, ["objectId"]);
         const objectId = "objectId" in config ? this.nonEmptyString(condition, config.objectId, "objectId") : undefined;
         return { ordinal: condition.ordinal, type: "object_released", ...(objectId ? { objectId } : {}) };
+      }
+      case "object_in_target_zone": {
+        this.allowedKeys(condition, config, ["objectId", "zoneId", "bounds"]);
+        const objectId = "objectId" in config ? this.nonEmptyString(condition, config.objectId, "objectId") : undefined;
+        const zoneId = "zoneId" in config ? this.nonEmptyString(condition, config.zoneId, "zoneId") : undefined;
+        let bounds: { x: number; y: number; w: number; h: number } | undefined;
+        if ("bounds" in config) {
+          const b = config.bounds as Record<string, unknown> | null;
+          if (!b || typeof b !== "object" || Array.isArray(b)) this.fail("INVALID_RULE_CONFIG", condition, "bounds must be an object with x, y, w, h.");
+          this.keys(condition, b, ["x", "y", "w", "h"]);
+          bounds = {
+            x: this.nonNegativeInt(condition, b.x, "bounds.x"),
+            y: this.nonNegativeInt(condition, b.y, "bounds.y"),
+            w: this.nonNegativeInt(condition, b.w, "bounds.w"),
+            h: this.nonNegativeInt(condition, b.h, "bounds.h"),
+          };
+        }
+        return { ordinal: condition.ordinal, type: "object_in_target_zone", ...(objectId ? { objectId } : {}), ...(zoneId ? { zoneId } : {}), ...(bounds ? { bounds } : {}) };
       }
       default: this.fail("UNKNOWN_RULE_KEY", condition, `Unknown symbolic rule key '${condition.rule_key}'.`);
     }

@@ -61,10 +61,13 @@ export class SymbolicEvaluationService {
       const robotState = prepared.schematic.finalState;
       const objectState = prepared.schematic.finalState.objectState ?? null;
       const failedRules = (preview.rules || []).filter((rule) => !rule.passed);
+      const isPickAndPlace = prepared.ruleSet.rules.some((r) => r.type === "object_in_target_zone");
       const isManipulation = prepared.ruleSet.rules.some((r) => r.type === "object_grasped" || r.type === "object_lifted" || r.type === "object_released");
       const feedback = {
         summary: passed
-          ? isManipulation
+          ? isPickAndPlace
+            ? "You successfully placed the object inside the target zone. Course 1 simulation challenge complete."
+            : isManipulation
             ? "You successfully grasped, lifted, and released the object. Simulation passed."
             : "Target A reached successfully. Simulation passed."
           : (failedRules[0]?.message || "The robot program did not complete the required task."),

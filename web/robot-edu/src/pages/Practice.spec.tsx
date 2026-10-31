@@ -759,4 +759,264 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
       expect(container.textContent).not.toContain('Simulation Needs Changes');
     });
   });
+
+  describe('P0.7 — C1-L4 Pick & Place Simulation UX', () => {
+    beforeEach(() => {
+      mocks.assignment.mockResolvedValue({
+        id: 'ca-4',
+        assignment_id: 'assignment-4',
+        lesson_id: 'lesson-4',
+        title: 'Pick & Place',
+        instructions: 'Pick up the object and place it inside the target zone.',
+        allowed_blocks: ['arm.select', 'home', 'preview.move_xyz', 'gripper.open', 'wait', 'gripper.close'],
+        constraints: { kind: 'symbolic_program', unlocksPhysicalLesson: true },
+        status: 'published',
+        challenge_id: 'challenge-l4',
+      });
+      mocks.lessonDetail.mockResolvedValue({
+        id: 'lesson-4',
+        course_id: 'course-1',
+        course_title: 'Robotics Fundamentals',
+        title: 'Pick & Place',
+        ordinal: 4,
+        content: { completionCriteria: 'Release the required object inside the target zone according to the deterministic task simulator.' },
+      });
+      mocks.objects.mockResolvedValue([
+        {
+          id: 'obj-red',
+          challenge_id: 'challenge-l4',
+          object_key: 'cube-red',
+          object_type: 'manipulation_cube',
+          label: 'Red Cube',
+          initial_pose: { frame: 'learning_preview_v1', position: { x: 120, y: 150, z: 0 } },
+          properties: { graspRadius: 30, graspMaxZ: 50, liftMinZ: 70 },
+        },
+        {
+          id: 'zone-a',
+          challenge_id: 'challenge-l4',
+          object_key: 'target-zone-a',
+          object_type: 'target_zone',
+          label: 'Bin A',
+          initial_pose: { frame: 'learning_preview_v1', position: { x: 120, y: 325, z: 0 } },
+          properties: { zoneId: 'A', x: 60, y: 280, w: 120, h: 90 },
+        },
+      ]);
+      mocks.versions.mockResolvedValue([
+        { id: 'version-l4-1', version_number: 1, robot_program: { kind: 'robot_program', schemaVersion: 1, steps: [] } },
+      ]);
+    });
+
+    it('renders L4 task context, Blockly workspace, SO-101 3D preview, challenge object, and target zone', async () => {
+      await render();
+      expect(container.textContent).toContain('Robotics Fundamentals · C1-L4');
+      expect(container.textContent).toContain('Pick & Place');
+      expect(container.textContent).toContain('Release the required object inside the target zone');
+      expect(container.textContent).toContain('Red Cube · learning_preview_v1');
+      expect(container.textContent).toContain('Immutable ProgramVersion: version-l4-1');
+      expect(container.textContent).not.toContain('Run on robot');
+    });
+
+    it('evaluates L4 with Run Simulation, displays PASS card unlocking Physical Robot Lab (C1-L5), does NOT show physical run button, and invalidates progression queries', async () => {
+      mocks.evaluateSymbolic.mockResolvedValueOnce({
+        id: 'eval-l4-pass',
+        experimentId: 'exp-l4-1',
+        programVersionId: 'version-l4-1',
+        evaluatorVersion: 'vista-symbolic-evaluator-1',
+        ruleSetSchemaVersion: 1,
+        ruleSetHash: 'hash',
+        verdict: 'passed',
+        status: 'success',
+        taskState: 'success',
+        feedback: {
+          summary: 'You successfully placed the object inside the target zone. Course 1 simulation challenge complete.',
+          message: 'You successfully placed the object inside the target zone.',
+          ruleResults: [],
+        },
+        ruleResults: [
+          { ordinal: 1, type: 'ordered_actions', passed: true, code: 'ORDERED_ACTIONS_MATCH', message: 'Pick, transfer, and release actions appear in order.' },
+          { ordinal: 2, type: 'object_grasped', passed: true, code: 'OBJECT_GRASPED', message: 'The object was successfully grasped.' },
+          { ordinal: 3, type: 'object_lifted', passed: true, code: 'OBJECT_LIFTED', message: 'The object was lifted after being grasped.' },
+          { ordinal: 4, type: 'object_released', passed: true, code: 'OBJECT_RELEASED', message: 'The object was released.' },
+          { ordinal: 5, type: 'object_in_target_zone', passed: true, code: 'OBJECT_PLACED_IN_TARGET_ZONE', message: 'The object was successfully placed inside the target zone.' },
+          { ordinal: 6, type: 'final_gripper_state', passed: true, code: 'GRIPPER_STATE_MATCH', message: 'The gripper finishes open.' },
+        ],
+        metrics: { ruleCount: 6, passedRuleCount: 6 },
+        progression: {
+          completedLessonId: 'lesson-4',
+          newlyUnlockedLessonIds: ['lesson-5'],
+        },
+      });
+
+      await render();
+      const runSimBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+      expect(runSimBtn).toBeDefined();
+
+      await act(async () => {
+        runSimBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('Simulation Passed');
+      expect(container.textContent).toContain('You successfully placed the object inside the target zone.');
+      expect(container.textContent).toContain('Course 1 simulation challenge complete.');
+      expect(container.textContent).toContain('Physical Robot Lab (C1-L5)');
+      expect(container.textContent).toContain('Continue to Course Path');
+      expect(container.textContent).not.toContain('Run on robot');
+    });
+
+    it('evaluates L4 with Run Simulation, displays outside-target FAIL feedback with near-miss distance and guidance', async () => {
+      mocks.evaluateSymbolic.mockResolvedValueOnce({
+        id: 'eval-l4-outside',
+        experimentId: 'exp-l4-1',
+        programVersionId: 'version-l4-1',
+        evaluatorVersion: 'vista-symbolic-evaluator-1',
+        ruleSetSchemaVersion: 1,
+        ruleSetHash: 'hash',
+        verdict: 'failed',
+        status: 'failed',
+        taskState: 'failed',
+        feedback: {
+          code: 'OBJECT_RELEASED_OUTSIDE_TARGET',
+          message: 'The object was released outside the target zone.',
+          ruleResults: [],
+        },
+        ruleResults: [
+          {
+            ordinal: 5,
+            type: 'object_in_target_zone',
+            passed: false,
+            code: 'OBJECT_RELEASED_OUTSIDE_TARGET',
+            message: 'The object was released outside the target zone.',
+            reason: 'The object was released 45 mm outside the target area. Move the object farther into the target area before opening the gripper.',
+          },
+        ],
+        metrics: { ruleCount: 6, passedRuleCount: 5 },
+      });
+
+      await render();
+      const runSimBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+
+      await act(async () => {
+        runSimBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('Simulation Needs Changes');
+      expect(container.textContent).toContain('The object was released outside the target zone.');
+      expect(container.textContent).toContain('45 mm outside the target area');
+      expect(container.textContent).not.toContain('Physical Robot Lab unlocked');
+    });
+
+    it('evaluates L4 with Run Simulation, displays no-grasp FAIL feedback', async () => {
+      mocks.evaluateSymbolic.mockResolvedValueOnce({
+        id: 'eval-l4-no-grasp',
+        experimentId: 'exp-l4-1',
+        programVersionId: 'version-l4-1',
+        evaluatorVersion: 'vista-symbolic-evaluator-1',
+        ruleSetSchemaVersion: 1,
+        ruleSetHash: 'hash',
+        verdict: 'failed',
+        status: 'failed',
+        taskState: 'failed',
+        feedback: {
+          code: 'GRASP_NOT_ESTABLISHED',
+          message: 'The gripper closed, but the object was not grasped.',
+          ruleResults: [],
+        },
+        ruleResults: [
+          { ordinal: 2, type: 'object_grasped', passed: false, code: 'GRASP_NOT_ESTABLISHED', message: 'The gripper closed, but the object was not grasped.', reason: 'too far' },
+        ],
+        metrics: { ruleCount: 6, passedRuleCount: 4 },
+      });
+
+      await render();
+      const runSimBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+
+      await act(async () => {
+        runSimBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('Simulation Needs Changes');
+      expect(container.textContent).toContain('The gripper closed, but the object was not grasped.');
+    });
+
+    it('evaluates L4 with Run Simulation, displays no-lift FAIL feedback', async () => {
+      mocks.evaluateSymbolic.mockResolvedValueOnce({
+        id: 'eval-l4-no-lift',
+        experimentId: 'exp-l4-1',
+        programVersionId: 'version-l4-1',
+        evaluatorVersion: 'vista-symbolic-evaluator-1',
+        ruleSetSchemaVersion: 1,
+        ruleSetHash: 'hash',
+        verdict: 'failed',
+        status: 'failed',
+        taskState: 'failed',
+        feedback: {
+          code: 'OBJECT_NOT_LIFTED',
+          message: 'Lift the object before moving toward the target.',
+          ruleResults: [],
+        },
+        ruleResults: [
+          { ordinal: 3, type: 'object_lifted', passed: false, code: 'OBJECT_NOT_LIFTED', message: 'Lift the object before moving toward the target.', reason: 'low' },
+        ],
+        metrics: { ruleCount: 6, passedRuleCount: 4 },
+      });
+
+      await render();
+      const runSimBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+
+      await act(async () => {
+        runSimBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('Simulation Needs Changes');
+      expect(container.textContent).toContain('Lift the object before moving toward the target.');
+    });
+
+    it('evaluates L4 with Run Simulation, displays no-release FAIL feedback', async () => {
+      mocks.evaluateSymbolic.mockResolvedValueOnce({
+        id: 'eval-l4-no-release',
+        experimentId: 'exp-l4-1',
+        programVersionId: 'version-l4-1',
+        evaluatorVersion: 'vista-symbolic-evaluator-1',
+        ruleSetSchemaVersion: 1,
+        ruleSetHash: 'hash',
+        verdict: 'failed',
+        status: 'failed',
+        taskState: 'failed',
+        feedback: {
+          code: 'OBJECT_NOT_RELEASED',
+          message: 'Open the gripper to place the object.',
+          ruleResults: [],
+        },
+        ruleResults: [
+          { ordinal: 4, type: 'object_released', passed: false, code: 'OBJECT_NOT_RELEASED', message: 'Open the gripper to place the object.', reason: 'closed' },
+        ],
+        metrics: { ruleCount: 6, passedRuleCount: 4 },
+      });
+
+      await render();
+      const runSimBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+
+      await act(async () => {
+        runSimBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('Simulation Needs Changes');
+      expect(container.textContent).toContain('Open the gripper to place the object.');
+    });
+
+    it('distinguishes SYSTEM ERROR from TASK FAIL on L4 simulation failure', async () => {
+      mocks.evaluateSymbolic.mockRejectedValueOnce(new Error('Internal server timeout'));
+
+      await render();
+      const runSimBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+
+      await act(async () => {
+        runSimBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('System error:');
+      expect(container.textContent).toContain('Internal server timeout');
+      expect(container.textContent).not.toContain('Simulation Needs Changes');
+    });
+  });
 });
