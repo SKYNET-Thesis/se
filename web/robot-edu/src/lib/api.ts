@@ -20,6 +20,40 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
 export interface ApiCourse { id: string; title: string; description: string | null; status: string; }
 export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
 
+export type LessonProgressStatus = "completed" | "current" | "available" | "locked" | "in_progress";
+
+export interface LessonLockReason {
+  code: "PREREQUISITE_NOT_COMPLETED" | "PREREQUISITE_MINIMUM_SCORE_NOT_MET";
+  prerequisiteLessonId: string;
+  prerequisiteLessonTitle: string;
+  message: string;
+}
+
+export interface LessonPrerequisite {
+  lessonId: string;
+  title: string;
+  required: boolean;
+  minimumScore: number | null;
+}
+
+export interface CoursePathLesson {
+  id: string;
+  ordinal: number;
+  title: string;
+  status: LessonProgressStatus;
+  progressPercent: number;
+  prerequisite: LessonPrerequisite[];
+  lockReason: LessonLockReason | null;
+  completedAt: string | null;
+}
+
+export interface CoursePathResponse {
+  course: { id: string; title: string; status: string };
+  progressPercent: number;
+  currentLessonId: string | null;
+  lessons: CoursePathLesson[];
+}
+
 export async function apiRequest<T>(path: string, accessToken: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { method, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   if (!response.ok) { const payload = await response.json().catch(() => null) as { message?: string } | null; throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`); }
@@ -90,6 +124,26 @@ export const learnerApi = {
   artifacts: (experimentId: string, token: string) => apiGet<Record<string, unknown>[]>(`/me/experiments/${experimentId}/artifacts`, token),
   myFeedback: (submissionId: string, token: string) => apiGet<ApiFeedback[]>(`/me/submissions/${submissionId}/feedback`, token),
   createReflection: (submissionId: string, token: string, body: { promptKey: string; promptText: string; responseText: string }) => apiRequest<Record<string, unknown>>(`/me/submissions/${submissionId}/reflections`, token, "POST", body),
+  coursePath: (courseId: string, token: string) => progressionApi.coursePath(courseId, token),
+  coursePaths: (token: string) => progressionApi.coursePaths(token),
+};
+
+export const progressionApi = {
+  coursePath: (courseId: string, token: string) => apiGet<CoursePathResponse>(`/me/courses/${courseId}/path`, token),
+  coursePaths: async (token: string): Promise<CoursePathResponse[]> => {
+    const coursesRes = await catalogApi.courses(token, 1, 50).catch(() => ({ items: [] as ApiCourse[] }));
+    let courseIds = coursesRes.items.map((c) => c.id);
+    if (!courseIds.length) {
+      const enrollments = await learnerApi.enrollments(token).catch(() => [] as ApiEnrollment[]);
+      courseIds = enrollments.filter((e) => e.status === "active" && e.course_id).map((e) => e.course_id);
+    }
+    if (!courseIds.length) return [];
+    const uniqueIds = Array.from(new Set(courseIds));
+    const paths = await Promise.all(
+      uniqueIds.map((id) => progressionApi.coursePath(id, token).catch(() => null))
+    );
+    return paths.filter((p): p is CoursePathResponse => Boolean(p));
+  },
 };
 
 export const instructorApi = {
