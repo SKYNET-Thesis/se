@@ -204,6 +204,8 @@ Progress semantics: `not_started` → `in_progress` when the learner starts the 
 
 ## Phase P0.6 — L3 object and gripper simulation
 
+**Implementation status (2026-10-31): COMPLETE on `feat/course1-l3-object-simulation` (automated verification).** Course 1 L3 Grab & Release now executes deterministic educational task simulation deriving object grasp, carry and release server-side. ProgramVersion authority and provenance are strictly verified. PASS projects lesson progression to unlock C1-L4. Practice UI renders authoritative PASS / FAIL cards with specific grasp, lift and release feedback. LIVE E2E remains unverified.
+
 **Goal:** Add challenge-specific object state, grasp, lift and release evidence.
 
 **Existing code reused:** browser grasp/release logic, `learning_challenge_objects`, Experiment artifacts/events and symbolic rule framework.
@@ -220,9 +222,9 @@ Progress semantics: `not_started` → `in_progress` when the learner starts the 
 
 **Acceptance criteria:**
 
-- [ ] Object initial state comes from the persisted challenge, not a global hard-coded scene.
-- [ ] PASS requires the specified object manipulation outcome.
-- [ ] Feedback distinguishes missed grasp from unreachable motion.
+- [x] Object initial state comes from the persisted challenge, not a global hard-coded scene.
+- [x] PASS requires the specified object manipulation outcome.
+- [x] Feedback distinguishes missed grasp from unreachable motion.
 
 **Dependencies:** P0.5.
 

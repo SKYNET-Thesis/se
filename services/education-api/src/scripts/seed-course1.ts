@@ -142,7 +142,27 @@ export const COURSE_1_BLUEPRINT = {
         lessonType: "symbolic",
       },
       objective: { code: "C1-L3", description: "Approach, grasp, lift, and release an object deterministically.", competencyCode: "C1.MANIPULATION.GRIPPER" },
-      challenge: { title: "Grab and Release an Object", description: "Approach, close the left gripper, lift, then release.", successCriteria: { kind: "symbolic_rules" }, conditions: [{ ruleKey: "ordered_actions", ruleConfig: { actions: ["preview.move_xyz", "gripper.close", "preview.move_xyz", "gripper.open"] }, description: "Manipulation actions appear in order." }, { ruleKey: "final_gripper_state", ruleConfig: { arm: "left", state: "open" }, description: "The gripper finishes open." }] },
+      challenge: {
+        title: "Grab and Release an Object",
+        description: "Approach, close the left gripper, lift, then release.",
+        successCriteria: { kind: "symbolic_rules" },
+        conditions: [
+          { ruleKey: "ordered_actions", ruleConfig: { actions: ["preview.move_xyz", "gripper.close", "preview.move_xyz", "gripper.open"] }, description: "Manipulation actions appear in order." },
+          { ruleKey: "object_grasped", ruleConfig: { arm: "left" }, description: "The object is grasped." },
+          { ruleKey: "object_lifted", ruleConfig: { minZ: 70 }, description: "The object is lifted after grasping." },
+          { ruleKey: "object_released", ruleConfig: {}, description: "The object is released." },
+          { ruleKey: "final_gripper_state", ruleConfig: { arm: "left", state: "open" }, description: "The gripper finishes open." },
+        ],
+        objects: [
+          {
+            objectKey: "cube-red",
+            objectType: "manipulation_cube",
+            label: "Red Cube",
+            initialPose: { frame: "learning_preview_v1", position: { x: 120, y: 150, z: 0 } },
+            properties: { graspRadius: 30, graspMaxZ: 50, liftMinZ: 70 },
+          },
+        ],
+      },
       assignment: { title: "Grab and Release an Object", instructions: "Build and submit the required manipulation sequence.", allowedBlocks: ["arm.select", "preview.move_xyz", "gripper.open", "wait", "gripper.close"], constraints: { kind: "symbolic_program" } },
     },
     {
@@ -287,6 +307,16 @@ export async function seedCourse1(prisma: PrismaClient, organizationId: string, 
       const challengeData = { description: item.challenge.description, success_criteria: item.challenge.successCriteria, permitted_modes: ["blockly"], status: "published" };
       const challenge = foundChallenge ? await tx.learning_challenges.update({ where: { id: foundChallenge.id }, data: challengeData }) : await tx.learning_challenges.create({ data: { organization_id: organizationId, creator_user_id: createdByUserId, title: item.challenge.title, ...challengeData } });
       await syncChallengeConditions(tx, challenge.id, item.challenge.conditions);
+      if (tx.learning_challenge_objects && "objects" in item.challenge && Array.isArray((item.challenge as Record<string, unknown>).objects)) {
+        const objs = (item.challenge as Record<string, unknown>).objects as Array<{ objectKey: string; objectType: string; label: string; initialPose: JsonObject; properties?: JsonObject }>;
+        for (const obj of objs) {
+          await tx.learning_challenge_objects.upsert({
+            where: { challenge_id_object_key: { challenge_id: challenge.id, object_key: obj.objectKey } },
+            update: { object_type: obj.objectType, label: obj.label, initial_pose: obj.initialPose as Prisma.InputJsonValue, properties: (obj.properties ?? {}) as Prisma.InputJsonValue },
+            create: { challenge_id: challenge.id, object_key: obj.objectKey, object_type: obj.objectType, label: obj.label, initial_pose: obj.initialPose as Prisma.InputJsonValue, properties: (obj.properties ?? {}) as Prisma.InputJsonValue },
+          });
+        }
+      }
 
       const assignmentData = { challenge_id: challenge.id, instructions: item.assignment.instructions, allowed_blocks: [...item.assignment.allowedBlocks], constraints: item.assignment.constraints };
       if (foundAssignment) await tx.learning_assignments.update({ where: { id: foundAssignment.id }, data: assignmentData });

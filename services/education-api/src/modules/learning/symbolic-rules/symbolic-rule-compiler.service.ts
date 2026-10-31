@@ -17,7 +17,10 @@ export type SymbolicRule =
   | { ordinal: number; type: "final_gripper_state"; arm: Arm; state: GripperState }
   | { ordinal: number; type: "home_action_present"; arm: Arm }
   | { ordinal: number; type: "symbolic_duration"; comparator: Comparator; durationMs: number }
-  | { ordinal: number; type: "preview_target_match"; frame: "learning_preview_v1"; arm: Arm; position: { x: number; y: number; z: number } };
+  | { ordinal: number; type: "preview_target_match"; frame: "learning_preview_v1"; arm: Arm; position: { x: number; y: number; z: number } }
+  | { ordinal: number; type: "object_grasped"; arm?: Arm; objectId?: string }
+  | { ordinal: number; type: "object_lifted"; minZ?: number; objectId?: string }
+  | { ordinal: number; type: "object_released"; objectId?: string };
 
 export interface NormalizedRuleSetV1 {
   kind: "symbolic_rule_set";
@@ -72,6 +75,23 @@ export class SymbolicRuleCompilerService {
         this.keys(condition, position, ["x", "y", "z"]);
         return { ordinal: condition.ordinal, type: "preview_target_match", frame: "learning_preview_v1", arm: this.arm(condition, config.arm), position: { x: this.nonNegativeInt(condition, position.x, "position.x"), y: this.nonNegativeInt(condition, position.y, "position.y"), z: this.nonNegativeInt(condition, position.z, "position.z") } };
       }
+      case "object_grasped": {
+        this.allowedKeys(condition, config, ["arm", "objectId"]);
+        const arm = "arm" in config ? this.arm(condition, config.arm) : undefined;
+        const objectId = "objectId" in config ? this.nonEmptyString(condition, config.objectId, "objectId") : undefined;
+        return { ordinal: condition.ordinal, type: "object_grasped", ...(arm ? { arm } : {}), ...(objectId ? { objectId } : {}) };
+      }
+      case "object_lifted": {
+        this.allowedKeys(condition, config, ["minZ", "objectId"]);
+        const minZ = "minZ" in config ? this.nonNegativeInt(condition, config.minZ, "minZ") : undefined;
+        const objectId = "objectId" in config ? this.nonEmptyString(condition, config.objectId, "objectId") : undefined;
+        return { ordinal: condition.ordinal, type: "object_lifted", ...(minZ !== undefined ? { minZ } : {}), ...(objectId ? { objectId } : {}) };
+      }
+      case "object_released": {
+        this.allowedKeys(condition, config, ["objectId"]);
+        const objectId = "objectId" in config ? this.nonEmptyString(condition, config.objectId, "objectId") : undefined;
+        return { ordinal: condition.ordinal, type: "object_released", ...(objectId ? { objectId } : {}) };
+      }
       default: this.fail("UNKNOWN_RULE_KEY", condition, `Unknown symbolic rule key '${condition.rule_key}'.`);
     }
   }
@@ -84,11 +104,15 @@ export class SymbolicRuleCompilerService {
     for (const key of Object.keys(config)) if (!allowed.includes(key)) this.fail("UNKNOWN_CONFIG_PROPERTY", condition, `Unknown config property '${key}'.`);
     for (const key of allowed) if (!(key in config)) this.fail("INVALID_RULE_CONFIG", condition, `Missing required config property '${key}'.`);
   }
+  private allowedKeys(condition: ChallengeConditionInput, config: Record<string, unknown>, allowed: string[]): void {
+    for (const key of Object.keys(config)) if (!allowed.includes(key)) this.fail("UNKNOWN_CONFIG_PROPERTY", condition, `Unknown config property '${key}'.`);
+  }
   private action(condition: ChallengeConditionInput, value: unknown): SymbolicAction { if (typeof value !== "string" || !(SYMBOLIC_ACTIONS as readonly string[]).includes(value)) this.fail("INVALID_ACTION", condition, "Action must be a canonical SchematicEngine action."); return value as SymbolicAction; }
   private arm(condition: ChallengeConditionInput, value: unknown): Arm { if (value !== "left" && value !== "right") this.fail("INVALID_ARM", condition, "Arm must be left or right."); return value; }
   private state(condition: ChallengeConditionInput, value: unknown): GripperState { if (value !== "open" && value !== "closed") this.fail("INVALID_RULE_CONFIG", condition, "Gripper state must be open or closed."); return value; }
   private comparator(condition: ChallengeConditionInput, value: unknown): Comparator { if (value !== "eq" && value !== "gte" && value !== "lte") this.fail("INVALID_COMPARATOR", condition, "Comparator must be eq, gte, or lte."); return value; }
   private nonNegativeInt(condition: ChallengeConditionInput, value: unknown, field: string): number { if (!Number.isInteger(value) || (value as number) < 0) this.fail("INVALID_COUNT", condition, `${field} must be a non-negative integer.`); return value as number; }
+  private nonEmptyString(condition: ChallengeConditionInput, value: unknown, field: string): string { if (typeof value !== "string" || !value.trim()) this.fail("INVALID_RULE_CONFIG", condition, `${field} must be a non-empty string.`); return value; }
   private fail(code: CompilerErrorCode, condition: ChallengeConditionInput, message: string): never { throw new SymbolicRuleCompilerError(code, condition.id, message); }
 }
 

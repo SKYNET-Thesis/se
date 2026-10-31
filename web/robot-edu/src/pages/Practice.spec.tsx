@@ -571,4 +571,192 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
     expect(container.textContent).toContain('Network offline or attempt missing');
     expect(container.textContent).toContain('Try again');
   });
+
+  describe('P0.6 — C1-L3 Grab & Release Simulation UX', () => {
+    beforeEach(() => {
+      mocks.assignment.mockResolvedValue({
+        id: 'ca-3',
+        assignment_id: 'assignment-3',
+        lesson_id: 'lesson-3',
+        title: 'Grab & Release an Object',
+        instructions: 'Approach, close the left gripper, lift, then release.',
+        allowed_blocks: ['arm.select', 'preview.move_xyz', 'gripper.open', 'wait', 'gripper.close'],
+        constraints: { kind: 'symbolic_program' },
+        status: 'published',
+        challenge_id: 'challenge-l3',
+      });
+      mocks.lessonDetail.mockResolvedValue({
+        id: 'lesson-3',
+        course_id: 'course-1',
+        course_title: 'Robotics Fundamentals',
+        title: 'Grab & Release',
+        ordinal: 3,
+        content: { completionCriteria: 'Successfully grasp, lift, and release the required object.' },
+      });
+      mocks.versions.mockResolvedValue([
+        { id: 'version-l3-1', version_number: 1, robot_program: { kind: 'robot_program', schemaVersion: 1, steps: [] } },
+      ]);
+    });
+
+    it('evaluates L3 with Run Simulation, displays PASS card and unlocks Pick & Place (C1-L4)', async () => {
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+      mocks.evaluateSymbolic.mockResolvedValueOnce({
+        id: 'eval-l3-pass',
+        experimentId: 'exp-l3-1',
+        programVersionId: 'version-l3-1',
+        evaluatorVersion: 'vista-symbolic-evaluator-1',
+        ruleSetSchemaVersion: 1,
+        ruleSetHash: 'hash',
+        verdict: 'passed',
+        status: 'success',
+        taskState: 'success',
+        objectState: { objectId: 'cube-red', position: { x: 120, y: 150, z: 0 }, graspedBy: null, state: 'released' },
+        feedback: { summary: 'You successfully grasped, lifted, and released the object. Simulation passed.', messages: [] },
+        ruleResults: [
+          { ordinal: 1, type: 'ordered_actions', passed: true, code: 'ORDERED_ACTIONS_MATCH', message: 'Required actions executed in the correct sequence.', reason: 'matches' },
+          { ordinal: 2, type: 'object_grasped', passed: true, code: 'OBJECT_GRASPED', message: 'The object was successfully grasped.', reason: 'grasped' },
+          { ordinal: 3, type: 'object_lifted', passed: true, code: 'OBJECT_LIFTED', message: 'The object was lifted after being grasped.', reason: 'lifted' },
+          { ordinal: 4, type: 'object_released', passed: true, code: 'OBJECT_RELEASED', message: 'The object was released.', reason: 'released' },
+          { ordinal: 5, type: 'final_gripper_state', passed: true, code: 'GRIPPER_STATE_MATCH', message: 'Final gripper state is open.', reason: 'matches' },
+        ],
+        metrics: { ruleCount: 5, passedRuleCount: 5 },
+      });
+
+      await render();
+      const runSimBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+      expect(runSimBtn).toBeDefined();
+
+      await act(async () => {
+        runSimBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('Simulation Passed');
+      expect(container.textContent).toContain('You successfully grasped, lifted, and released the object.');
+      expect(container.textContent).toContain('C1-L3 Grab & Release completed.');
+      expect(container.textContent).toContain('Next lesson unlocked:');
+      expect(container.textContent).toContain('Pick & Place (C1-L4)');
+      expect(container.textContent).toContain('Continue to Course Path');
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: studentLearningKeys.all });
+    });
+
+    it('evaluates L3 with Run Simulation, displays grasp failure feedback without unlocking L4', async () => {
+      mocks.evaluateSymbolic.mockResolvedValueOnce({
+        id: 'eval-l3-fail',
+        experimentId: 'exp-l3-1',
+        programVersionId: 'version-l3-1',
+        evaluatorVersion: 'vista-symbolic-evaluator-1',
+        ruleSetSchemaVersion: 1,
+        ruleSetHash: 'hash',
+        verdict: 'failed',
+        status: 'failed',
+        taskState: 'failed',
+        objectState: { objectId: 'cube-red', position: { x: 120, y: 150, z: 0 }, graspedBy: null, state: 'free' },
+        feedback: {
+          code: 'GRASP_NOT_ESTABLISHED',
+          message: 'The gripper closed, but the object was not grasped. Move closer to the object before closing the gripper.',
+          ruleResults: [],
+        },
+        ruleResults: [
+          { ordinal: 1, type: 'ordered_actions', passed: true, code: 'ORDERED_ACTIONS_MATCH', message: 'Required actions executed in the correct sequence.', reason: 'matches' },
+          { ordinal: 2, type: 'object_grasped', passed: false, code: 'GRASP_NOT_ESTABLISHED', message: 'The gripper closed, but the object was not grasped. Move closer to the object before closing the gripper.', reason: 'gripper closed outside grasp threshold' },
+        ],
+        metrics: { ruleCount: 2, passedRuleCount: 1 },
+      });
+
+      await render();
+      const runSimBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+
+      await act(async () => {
+        runSimBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('Simulation Needs Changes');
+      expect(container.textContent).toContain('The gripper closed, but the object was not grasped.');
+      expect(container.textContent).toContain('Review your approach and gripper blocks, then try again.');
+      expect(container.textContent).not.toContain('Next lesson unlocked:');
+      expect(container.textContent).not.toContain('Pick & Place (C1-L4)');
+    });
+
+    it('evaluates L3 with Run Simulation, displays lift failure feedback', async () => {
+      mocks.evaluateSymbolic.mockResolvedValueOnce({
+        id: 'eval-l3-lift-fail',
+        experimentId: 'exp-l3-1',
+        programVersionId: 'version-l3-1',
+        evaluatorVersion: 'vista-symbolic-evaluator-1',
+        ruleSetSchemaVersion: 1,
+        ruleSetHash: 'hash',
+        verdict: 'failed',
+        status: 'failed',
+        taskState: 'failed',
+        feedback: {
+          code: 'OBJECT_NOT_LIFTED',
+          message: 'The object was grasped but was not lifted.',
+          ruleResults: [],
+        },
+        ruleResults: [
+          { ordinal: 1, type: 'object_grasped', passed: true, code: 'OBJECT_GRASPED', message: 'The object was successfully grasped.', reason: 'grasped' },
+          { ordinal: 2, type: 'object_lifted', passed: false, code: 'OBJECT_NOT_LIFTED', message: 'The object was grasped but was not lifted.', reason: 'remained low' },
+        ],
+        metrics: { ruleCount: 2, passedRuleCount: 1 },
+      });
+
+      await render();
+      const runSimBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+
+      await act(async () => {
+        runSimBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('Simulation Needs Changes');
+      expect(container.textContent).toContain('The object was grasped but was not lifted.');
+    });
+
+    it('evaluates L3 with Run Simulation, displays release failure feedback', async () => {
+      mocks.evaluateSymbolic.mockResolvedValueOnce({
+        id: 'eval-l3-rel-fail',
+        experimentId: 'exp-l3-1',
+        programVersionId: 'version-l3-1',
+        evaluatorVersion: 'vista-symbolic-evaluator-1',
+        ruleSetSchemaVersion: 1,
+        ruleSetHash: 'hash',
+        verdict: 'failed',
+        status: 'failed',
+        taskState: 'failed',
+        feedback: {
+          code: 'OBJECT_NOT_RELEASED',
+          message: 'Open the gripper to release the object.',
+          ruleResults: [],
+        },
+        ruleResults: [
+          { ordinal: 1, type: 'object_released', passed: false, code: 'OBJECT_NOT_RELEASED', message: 'Open the gripper to release the object.', reason: 'held' },
+        ],
+        metrics: { ruleCount: 1, passedRuleCount: 0 },
+      });
+
+      await render();
+      const runSimBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+
+      await act(async () => {
+        runSimBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('Simulation Needs Changes');
+      expect(container.textContent).toContain('Open the gripper to release the object.');
+    });
+
+    it('distinguishes SYSTEM ERROR from TASK FAIL on L3 simulation failure', async () => {
+      mocks.evaluateSymbolic.mockRejectedValueOnce(new Error('Network connectivity lost'));
+
+      await render();
+      const runSimBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+
+      await act(async () => {
+        runSimBtn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain('System error:');
+      expect(container.textContent).toContain('Network connectivity lost');
+      expect(container.textContent).not.toContain('Simulation Needs Changes');
+    });
+  });
 });

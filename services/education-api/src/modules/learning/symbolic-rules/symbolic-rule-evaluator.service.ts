@@ -1,7 +1,32 @@
 import { BadRequestException } from "@nestjs/common";
 import { Comparator, NormalizedRuleSetV1, SymbolicAction } from "./symbolic-rule-compiler.service";
 
-export interface SchematicOutputV1 { schemaVersion: 1; engineVersion: string; robotProgramVersionId: string; timeline: Array<Record<string, unknown>>; finalState: { selectedArm: "left" | "right" | null; grippers: Record<"left" | "right", "open" | "closed">; learningPreviewPosition?: { frame: "learning_preview_v1"; arm: "left" | "right"; x: number; y: number; z: number } | null }; warnings: string[]; }
+export interface SchematicOutputV1 {
+  schemaVersion: 1;
+  engineVersion: string;
+  robotProgramVersionId: string;
+  timeline: Array<Record<string, unknown>>;
+  finalState: {
+    selectedArm: "left" | "right" | null;
+    grippers: Record<"left" | "right", "open" | "closed">;
+    learningPreviewPosition?: { frame: "learning_preview_v1"; arm: "left" | "right"; x: number; y: number; z: number } | null;
+    objectState?: {
+      objectId: string;
+      position: { x: number; y: number; z: number };
+      graspedBy: "left" | "right" | null;
+      state: "free" | "grasped" | "carried" | "released";
+    };
+    manipulation?: {
+      wasGrasped: boolean;
+      wasLifted: boolean;
+      wasReleased: boolean;
+      graspAttempts: number;
+      successfulGrasps: number;
+      releasePosition: { x: number; y: number; z: number } | null;
+    };
+  };
+  warnings: string[];
+}
 export interface EvaluatedRule { ordinal: number; type: string; passed: boolean; expected: Record<string, unknown>; observed: Record<string, unknown>; evidence: Array<{ timelineIndex?: number }>; reason: string; code?: string; message?: string; }
 export interface SymbolicEvaluationPreview { verdict: "passed" | "failed"; rules: EvaluatedRule[]; metrics: { ruleCount: number; passedRuleCount: number }; }
 
@@ -31,10 +56,23 @@ export class SymbolicRuleEvaluatorService {
     }
     if (rule.type === "ordered_actions") {
       let cursor = 0; const evidence: Array<{timelineIndex:number}> = [];
+      const isManipulation = rule.actions.includes("gripper.close");
       for (const action of rule.actions) {
         const found = output.timeline.findIndex((event, index) => index >= cursor && event.type === action);
         if (found < 0) {
-          return { ordinal: rule.ordinal, type: rule.type, passed: false, expected: { actions: rule.actions, matching: "subsequence" }, observed: { matchedActions: evidence.length }, evidence, reason: "ordered subsequence is incomplete", code: "ORDERED_ACTIONS_INCOMPLETE", message: "Actions must appear in the required sequence: Home → Move to Position → Wait." };
+          return {
+            ordinal: rule.ordinal,
+            type: rule.type,
+            passed: false,
+            expected: { actions: rule.actions, matching: "subsequence" },
+            observed: { matchedActions: evidence.length },
+            evidence,
+            reason: "ordered subsequence is incomplete",
+            code: isManipulation ? "SEQUENCE_INCOMPLETE" : "ORDERED_ACTIONS_INCOMPLETE",
+            message: isManipulation
+              ? "Complete the grasp, lift, and release sequence in order."
+              : "Actions must appear in the required sequence: Home → Move to Position → Wait.",
+          };
         }
         evidence.push({ timelineIndex: found }); cursor = found + 1;
       }
@@ -50,8 +88,10 @@ export class SymbolicRuleEvaluatorService {
     if (rule.type === "final_gripper_state") {
       const observed = output.finalState.grippers[rule.arm];
       const passed = observed === rule.state;
-      const code = passed ? "GRIPPER_STATE_MATCH" : "GRIPPER_STATE_MISMATCH";
-      const message = passed ? `Final gripper state is ${rule.state}.` : `Expected gripper to finish ${rule.state}, but observed ${observed}.`;
+      const code = passed ? "GRIPPER_STATE_MATCH" : "GRIPPER_FINAL_STATE_INVALID";
+      const message = passed
+        ? `Final gripper state is ${rule.state}.`
+        : `Finish the task with the gripper ${rule.state}.`;
       return { ordinal: rule.ordinal, type: rule.type, passed, expected: { arm: rule.arm, state: rule.state }, observed: { state: observed }, evidence: [], reason: passed ? "final symbolic gripper state matches" : "final symbolic gripper state differs", code, message };
     }
     if (rule.type === "home_action_present") {
@@ -74,6 +114,99 @@ export class SymbolicRuleEvaluatorService {
           ? `The robot reached position (${observed.x}, ${observed.y}, ${observed.z}) instead of Target A (${target.x}, ${target.y}, ${target.z}).`
           : "The robot did not reach Target A.";
       return { ordinal: rule.ordinal, type: rule.type, passed, expected: { frame: rule.frame, arm: rule.arm, position: target }, observed: { learningPreviewPosition: observed, delta }, evidence, reason: passed ? "learning preview target matches" : "learning preview target differs", code, message };
+    }
+    if (rule.type === "object_grasped") {
+      const manip = output.finalState.manipulation;
+      const passed = Boolean(manip?.wasGrasped);
+      const evidence = output.timeline
+        .map((event, index) => ({ event, index }))
+        .filter(({ event }) => event.grasped === true)
+        .map(({ index }) => ({ timelineIndex: index }));
+      const code = passed
+        ? "OBJECT_GRASPED"
+        : (manip?.graspAttempts ?? 0) > 0
+          ? "GRASP_NOT_ESTABLISHED"
+          : "OBJECT_NOT_APPROACHED";
+      const message = passed
+        ? "The object was successfully grasped."
+        : (manip?.graspAttempts ?? 0) > 0
+          ? "The gripper closed, but the object was not grasped. Move closer to the object before closing the gripper."
+          : "Move the gripper closer to the object before closing it.";
+      return {
+        ordinal: rule.ordinal,
+        type: rule.type,
+        passed,
+        expected: { arm: rule.arm ?? "any", objectId: rule.objectId ?? "cube-red" },
+        observed: { wasGrasped: passed, graspAttempts: manip?.graspAttempts ?? 0 },
+        evidence,
+        reason: passed
+          ? "object grasp established"
+          : (manip?.graspAttempts ?? 0) > 0
+            ? "gripper closed outside grasp threshold"
+            : "gripper did not close on object",
+        code,
+        message,
+      };
+    }
+    if (rule.type === "object_lifted") {
+      const manip = output.finalState.manipulation;
+      const passed = Boolean(manip?.wasLifted);
+      const minZ = rule.minZ ?? 70;
+      const evidence = output.timeline
+        .map((event, index) => ({ event, index }))
+        .filter(({ event }) => {
+          const objState = event.objectState as { state?: string } | undefined;
+          return objState?.state === "carried";
+        })
+        .map(({ index }) => ({ timelineIndex: index }));
+      const code = passed
+        ? "OBJECT_LIFTED"
+        : !manip?.wasGrasped
+          ? "OBJECT_NOT_GRASPED"
+          : "OBJECT_NOT_LIFTED";
+      const message = passed
+        ? "The object was lifted after being grasped."
+        : !manip?.wasGrasped
+          ? "Grasp the object before attempting to lift it."
+          : "The object was grasped but was not lifted.";
+      return {
+        ordinal: rule.ordinal,
+        type: rule.type,
+        passed,
+        expected: { minZ, objectId: rule.objectId ?? "cube-red" },
+        observed: { wasLifted: passed, wasGrasped: Boolean(manip?.wasGrasped) },
+        evidence,
+        reason: passed
+          ? "object was lifted above minimum clearance height"
+          : !manip?.wasGrasped
+            ? "cannot lift ungrasped object"
+            : "object remained at or below grasp height",
+        code,
+        message,
+      };
+    }
+    if (rule.type === "object_released") {
+      const manip = output.finalState.manipulation;
+      const passed = Boolean(manip?.wasReleased);
+      const evidence = output.timeline
+        .map((event, index) => ({ event, index }))
+        .filter(({ event }) => event.released === true)
+        .map(({ index }) => ({ timelineIndex: index }));
+      const code = passed ? "OBJECT_RELEASED" : "OBJECT_NOT_RELEASED";
+      const message = passed
+        ? "The object was released."
+        : "Open the gripper to release the object.";
+      return {
+        ordinal: rule.ordinal,
+        type: rule.type,
+        passed,
+        expected: { state: "released", objectId: rule.objectId ?? "cube-red" },
+        observed: { wasReleased: passed },
+        evidence,
+        reason: passed ? "object was released from gripper" : "object was not released",
+        code,
+        message,
+      };
     }
     const waits = output.timeline.map((event, index) => ({ event, index })).filter(({ event }) => event.type === "wait" && Number.isInteger(event.durationMs)).map(({ event, index }) => ({ durationMs: event.durationMs as number, index }));
     const durationMs = waits.reduce((total, wait) => total + wait.durationMs, 0);

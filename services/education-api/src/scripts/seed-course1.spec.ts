@@ -87,6 +87,7 @@ describe("Course 1 seed blueprint", () => {
       learning_experiments: { delete: deleteSpy, deleteMany: deleteManySpy },
       learning_submissions: { delete: deleteSpy, deleteMany: deleteManySpy },
       learning_enrollments: { delete: deleteSpy, deleteMany: deleteManySpy },
+      learning_challenge_objects: { upsert: jest.fn(async () => ({ id: "obj-1" })), delete: deleteSpy, deleteMany: deleteManySpy },
     };
 
     const mockPrisma = {

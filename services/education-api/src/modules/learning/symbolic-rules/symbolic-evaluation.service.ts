@@ -13,6 +13,7 @@ export interface SymbolicEvaluationResponse {
   status?: "success" | "failed";
   taskState?: "not_started" | "in_progress" | "success" | "failed";
   robotState?: unknown;
+  objectState?: unknown;
   feedback?: { summary: string; messages: string[] };
   evidence?: { experimentId: string; evaluationId: string; programVersionId: string };
 }
@@ -58,10 +59,14 @@ export class SymbolicEvaluationService {
       const status: "success" | "failed" = passed ? "success" : "failed";
       const taskState: "success" | "failed" = passed ? "success" : "failed";
       const robotState = prepared.schematic.finalState;
+      const objectState = prepared.schematic.finalState.objectState ?? null;
       const failedRules = (preview.rules || []).filter((rule) => !rule.passed);
+      const isManipulation = prepared.ruleSet.rules.some((r) => r.type === "object_grasped" || r.type === "object_lifted" || r.type === "object_released");
       const feedback = {
         summary: passed
-          ? "Target A reached successfully. Simulation passed."
+          ? isManipulation
+            ? "You successfully grasped, lifted, and released the object. Simulation passed."
+            : "Target A reached successfully. Simulation passed."
           : (failedRules[0]?.message || "The robot program did not complete the required task."),
         messages: (preview.rules || []).map((rule) => rule.message || rule.reason),
       };
@@ -70,7 +75,7 @@ export class SymbolicEvaluationService {
         evaluationId: response.id,
         programVersionId: response.programVersionId,
       };
-      const finalized=await tx.$queryRaw<{id:string}[]>`UPDATE public.learning_assignment_attempts SET status='evaluated',result_snapshot=${JSON.stringify({ evaluationId: response.id, programVersionId: response.programVersionId, verdict: response.verdict, ruleResults: response.ruleResults, metrics: response.metrics, status, taskState, robotState, feedback, evidence: resultEvidence })}::jsonb WHERE id=${prepared.attemptId}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status IN ('submitted','evaluated') RETURNING id`;
+      const finalized=await tx.$queryRaw<{id:string}[]>`UPDATE public.learning_assignment_attempts SET status='evaluated',result_snapshot=${JSON.stringify({ evaluationId: response.id, programVersionId: response.programVersionId, verdict: response.verdict, ruleResults: response.ruleResults, metrics: response.metrics, status, taskState, robotState, objectState, feedback, evidence: resultEvidence })}::jsonb WHERE id=${prepared.attemptId}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status IN ('submitted','evaluated') RETURNING id`;
       if(!finalized[0])throw new ConflictException("Attempt could not be finalized after evaluation.");
       const progression = await this.progression.projectSymbolicPass(tx, user, {
         evaluationId: response.id,
@@ -78,7 +83,7 @@ export class SymbolicEvaluationService {
         programVersionId: response.programVersionId,
         verdict: response.verdict,
       });
-      return { ...response, status, taskState, robotState, feedback, evidence: resultEvidence, progression };
+      return { ...response, status, taskState, robotState, objectState, feedback, evidence: resultEvidence, progression };
     });
   }
 
