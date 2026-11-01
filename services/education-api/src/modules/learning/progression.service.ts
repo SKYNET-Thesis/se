@@ -7,14 +7,35 @@ import { SubmitKnowledgeCheckDto } from "./dto/submit-knowledge-check.dto";
 import { LearningScopeService } from "./learning-scope.service";
 
 export interface QueryDb { $queryRaw<T = unknown>(query: TemplateStringsArray | unknown, ...values: unknown[]): Promise<T>; }
-interface CourseRow { id: string; title: string; status: string; }
+interface CourseRow { id: string; title: string; status: string; description: string | null; label: string | null; level: string | null; recommended_grades: string | null; learning_outcome: string | null; competencies: Array<{ code: string; title: string }> | null; }
 interface PrerequisiteRow { lessonId: string; title: string; required: boolean; minimumScore: number | string | null; status: string | null; progressPercent: number | string | null; }
-interface LessonRow { id: string; ordinal: number; title: string; progress_status: string | null; progress_percent: number | string | null; completed_at: Date | null; prerequisites: PrerequisiteRow[] | null; }
+interface LessonRow { id: string; code?: string | null; ordinal: number; title: string; progress_status: string | null; progress_percent: number | string | null; completed_at: Date | null; prerequisites: PrerequisiteRow[] | null; summary?: string | null; learning_items?: string[] | null; estimated_minutes?: number | string | null; }
 interface KnowledgeCheckRow { attempt_id: string; lesson_id: string; course_id: string; classroom_id: string; status: string; constraints: unknown; success_criteria: unknown; }
 interface SymbolicChainRow { evaluation_id: string; verdict: "passed" | "failed"; attempt_id: string; lesson_id: string; course_id: string; program_version_id: string; challenge_id: string; }
 
 export interface SymbolicProjectionInput { evaluationId: string; attemptId: string; programVersionId: string; verdict: "passed" | "failed"; }
 export interface KnowledgeCheckResult extends ProgressionProjection { passed: boolean; score: number; attemptId: string; }
+
+export interface QualifiedProgramVersionHandoff {
+  courseId: string;
+  lessonId: string;
+  qualifiedProgramVersionId: string;
+  programVersionId: string;
+  programId: string;
+  submissionId?: string;
+  versionNumber: number;
+  challengeId: string;
+  symbolicEvaluationId: string;
+  evaluationId: string;
+  schematicExperimentId: string;
+  experimentId: string;
+  verdict: "passed";
+  attemptId: string;
+  passedAt: Date;
+  qualifiedAt: Date;
+  robotProgram?: unknown;
+  changeSummary?: string | null;
+}
 
 @Injectable()
 export class ProgressionService {
@@ -96,15 +117,44 @@ export class ProgressionService {
     return this.completeLesson(db, user.vistaUserId, chain.lesson_id);
   }
 
-  async resolveQualifiedL4ProgramVersion(user: AuthenticatedUser, courseId?: string): Promise<{ lessonId: string; evaluationId: string; experimentId: string; programVersionId: string; versionNumber: number; attemptId: string; passedAt: Date } | null> {
-    const rows = await this.prisma.$queryRaw<Array<{ program_version_id: string; evaluation_id: string; experiment_id: string; lesson_id: string; version_number: number; attempt_id: string; passed_at: Date }>>`
-      SELECT se.program_version_id, se.id AS evaluation_id, e.id::text AS experiment_id, l.id::text AS lesson_id, COALESCE(pv.version_number, 1) AS version_number, a.id::text AS attempt_id, se.created_at AS passed_at
+  async resolveQualifiedL4ProgramVersion(user: AuthenticatedUser, courseId?: string): Promise<QualifiedProgramVersionHandoff | null> {
+    const rows = await this.prisma.$queryRaw<Array<{
+      program_version_id: string;
+      evaluation_id: string;
+      experiment_id: string;
+      lesson_id: string;
+      course_id: string;
+      program_id: string;
+      submission_id: string;
+      challenge_id: string;
+      verdict: string;
+      version_number: number;
+      attempt_id: string;
+      passed_at: Date;
+      robot_program: unknown;
+      change_summary: string | null;
+    }>>`
+      SELECT
+        se.program_version_id,
+        se.id AS evaluation_id,
+        e.id::text AS experiment_id,
+        l.id::text AS lesson_id,
+        l.course_id::text AS course_id,
+        s.program_id::text AS program_id,
+        s.id::text AS submission_id,
+        la.challenge_id::text AS challenge_id,
+        se.verdict,
+        COALESCE(pv.version_number, 1) AS version_number,
+        a.id::text AS attempt_id,
+        se.created_at AS passed_at,
+        pv.robot_program,
+        pv.change_summary
       FROM public.learning_symbolic_evaluations se
       JOIN public.learning_experiments e ON e.id=se.experiment_id AND e.learner_user_id=se.requested_by_user_id
         AND e.status='succeeded' AND e.execution_mode='schematic'
-      LEFT JOIN public.learning_program_versions pv ON pv.id=se.program_version_id
+      JOIN public.learning_program_versions pv ON pv.id=se.program_version_id
       JOIN public.learning_submissions s ON s.id=se.submission_id AND s.learner_user_id=se.requested_by_user_id
-        AND s.program_version_id=se.program_version_id AND s.status='submitted'
+        AND s.program_id=pv.program_id
       JOIN public.learning_assignment_attempts a ON a.id::text=e.input_snapshot->>'attemptId'
         AND a.learner_user_id=se.requested_by_user_id AND a.program_id=s.program_id
       JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id
@@ -114,24 +164,52 @@ export class ProgressionService {
         AND se.verdict='passed'
         AND l.ordinal=4
         ${courseId ? Prisma.sql`AND l.course_id=${courseId}::uuid` : Prisma.empty}
-      ORDER BY se.created_at DESC
+      ORDER BY se.created_at DESC, pv.version_number DESC, se.id DESC
       LIMIT 1`;
     const match = rows[0];
     if (!match) return null;
     return {
+      courseId: match.course_id,
       lessonId: match.lesson_id,
-      evaluationId: match.evaluation_id,
-      experimentId: match.experiment_id,
+      qualifiedProgramVersionId: match.program_version_id,
       programVersionId: match.program_version_id,
+      programId: match.program_id,
+      submissionId: match.submission_id,
       versionNumber: Number(match.version_number ?? 1),
+      challengeId: match.challenge_id,
+      symbolicEvaluationId: match.evaluation_id,
+      evaluationId: match.evaluation_id,
+      schematicExperimentId: match.experiment_id,
+      experimentId: match.experiment_id,
+      verdict: "passed",
       attemptId: match.attempt_id,
       passedAt: match.passed_at,
+      qualifiedAt: match.passed_at,
+      robotProgram: match.robot_program,
+      changeSummary: match.change_summary ?? null,
     };
   }
 
   private async coursePathWithDb(db: QueryDb, user: AuthenticatedUser, courseId: string): Promise<CoursePathResponse> {
     const courses = await db.$queryRaw<CourseRow[]>`
-      SELECT c.id,c.title,c.status FROM public.learning_courses c
+      SELECT c.id,c.title,c.status,c.description,
+        overview.content->'courseOverview'->>'label' AS label,
+        overview.content->'courseOverview'->>'level' AS level,
+        overview.content->'courseOverview'->>'recommendedGrades' AS recommended_grades,
+        overview.content->'courseOverview'->>'learningOutcome' AS learning_outcome,
+        COALESCE((
+          SELECT jsonb_agg(DISTINCT jsonb_build_object('code',competency.code,'title',competency.title))
+          FROM public.learning_lessons course_lesson
+          JOIN public.learning_objectives objective ON objective.lesson_id=course_lesson.id
+          JOIN public.learning_objective_competencies objective_competency ON objective_competency.objective_id=objective.id
+          JOIN public.learning_competencies competency ON competency.id=objective_competency.competency_id
+          WHERE course_lesson.course_id=c.id
+        ),'[]'::jsonb) AS competencies
+      FROM public.learning_courses c
+      LEFT JOIN LATERAL (
+        SELECT first_lesson.content FROM public.learning_lessons first_lesson
+        WHERE first_lesson.course_id=c.id ORDER BY first_lesson.ordinal LIMIT 1
+      ) overview ON true
       WHERE c.id=${courseId}::uuid AND c.status='published' AND EXISTS (
         SELECT 1 FROM public.learning_enrollments e
         JOIN public.learning_course_offerings o ON e.offering_id=o.id AND o.course_id=c.id AND o.status='active'
@@ -145,7 +223,12 @@ export class ProgressionService {
     const course = courses[0];
     if (!course) throw new NotFoundException("Course was not found.");
     const rows = await db.$queryRaw<LessonRow[]>`
-      SELECT l.id,l.ordinal,l.title,lp.status AS progress_status,lp.progress_percent,lp.completed_at,
+      SELECT l.id,l.ordinal,l.title,
+        (SELECT objective.code FROM public.learning_objectives objective WHERE objective.lesson_id=l.id ORDER BY objective.ordinal LIMIT 1) AS code,
+        lp.status AS progress_status,lp.progress_percent,lp.completed_at,
+        l.content->>'summary' AS summary,
+        COALESCE(l.content->'learningObjectives','[]'::jsonb) AS learning_items,
+        NULLIF(l.content->>'estimatedMinutes','')::int AS estimated_minutes,
         COALESCE(jsonb_agg(jsonb_build_object(
           'lessonId',pre.id,'title',pre.title,'required',pr.required,'minimumScore',pr.minimum_score,
           'status',pre_progress.status,'progressPercent',pre_score.score
@@ -168,7 +251,22 @@ export class ProgressionService {
     const current = preliminary.find((lesson) => lesson.status === "available" || lesson.status === "in_progress") ?? null;
     const lessons = preliminary.map((lesson) => lesson.id === current?.id && lesson.status === "available" ? { ...lesson, status: "current" as const } : lesson);
     const completed = lessons.filter((lesson) => lesson.status === "completed").length;
-    return { course, progressPercent: lessons.length ? Math.round(completed / lessons.length * 100) : 0, currentLessonId: current?.id ?? null, lessons };
+    return {
+      course: {
+        id: course.id,
+        title: course.title,
+        status: course.status,
+        description: course.description ?? null,
+        label: course.label ?? null,
+        level: course.level ?? null,
+        competencies: course.competencies ?? [],
+        recommendedGrades: course.recommended_grades ?? null,
+        learningOutcome: course.learning_outcome ?? null,
+      },
+      progressPercent: lessons.length ? Math.round(completed / lessons.length * 100) : 0,
+      currentLessonId: current?.id ?? null,
+      lessons,
+    };
   }
 
   private mapLesson(row: LessonRow): CoursePathLesson {
@@ -176,11 +274,14 @@ export class ProgressionService {
     const lockReason = firstLockReason(prerequisites);
     const completed = row.progress_status === "completed";
     return {
-      id: row.id, ordinal: row.ordinal, title: row.title,
+      id: row.id, code: row.code ?? null, ordinal: row.ordinal, title: row.title,
       status: completed ? "completed" : lockReason ? "locked" : row.progress_status === "in_progress" ? "in_progress" : "available",
       progressPercent: Number(row.progress_percent ?? 0),
       prerequisite: prerequisites.map(({ lessonId, title, required, minimumScore }) => ({ lessonId, title, required, minimumScore })),
       lockReason, completedAt: row.completed_at,
+      summary: row.summary ?? null,
+      learningItems: Array.isArray(row.learning_items) ? row.learning_items.filter((item): item is string => typeof item === "string") : [],
+      estimatedMinutes: row.estimated_minutes === null || row.estimated_minutes === undefined ? null : Number(row.estimated_minutes),
     };
   }
 
@@ -202,7 +303,7 @@ export class ProgressionService {
     if (blocked) throw new ConflictException({ code: "PREREQUISITE_NOT_COMPLETED", prerequisiteLessonId: blocked.prerequisite_lesson_id, prerequisiteLessonTitle: blocked.title, message: `Complete ${blocked.title} before starting this lesson.` });
   }
 
-  private async completeLesson(db: QueryDb, learnerId: string, lessonId: string): Promise<ProgressionProjection> {
+  async completeLesson(db: QueryDb, learnerId: string, lessonId: string): Promise<ProgressionProjection> {
     await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${learnerId}:${lessonId}`},0)) IS NULL AS locked`;
     const completed = await db.$queryRaw<Array<{ id: string; already_completed?: boolean }>>`
       WITH existing AS (

@@ -37,6 +37,51 @@ describe("ProgressionService", () => {
     expect(transaction).not.toHaveBeenCalled();
   });
 
+  it("returns server-authored course overview and lesson preview metadata", async () => {
+    queryRaw
+      .mockResolvedValueOnce([{
+        id: "course-1", title: "Robotics Fundamentals", status: "published",
+        description: "A five-lesson robotics foundation.", label: "Course 1", level: "Beginner",
+        recommended_grades: "Grades 6–8", learning_outcome: "Student can independently program a Pick & Place task.",
+        competencies: [{ code: "C1.SAFETY.AWARENESS", title: "Robot safety awareness" }],
+      }])
+      .mockResolvedValueOnce(lessons.map((lesson, index) => ({
+        ...lesson,
+        summary: `Objective ${index + 1}`,
+        learning_items: ["Learn", "Practice"],
+        estimated_minutes: 15 + index * 5,
+      })));
+
+    const path = await service.coursePath(student, "course-1");
+
+    expect(path.course).toMatchObject({
+      description: "A five-lesson robotics foundation.",
+      label: "Course 1",
+      level: "Beginner",
+      recommendedGrades: "Grades 6–8",
+      learningOutcome: expect.stringContaining("Pick & Place"),
+      competencies: [{ code: "C1.SAFETY.AWARENESS", title: "Robot safety awareness" }],
+    });
+    expect(path.lessons[0]).toMatchObject({
+      summary: "Objective 1",
+      learningItems: ["Learn", "Practice"],
+      estimatedMinutes: 15,
+    });
+    const lessonSql = (queryRaw.mock.calls[1][0] as TemplateStringsArray).join("?");
+    expect(lessonSql).toContain("l.content->>'summary'");
+    expect(lessonSql).toContain("learningObjectives");
+  });
+
+  it("does not project Course 1 overview metadata onto another enrolled course", async () => {
+    queryRaw
+      .mockResolvedValueOnce([{ id: "course-2", title: "Robot Discovery", status: "published", description: "Legacy course", competencies: [] }])
+      .mockResolvedValueOnce([{ ...lessons[0], id: "legacy-lesson", title: "Legacy lesson" }]);
+
+    const path = await service.coursePath(student, "course-2");
+
+    expect(path.course).toMatchObject({ title: "Robot Discovery", label: null, level: null, recommendedGrades: null, learningOutcome: null });
+  });
+
   it("scopes the authoritative path through one active enrollment identity chain", async () => {
     queryRaw.mockResolvedValueOnce([{ id: "course-1", title: "Robotics Fundamentals", status: "published" }]).mockResolvedValueOnce(lessons);
     await service.coursePath(student, "course-1");

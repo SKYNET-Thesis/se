@@ -11,6 +11,7 @@ function resolveRole(systemRoleCodes: string[], memberships: ApiOrganizationMemb
   const active = memberships.filter(item => item.status === 'active').map(item => item.roleCode);
   if (active.includes('school_admin')) return 'school_admin';
   if (active.includes('instructor')) return 'teacher';
+  if (active.includes('teaching_assistant')) return 'teaching_assistant';
   if (active.includes('student')) return 'student';
   return null;
 }

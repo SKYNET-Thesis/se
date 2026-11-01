@@ -24,11 +24,11 @@ describe("PhysicalExecutionController", () => {
     service.status.mockResolvedValue({ id: "physical-1", status: "running" });
     service.stop.mockResolvedValue({ id: "physical-1", status: "cancelled" });
     service.active.mockResolvedValue({ id: "physical-1", status: "running" });
-    await controller.start(user, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    await controller.start(user, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", { safetyConfirmed: true });
     await controller.status(user, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
     await controller.stop(user, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
     await controller.active(user, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
-    expect(service.start).toHaveBeenCalledWith(user, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    expect(service.start).toHaveBeenCalledWith(user, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", { safetyConfirmed: true });
     expect(service.status).toHaveBeenCalledWith(user, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
     expect(service.stop).toHaveBeenCalledWith(user, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
   });

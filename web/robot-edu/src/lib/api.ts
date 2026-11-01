@@ -17,7 +17,7 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export interface ApiCourse { id: string; title: string; description: string | null; status: string; }
+export interface ApiCourse { id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
 export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
 
 export type LessonProgressStatus = "completed" | "current" | "available" | "locked" | "in_progress";
@@ -38,6 +38,7 @@ export interface LessonPrerequisite {
 
 export interface CoursePathLesson {
   id: string;
+  code: string | null;
   ordinal: number;
   title: string;
   status: LessonProgressStatus;
@@ -45,10 +46,23 @@ export interface CoursePathLesson {
   prerequisite: LessonPrerequisite[];
   lockReason: LessonLockReason | null;
   completedAt: string | null;
+  summary: string | null;
+  learningItems: string[];
+  estimatedMinutes: number | null;
 }
 
 export interface CoursePathResponse {
-  course: { id: string; title: string; status: string };
+  course: {
+    id: string;
+    title: string;
+    status: string;
+    description: string | null;
+    label: string | null;
+    level: string | null;
+    recommendedGrades: string | null;
+    learningOutcome: string | null;
+    competencies: Array<{ code: string; title: string }>;
+  };
   progressPercent: number;
   currentLessonId: string | null;
   lessons: CoursePathLesson[];
@@ -124,19 +138,31 @@ export interface LessonDetailResponse {
   progressPercent: number;
   lockReason: LessonLockReason | null;
   prerequisites: LessonPrerequisite[];
-  qualification?: {
-    lessonId: string;
-    evaluationId: string;
-    experimentId: string;
-    programVersionId: string;
-    versionNumber: number;
-    attemptId: string;
-    passedAt: string;
-  } | null;
+  qualification?: ApiQualifiedProgramHandoff | null;
   assignment: LessonAssignmentInfo | null;
   activeAttempt: LessonAttemptSummary | null;
   priorAttempt: LessonAttemptSummary | null;
   created_at: string;
+}
+
+export interface ApiQualifiedProgramHandoff {
+  courseId?: string;
+  lessonId: string;
+  qualifiedProgramVersionId?: string;
+  programVersionId: string;
+  programId?: string;
+  versionNumber: number;
+  challengeId?: string;
+  symbolicEvaluationId?: string;
+  evaluationId: string;
+  schematicExperimentId?: string;
+  experimentId: string;
+  verdict?: "passed";
+  attemptId: string;
+  passedAt: string;
+  qualifiedAt?: string;
+  robotProgram?: unknown;
+  changeSummary?: string | null;
 }
 
 export interface KnowledgeCheckAnswerInput {
@@ -256,7 +282,7 @@ export const learnerApi = {
 export const progressionApi = {
   coursePath: (courseId: string, token: string) => apiGet<CoursePathResponse>(`/me/courses/${courseId}/path`, token),
   qualifiedL4Version: (courseId: string, token: string) =>
-    apiGet<{ lessonId: string; evaluationId: string; experimentId: string; programVersionId: string; versionNumber: number; attemptId: string; passedAt: string } | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
+    apiGet<ApiQualifiedProgramHandoff | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
   coursePaths: async (token: string): Promise<CoursePathResponse[]> => {
     const enrollments = await learnerApi.enrollments(token).catch(() => [] as ApiEnrollment[]);
     let courseIds = enrollments.filter((e) => e.status === "active" && e.course_id).map((e) => e.course_id);
@@ -375,7 +401,7 @@ export const runtimeApi = { health: (token: string) => apiGet<ApiRecord>("/runti
 export const robotExecutionApi = {
   eligibility: (token: string, attemptId: string) => apiGet<ApiRecord>(`/me/attempts/${attemptId}/physical-execution-eligibility`, token),
   active: (token: string, attemptId: string) => apiGet<ApiRecord | null>(`/me/attempts/${attemptId}/physical-executions/active`, token),
-  execute: (token: string, attemptId: string) => apiRequest<ApiRecord>(`/me/attempts/${attemptId}/physical-executions/start`, token, "POST"),
+  execute: (token: string, attemptId: string, payload?: { safetyConfirmed?: boolean }) => apiRequest<ApiRecord>(`/me/attempts/${attemptId}/physical-executions/start`, token, "POST", payload),
   execution: (token: string, executionId: string) => apiGet<ApiRecord>(`/me/physical-executions/${executionId}`, token),
   stop: (token: string, executionId: string) => apiRequest<ApiRecord>(`/me/physical-executions/${executionId}/stop`, token, "POST"),
 };

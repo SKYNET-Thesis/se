@@ -5,7 +5,7 @@ import { PaginationDto } from "./dto/pagination.dto";
 import { CreateAssignmentDto } from "./dto/create-assignment.dto";
 import { UpdateAssignmentDto } from "./dto/update-assignment.dto";
 import { LearningScopeService } from "./learning-scope.service";
-import { ProgressionService } from "./progression.service";
+import { ProgressionService, QualifiedProgramVersionHandoff } from "./progression.service";
 import { normalizeLessonContent } from "./lesson-content.schema";
 
 @Injectable()
@@ -114,15 +114,7 @@ export class LearningService {
 
     const validatedContent = normalizeLessonContent(lesson.content, lesson.title, lesson.ordinal);
 
-    let qualification: {
-      lessonId: string;
-      evaluationId: string;
-      experimentId: string;
-      programVersionId: string;
-      versionNumber: number;
-      attemptId: string;
-      passedAt: Date;
-    } | null = null;
+    let qualification: QualifiedProgramVersionHandoff | null = null;
     if (lesson.ordinal === 5 && this.progression) {
       qualification = await this.progression.resolveQualifiedL4ProgramVersion(user, lesson.course_id).catch(() => null);
     }
