@@ -50,4 +50,38 @@ describe('CourseLearningShell', () => {
     await act(async () => { (container.querySelector('button[aria-label="Show course material"]') as HTMLButtonElement).click(); });
     expect(container.querySelector('button[aria-label="Hide course material"]')?.getAttribute('aria-expanded')).toBe('true');
   });
+
+  it('expands individual course modules independently and supports expand/collapse all', async () => {
+    const pathOverride = {
+      lessons: [1, 2, 3, 4, 5].map((ordinal) => ({
+        id: `lesson-${ordinal}`,
+        code: `C1-L${ordinal}`,
+        ordinal,
+        title: ['Meet Your Robot', 'Move the Robot', 'Grab & Release', 'Pick & Place', 'Physical Robot Lab'][ordinal - 1],
+        status: ordinal === 1 ? 'completed' : ordinal === 2 ? 'current' : 'locked',
+        progressPercent: ordinal === 1 ? 100 : 0,
+        prerequisite: [],
+        lockReason: ordinal > 2 ? { message: 'Complete the previous lesson.' } : null,
+        completedAt: null,
+        learningItems: [`Authoritative learning item ${ordinal}`],
+        estimatedMinutes: ordinal * 5,
+      })) as never,
+    };
+    await act(async () => { root.render(<QueryClientProvider client={client}><MemoryRouter><CourseLearningShell courseId="course-1" lessonId="lesson-2" lesson={lesson} pathOverride={pathOverride} focused activityId="lesson-2-reading-1"><div>Activity content</div></CourseLearningShell></MemoryRouter></QueryClientProvider>); await Promise.resolve(); });
+
+    const l1 = container.querySelector('button[aria-label="Expand C1-L1"]') as HTMLButtonElement;
+    const l2 = container.querySelector('button[aria-label="Collapse C1-L2"]') as HTMLButtonElement;
+    expect(l1).toBeTruthy();
+    expect(l2).toBeTruthy();
+    await act(async () => { l1.click(); });
+    expect(l1.getAttribute('aria-expanded')).toBe('true');
+    expect(l2.getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).toContain('Authoritative learning item 1');
+
+    await act(async () => { (container.querySelector('button[aria-label="Expand all modules"]') as HTMLButtonElement).click(); });
+    expect(container.querySelectorAll('button[aria-label^="Collapse C1-L"]')).toHaveLength(5);
+
+    await act(async () => { (container.querySelector('button[aria-label="Collapse all modules"]') as HTMLButtonElement).click(); });
+    expect(container.querySelectorAll('button[aria-label^="Expand C1-L"]')).toHaveLength(5);
+  });
 });

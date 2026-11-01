@@ -26,7 +26,7 @@ export function ActivityReader() {
   const navigate = useNavigate();
   const { session, sessionRevision } = useSupabaseSession();
   const query = useQuery({ queryKey: studentLearningKeys.lessonDetail(lessonId, session?.user.id, sessionRevision), queryFn: () => catalogApi.lessonDetail(lessonId, session?.access_token ?? ''), enabled: Boolean(session?.access_token && lessonId) });
-  if (query.isLoading) return <div className="mx-auto max-w-4xl px-6 py-16"><div className="h-8 w-2/3 animate-pulse rounded bg-sunken" /><div className="mt-6 h-32 animate-pulse rounded bg-sunken" /></div>;
+  if (query.isLoading || query.data?.id !== lessonId) return <div className="mx-auto max-w-4xl px-6 py-16" aria-live="polite"><p className="sr-only">Loading activity</p><div className="h-8 w-2/3 animate-pulse rounded bg-sunken motion-reduce:animate-none" /><div className="mt-6 h-32 animate-pulse rounded bg-sunken motion-reduce:animate-none" /></div>;
   if (!query.data) return <div className="p-10 text-sm text-ink-muted">Activity unavailable.</div>;
   const lesson = query.data;
   if (lesson.status === 'locked') return <CourseLearningShell courseId={courseId} lessonId={lessonId} lesson={lesson}><div className="rounded-xl border border-line bg-surface p-8"><LockIcon className="h-6 w-6 text-warn" /><h1 className="mt-3 text-2xl font-bold">Lesson locked</h1><p className="mt-2 text-ink-muted">{lesson.lockReason?.message}</p></div></CourseLearningShell>;
