@@ -76,12 +76,106 @@ describe('CourseLearningShell', () => {
     await act(async () => { l1.click(); });
     expect(l1.getAttribute('aria-expanded')).toBe('true');
     expect(l2.getAttribute('aria-expanded')).toBe('true');
-    expect(container.textContent).toContain('Authoritative learning item 1');
+    expect(container.textContent).not.toContain('Authoritative learning item 1');
 
     await act(async () => { (container.querySelector('button[aria-label="Expand all modules"]') as HTMLButtonElement).click(); });
     expect(container.querySelectorAll('button[aria-label^="Collapse C1-L"]')).toHaveLength(5);
 
     await act(async () => { (container.querySelector('button[aria-label="Collapse all modules"]') as HTMLButtonElement).click(); });
     expect(container.querySelectorAll('button[aria-label^="Expand C1-L"]')).toHaveLength(5);
+  });
+
+  it('renders Course Material strictly as navigation without descriptive paragraphs', async () => {
+    const pathOverride = {
+      lessons: [
+        {
+          id: 'lesson-2',
+          code: 'C1-L2',
+          ordinal: 2,
+          title: 'Move the Robot',
+          status: 'current',
+          progressPercent: 0,
+          prerequisite: [],
+          lockReason: null,
+          completedAt: null,
+          learningItems: [
+            'Use home, target motion, wait, and sequence blocks in order.',
+            'Understand how the robot plans motion to reach a 3D target position.',
+            'Observe preview simulation to verify the robot trajectory before execution.',
+          ],
+          estimatedMinutes: 20,
+        },
+        {
+          id: 'lesson-3',
+          code: 'C1-L3',
+          ordinal: 3,
+          title: 'Grab & Release',
+          status: 'locked',
+          progressPercent: 0,
+          prerequisite: [],
+          lockReason: { message: 'Complete Move the Robot first.' },
+          completedAt: null,
+          learningItems: ['Operate gripper.'],
+          estimatedMinutes: 15,
+        },
+      ] as never,
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={client}>
+          <MemoryRouter>
+            <CourseLearningShell
+              courseId="course-1"
+              lessonId="lesson-2"
+              lesson={lesson}
+              pathOverride={pathOverride}
+              activityId="lesson-2-reading-1"
+            >
+              <div>Activity workspace</div>
+            </CourseLearningShell>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    // 1. Navigation structure present
+    expect(container.textContent).toContain('Movement Fundamentals');
+    expect(container.textContent).toContain('Understanding Robot Movement');
+    expect(container.textContent).toContain('Reading • 4 min');
+    expect(container.textContent).toContain('Robot Concept in Action');
+    expect(container.textContent).toContain('Demonstration • 3 min');
+    expect(container.textContent).toContain('Practice');
+    expect(container.textContent).toContain('Build Your Move the Robot Sequence');
+    expect(container.textContent).toContain('Reach Target A');
+    expect(container.textContent).toContain('Simulation Feedback');
+
+    // 2. Explanatory paragraphs and estimated lesson description paragraphs removed
+    expect(container.textContent).not.toContain('Use home, target motion, wait, and sequence blocks in order.');
+    expect(container.textContent).not.toContain('Understand how the robot plans motion to reach a 3D target position.');
+    expect(container.textContent).not.toContain('Observe preview simulation to verify the robot trajectory before execution.');
+    expect(container.textContent).not.toContain('Estimated 20 min');
+
+    // 3. Selected activity receives aria-current="page"
+    const selectedLink = container.querySelector('a[aria-current="page"]');
+    expect(selectedLink).not.toBeNull();
+    expect(selectedLink?.getAttribute('href')).toContain('lesson-2-reading-1');
+    expect(selectedLink?.className).toContain('border-accent');
+    expect(selectedLink?.className).toContain('bg-accent-soft');
+
+    // 4. Hover & focus classes exist on interactive items
+    expect(selectedLink?.className).toContain('focus-visible:ring-accent');
+    const courseInfoLink = container.querySelector('a[href="/courses/course-1/info"]');
+    expect(courseInfoLink?.className).toContain('hover:bg-sunken');
+    expect(courseInfoLink?.className).toContain('transition-colors');
+
+    // 5. Locked lesson remains non-navigable with lock reason
+    expect(container.querySelector('a[href="/courses/course-1/lessons/lesson-3"]')).toBeNull();
+    const l3Toggle = container.querySelector('button[aria-label="Expand C1-L3"]') as HTMLButtonElement;
+    await act(async () => {
+      l3Toggle?.click();
+    });
+    expect(container.textContent).toContain('Complete Move the Robot first.');
   });
 });

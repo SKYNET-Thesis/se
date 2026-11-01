@@ -55,4 +55,154 @@ describe('ActivityReader loading isolation', () => {
     expect(container.textContent).toContain('Loading activity');
     expect(container.textContent).not.toContain('Old lesson must not flash');
   });
+
+  describe('C1-L2 activity content ownership', () => {
+    const l2Data = {
+      id: 'lesson-2',
+      course_id: 'course-1',
+      course_title: 'Robotics Fundamentals',
+      title: 'Move the Robot',
+      ordinal: 2,
+      status: 'current',
+      progressPercent: 0,
+      lockReason: null,
+      prerequisites: [],
+      content: {
+        version: 1,
+        summary: 'Learn deterministic motion sequencing by homing the robot and commanding it to reach a defined target position.',
+        learningObjectives: [],
+        conceptSections: [
+          { title: 'Deterministic Sequencing', content: 'Robots execute instructions one step at a time in sequence.' },
+          { title: 'Target Positioning', content: 'Instead of manual joint angles, VISTA specifies target positions in 3D.' },
+          { title: 'Pauses & Motion Timing', content: 'Wait commands allow motion to stabilize.' },
+        ],
+        robotConcept: 'The robot computes the required arm pose to place the gripper at the commanded 3D coordinates.',
+        taskPreview: 'Program the left arm to home, move to Target A, and wait for motion stabilization.',
+        estimatedMinutes: 20,
+        safetyNotes: [
+          'Confirm the target coordinates are within the safe reachable envelope.',
+          'Always include a home step at the start of a program to reset joint state.',
+        ],
+        completionCriteria: 'Complete the target-position simulation successfully using the required action sequence.',
+      },
+      assignment: {
+        id: 'a2',
+        classroomAssignmentId: 'ca2',
+        title: 'Reach Target A',
+        instructions: 'Program the left arm to home, move to Target A, and wait.',
+        allowedBlocks: ['arm.select', 'home', 'preview.move_xyz', 'wait'],
+        constraints: { kind: 'symbolic_program' },
+      },
+      activeAttempt: null,
+      priorAttempt: null,
+      created_at: '',
+    };
+
+    it('renders Learn the Concepts and Safety Protocols in the Reading activity', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/lesson-2-reading-1']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Understanding Robot Movement');
+      expect(container.textContent).toContain('Reading');
+      expect(container.textContent).toContain('4 min');
+      expect(container.textContent).toContain('Learn the Concepts');
+      expect(container.textContent).toContain('Deterministic Sequencing');
+      expect(container.textContent).toContain('Target Positioning');
+      expect(container.textContent).toContain('Pauses & Motion Timing');
+      expect(container.textContent).toContain('Safety Protocols');
+      expect(container.textContent).toContain('Confirm the target coordinates are within the safe reachable envelope.');
+    });
+
+    it('renders Robot Concept in Action in the Demonstration activity', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/lesson-2-demonstration']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Robot Concept in Action');
+      expect(container.textContent).toContain('Demonstration');
+      expect(container.textContent).toContain('3 min');
+      expect(container.textContent).toContain('How the Robot Interprets the Target');
+      expect(container.textContent).toContain('Deterministic Motion Sequencing');
+      expect(container.textContent).toContain('Simulation Preview');
+      expect(container.textContent).not.toContain('Safety Protocols');
+    });
+
+    it('owns Your Practice Mission and allowed commands in Guided Practice activity', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/lesson-2-guided-practice']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Build Your Move the Robot Sequence');
+      expect(container.textContent).toContain('Guided Practice');
+      expect(container.textContent).toContain('Your Practice Mission');
+      expect(container.textContent).toContain('arm.select · home · preview.move_xyz · wait');
+      expect(container.textContent).toContain('Open practice workspace');
+    });
+
+    it('renders Authoritative 3D Simulation in the simulation activity', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/lesson-2-simulation']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Reach Target A');
+      expect(container.textContent).toContain('3D Simulation');
+      expect(container.textContent).toContain('Authoritative 3D Simulation');
+      expect(container.textContent).toContain('Target Position');
+      expect(container.textContent).toContain('X: 240, Y: 220, Z: 120');
+      expect(container.textContent).toContain('Open simulation in workspace');
+    });
+
+    it('renders Simulation Feedback and completion criteria in Result activity', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/lesson-2-result']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Simulation Feedback');
+      expect(container.textContent).toContain('Result');
+      expect(container.textContent).toContain('Awaiting Simulation Completion');
+      expect(container.textContent).toContain('Complete the target-position simulation successfully using the required action sequence.');
+      expect(container.textContent).toContain('Open practice workspace');
+    });
+  });
 });
