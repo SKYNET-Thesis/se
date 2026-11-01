@@ -28,8 +28,8 @@ export function AppShell() {
 
       <aside
         className={cn(
-          'hidden shrink-0 flex-col border-r border-line bg-surface lg:flex',
-          isStudio ? 'w-[60px] items-stretch px-2 py-4' : isFocusedLearning ? 'hidden' : 'w-[240px] px-3 py-5'
+          'shrink-0 flex-col border-r border-line bg-surface',
+          isFocusedLearning ? 'hidden' : isStudio ? 'hidden lg:flex w-[60px] items-stretch px-2 py-4' : 'hidden lg:flex w-[240px] px-3 py-5'
         )}>
         
         <Link to="/" className={cn('mb-7 flex rounded-md', isStudio ? 'justify-center' : 'px-2')} aria-label="VISTA home">

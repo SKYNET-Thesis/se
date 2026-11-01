@@ -55,6 +55,7 @@ describe('AppShell focused learning navigation', () => {
 
     const persistentSidebar = container.querySelector('aside');
     expect(persistentSidebar?.className).not.toContain('w-[240px]');
+    expect(persistentSidebar?.className).not.toContain('lg:flex');
     expect(container.querySelector('button[aria-label="Open navigation"]')?.getAttribute('aria-expanded')).toBe('false');
     expect(container.textContent).toContain('Activity content');
 
