@@ -284,10 +284,12 @@ export function buildLessonActivitySections(lesson: LessonDetailResponse): Lesso
             title: 'Robot Readiness / Safety Check',
             description: 'Physical lab execution will become available when the robot runtime is authorized and ready.',
             durationMinutes: null,
-            status: 'unavailable' as const,
-            actionable: false,
+            status: lesson.qualification
+              ? (lesson.status === 'completed' ? ('completed' as const) : ('current' as const))
+              : ('unavailable' as const),
+            actionable: Boolean(lesson.qualification),
             authoritative: true,
-            action: 'unavailable' as const,
+            action: null,
           },
           {
             id: `${lesson.id}-physical`,
@@ -295,19 +297,23 @@ export function buildLessonActivitySections(lesson: LessonDetailResponse): Lesso
             title: 'Physical Experiment',
             description: 'Physical lab execution will become available when the robot runtime is authorized and ready.',
             durationMinutes: null,
-            status: 'unavailable' as const,
-            actionable: false,
+            status: lesson.qualification
+              ? (lesson.status === 'completed' ? ('completed' as const) : ('available' as const))
+              : ('unavailable' as const),
+            actionable: Boolean(lesson.qualification),
             authoritative: true,
-            action: 'unavailable' as const,
+            action: null,
           },
           {
             id: `${lesson.id}-evidence`,
             type: 'result' as const,
             title: 'Result / Evidence',
-            description: 'Evidence review will appear after an authorized experiment.',
+            description: 'Review authoritative physical robot experiment evidence.',
             durationMinutes: null,
-            status: 'neutral' as const,
-            actionable: false,
+            status: lesson.qualification
+              ? (lesson.status === 'completed' ? ('completed' as const) : ('neutral' as const))
+              : ('unavailable' as const),
+            actionable: Boolean(lesson.qualification),
             authoritative: true,
             action: null,
           },
@@ -315,10 +321,12 @@ export function buildLessonActivitySections(lesson: LessonDetailResponse): Lesso
             id: `${lesson.id}-reflection`,
             type: 'reflection' as const,
             title: 'Reflection',
-            description: 'Reflection will be available with the physical lab experience.',
+            description: 'Reflection on physical vs simulated execution.',
             durationMinutes: null,
-            status: 'neutral' as const,
-            actionable: false,
+            status: lesson.qualification
+              ? (lesson.status === 'completed' ? ('completed' as const) : ('neutral' as const))
+              : ('unavailable' as const),
+            actionable: Boolean(lesson.qualification),
             authoritative: false,
             action: null,
           },

@@ -1,7 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
+import { ProgressionService } from "./progression.service";
 import { RobotRuntimeClient, RuntimeSnapshot } from "./robot-runtime.client";
 
 export const TERMINAL_CONTROL_SESSION_STATES = [
@@ -72,14 +73,66 @@ interface ExecutionRecord {
 
 @Injectable()
 export class PhysicalExecutionService {
-  constructor(private readonly prisma: PrismaService, private readonly runtime: RobotRuntimeClient) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly runtime: RobotRuntimeClient,
+    @Optional() private readonly progression?: ProgressionService,
+  ) {}
 
   async eligibility(user: AuthenticatedUser, attemptId: string) {
     this.requireStudentCapability(user);
     const scope = await this.resolveScope(this.prisma, user, attemptId);
     const reason = this.ineligibility(scope);
-    if (reason) return { eligible: false as const, ...reason };
-    return this.eligibleDto(scope);
+    const readiness = await this.probeReadiness(scope);
+    if (reason) return { eligible: false as const, ...reason, readiness };
+    return { ...this.eligibleDto(scope), readiness };
+  }
+
+  private async probeReadiness(scope: PhysicalScope) {
+    let runtimeOnline = false;
+    let robotReady = false;
+    let estopActive = false;
+    let motionEnabled = false;
+    let runtimeStopped = false;
+    let checkikReachable = false;
+    let activeSession = false;
+
+    if (scope.robot_id) {
+      const active = await this.activeSession(this.prisma, scope.robot_id);
+      activeSession = Boolean(active);
+      try {
+        const snap = await this.runtime.status(scope.robot_id);
+        if (snap) {
+          runtimeOnline = true;
+          runtimeStopped = snap.stopped === true;
+          const checkik = snap.checkik as Record<string, unknown> | undefined;
+          if (checkik && checkik.reachable) {
+            checkikReachable = true;
+            const checkikSnap = (checkik.snapshot as Record<string, unknown> | undefined) ?? {};
+            const backend = (checkikSnap.backend as Record<string, unknown> | undefined) ?? {};
+            const readiness = (checkikSnap.readiness as Record<string, unknown> | undefined) ?? {};
+            motionEnabled = backend.motionEnabled === true;
+            estopActive = backend.latchedMotionLock === true;
+            robotReady = readiness.ready === true && !estopActive && motionEnabled;
+          }
+        }
+      } catch {
+        // runtime offline
+      }
+    }
+
+    return {
+      allocated: Boolean(scope.robot_id),
+      entitled: Boolean(scope.entitlement_id),
+      symbolicPassed: Boolean(scope.symbolic_evaluation_id && scope.symbolic_verdict === "passed"),
+      runtimeOnline,
+      runtimeStopped,
+      checkikReachable,
+      robotReady,
+      estopActive,
+      motionEnabled,
+      activeSession,
+    };
   }
 
   async prepare(user: AuthenticatedUser, attemptId: string) {
@@ -162,14 +215,55 @@ export class PhysicalExecutionService {
     });
   }
 
-  async start(user: AuthenticatedUser, attemptId: string) {
+  async start(user: AuthenticatedUser, attemptId: string, dto?: { safetyConfirmed?: boolean }) {
     this.requireStudentCapability(user);
+    if (!dto?.safetyConfirmed) {
+      throw this.businessConflict("SAFETY_CONFIRMATION_REQUIRED", "Explicit safety confirmation is required before physical execution.");
+    }
+
     const prepared = await this.prepare(user, attemptId);
     const scope = await this.resolveScope(this.prisma, user, attemptId);
     this.assertEligible(scope);
     if (!prepared.id || !scope.robot_id || !scope.program_version_id) {
       throw this.businessConflict("PHYSICAL_EXECUTION_NOT_ELIGIBLE", "Physical execution is not available.");
     }
+
+    if (this.progression) {
+      const qualified = await this.progression.resolveQualifiedL4ProgramVersion(user);
+      if (!qualified || qualified.verdict !== "passed" || qualified.qualifiedProgramVersionId !== scope.program_version_id) {
+        throw this.businessConflict("PROGRAM_VERSION_NOT_QUALIFIED", "The program version is not qualified by an authoritative simulation PASS.");
+      }
+    }
+
+    let runtimeSnap: RuntimeSnapshot | null = null;
+    try {
+      runtimeSnap = await this.runtime.status(scope.robot_id);
+    } catch {
+      throw this.businessConflict("ROBOT_RUNTIME_UNAVAILABLE", "Robot execution service is unavailable.");
+    }
+    if (!runtimeSnap) {
+      throw this.businessConflict("ROBOT_RUNTIME_UNAVAILABLE", "Robot execution service is unavailable.");
+    }
+    if (runtimeSnap.stopped === true) {
+      throw this.businessConflict("ROBOT_RUNTIME_STOPPED", "Robot runtime is stopped.");
+    }
+    const checkik = runtimeSnap.checkik as Record<string, unknown> | undefined;
+    if (checkik && checkik.reachable === false) {
+      throw this.businessConflict("CHECKIK_UNAVAILABLE", "Robot hardware safety controller is unavailable.");
+    }
+    const checkikSnap = (checkik?.snapshot ?? {}) as Record<string, unknown>;
+    const backend = (checkikSnap.backend ?? {}) as Record<string, unknown>;
+    const readiness = (checkikSnap.readiness ?? {}) as Record<string, unknown>;
+    if (backend.latchedMotionLock === true) {
+      throw this.businessConflict("ESTOP_ACTIVE", "Emergency stop is active on the robot.");
+    }
+    if (backend.motionEnabled === false) {
+      throw this.businessConflict("MOTION_NOT_AUTHORIZED", "Physical motion is not authorized by the safety controller.");
+    }
+    if (readiness.ready === false) {
+      throw this.businessConflict("ROBOT_NOT_READY", "Robot is not in a ready state for motion.");
+    }
+
     const runId = `wf03-${prepared.id}`;
     const snapshot = await this.runtime.createRun(scope.robot_id, {
       runId,
@@ -325,7 +419,7 @@ export class PhysicalExecutionService {
 
   private activeSession(db: Pick<PrismaService, "$queryRaw">, robotId: string) {
     const terminal = Prisma.join(TERMINAL_CONTROL_SESSION_STATES);
-    return db.$queryRaw<ActiveSession[]>(Prisma.sql`
+    return Promise.resolve(db.$queryRaw<ActiveSession[]>(Prisma.sql`
       SELECT cs.id AS control_session_id,cs.state,e.id AS experiment_id,e.status AS experiment_status,
         e.learner_user_id,e.input_snapshot->>'attemptId' AS attempt_id,
         e.submission_id,e.input_snapshot->>'programVersionId' AS program_version_id
@@ -337,7 +431,7 @@ export class PhysicalExecutionService {
       ) e ON true
       WHERE cs.robot_id=${robotId}::uuid AND cs.ended_at IS NULL
         AND cs.state NOT IN (${terminal})
-      ORDER BY cs.created_at DESC LIMIT 1`).then((rows) => rows[0] ?? null);
+      ORDER BY cs.created_at DESC LIMIT 1`)).then((rows) => (Array.isArray(rows) ? rows[0] : null) ?? null).catch(() => null);
   }
 
   private isEquivalent(active: ActiveSession, scope: PhysicalScope, user: AuthenticatedUser) {
@@ -451,7 +545,78 @@ export class PhysicalExecutionService {
         WHERE experiment_id=${experimentId}::uuid
           AND NOT EXISTS (SELECT 1 FROM public.learning_experiment_events prior WHERE prior.experiment_id=${experimentId}::uuid AND prior.event_type=${eventType})
         ON CONFLICT (experiment_id,event_index) DO NOTHING`;
+
+      if (mapped.experiment === "succeeded") {
+        await this.handlePhysicalExperimentCompletion(tx, experimentId);
+      }
     });
+  }
+
+  private async handlePhysicalExperimentCompletion(tx: Pick<PrismaService, "$queryRaw" | "$executeRaw">, experimentId: string) {
+    const rows = await tx.$queryRaw<Array<{
+      learner_user_id: string;
+      execution_mode: string;
+      program_version_id: string | null;
+      course_id: string | null;
+      l5_lesson_id: string | null;
+    }>>`
+      SELECT
+        e.learner_user_id::text,
+        e.execution_mode,
+        e.input_snapshot->>'programVersionId' AS program_version_id,
+        COALESCE(l.course_id::text, enrolled.course_id::text) AS course_id,
+        COALESCE(l5.id::text, (SELECT l5_alt.id::text FROM public.learning_lessons l5_alt WHERE l5_alt.course_id = COALESCE(l.course_id, enrolled.course_id) AND l5_alt.ordinal = 5)) AS l5_lesson_id
+      FROM public.learning_experiments e
+      LEFT JOIN public.learning_submissions s ON s.id = e.submission_id
+      LEFT JOIN public.learning_assignments a ON a.id = s.assignment_id
+      LEFT JOIN public.learning_lessons l ON l.id = a.lesson_id
+      LEFT JOIN public.learning_lessons l5 ON l5.course_id = l.course_id AND l5.ordinal = 5
+      LEFT JOIN LATERAL (
+        SELECT en.course_id FROM public.learning_enrollments en
+        WHERE en.learner_user_id = e.learner_user_id AND en.status = 'active'
+        ORDER BY en.enrolled_at DESC LIMIT 1
+      ) enrolled ON true
+      WHERE e.id = ${experimentId}::uuid
+      LIMIT 1`;
+
+    const row = rows?.[0];
+    if (!row) return;
+
+    if (row.execution_mode !== "real_robot") return;
+
+    const versionId = row.program_version_id;
+    if (!versionId) return;
+
+    const qualification = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT se.id
+      FROM public.learning_symbolic_evaluations se
+      JOIN public.learning_experiments schematic ON schematic.id = se.experiment_id
+        AND schematic.status = 'succeeded' AND schematic.execution_mode = 'schematic'
+      JOIN public.learning_lessons l ON l.ordinal = 4
+      JOIN public.learning_assignments la ON la.lesson_id = l.id
+      JOIN public.learning_submissions sub ON sub.id = se.submission_id AND sub.assignment_id = la.id
+      WHERE se.program_version_id = ${versionId}::uuid
+        AND se.requested_by_user_id = ${row.learner_user_id}::uuid
+        AND se.verdict = 'passed'
+      LIMIT 1`;
+
+    if (!qualification?.[0]) return;
+
+    const l5Id = row.l5_lesson_id;
+    if (l5Id) {
+      if (this.progression) {
+        await this.progression.completeLesson(tx as never, row.learner_user_id, l5Id);
+      } else {
+        await tx.$queryRaw`
+          INSERT INTO public.learning_lesson_progress(learner_user_id, lesson_id, status, progress_percent, started_at, completed_at, updated_at)
+          VALUES(${row.learner_user_id}::uuid, ${l5Id}::uuid, 'completed', 100, now(), now(), now())
+          ON CONFLICT (learner_user_id, lesson_id) DO UPDATE SET
+            status = 'completed', progress_percent = 100,
+            started_at = COALESCE(learning_lesson_progress.started_at, now()),
+            completed_at = COALESCE(learning_lesson_progress.completed_at, now()),
+            updated_at = now()`;
+      }
+    }
   }
 
   private executionDto(execution: ExecutionRecord, snapshot: RuntimeSnapshot) {

@@ -401,7 +401,7 @@ export const runtimeApi = { health: (token: string) => apiGet<ApiRecord>("/runti
 export const robotExecutionApi = {
   eligibility: (token: string, attemptId: string) => apiGet<ApiRecord>(`/me/attempts/${attemptId}/physical-execution-eligibility`, token),
   active: (token: string, attemptId: string) => apiGet<ApiRecord | null>(`/me/attempts/${attemptId}/physical-executions/active`, token),
-  execute: (token: string, attemptId: string) => apiRequest<ApiRecord>(`/me/attempts/${attemptId}/physical-executions/start`, token, "POST"),
+  execute: (token: string, attemptId: string, payload?: { safetyConfirmed?: boolean }) => apiRequest<ApiRecord>(`/me/attempts/${attemptId}/physical-executions/start`, token, "POST", payload),
   execution: (token: string, executionId: string) => apiGet<ApiRecord>(`/me/physical-executions/${executionId}`, token),
   stop: (token: string, executionId: string) => apiRequest<ApiRecord>(`/me/physical-executions/${executionId}/stop`, token, "POST"),
 };

@@ -7,7 +7,10 @@ import { ActivityReader } from './ActivityReader';
 
 const mocks = vi.hoisted(() => ({ query: vi.fn() }));
 
-vi.mock('@tanstack/react-query', () => ({ useQuery: () => mocks.query() }));
+vi.mock('@tanstack/react-query', () => ({
+  useQuery: () => mocks.query(),
+  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+}));
 vi.mock('../contexts/SupabaseSessionContext', () => ({
   useSupabaseSession: () => ({ session: { access_token: 'token', user: { id: 'student' } }, sessionRevision: 1 }),
 }));
@@ -362,6 +365,78 @@ describe('ActivityReader loading isolation', () => {
       expect(container.textContent).toContain('Pick & Place — Version 3');
       expect(container.textContent).toContain('pv-l4-3');
       expect(container.textContent).toContain('eval-l4-pass-v3');
+    });
+
+    it('TEST Q: Physical Experiment requires explicit confirmation of all 3 checkboxes to enable execution', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l5QualifiedData });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-5/activities/lesson-5-physical']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Authoritative Target Program');
+      expect(container.textContent).toContain('Pick & Place — Version 2');
+      expect(container.textContent).toContain('pv-l4-2');
+      expect(container.textContent).toContain('Explicit Safety Confirmation Checklist');
+
+      const executeBtn = container.querySelector('#confirm-and-execute-btn') as HTMLButtonElement;
+      expect(executeBtn).toBeDefined();
+      expect(executeBtn.disabled).toBe(true);
+
+      const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+      expect(checkboxes.length).toBe(3);
+
+      // Check 1
+      await act(async () => {
+        checkboxes[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await Promise.resolve();
+      });
+      expect(executeBtn.disabled).toBe(true);
+
+      // Check 2
+      await act(async () => {
+        checkboxes[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await Promise.resolve();
+      });
+      expect(executeBtn.disabled).toBe(true);
+
+      // Check 3
+      await act(async () => {
+        checkboxes[2].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await Promise.resolve();
+      });
+      expect(executeBtn.disabled).toBe(false);
+    });
+
+    it('TEST R: Succeeded physical execution displays 100% course evidence', async () => {
+      const l5CompletedData = {
+        ...l5QualifiedData,
+        status: 'completed' as const,
+        progressPercent: 100,
+      };
+      mocks.query.mockReturnValue({ isLoading: false, data: l5CompletedData });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-5/activities/lesson-5-evidence']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Authoritative Physical Evidence Verified');
+      expect(container.textContent).toContain('real_robot (Physical Hardware)');
+      expect(container.textContent).toContain('SO-101 Manipulator (Calibrated)');
+      expect(container.textContent).toContain('100% — All 5 Modules Completed');
+      expect(container.textContent).toContain('pv-l4-2');
     });
   });
 });

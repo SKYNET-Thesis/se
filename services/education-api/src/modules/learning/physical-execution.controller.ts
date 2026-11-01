@@ -1,8 +1,9 @@
-import { Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { CurrentUser } from "../identity/auth/current-user.decorator";
 import { SupabaseAuthGuard } from "../identity/auth/supabase-auth.guard";
+import { StartPhysicalExecutionDto } from "./dto/start-physical-execution.dto";
 import { PhysicalExecutionService } from "./physical-execution.service";
 
 @ApiTags("Physical execution preparation")
@@ -32,8 +33,9 @@ export class PhysicalExecutionController {
   start(
     @CurrentUser() user: AuthenticatedUser,
     @Param("attemptId", ParseUUIDPipe) attemptId: string,
+    @Body() dto?: StartPhysicalExecutionDto,
   ) {
-    return this.physicalExecutions.start(user, attemptId);
+    return this.physicalExecutions.start(user, attemptId, dto);
   }
 
   @Get("me/physical-executions/:experimentId")

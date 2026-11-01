@@ -22,6 +22,7 @@ export interface QualifiedProgramVersionHandoff {
   qualifiedProgramVersionId: string;
   programVersionId: string;
   programId: string;
+  submissionId?: string;
   versionNumber: number;
   challengeId: string;
   symbolicEvaluationId: string;
@@ -124,6 +125,7 @@ export class ProgressionService {
       lesson_id: string;
       course_id: string;
       program_id: string;
+      submission_id: string;
       challenge_id: string;
       verdict: string;
       version_number: number;
@@ -139,6 +141,7 @@ export class ProgressionService {
         l.id::text AS lesson_id,
         l.course_id::text AS course_id,
         s.program_id::text AS program_id,
+        s.id::text AS submission_id,
         la.challenge_id::text AS challenge_id,
         se.verdict,
         COALESCE(pv.version_number, 1) AS version_number,
@@ -171,6 +174,7 @@ export class ProgressionService {
       qualifiedProgramVersionId: match.program_version_id,
       programVersionId: match.program_version_id,
       programId: match.program_id,
+      submissionId: match.submission_id,
       versionNumber: Number(match.version_number ?? 1),
       challengeId: match.challenge_id,
       symbolicEvaluationId: match.evaluation_id,
@@ -299,7 +303,7 @@ export class ProgressionService {
     if (blocked) throw new ConflictException({ code: "PREREQUISITE_NOT_COMPLETED", prerequisiteLessonId: blocked.prerequisite_lesson_id, prerequisiteLessonTitle: blocked.title, message: `Complete ${blocked.title} before starting this lesson.` });
   }
 
-  private async completeLesson(db: QueryDb, learnerId: string, lessonId: string): Promise<ProgressionProjection> {
+  async completeLesson(db: QueryDb, learnerId: string, lessonId: string): Promise<ProgressionProjection> {
     await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${learnerId}:${lessonId}`},0)) IS NULL AS locked`;
     const completed = await db.$queryRaw<Array<{ id: string; already_completed?: boolean }>>`
       WITH existing AS (
