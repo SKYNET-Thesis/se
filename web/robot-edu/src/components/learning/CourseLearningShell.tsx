@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BookOpenIcon, CheckCircle2Icon, ChevronDownIcon, ChevronRightIcon, MenuIcon, LockIcon } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -9,6 +9,7 @@ import {
   activityTypeLabels,
   type LessonActivitySection,
 } from './lessonActivities';
+import { sessionExpandedState } from './CourseLearningState';
 
 export function CourseLearningShell({
   courseId,
@@ -32,7 +33,23 @@ export function CourseLearningShell({
   const focusedRoute = focused || /\/activities\//.test(location.pathname);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [focusedNavigatorCollapsed, setFocusedNavigatorCollapsed] = useState(false);
-  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>(() => ({ [lessonId]: true }));
+  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>(() => {
+    const cached = sessionExpandedState[courseId] ?? {};
+    return {
+      ...cached,
+      [lessonId]: cached[lessonId] !== undefined ? cached[lessonId] : true,
+    };
+  });
+
+  useEffect(() => {
+    setExpandedModules((prev) => {
+      if (prev[lessonId]) return prev;
+      const next = { ...prev, [lessonId]: true };
+      sessionExpandedState[courseId] = next;
+      return next;
+    });
+  }, [courseId, lessonId]);
+
   const pathQuery = useQuery({
     queryKey: ['course-learning-shell', courseId, session?.user.id],
     queryFn: () => progressionApi.coursePath(courseId, session?.access_token ?? ''),
@@ -57,9 +74,24 @@ export function CourseLearningShell({
   const lessons = pathOverride?.lessons ?? pathQuery.data?.lessons ?? [currentLessonFallback];
   const sections = buildLessonActivitySections(lesson);
 
-  const toggleModule = (id: string) => setExpandedModules((current) => ({ ...current, [id]: !current[id] }));
-  const expandAll = () => setExpandedModules(Object.fromEntries(lessons.map((item) => [item.id, true])));
-  const collapseAll = () => setExpandedModules(Object.fromEntries(lessons.map((item) => [item.id, false])));
+  const toggleModule = (id: string) =>
+    setExpandedModules((current) => {
+      const next = { ...current, [id]: !current[id] };
+      sessionExpandedState[courseId] = next;
+      return next;
+    });
+
+  const expandAll = () => {
+    const next = Object.fromEntries(lessons.map((item) => [item.id, true]));
+    sessionExpandedState[courseId] = next;
+    setExpandedModules(next);
+  };
+
+  const collapseAll = () => {
+    const next = Object.fromEntries(lessons.map((item) => [item.id, false]));
+    sessionExpandedState[courseId] = next;
+    setExpandedModules(next);
+  };
 
   return (
     <div
@@ -142,19 +174,23 @@ export function CourseLearningShell({
           </div>
 
           <nav aria-label="Course lessons" className="space-y-1">
-            {lessons.map((item) => (
-              <LessonModuleNavItem
-                key={item.id}
-                courseId={courseId}
-                lesson={item}
-                active={item.id === lessonId}
-                expanded={Boolean(expandedModules[item.id])}
-                onToggle={() => toggleModule(item.id)}
-                sections={item.id === lessonId ? sections : []}
-                activityId={item.id === lessonId ? activityId : undefined}
-                pathname={location.pathname}
-              />
-            ))}
+            {lessons.map((item) => {
+              const itemSections =
+                item.id === lessonId ? sections : buildLessonActivitySections(item);
+              return (
+                <LessonModuleNavItem
+                  key={item.id}
+                  courseId={courseId}
+                  lesson={item}
+                  active={item.id === lessonId}
+                  expanded={Boolean(expandedModules[item.id])}
+                  onToggle={() => toggleModule(item.id)}
+                  sections={itemSections}
+                  activityId={item.id === lessonId ? activityId : undefined}
+                  pathname={location.pathname}
+                />
+              );
+            })}
           </nav>
 
           <Link
@@ -264,7 +300,7 @@ function LessonModuleNavItem({
               </p>
             )}
 
-            {active && sections.length > 0 && (
+            {sections.length > 0 && (
               <div className="space-y-3 pt-1">
                 {sections.map((section) => (
                   <div key={section.title} className="space-y-1">
@@ -274,17 +310,25 @@ function LessonModuleNavItem({
                     <div className="space-y-0.5">
                       {section.items.map((activity) => {
                         const isSelected =
-                          activity.id === activityId || pathname.endsWith(`/${activity.id}`);
-                        const unavailable = activity.status === 'unavailable';
+                          active &&
+                          (activity.id === activityId || pathname.endsWith(`/${activity.id}`));
+                        const unavailable = locked || activity.status === 'unavailable';
 
                         if (unavailable) {
                           return (
                             <div
                               key={activity.id}
                               className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-ink-muted cursor-default"
+                              title={locked ? (lesson.lockReason?.message ?? 'Lesson is locked') : undefined}
                             >
                               <LockIcon className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-                              <span className="truncate">{activity.title}</span>
+                              <div className="min-w-0 flex-1">
+                                <span className="block truncate font-medium">{activity.title}</span>
+                                <span className="block text-[11px] text-ink-subtle">
+                                  {activityTypeLabels[activity.type]}
+                                  {activity.durationMinutes ? ` • ${activity.durationMinutes} min` : ''}
+                                </span>
+                              </div>
                             </div>
                           );
                         }
