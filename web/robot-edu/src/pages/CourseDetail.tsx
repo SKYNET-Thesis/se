@@ -1,7 +1,7 @@
-import React from 'react';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRightIcon, ChevronLeftIcon, FileQuestionIcon, LockIcon } from 'lucide-react';
+import { ArrowRightIcon, ChevronDownIcon, ChevronLeftIcon, CircleDotIcon, Clock3Icon, FileQuestionIcon, LockIcon } from 'lucide-react';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -34,7 +34,6 @@ export function CourseDetail() {
   const error = pathQuery.error;
   const path = pathQuery.data;
   const course = path?.course ?? courseQuery.data;
-  const description = courseQuery.data?.description;
 
   if (loading) {
     return (
@@ -71,7 +70,7 @@ export function CourseDetail() {
   const isComplete = !path.currentLessonId && completedLessons === totalLessons && totalLessons > 0;
 
   return (
-    <div className="mx-auto w-full max-w-[1120px] px-4 py-6 md:px-8 md:py-9">
+    <main className="mx-auto w-full max-w-[1180px] px-4 py-6 md:px-8 md:py-10">
       <Link
         to="/my-learning"
         className="inline-flex items-center gap-1 text-[13px] text-ink-muted hover:text-ink"
@@ -79,31 +78,26 @@ export function CourseDetail() {
         <ChevronLeftIcon className="h-4 w-4" /> My Learning
       </Link>
 
-      <header className="mt-5 max-w-3xl border-b border-line pb-8">
-        <p className="text-xs font-semibold uppercase tracking-wide text-accent-ink">
-          {course.status}
-        </p>
-        <h1 className="mt-2 text-[30px] font-semibold tracking-[-0.02em] text-ink">
-          {course.title}
-        </h1>
-        {description && (
-          <p className="mt-3 text-[16px] leading-relaxed text-ink-muted">{description}</p>
-        )}
-
-        <div className="mt-6 space-y-2">
-          <div className="flex items-center justify-between text-sm text-ink-muted">
-            <span>
-              {completedLessons} / {totalLessons} lessons completed
-            </span>
-            <span className="font-semibold text-ink">{path.progressPercent}%</span>
-          </div>
-          <ProgressBar
-            value={path.progressPercent}
-            label="Course completion progress"
-          />
+      <header className="mt-5 grid gap-7 border-b border-line pb-9 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+        <div className="max-w-3xl">
+          <h1 className="mt-4 text-[clamp(2rem,5vw,3.5rem)] font-semibold leading-[1.02] tracking-[-0.045em] text-ink text-balance">
+            {course.title}
+          </h1>
+          <LinkButton to={`/courses/${course.id}/info`} variant="secondary" className="mt-5">
+            Course Info
+          </LinkButton>
         </div>
 
-        <div className="mt-6">
+        <aside className="rounded-xl border border-line bg-surface p-5 shadow-hairline" aria-label="Course progress">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-subtle">Your progress</p>
+              <p className="mt-2 text-sm text-ink-muted">{completedLessons} / {totalLessons} lessons completed</p>
+            </div>
+            <span className="font-mono text-3xl font-semibold tabular-nums text-ink">{path.progressPercent}%</span>
+          </div>
+          <div className="mt-4"><ProgressBar value={path.progressPercent} label="Course completion progress" /></div>
+          <div className="mt-5">
           {path.currentLessonId ? (
             <LinkButton
               to={`/courses/${course.id}/lessons/${path.currentLessonId}`}
@@ -117,98 +111,70 @@ export function CourseDetail() {
               ✓ Course Completed
             </span>
           ) : null}
-        </div>
+          </div>
+        </aside>
       </header>
 
-      <section className="mt-8 max-w-3xl" aria-labelledby="lessons-heading">
-        <h2 id="lessons-heading" className="text-lg font-semibold text-ink">
-          Learning Path Lessons
-        </h2>
+      <section className="mt-10" aria-labelledby="lessons-heading">
+        <div className="max-w-3xl">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-accent-ink">Course path</p>
+          <h2 id="lessons-heading" className="mt-2 text-2xl font-semibold tracking-[-0.025em] text-ink">Curriculum</h2>
+          <p className="mt-2 text-sm leading-6 text-ink-muted">Explore all {totalLessons} lessons. Locked lessons can be previewed, but activities remain unavailable until prerequisites are complete.</p>
+        </div>
 
         {path.lessons.length === 0 ? (
           <p className="mt-3 text-sm text-ink-muted">No lessons have been published yet.</p>
         ) : (
-          <ol className="mt-4 divide-y divide-line border-y border-line">
+          <ol className="mt-6 space-y-3">
             {path.lessons.map((lesson: CoursePathLesson) => {
-              const isLocked = lesson.status === 'locked';
-              const isCurrent = lesson.status === 'current';
-              const isCompleted = lesson.status === 'completed';
-              const isInProgress = lesson.status === 'in_progress';
-
-              return (
-                <li
-                  key={lesson.id}
-                  className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between px-2 hover:bg-sunken rounded-lg transition-colors"
-                >
-                  <div className="flex items-start gap-4 min-w-0">
-                    <span className="w-12 pt-0.5 text-sm font-semibold text-ink-subtle shrink-0">
-                      C1-L{lesson.ordinal}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-ink">{lesson.title}</span>
-                        <Badge
-                          tone={
-                            isCompleted
-                              ? 'ok'
-                              : isCurrent
-                              ? 'accent'
-                              : isInProgress
-                              ? 'warn'
-                              : 'neutral'
-                          }
-                        >
-                          {isCompleted
-                            ? '✓ Completed'
-                            : isCurrent
-                            ? '▶ Current'
-                            : isInProgress
-                            ? '• In Progress'
-                            : isLocked
-                            ? '🔒 Locked'
-                            : 'Available'}
-                        </Badge>
-                      </div>
-
-                      {isLocked && lesson.lockReason && (
-                        <div className="mt-1.5 flex items-center gap-1.5 text-xs text-ink-muted">
-                          <LockIcon className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-                          <span>{lesson.lockReason.message}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 pt-2 sm:pt-0">
-                    {isLocked ? (
-                      <Button
-                        variant="secondary"
-                        disabled
-                        aria-disabled="true"
-                        className="cursor-not-allowed opacity-50"
-                      >
-                        Locked
-                      </Button>
-                    ) : (
-                      <LinkButton
-                        to={`/courses/${course.id}/lessons/${lesson.id}`}
-                        variant={isCurrent || isInProgress ? 'primary' : 'secondary'}
-                      >
-                        {isCompleted
-                          ? 'Review lesson'
-                          : isInProgress
-                          ? 'Continue lesson'
-                          : 'Start lesson'}
-                      </LinkButton>
-                    )}
-                  </div>
-                </li>
-              );
+              return <LessonRow key={lesson.id} lesson={lesson} courseId={course.id} />;
             })}
           </ol>
         )}
       </section>
-    </div>
+    </main>
+  );
+}
+
+function LessonRow({ lesson, courseId }: { lesson: CoursePathLesson; courseId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLocked = lesson.status === 'locked';
+  const isCurrent = lesson.status === 'current';
+  const isCompleted = lesson.status === 'completed';
+  const isInProgress = lesson.status === 'in_progress';
+  const panelId = `lesson-preview-${lesson.id}`;
+
+  return (
+    <li data-testid="lesson-row" className={`overflow-hidden rounded-xl border bg-surface transition-colors ${isCurrent || isInProgress ? 'border-accent' : 'border-line'}`}>
+      <div className="flex items-center gap-3 p-3 sm:p-4">
+        <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded((value) => !value)} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2">
+          <span className={`grid h-10 min-w-10 shrink-0 place-items-center rounded-lg px-1.5 font-mono text-[11px] font-semibold ${isCompleted ? 'bg-ok-soft text-ok' : isCurrent || isInProgress ? 'bg-accent-soft text-accent-ink' : 'bg-sunken text-ink-muted'}`}>{lesson.code ?? `L${lesson.ordinal}`}</span>
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-center gap-2"><span className="font-semibold text-ink">{lesson.title}</span><Badge tone={isCompleted ? 'ok' : isCurrent ? 'accent' : isInProgress ? 'warn' : 'neutral'}>{isCompleted ? '✓ Completed' : isCurrent ? '▶ Current' : isInProgress ? '• In Progress' : isLocked ? '🔒 Locked' : 'Available'}</Badge></span>
+            <span className="mt-1 block line-clamp-1 text-sm text-ink-muted">{lesson.summary}</span>
+            {isLocked && lesson.lockReason && <span className="mt-1 flex items-center gap-1.5 text-xs text-ink-muted"><LockIcon className="h-3.5 w-3.5 shrink-0" />{lesson.lockReason.message}</span>}
+          </span>
+          <ChevronDownIcon aria-hidden="true" className={`h-5 w-5 shrink-0 text-ink-subtle transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        </button>
+        <div className="hidden shrink-0 sm:block">
+          {isLocked ? <Button variant="secondary" disabled aria-disabled="true">Locked</Button> : <LinkButton to={`/courses/${courseId}/lessons/${lesson.id}`} variant={isCurrent || isInProgress ? 'primary' : 'secondary'}>{isCompleted ? 'Review lesson' : isInProgress ? 'Continue lesson' : 'Start lesson'}</LinkButton>}
+        </div>
+      </div>
+      {expanded && (
+        <div id={panelId} className="border-t border-line bg-sunken/50 px-4 py-5 sm:px-[4.5rem]">
+          <p className="max-w-[70ch] text-sm leading-6 text-ink-muted">{lesson.summary}</p>
+          <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto]">
+            <div>
+              <h3 className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-subtle">Learning steps</h3>
+              <ul className="mt-2 space-y-2">{lesson.learningItems.map((item) => <li key={item} className="flex items-start gap-2 text-sm text-ink"><CircleDotIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent-ink" />{item}</li>)}</ul>
+            </div>
+            {lesson.estimatedMinutes && <p className="flex items-center gap-2 text-sm text-ink-muted"><Clock3Icon className="h-4 w-4" />~{lesson.estimatedMinutes} min</p>}
+          </div>
+          {isLocked && lesson.lockReason && <div className="mt-4 flex items-start gap-2 rounded-lg border border-line bg-surface p-3 text-sm text-ink-muted"><LockIcon className="mt-0.5 h-4 w-4 shrink-0" /><span>{lesson.lockReason.message}</span></div>}
+          <div className="mt-4 sm:hidden">{isLocked ? <Button variant="secondary" disabled aria-disabled="true" className="w-full">Locked</Button> : <LinkButton to={`/courses/${courseId}/lessons/${lesson.id}`} variant={isCurrent || isInProgress ? 'primary' : 'secondary'} className="w-full">{isCompleted ? 'Review lesson' : isInProgress ? 'Continue lesson' : 'Start lesson'}</LinkButton>}</div>
+        </div>
+      )}
+    </li>
   );
 }
 

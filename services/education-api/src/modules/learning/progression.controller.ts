@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../identity/auth/current-user.decorator";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
@@ -19,8 +19,15 @@ export class ProgressionController {
   }
 
   @Get("me/courses/:courseId/qualification/c1-l4")
-  qualifiedL4Version(@CurrentUser() user: AuthenticatedUser, @Param("courseId", ParseUUIDPipe) courseId: string) {
-    return this.progression.resolveQualifiedL4ProgramVersion(user, courseId);
+  async qualifiedL4Version(@CurrentUser() user: AuthenticatedUser, @Param("courseId", ParseUUIDPipe) courseId: string) {
+    const qualification = await this.progression.resolveQualifiedL4ProgramVersion(user, courseId);
+    if (!qualification) {
+      throw new NotFoundException({
+        code: "QUALIFIED_VERSION_NOT_FOUND",
+        message: "No qualified ProgramVersion found for Course 1 Lesson 4.",
+      });
+    }
+    return qualification;
   }
 
   @Post("me/attempts/:attemptId/knowledge-check")

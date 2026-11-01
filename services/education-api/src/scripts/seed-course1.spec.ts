@@ -1,6 +1,15 @@
 import { COURSE_1_BLUEPRINT, syncChallengeConditions, validateCourse1Blueprint } from "./seed-course1";
 
 describe("Course 1 seed blueprint", () => {
+  it("owns the Course Overview metadata in persisted curriculum content", () => {
+    expect(COURSE_1_BLUEPRINT.lessons[0].content.courseOverview).toEqual({
+      label: "Course 1",
+      level: "Beginner",
+      recommendedGrades: "Grades 6–8",
+      learningOutcome: expect.stringContaining("Pick & Place"),
+    });
+  });
+
   it("defines exactly five ordered lessons and a linear prerequisite chain", () => {
     expect(COURSE_1_BLUEPRINT.lessons.map((lesson) => lesson.ordinal)).toEqual([1, 2, 3, 4, 5]);
     expect(COURSE_1_BLUEPRINT.lessons.map((lesson) => lesson.prerequisiteOrdinal)).toEqual([null, 1, 2, 3, 4]);

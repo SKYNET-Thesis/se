@@ -28,6 +28,12 @@ export const COURSE_1_BLUEPRINT = {
       ordinal: 1, title: "Meet Your Robot", prerequisiteOrdinal: null,
       content: {
         version: 1,
+        courseOverview: {
+          label: "Course 1",
+          level: "Beginner",
+          recommendedGrades: "Grades 6–8",
+          learningOutcome: "Student can independently program a Pick & Place task in simulation and then execute the qualified program on a physical robot.",
+        },
         summary: "Identify safe robot-lab behavior, components, joints, gripper, camera, workspace bounds, and essential commands.",
         learningObjectives: [
           "Identify the main structural components of the robot arm and joints.",

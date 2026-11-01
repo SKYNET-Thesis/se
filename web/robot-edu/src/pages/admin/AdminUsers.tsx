@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { PencilIcon, SearchIcon, Trash2Icon, UserPlusIcon, UsersIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import type { DemoUser, Role } from '../../types/user';
@@ -17,7 +17,7 @@ import { inputClasses } from '../../components/ui/Field';
 import { formatRelative } from '../../utils/format';
 
 const STATUS_TONE: Record<DemoUser['status'], BadgeTone> = { active: 'ok', invited: 'warn', suspended: 'danger' };
-const ROLE_LABEL: Record<Role, string> = { student: 'Student', teacher: 'Teacher', admin: 'Administrator' };
+const ROLE_LABEL: Record<Role, string> = { student: 'Student', teacher: 'Teacher', teaching_assistant: 'Teaching assistant', admin: 'Administrator', school_admin: 'School administrator' };
 
 export function AdminUsers() {
   const { users, upsertUser, removeUser } = useAdmin();
