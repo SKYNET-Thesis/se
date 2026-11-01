@@ -10,6 +10,7 @@ import {
   LockIcon,
   RotateCcwIcon,
   ShieldAlertIcon,
+  ShieldCheckIcon,
   TargetIcon,
 } from 'lucide-react';
 import { CourseLearningShell } from '../components/learning/CourseLearningShell';
@@ -451,52 +452,134 @@ export function ActivityReader() {
                 {activity.description}
               </p>
 
-              <section className="space-y-6">
-                <h2 className="text-2xl font-bold tracking-tight text-ink">
-                  Robot Concept in Action
-                </h2>
+              {lesson.ordinal === 5 ? (
+                <section className="space-y-6">
+                  {lesson.qualification ? (
+                    <div className="rounded-2xl border-2 border-ok/30 bg-[linear-gradient(135deg,#f0fdf4_0%,#ffffff_100%)] p-7 space-y-5 shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          <CheckCircle2Icon className="h-6 w-6 text-ok" />
+                          <span className="text-xs font-semibold uppercase tracking-wider text-ok">
+                            Qualified Program
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge tone="ok">Simulation: PASS</Badge>
+                          <Badge tone="accent">Ready for physical preflight</Badge>
+                        </div>
+                      </div>
 
-                <div className="space-y-4">
-                  <p className="text-ink/90">
-                    The robot computes the required arm pose to place the gripper at the commanded 3D
-                    coordinates. Sequencing <code className="rounded bg-sunken px-1.5 py-0.5 font-mono text-sm">home → move to target → wait</code> creates
-                    safe, reproducible movement.
-                  </p>
+                      <div>
+                        <h2 className="text-2xl font-bold tracking-tight text-ink md:text-3xl">
+                          Pick &amp; Place — Version {lesson.qualification.versionNumber}
+                        </h2>
+                        <p className="mt-2 text-sm text-ink-muted leading-relaxed">
+                          This exact immutable ProgramVersion passed authoritative C1-L4 simulation evaluation and is resolved by backend provenance for C1-L5 Physical Robot Lab handoff.
+                        </p>
+                      </div>
 
-                  <div className="space-y-3 pt-2">
-                    <h3 className="text-lg font-semibold text-ink">How the Robot Interprets the Target</h3>
+                      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 text-xs">
+                        <div className="rounded-lg border border-line bg-surface/80 p-3">
+                          <dt className="font-semibold text-ink-muted uppercase tracking-wider">Program Version ID</dt>
+                          <dd className="mt-1 font-mono font-medium text-ink break-all">
+                            {lesson.qualification.programVersionId}
+                          </dd>
+                        </div>
+                        <div className="rounded-lg border border-line bg-surface/80 p-3">
+                          <dt className="font-semibold text-ink-muted uppercase tracking-wider">Symbolic Evaluation</dt>
+                          <dd className="mt-1 font-mono font-medium text-ok">
+                            {lesson.qualification.verdict ?? 'passed'} ({lesson.qualification.evaluationId})
+                          </dd>
+                        </div>
+                        <div className="rounded-lg border border-line bg-surface/80 p-3">
+                          <dt className="font-semibold text-ink-muted uppercase tracking-wider">Schematic Experiment</dt>
+                          <dd className="mt-1 font-mono font-medium text-ink break-all">
+                            {lesson.qualification.experimentId}
+                          </dd>
+                        </div>
+                        <div className="rounded-lg border border-line bg-surface/80 p-3">
+                          <dt className="font-semibold text-ink-muted uppercase tracking-wider">Qualified At</dt>
+                          <dd className="mt-1 font-mono font-medium text-ink">
+                            {new Date(lesson.qualification.passedAt).toLocaleString()}
+                          </dd>
+                        </div>
+                      </dl>
+
+                      {lesson.qualification.changeSummary && (
+                        <div className="rounded-lg bg-surface/80 border border-line p-3 text-xs">
+                          <span className="font-semibold text-ink-muted uppercase tracking-wider block">Change Summary</span>
+                          <span className="mt-0.5 text-ink font-medium">{lesson.qualification.changeSummary}</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-line bg-surface p-7 space-y-4 shadow-hairline">
+                      <div className="flex items-center gap-2.5">
+                        <ClockIcon className="h-6 w-6 text-ink-subtle" />
+                        <h2 className="text-2xl font-bold text-ink">Awaiting Qualification</h2>
+                      </div>
+                      <p className="text-sm text-ink-muted leading-relaxed">
+                        No qualified ProgramVersion found. You must successfully pass the authoritative C1-L4 Pick &amp; Place challenge simulation to qualify a program version for physical lab execution.
+                      </p>
+                      <div className="pt-2">
+                        <Link
+                          to={`/courses/${courseId}`}
+                          className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white transition-colors duration-150 ease-out hover:bg-accent-hover"
+                        >
+                          Return to Course Path <ArrowRightIcon className="h-4 w-4" />
+                        </Link>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              ) : (
+                <section className="space-y-6">
+                  <h2 className="text-2xl font-bold tracking-tight text-ink">
+                    Robot Concept in Action
+                  </h2>
+
+                  <div className="space-y-4">
                     <p className="text-ink/90">
-                      Instead of manual joint angles, target positions exist in 3D Cartesian workspace coordinates (X, Y, Z). The system solves inverse kinematics to position the end-effector accurately.
+                      The robot computes the required arm pose to place the gripper at the commanded 3D
+                      coordinates. Sequencing <code className="rounded bg-sunken px-1.5 py-0.5 font-mono text-sm">home → move to target → wait</code> creates
+                      safe, reproducible movement.
+                    </p>
+
+                    <div className="space-y-3 pt-2">
+                      <h3 className="text-lg font-semibold text-ink">How the Robot Interprets the Target</h3>
+                      <p className="text-ink/90">
+                        Instead of manual joint angles, target positions exist in 3D Cartesian workspace coordinates (X, Y, Z). The system solves inverse kinematics to position the end-effector accurately.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h3 className="text-lg font-semibold text-ink">Deterministic Motion Sequencing</h3>
+                      <p className="text-ink/90">
+                        Executing <code className="rounded bg-sunken px-1.5 py-0.5 font-mono text-sm">home → move to target → wait</code> ensures predictable state: homing resets the baseline, target motion plans safe interpolation, and wait dampens vibrations.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <h3 className="text-lg font-semibold text-ink">Preview Simulation Verification</h3>
+                      <p className="text-ink/90">
+                        Before sending execution commands to physical hardware, preview simulation calculates and visualizes the complete trajectory to verify coordinate reachability and obstacle clearance.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-accent/20 bg-accent-soft/50 p-6">
+                    <div className="flex items-center gap-2">
+                      <InfoIcon className="h-5 w-5 text-accent-ink" />
+                      <h3 className="text-base font-semibold text-accent-ink">
+                        Simulation Preview
+                      </h3>
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed text-ink/90">
+                      Observe the preview simulation to verify the robot trajectory before execution.
                     </p>
                   </div>
-
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-semibold text-ink">Deterministic Motion Sequencing</h3>
-                    <p className="text-ink/90">
-                      Executing <code className="rounded bg-sunken px-1.5 py-0.5 font-mono text-sm">home → move to target → wait</code> ensures predictable state: homing resets the baseline, target motion plans safe interpolation, and wait dampens vibrations.
-                    </p>
-                  </div>
-
-                  <div className="space-y-3">
-                    <h3 className="text-lg font-semibold text-ink">Preview Simulation Verification</h3>
-                    <p className="text-ink/90">
-                      Before sending execution commands to physical hardware, preview simulation calculates and visualizes the complete trajectory to verify coordinate reachability and obstacle clearance.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-accent/20 bg-accent-soft/50 p-6">
-                  <div className="flex items-center gap-2">
-                    <InfoIcon className="h-5 w-5 text-accent-ink" />
-                    <h3 className="text-base font-semibold text-accent-ink">
-                      Simulation Preview
-                    </h3>
-                  </div>
-                  <p className="mt-2 text-sm leading-relaxed text-ink/90">
-                    Observe the preview simulation to verify the robot trajectory before execution.
-                  </p>
-                </div>
-              </section>
+                </section>
+              )}
             </>
           )}
 
@@ -597,7 +680,22 @@ export function ActivityReader() {
                 {activity.description}
               </p>
 
-              {lesson.status === 'completed' || lesson.qualification ? (
+              {lesson.ordinal === 5 ? (
+                <section className="rounded-2xl border border-line bg-surface p-8 space-y-4 shadow-hairline">
+                  <div className="flex items-center gap-2.5">
+                    <ClockIcon className="h-6 w-6 text-ink-subtle" />
+                    <h2 className="text-2xl font-bold text-ink">Physical Evidence Pending Execution</h2>
+                  </div>
+                  <p className="text-sm leading-relaxed text-ink-muted">
+                    Evidence review and reflection will be recorded and generated after an authorized physical robot experiment is executed in P0.9.
+                  </p>
+                  {lesson.qualification && (
+                    <p className="text-xs text-ink-muted">
+                      Preflight Program Version: <strong className="text-ink">Pick &amp; Place — Version {lesson.qualification.versionNumber}</strong> ({lesson.qualification.programVersionId})
+                    </p>
+                  )}
+                </section>
+              ) : lesson.status === 'completed' || lesson.qualification ? (
                 <section className="rounded-2xl border border-ok/30 bg-ok-soft/60 p-8 space-y-4">
                   <div className="flex items-center gap-2.5">
                     <CheckCircle2Icon className="h-6 w-6 text-ok" />
@@ -652,14 +750,37 @@ export function ActivityReader() {
           )}
 
           {activity.type === 'physical_lab' && (
-            <section className="rounded-xl border border-line bg-surface p-7 space-y-4">
-              <div className="flex items-center gap-2">
-                <LockIcon className="h-5 w-5 text-warn" />
-                <h2 className="text-xl font-bold text-ink">{activity.title}</h2>
+            <section className="rounded-xl border border-line bg-surface p-7 space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <LockIcon className="h-5 w-5 text-warn" />
+                  <h2 className="text-xl font-bold text-ink">{activity.title}</h2>
+                </div>
+                <Badge tone="warn">Physical Lab (Gated)</Badge>
               </div>
+
               <p className="text-sm text-ink-muted">
                 {activity.description}
               </p>
+
+              {lesson.qualification ? (
+                <div className="rounded-lg border border-accent/20 bg-accent-soft/40 p-4 space-y-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheckIcon className="h-4 w-4 text-accent-ink" />
+                    <span className="font-semibold text-accent-ink uppercase tracking-wider">Preflight Safety Check</span>
+                  </div>
+                  <p className="text-ink/90 leading-relaxed">
+                    Qualified Target: <strong className="text-ink">Pick &amp; Place — Version {lesson.qualification.versionNumber}</strong> ({lesson.qualification.programVersionId})
+                  </p>
+                  <p className="text-ink-muted leading-relaxed">
+                    Hardware execution is gated until preflight hardware authorization is enabled (P0.9). No fake robot execution or synthetic readiness will be performed.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-line bg-sunken p-4 text-xs text-ink-muted">
+                  Simulation qualification is required before physical lab preflight. Return to C1-L4 to qualify your program.
+                </div>
+              )}
             </section>
           )}
         </article>

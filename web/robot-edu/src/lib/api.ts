@@ -138,19 +138,31 @@ export interface LessonDetailResponse {
   progressPercent: number;
   lockReason: LessonLockReason | null;
   prerequisites: LessonPrerequisite[];
-  qualification?: {
-    lessonId: string;
-    evaluationId: string;
-    experimentId: string;
-    programVersionId: string;
-    versionNumber: number;
-    attemptId: string;
-    passedAt: string;
-  } | null;
+  qualification?: ApiQualifiedProgramHandoff | null;
   assignment: LessonAssignmentInfo | null;
   activeAttempt: LessonAttemptSummary | null;
   priorAttempt: LessonAttemptSummary | null;
   created_at: string;
+}
+
+export interface ApiQualifiedProgramHandoff {
+  courseId?: string;
+  lessonId: string;
+  qualifiedProgramVersionId?: string;
+  programVersionId: string;
+  programId?: string;
+  versionNumber: number;
+  challengeId?: string;
+  symbolicEvaluationId?: string;
+  evaluationId: string;
+  schematicExperimentId?: string;
+  experimentId: string;
+  verdict?: "passed";
+  attemptId: string;
+  passedAt: string;
+  qualifiedAt?: string;
+  robotProgram?: unknown;
+  changeSummary?: string | null;
 }
 
 export interface KnowledgeCheckAnswerInput {
@@ -270,7 +282,7 @@ export const learnerApi = {
 export const progressionApi = {
   coursePath: (courseId: string, token: string) => apiGet<CoursePathResponse>(`/me/courses/${courseId}/path`, token),
   qualifiedL4Version: (courseId: string, token: string) =>
-    apiGet<{ lessonId: string; evaluationId: string; experimentId: string; programVersionId: string; versionNumber: number; attemptId: string; passedAt: string } | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
+    apiGet<ApiQualifiedProgramHandoff | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
   coursePaths: async (token: string): Promise<CoursePathResponse[]> => {
     const enrollments = await learnerApi.enrollments(token).catch(() => [] as ApiEnrollment[]);
     let courseIds = enrollments.filter((e) => e.status === "active" && e.course_id).map((e) => e.course_id);

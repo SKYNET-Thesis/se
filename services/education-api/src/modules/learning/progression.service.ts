@@ -16,6 +16,26 @@ interface SymbolicChainRow { evaluation_id: string; verdict: "passed" | "failed"
 export interface SymbolicProjectionInput { evaluationId: string; attemptId: string; programVersionId: string; verdict: "passed" | "failed"; }
 export interface KnowledgeCheckResult extends ProgressionProjection { passed: boolean; score: number; attemptId: string; }
 
+export interface QualifiedProgramVersionHandoff {
+  courseId: string;
+  lessonId: string;
+  qualifiedProgramVersionId: string;
+  programVersionId: string;
+  programId: string;
+  versionNumber: number;
+  challengeId: string;
+  symbolicEvaluationId: string;
+  evaluationId: string;
+  schematicExperimentId: string;
+  experimentId: string;
+  verdict: "passed";
+  attemptId: string;
+  passedAt: Date;
+  qualifiedAt: Date;
+  robotProgram?: unknown;
+  changeSummary?: string | null;
+}
+
 @Injectable()
 export class ProgressionService {
   constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService) {}
@@ -96,15 +116,42 @@ export class ProgressionService {
     return this.completeLesson(db, user.vistaUserId, chain.lesson_id);
   }
 
-  async resolveQualifiedL4ProgramVersion(user: AuthenticatedUser, courseId?: string): Promise<{ lessonId: string; evaluationId: string; experimentId: string; programVersionId: string; versionNumber: number; attemptId: string; passedAt: Date } | null> {
-    const rows = await this.prisma.$queryRaw<Array<{ program_version_id: string; evaluation_id: string; experiment_id: string; lesson_id: string; version_number: number; attempt_id: string; passed_at: Date }>>`
-      SELECT se.program_version_id, se.id AS evaluation_id, e.id::text AS experiment_id, l.id::text AS lesson_id, COALESCE(pv.version_number, 1) AS version_number, a.id::text AS attempt_id, se.created_at AS passed_at
+  async resolveQualifiedL4ProgramVersion(user: AuthenticatedUser, courseId?: string): Promise<QualifiedProgramVersionHandoff | null> {
+    const rows = await this.prisma.$queryRaw<Array<{
+      program_version_id: string;
+      evaluation_id: string;
+      experiment_id: string;
+      lesson_id: string;
+      course_id: string;
+      program_id: string;
+      challenge_id: string;
+      verdict: string;
+      version_number: number;
+      attempt_id: string;
+      passed_at: Date;
+      robot_program: unknown;
+      change_summary: string | null;
+    }>>`
+      SELECT
+        se.program_version_id,
+        se.id AS evaluation_id,
+        e.id::text AS experiment_id,
+        l.id::text AS lesson_id,
+        l.course_id::text AS course_id,
+        s.program_id::text AS program_id,
+        la.challenge_id::text AS challenge_id,
+        se.verdict,
+        COALESCE(pv.version_number, 1) AS version_number,
+        a.id::text AS attempt_id,
+        se.created_at AS passed_at,
+        pv.robot_program,
+        pv.change_summary
       FROM public.learning_symbolic_evaluations se
       JOIN public.learning_experiments e ON e.id=se.experiment_id AND e.learner_user_id=se.requested_by_user_id
         AND e.status='succeeded' AND e.execution_mode='schematic'
-      LEFT JOIN public.learning_program_versions pv ON pv.id=se.program_version_id
+      JOIN public.learning_program_versions pv ON pv.id=se.program_version_id
       JOIN public.learning_submissions s ON s.id=se.submission_id AND s.learner_user_id=se.requested_by_user_id
-        AND s.program_version_id=se.program_version_id AND s.status='submitted'
+        AND s.program_id=pv.program_id
       JOIN public.learning_assignment_attempts a ON a.id::text=e.input_snapshot->>'attemptId'
         AND a.learner_user_id=se.requested_by_user_id AND a.program_id=s.program_id
       JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id
@@ -114,18 +161,28 @@ export class ProgressionService {
         AND se.verdict='passed'
         AND l.ordinal=4
         ${courseId ? Prisma.sql`AND l.course_id=${courseId}::uuid` : Prisma.empty}
-      ORDER BY se.created_at DESC
+      ORDER BY se.created_at DESC, pv.version_number DESC, se.id DESC
       LIMIT 1`;
     const match = rows[0];
     if (!match) return null;
     return {
+      courseId: match.course_id,
       lessonId: match.lesson_id,
-      evaluationId: match.evaluation_id,
-      experimentId: match.experiment_id,
+      qualifiedProgramVersionId: match.program_version_id,
       programVersionId: match.program_version_id,
+      programId: match.program_id,
       versionNumber: Number(match.version_number ?? 1),
+      challengeId: match.challenge_id,
+      symbolicEvaluationId: match.evaluation_id,
+      evaluationId: match.evaluation_id,
+      schematicExperimentId: match.experiment_id,
+      experimentId: match.experiment_id,
+      verdict: "passed",
       attemptId: match.attempt_id,
       passedAt: match.passed_at,
+      qualifiedAt: match.passed_at,
+      robotProgram: match.robot_program,
+      changeSummary: match.change_summary ?? null,
     };
   }
 

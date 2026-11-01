@@ -205,4 +205,163 @@ describe('ActivityReader loading isolation', () => {
       expect(container.textContent).toContain('Open practice workspace');
     });
   });
+
+  describe('C1-L5 Physical Lab Handoff (TEST M - TEST P)', () => {
+    const l5QualifiedData = {
+      id: 'lesson-5',
+      course_id: 'course-1',
+      course_title: 'Robotics Fundamentals',
+      title: 'Physical Robot Lab',
+      ordinal: 5,
+      status: 'in_progress',
+      progressPercent: 0,
+      lockReason: null,
+      prerequisites: [],
+      content: {
+        version: 1,
+        summary: 'Transfer your validated Pick & Place simulation program to the physical robot hardware.',
+        learningObjectives: [],
+        conceptSections: [
+          { title: 'Physical Robot Operations', content: 'Safety interlocks, preflight verification, and physical execution.' },
+        ],
+        robotConcept: 'Review your verified symbolic program before physical execution.',
+        taskPreview: 'Run preflight checks and deploy the qualified program to hardware.',
+        estimatedMinutes: 30,
+        safetyNotes: [
+          'Verify emergency stop engagement before powering arm actuators.',
+          'Physical execution requires instructor safety authorization.',
+        ],
+        completionCriteria: 'Complete physical preflight and verified physical experiment.',
+      },
+      qualification: {
+        courseId: 'course-1',
+        lessonId: 'lesson-4',
+        qualifiedProgramVersionId: 'pv-l4-2',
+        programVersionId: 'pv-l4-2',
+        programId: 'prog-l4',
+        versionNumber: 2,
+        challengeId: 'chal-l4',
+        symbolicEvaluationId: 'eval-l4-pass-v2',
+        evaluationId: 'eval-l4-pass-v2',
+        schematicExperimentId: 'exp-l4-2',
+        experimentId: 'exp-l4-2',
+        verdict: 'passed' as const,
+        attemptId: 'att-l4',
+        passedAt: '2026-10-31T11:30:00Z',
+        qualifiedAt: '2026-10-31T11:30:00Z',
+        changeSummary: 'Attempt 2 (corrected target)',
+      },
+      assignment: null,
+      activeAttempt: null,
+      priorAttempt: null,
+      created_at: '',
+    };
+
+    it('TEST M: L5 displays qualified version when backend returns qualification', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l5QualifiedData });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-5/activities/lesson-5-demonstration']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Qualified Program');
+      expect(container.textContent).toContain('Pick & Place — Version 2');
+      expect(container.textContent).toContain('Simulation: PASS');
+      expect(container.textContent).toContain('Ready for physical preflight');
+      expect(container.textContent).toContain('pv-l4-2');
+      expect(container.textContent).toContain('eval-l4-pass-v2');
+      expect(container.textContent).toContain('exp-l4-2');
+      expect(container.textContent).toContain('Attempt 2 (corrected target)');
+    });
+
+    it('TEST N: L5 never displays fake robot success/readiness', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l5QualifiedData });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-5/activities/lesson-5-readiness']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Robot Readiness / Safety Check');
+      expect(container.textContent).toContain('Physical Lab (Gated)');
+      expect(container.textContent).toContain('Preflight Safety Check');
+      expect(container.textContent).toContain('Qualified Target: Pick & Place — Version 2');
+      expect(container.textContent).toContain('Hardware execution is gated until preflight hardware authorization is enabled (P0.9)');
+      expect(container.textContent).toContain('No fake robot execution or synthetic readiness will be performed');
+      expect(container.textContent).not.toContain('Robot is ready');
+      expect(container.textContent).not.toContain('Execution succeeded');
+    });
+
+    it('TEST O: Result/Evidence renders server verdict', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l5QualifiedData });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-5/activities/lesson-5-evidence']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Physical Evidence Pending Execution');
+      expect(container.textContent).toContain('Evidence review and reflection will be recorded and generated after an authorized physical robot experiment is executed in P0.9');
+      expect(container.textContent).toContain('Preflight Program Version: Pick & Place — Version 2');
+    });
+
+    it('TEST P: refresh/reload refetches authoritative qualification', async () => {
+      // First render returns qualified v2
+      mocks.query.mockReturnValue({ isLoading: false, data: l5QualifiedData });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-5/activities/lesson-5-demonstration']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+      expect(container.textContent).toContain('Pick & Place — Version 2');
+
+      // Server updates qualification to v3 (e.g. after fresh pass)
+      const l5UpdatedData = {
+        ...l5QualifiedData,
+        qualification: {
+          ...l5QualifiedData.qualification,
+          programVersionId: 'pv-l4-3',
+          versionNumber: 3,
+          evaluationId: 'eval-l4-pass-v3',
+          changeSummary: 'Attempt 3 (optimized placement)',
+        },
+      };
+
+      mocks.query.mockReturnValue({ isLoading: false, data: l5UpdatedData });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-5/activities/lesson-5-demonstration']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+      expect(container.textContent).toContain('Pick & Place — Version 3');
+      expect(container.textContent).toContain('pv-l4-3');
+      expect(container.textContent).toContain('eval-l4-pass-v3');
+    });
+  });
 });
