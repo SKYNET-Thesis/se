@@ -37,12 +37,72 @@ export interface QualifiedProgramVersionHandoff {
   changeSummary?: string | null;
 }
 
+export interface QuizRow {
+  lesson_id: string;
+  lesson_title: string;
+  lesson_ordinal: number;
+  course_id: string;
+  course_title: string;
+  assignment_id: string;
+  quiz_title: string;
+  classroom_assignment_id: string | null;
+  attempt_id: string | null;
+  attempt_status: string | null;
+  score: number | null;
+  passed: boolean | null;
+  pass_percent: number | null;
+  status: 'not_started' | 'in_progress' | 'passed' | 'failed';
+}
+
 @Injectable()
 export class ProgressionService {
   constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService) {}
 
   async coursePath(user: AuthenticatedUser, courseId: string): Promise<CoursePathResponse> {
     return this.coursePathWithDb(this.prisma, user, courseId);
+  }
+
+  async myQuizzes(user: AuthenticatedUser): Promise<QuizRow[]> {
+    return this.prisma.$queryRaw<QuizRow[]>`
+      SELECT
+        l.id AS lesson_id,
+        l.title AS lesson_title,
+        l.ordinal AS lesson_ordinal,
+        co.id AS course_id,
+        co.title AS course_title,
+        a.id AS assignment_id,
+        a.title AS quiz_title,
+        ca.id AS classroom_assignment_id,
+        latest.id AS attempt_id,
+        latest.status AS attempt_status,
+        latest.score::float AS score,
+        (latest.result_snapshot->>'passed')::boolean AS passed,
+        COALESCE((latest.result_snapshot->>'passPercent')::int, (ch.success_criteria->>'passPercent')::int, 80) AS pass_percent,
+        CASE
+          WHEN latest.status = 'evaluated' AND ((latest.result_snapshot->>'passed')::boolean = true OR latest.score >= COALESCE((latest.result_snapshot->>'passPercent')::int, (ch.success_criteria->>'passPercent')::int, 80)) THEN 'passed'
+          WHEN latest.status = 'evaluated' THEN 'failed'
+          WHEN latest.id IS NOT NULL THEN 'in_progress'
+          ELSE 'not_started'
+        END AS status
+      FROM public.learning_lessons l
+      JOIN public.learning_courses co ON co.id=l.course_id
+      JOIN public.learning_assignments a ON a.lesson_id=l.id AND a.constraints->>'kind'='knowledge_check'
+      LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id
+      JOIN public.learning_course_offerings o ON o.course_id=co.id AND o.status='active'
+      JOIN public.learning_classrooms c ON c.offering_id=o.id AND c.status='active'
+      JOIN public.learning_enrollments e ON e.course_id=co.id AND e.offering_id=o.id AND e.classroom_id=c.id
+        AND e.learner_user_id=${user.vistaUserId}::uuid AND e.status='active'
+      JOIN public.learning_classroom_members cm ON cm.classroom_id=c.id AND cm.user_id=${user.vistaUserId}::uuid AND cm.classroom_role='student' AND cm.status='active'
+      JOIN public.memberships m ON m.id=cm.membership_id AND m.status='active' AND m.organization_id=c.organization_id
+      LEFT JOIN public.learning_classroom_assignments ca ON ca.assignment_id=a.id AND ca.classroom_id=c.id AND ca.status='published'
+      LEFT JOIN LATERAL (
+        SELECT att.id, att.status, att.score, att.result_snapshot, att.submitted_at
+        FROM public.learning_assignment_attempts att
+        WHERE att.classroom_assignment_id=ca.id AND att.learner_user_id=${user.vistaUserId}::uuid
+        ORDER BY att.started_at DESC LIMIT 1
+      ) latest ON true
+      WHERE co.status='published'
+      ORDER BY co.title, l.ordinal`;
   }
 
   async submitKnowledgeCheck(user: AuthenticatedUser, attemptId: string, dto: SubmitKnowledgeCheckDto): Promise<KnowledgeCheckResult> {

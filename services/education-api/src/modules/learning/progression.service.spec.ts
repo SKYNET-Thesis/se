@@ -241,4 +241,30 @@ describe("ProgressionService", () => {
     const txQuery = jest.fn().mockResolvedValueOnce([]);
     await expect(service.projectSymbolicPass({ $queryRaw: txQuery } as never, student, { evaluationId: "eval-1", attemptId: "attempt-2", programVersionId: "wrong-version", verdict: "passed" })).rejects.toBeInstanceOf(ConflictException);
   });
+
+  it("queries authoritative student quizzes across enrolled courses", async () => {
+    queryRaw.mockResolvedValueOnce([
+      {
+        lesson_id: "l-1",
+        lesson_title: "Meet Your Robot",
+        lesson_ordinal: 1,
+        course_id: "c-1",
+        course_title: "Robotics Fundamentals",
+        assignment_id: "a-1",
+        quiz_title: "Safety Knowledge Check",
+        classroom_assignment_id: "ca-1",
+        attempt_id: "att-1",
+        attempt_status: "evaluated",
+        score: 100,
+        passed: true,
+        pass_percent: 80,
+        status: "passed",
+      },
+    ]);
+    const quizzes = await service.myQuizzes(student);
+    expect(quizzes).toHaveLength(1);
+    expect(quizzes[0].quiz_title).toBe("Safety Knowledge Check");
+    expect(quizzes[0].status).toBe("passed");
+    expect(quizzes[0].score).toBe(100);
+  });
 });

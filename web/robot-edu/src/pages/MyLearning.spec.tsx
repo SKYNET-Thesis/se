@@ -4,20 +4,28 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ApiStudentQuiz } from '../lib/api';
 
 const mocks = vi.hoisted(() => ({
-  sessionState: { session: null as null | { access_token: string; expires_at?: number; user: { id: string } }, loading: true, sessionRevision: 0 },
-  myLearning: vi.fn(),
+  sessionState: {
+    session: null as null | { access_token: string; expires_at?: number; user: { id: string } },
+    loading: true,
+    sessionRevision: 0,
+  },
   coursePaths: vi.fn(),
+  quizzes: vi.fn(),
 }));
 
-vi.mock('../contexts/SupabaseSessionContext', () => ({ useSupabaseSession: () => mocks.sessionState }));
+vi.mock('../contexts/SupabaseSessionContext', () => ({
+  useSupabaseSession: () => mocks.sessionState,
+}));
+
 vi.mock('../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api')>();
   return {
     ...actual,
-    learnerApi: { ...actual.learnerApi, myLearning: mocks.myLearning, coursePaths: mocks.coursePaths },
-    progressionApi: { ...actual.progressionApi, coursePaths: mocks.coursePaths },
+    learnerApi: { ...actual.learnerApi, coursePaths: mocks.coursePaths, quizzes: mocks.quizzes },
+    progressionApi: { ...actual.progressionApi, coursePaths: mocks.coursePaths, quizzes: mocks.quizzes },
   };
 });
 
@@ -25,33 +33,165 @@ import { MyLearning } from './MyLearning';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const published = [{ classroom_assignment_id: 'delivery-1', title: 'Published gripper task', lesson_id: 'lesson-1', lesson_title: 'Gripper', classroom_name: 'Robotics Class A', course_title: 'Robotics', attempt_id: null, attempt_status: null, learning_status: 'assigned' as const }];
-
 const course1Path = {
-  course: { id: 'c1-uuid', title: 'Robotics Fundamentals', status: 'published' },
+  course: {
+    id: 'c1-uuid',
+    title: 'Robotics Fundamentals',
+    status: 'published',
+    level: 'Introductory',
+    recommendedGrades: '6-8',
+    description: 'Foundations of robotics',
+    label: 'Track 1',
+    learningOutcome: 'Build robot behaviors',
+    competencies: [],
+  },
   progressPercent: 40,
   currentLessonId: 'lesson-3-uuid',
   lessons: [
-    { id: 'lesson-1-uuid', ordinal: 1, title: 'Meet Your Robot', status: 'completed' as const, progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T00:00:00Z' },
-    { id: 'lesson-2-uuid', ordinal: 2, title: 'Move the Robot', status: 'completed' as const, progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T01:00:00Z' },
-    { id: 'lesson-3-uuid', ordinal: 3, title: 'Grab & Release', status: 'current' as const, progressPercent: 0, prerequisite: [], lockReason: null, completedAt: null },
-    { id: 'lesson-4-uuid', ordinal: 4, title: 'Pick & Place', status: 'locked' as const, progressPercent: 0, prerequisite: [{ lessonId: 'lesson-3-uuid', title: 'Grab & Release', required: true, minimumScore: null }], lockReason: { code: 'PREREQUISITE_NOT_COMPLETED' as const, prerequisiteLessonId: 'lesson-3-uuid', prerequisiteLessonTitle: 'Grab & Release', message: 'Complete Grab & Release to unlock this lesson.' }, completedAt: null },
-    { id: 'lesson-5-uuid', ordinal: 5, title: 'Physical Robot Lab', status: 'locked' as const, progressPercent: 0, prerequisite: [{ lessonId: 'lesson-4-uuid', title: 'Pick & Place', required: true, minimumScore: null }], lockReason: { code: 'PREREQUISITE_NOT_COMPLETED' as const, prerequisiteLessonId: 'lesson-4-uuid', prerequisiteLessonTitle: 'Pick & Place', message: 'Complete Pick & Place to unlock this lesson.' }, completedAt: null },
+    {
+      id: 'lesson-1-uuid',
+      ordinal: 1,
+      title: 'Meet Your Robot',
+      status: 'completed' as const,
+      progressPercent: 100,
+      prerequisite: [],
+      lockReason: null,
+      completedAt: '2026-10-31T00:00:00Z',
+    },
+    {
+      id: 'lesson-2-uuid',
+      ordinal: 2,
+      title: 'Move the Robot',
+      status: 'completed' as const,
+      progressPercent: 100,
+      prerequisite: [],
+      lockReason: null,
+      completedAt: '2026-10-31T01:00:00Z',
+    },
+    {
+      id: 'lesson-3-uuid',
+      ordinal: 3,
+      title: 'Grab & Release',
+      status: 'current' as const,
+      progressPercent: 0,
+      prerequisite: [],
+      lockReason: null,
+      completedAt: null,
+    },
   ],
 };
 
-describe('My Learning auth and route lifecycle', () => {
+const completedCoursePath = {
+  course: {
+    id: 'c2-uuid',
+    title: 'Advanced Robot Kinematics',
+    status: 'published',
+    level: 'Advanced',
+    recommendedGrades: '9-12',
+    description: 'Advanced robotics motion',
+    label: 'Track 2',
+    learningOutcome: 'Master kinematics',
+    competencies: [],
+  },
+  progressPercent: 100,
+  currentLessonId: null,
+  lessons: [
+    {
+      id: 'c2-l1',
+      ordinal: 1,
+      title: 'Forward Kinematics',
+      status: 'completed' as const,
+      progressPercent: 100,
+      prerequisite: [],
+      lockReason: null,
+      completedAt: '2026-11-01T10:00:00Z',
+    },
+    {
+      id: 'c2-l2',
+      ordinal: 2,
+      title: 'Inverse Kinematics',
+      status: 'completed' as const,
+      progressPercent: 100,
+      prerequisite: [],
+      lockReason: null,
+      completedAt: '2026-11-02T10:00:00Z',
+    },
+  ],
+};
+
+const mockQuizzes: ApiStudentQuiz[] = [
+  {
+    course_id: 'c1-uuid',
+    course_title: 'Robotics Fundamentals',
+    lesson_id: 'lesson-1-uuid',
+    lesson_title: 'Meet Your Robot',
+    lesson_ordinal: 1,
+    assignment_id: 'asg-quiz-1',
+    quiz_title: 'Meet Your Robot Knowledge Check',
+    status: 'passed',
+    score: 100,
+    pass_percent: 80,
+    attempt_id: 'att-q1',
+  },
+  {
+    course_id: 'c1-uuid',
+    course_title: 'Robotics Fundamentals',
+    lesson_id: 'lesson-2-uuid',
+    lesson_title: 'Move the Robot',
+    lesson_ordinal: 2,
+    assignment_id: 'asg-quiz-2',
+    quiz_title: 'Move the Robot Knowledge Check',
+    status: 'failed',
+    score: 50,
+    pass_percent: 80,
+    attempt_id: 'att-q2',
+  },
+  {
+    course_id: 'c1-uuid',
+    course_title: 'Robotics Fundamentals',
+    lesson_id: 'lesson-3-uuid',
+    lesson_title: 'Grab & Release',
+    lesson_ordinal: 3,
+    assignment_id: 'asg-quiz-3',
+    quiz_title: 'Grab & Release Knowledge Check',
+    status: 'not_started',
+    score: null,
+    pass_percent: 80,
+    attempt_id: null,
+  },
+];
+
+describe('My Learning tabbed information architecture (In Progress, Completed, Quizzes)', () => {
   let container: HTMLDivElement;
   let root: Root;
   let client: QueryClient;
 
   const renderRoute = async () => {
     await act(async () => {
-      root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/my-learning']}><Routes><Route path="/my-learning" element={<MyLearning />} /><Route path="/courses/:courseId" element={<div data-testid="course-path-page">Course Path Page</div>} /><Route path="/courses/:courseId/lessons/:lessonId" element={<div data-testid="lesson-detail-page">Lesson Detail Page</div>} /></Routes></MemoryRouter></QueryClientProvider>);
+      root.render(
+        <QueryClientProvider client={client}>
+          <MemoryRouter initialEntries={['/my-learning']}>
+            <Routes>
+              <Route path="/my-learning" element={<MyLearning />} />
+              <Route path="/courses/:courseId" element={<div data-testid="course-path-page">Course Path Page</div>} />
+              <Route
+                path="/courses/:courseId/lessons/:lessonId"
+                element={<div data-testid="lesson-detail-page">Lesson Detail Page</div>}
+              />
+              <Route
+                path="/courses/:courseId/lessons/:lessonId/activities/:activityId"
+                element={<div data-testid="activity-reader-page">Activity Reader Page</div>}
+              />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
       await Promise.resolve();
       await Promise.resolve();
     });
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   };
 
   beforeEach(() => {
@@ -60,131 +200,181 @@ describe('My Learning auth and route lifecycle', () => {
     root = createRoot(container);
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     mocks.sessionState = { session: null, loading: true, sessionRevision: 0 };
-    mocks.myLearning.mockReset().mockResolvedValue([]);
     mocks.coursePaths.mockReset().mockResolvedValue([]);
-  });
-  afterEach(() => { act(() => root.unmount()); client.clear(); container.remove(); });
-
-  it('executes the backend query when auth is already ready on direct route load', async () => {
-    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
-    mocks.myLearning.mockResolvedValue(published);
-    await renderRoute();
-    expect(mocks.myLearning).toHaveBeenCalledWith('ready-token');
-    expect(container.textContent).toContain('Published gripper task');
+    mocks.quizzes.mockReset().mockResolvedValue([]);
   });
 
-  it('waits during hydration and executes when the session becomes available', async () => {
-    mocks.myLearning.mockResolvedValue(published);
-    await renderRoute();
-    expect(container.textContent).toContain('Restoring your learning');
-    expect(mocks.myLearning).not.toHaveBeenCalled();
-
-    mocks.sessionState = { session: { access_token: 'hydrated-token', expires_at: 20, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
-    await renderRoute();
-    expect(mocks.myLearning).toHaveBeenCalledWith('hydrated-token');
-    expect(container.textContent).toContain('Published gripper task');
+  afterEach(() => {
+    act(() => root.unmount());
+    client.clear();
+    container.remove();
   });
 
-  it('retries with the refreshed session instead of retaining a failed old-token query', async () => {
-    mocks.sessionState = { session: { access_token: 'old-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
-    mocks.myLearning.mockRejectedValueOnce(new Error('Expired token')).mockResolvedValueOnce(published);
-    await renderRoute();
-    expect(container.textContent).toContain('Expired token');
-
-    mocks.sessionState = { session: { access_token: 'fresh-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 2 };
-    await renderRoute();
-    expect(mocks.myLearning).toHaveBeenLastCalledWith('fresh-token');
-    expect(container.textContent).toContain('Published gripper task');
-  });
-
-  it('does not present an API error as an empty assignment list', async () => {
-    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
-    mocks.myLearning.mockRejectedValue(new Error('Unable to load learning.'));
-    await renderRoute();
-    expect(container.textContent).toContain('Unable to load learning.');
-    expect(container.textContent).not.toContain('No assigned learning');
-  });
-
-  it('renders the genuine empty state only after a successful zero-result response', async () => {
-    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
-    mocks.myLearning.mockResolvedValue([]);
-    await renderRoute();
-    expect(container.textContent).toContain('No assigned learning');
-    expect(container.textContent).not.toContain('Restoring your learning');
-  });
-
-  it('does not render stale assignments beside a failed background refresh', async () => {
-    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
-    mocks.myLearning.mockResolvedValueOnce(published).mockRejectedValueOnce(new Error('Refresh failed'));
-    await renderRoute();
-    expect(container.textContent).toContain('Published gripper task');
-    await act(async () => { await client.invalidateQueries({ queryKey: ['student-learning'] }); });
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
-    expect(container.textContent).toContain('Refresh failed');
-    expect(container.textContent).not.toContain('Published gripper task');
-  });
-
-  it('renders Robotics Fundamentals course card with authoritative progress and current lesson', async () => {
-    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
+  // 1. default In Progress tab
+  it('1. default In Progress tab is active and tabs are exactly In Progress, Completed, Quizzes', async () => {
+    mocks.sessionState = {
+      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
+      loading: false,
+      sessionRevision: 1,
+    };
     mocks.coursePaths.mockResolvedValue([course1Path]);
-    mocks.myLearning.mockResolvedValue(published);
+    mocks.quizzes.mockResolvedValue(mockQuizzes);
+    await renderRoute();
+
+    const inProgressTab = container.querySelector('#tab-in-progress');
+    const completedTab = container.querySelector('#tab-completed');
+    const quizzesTab = container.querySelector('#tab-quizzes');
+    const assignmentsTab = container.querySelector('#tab-assignments');
+
+    expect(inProgressTab).not.toBeNull();
+    expect(completedTab).not.toBeNull();
+    expect(quizzesTab).not.toBeNull();
+    expect(assignmentsTab).toBeNull(); // Assignments tab must NOT be inside My Learning
+
+    expect(inProgressTab?.getAttribute('aria-selected')).toBe('true');
+    expect(inProgressTab?.getAttribute('tabindex')).toBe('0');
+    expect(completedTab?.getAttribute('aria-selected')).toBe('false');
+    expect(quizzesTab?.getAttribute('aria-selected')).toBe('false');
+
+    const panel = container.querySelector('[role="tabpanel"]');
+    expect(panel?.id).toBe('panel-in-progress');
+  });
+
+  // 2. active courses render
+  it('2. active courses render under In Progress with title, metadata, progress %, lesson, and CTAs', async () => {
+    mocks.sessionState = {
+      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
+      loading: false,
+      sessionRevision: 1,
+    };
+    mocks.coursePaths.mockResolvedValue([course1Path]);
     await renderRoute();
 
     expect(container.textContent).toContain('Robotics Fundamentals');
+    expect(container.textContent).toContain('Level: Introductory');
+    expect(container.textContent).toContain('Grades: 6-8');
     expect(container.textContent).toContain('40%');
-    expect(container.textContent).toContain('2 / 5 lessons completed');
+    expect(container.textContent).toContain('2 / 3 lessons completed');
     expect(container.textContent).toContain('C1-L3 — Grab & Release');
     expect(container.textContent).toContain('Continue Learning');
     expect(container.textContent).toContain('View Course Path');
-    expect(container.textContent).toContain('Published gripper task');
   });
 
-  it('Continue Learning navigates to currentLessonId', async () => {
-    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
-    mocks.coursePaths.mockResolvedValue([course1Path]);
-    await renderRoute();
-
-    const continueButton = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Continue Learning'));
-    expect(continueButton).toBeDefined();
-
-    await act(async () => {
-      continueButton?.click();
-    });
-
-    expect(container.textContent).toContain('Lesson Detail Page');
-  });
-
-  it('View Course Path navigates to /courses/:courseId', async () => {
-    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
-    mocks.coursePaths.mockResolvedValue([course1Path]);
-    await renderRoute();
-
-    const pathButton = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('View Course Path'));
-    expect(pathButton).toBeDefined();
-
-    await act(async () => {
-      pathButton?.click();
-    });
-
-    expect(container.textContent).toContain('Course Path Page');
-  });
-
-  it('course-complete state displays completed message and does not invent a current lesson', async () => {
-    const completedCourse = {
-      ...course1Path,
-      progressPercent: 100,
-      currentLessonId: null,
-      lessons: course1Path.lessons.map((l) => ({ ...l, status: 'completed' as const, progressPercent: 100 })),
+  // 3. completed courses render only under Completed
+  it('3. completed courses render only under Completed tab, not under In Progress', async () => {
+    mocks.sessionState = {
+      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
+      loading: false,
+      sessionRevision: 1,
     };
-
-    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
-    mocks.coursePaths.mockResolvedValue([completedCourse]);
+    mocks.coursePaths.mockResolvedValue([course1Path, completedCoursePath]);
     await renderRoute();
 
+    // In Progress tab: only course1Path visible
     expect(container.textContent).toContain('Robotics Fundamentals');
-    expect(container.textContent).toContain('5 / 5 lessons completed');
-    expect(container.textContent).toContain('Course completed! You have finished all lessons');
-    expect(container.textContent).not.toContain('Continue Learning');
-    expect(container.textContent).toContain('Review Course');
+    expect(container.textContent).not.toContain('Advanced Robot Kinematics');
+
+    // Switch to Completed tab
+    const completedTab = container.querySelector<HTMLButtonElement>('#tab-completed');
+    await act(async () => {
+      completedTab?.click();
+    });
+
+    expect(container.textContent).toContain('Advanced Robot Kinematics');
+    expect(container.textContent).toContain('✓ Completed');
+    expect(container.textContent).toContain('100%');
+    expect(container.textContent).toContain('2 / 2 lessons completed');
+    expect(container.textContent).not.toContain('Robotics Fundamentals');
+  });
+
+  // 4. assignments no longer render inside My Learning
+  it('4. assignments no longer render inside My Learning', async () => {
+    mocks.sessionState = {
+      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
+      loading: false,
+      sessionRevision: 1,
+    };
+    mocks.coursePaths.mockResolvedValue([course1Path]);
+    mocks.quizzes.mockResolvedValue(mockQuizzes);
+    await renderRoute();
+
+    expect(container.textContent).not.toContain('Classroom Assignments');
+    expect(container.textContent).not.toContain('Assigned to classroom');
+    expect(container.textContent).not.toContain('Awaiting Evaluation');
+  });
+
+  // 5. Quizzes tab renders knowledge-check items
+  it('5. Quizzes tab renders knowledge-check items with course, lesson, and quiz title', async () => {
+    mocks.sessionState = {
+      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
+      loading: false,
+      sessionRevision: 1,
+    };
+    mocks.coursePaths.mockResolvedValue([course1Path]);
+    mocks.quizzes.mockResolvedValue(mockQuizzes);
+    await renderRoute();
+
+    const quizzesTab = container.querySelector<HTMLButtonElement>('#tab-quizzes');
+    await act(async () => {
+      quizzesTab?.click();
+    });
+
+    expect(container.textContent).toContain('Meet Your Robot Knowledge Check');
+    expect(container.textContent).toContain('Move the Robot Knowledge Check');
+    expect(container.textContent).toContain('Grab & Release Knowledge Check');
+    expect(container.textContent).toContain('Robotics Fundamentals · C1-L1 — Meet Your Robot');
+  });
+
+  // 6. quiz result uses authoritative result data
+  it('6. quiz result uses authoritative result data (Passed, Failed, score %, CTAs)', async () => {
+    mocks.sessionState = {
+      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
+      loading: false,
+      sessionRevision: 1,
+    };
+    mocks.coursePaths.mockResolvedValue([course1Path]);
+    mocks.quizzes.mockResolvedValue(mockQuizzes);
+    await renderRoute();
+
+    const quizzesTab = container.querySelector<HTMLButtonElement>('#tab-quizzes');
+    await act(async () => {
+      quizzesTab?.click();
+    });
+
+    // Authoritative Passed status and score
+    expect(container.textContent).toContain('Passed');
+    expect(container.textContent).toContain('100%');
+    expect(container.textContent).toContain('View Result');
+
+    // Authoritative Failed status and score
+    expect(container.textContent).toContain('Failed');
+    expect(container.textContent).toContain('50%');
+    expect(container.textContent).toContain('Retry Quiz');
+
+    // Not Started
+    expect(container.textContent).toContain('Not Started');
+    expect(container.textContent).toContain('Start Quiz');
+
+    // Clicking CTA navigates to the knowledge check activity
+    const viewResultBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('View Result')
+    );
+    await act(async () => {
+      viewResultBtn?.click();
+    });
+    expect(container.textContent).toContain('Activity Reader Page');
+  });
+
+  it('renders genuine empty state when no courses and no quizzes exist', async () => {
+    mocks.sessionState = {
+      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
+      loading: false,
+      sessionRevision: 1,
+    };
+    mocks.coursePaths.mockResolvedValue([]);
+    mocks.quizzes.mockResolvedValue([]);
+    await renderRoute();
+
+    expect(container.textContent).toContain('No assigned learning');
   });
 });

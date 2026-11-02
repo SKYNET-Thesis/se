@@ -189,12 +189,28 @@ export class LearningService {
   async myLearning(user: AuthenticatedUser) {
     return this.prisma.$queryRaw`
       SELECT ca.id AS classroom_assignment_id,a.title,a.instructions,l.id AS lesson_id,l.title AS lesson_title,
+        a.challenge_id,ch.title AS challenge_title,
         c.id AS classroom_id,c.name AS classroom_name,co.title AS course_title,
+        COALESCE(ca.due_at, a.due_at) AS due_at,
         latest.id AS attempt_id,latest.status AS attempt_status,latest.started_at,latest.submitted_at,
-        CASE WHEN latest.submitted_at IS NOT NULL THEN 'completed' WHEN latest.id IS NOT NULL THEN 'started' ELSE 'assigned' END AS learning_status
+        COALESCE(latest.score::float, sub.assessment_score) AS score,
+        COALESCE(sub.overall_feedback, tf.feedback_content) AS teacher_feedback,
+        CASE
+          WHEN latest.status = 'evaluated' OR sub.overall_feedback IS NOT NULL OR sub.assessment_score IS NOT NULL THEN 'evaluated'
+          WHEN latest.status = 'submitted' OR latest.submitted_at IS NOT NULL OR sub.submission_id IS NOT NULL THEN 'submitted'
+          WHEN latest.id IS NOT NULL THEN 'in_progress'
+          ELSE 'assigned'
+        END AS status,
+        CASE
+          WHEN latest.status = 'evaluated' THEN 'evaluated'
+          WHEN latest.submitted_at IS NOT NULL THEN 'completed'
+          WHEN latest.id IS NOT NULL THEN 'started'
+          ELSE 'assigned'
+        END AS learning_status
       FROM public.learning_classroom_assignments ca
       JOIN public.learning_assignments a ON a.id=ca.assignment_id
       JOIN public.learning_lessons l ON l.id=a.lesson_id
+      LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id
       JOIN public.learning_classrooms c ON c.id=ca.classroom_id
       JOIN public.learning_course_offerings o ON o.id=c.offering_id
       JOIN public.learning_courses co ON co.id=o.course_id
@@ -202,7 +218,29 @@ export class LearningService {
         AND e.learner_user_id=${user.vistaUserId}::uuid AND e.status='active'
       JOIN public.learning_classroom_members cm ON cm.classroom_id=c.id AND cm.user_id=${user.vistaUserId}::uuid AND cm.classroom_role='student' AND cm.status='active'
       JOIN public.memberships m ON m.id=cm.membership_id AND m.status='active' AND m.organization_id=c.organization_id
-      LEFT JOIN LATERAL (SELECT id,status,started_at,submitted_at FROM public.learning_assignment_attempts WHERE classroom_assignment_id=ca.id AND learner_user_id=${user.vistaUserId}::uuid ORDER BY started_at DESC LIMIT 1) latest ON true
+      LEFT JOIN LATERAL (
+        SELECT id,status,program_id,score,started_at,submitted_at
+        FROM public.learning_assignment_attempts
+        WHERE classroom_assignment_id=ca.id AND learner_user_id=${user.vistaUserId}::uuid
+        ORDER BY started_at DESC LIMIT 1
+      ) latest ON true
+      LEFT JOIN LATERAL (
+        SELECT s.id AS submission_id,
+          ass.overall_feedback,
+          (SELECT SUM(sc.awarded_points)::float FROM public.learning_assessment_scores sc WHERE sc.assessment_id=ass.id) AS assessment_score
+        FROM public.learning_submissions s
+        LEFT JOIN public.learning_assessments ass ON ass.submission_id=s.id
+        WHERE s.assignment_id=ca.assignment_id AND s.learner_user_id=${user.vistaUserId}::uuid
+          AND (latest.program_id IS NULL OR s.program_id=latest.program_id)
+        ORDER BY s.submitted_at DESC NULLS LAST LIMIT 1
+      ) sub ON true
+      LEFT JOIN LATERAL (
+        SELECT fb.content AS feedback_content
+        FROM public.learning_feedback fb
+        WHERE (fb.attempt_id=latest.id OR (sub.submission_id IS NOT NULL AND fb.submission_id=sub.submission_id))
+          AND fb.author_user_id != ${user.vistaUserId}::uuid
+        ORDER BY fb.created_at DESC LIMIT 1
+      ) tf ON true
       WHERE ca.status='published' AND (ca.available_from IS NULL OR ca.available_from<=now()) AND (ca.close_at IS NULL OR ca.close_at>now())
       ORDER BY ca.created_at DESC`;
   }
