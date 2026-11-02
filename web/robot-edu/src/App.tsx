@@ -41,6 +41,7 @@ import { WebSettings } from './pages/WebSettings';
 import { SchoolImportUsers } from './pages/school/SchoolImportUsers';
 import { SchoolQueryProvider } from './queries/SchoolQueryProvider';
 import { StudentAssignmentDetail } from './pages/StudentAssignmentDetail';
+import { StudentAssignments } from './pages/StudentAssignments';
 import { TeacherSubmissionReview } from './pages/teacher/TeacherSubmissionReview';
 
 export function App() {
@@ -61,7 +62,7 @@ export function App() {
                   <Route path="courses/:courseId/info" element={<CourseInfo />} />
                   <Route path="courses/:courseId/lessons/:lessonId" element={<LessonViewer />} />
                   <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
-                  <Route path="assignments" element={<LearningLoop />} />
+                  <Route path="assignments" element={<StudentAssignments />} />
                   <Route path="my-learning" element={<MyLearning />} />
                   <Route path="my-learning/:classroomAssignmentId" element={<StudentAssignmentDetail />} />
                   <Route path="learning-loop" element={<LearningLoop />} />

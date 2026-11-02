@@ -13,6 +13,7 @@ describe("ProgressionController HTTP contract", () => {
   let app: INestApplication;
   const progression = {
     coursePath: jest.fn(),
+    myQuizzes: jest.fn(),
     submitKnowledgeCheck: jest.fn(),
     resolveQualifiedL4ProgramVersion: jest.fn(),
   };
@@ -23,8 +24,16 @@ describe("ProgressionController HTTP contract", () => {
   afterAll(async () => app.close());
   beforeEach(() => {
     progression.coursePath.mockReset();
+    progression.myQuizzes.mockReset();
     progression.submitKnowledgeCheck.mockReset();
     progression.resolveQualifiedL4ProgramVersion.mockReset();
+  });
+
+  it("routes authenticated quizzes read", async () => {
+    progression.myQuizzes.mockResolvedValue([{ quiz_title: "Safety Knowledge Check", status: "passed", score: 100 }]);
+    const res = await request(app.getHttpServer()).get(`/api/v1/me/quizzes`).set("Authorization", "Bearer token").expect(200);
+    expect(res.body).toEqual([{ quiz_title: "Safety Knowledge Check", status: "passed", score: 100 }]);
+    expect(progression.myQuizzes).toHaveBeenCalledWith(user);
   });
 
   it("routes authenticated course path reads", async () => {

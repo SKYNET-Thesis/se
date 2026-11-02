@@ -191,7 +191,24 @@ export async function apiRequest<T>(path: string, accessToken: string, method: "
 export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; }
 export interface ApiRobotResource { id: string; name: string; serialNo: string; modelName: string; status?: string; }
 export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; assignment_count: number; }
-export interface ApiMyLearning { classroom_assignment_id: string; title: string; lesson_id: string; lesson_title: string; classroom_name: string; course_title: string; attempt_id: string | null; attempt_status: string | null; learning_status: 'assigned'|'started'|'completed'; }
+export interface ApiMyLearning {
+  classroom_assignment_id: string;
+  title: string;
+  instructions?: string | null;
+  lesson_id: string;
+  lesson_title: string;
+  challenge_id?: string | null;
+  challenge_title?: string | null;
+  classroom_name: string;
+  course_title: string;
+  attempt_id: string | null;
+  attempt_status: string | null;
+  due_at?: string | null;
+  score?: number | null;
+  teacher_feedback?: string | null;
+  status?: 'assigned' | 'in_progress' | 'submitted' | 'evaluated';
+  learning_status: 'assigned' | 'started' | 'completed' | 'in_progress' | 'submitted' | 'evaluated';
+}
 export interface ApiOrganizationMembership { membershipId?: string; organizationId: string; roleCode: string; status: string; permissionCodes?: string[]; }
 export interface ApiAccessContext { systemRoleCodes: string[]; memberships: ApiOrganizationMembership[]; }
 export interface ApiSchoolMember { id:string; full_name:string; email:string|null; status:string; membership_id:string; membership_status:string; role_code:string; employee_code?:string|null; student_code?:string|null; grade_level?:string|null; guardian_email?:string|null; account_state?:'active'|'invited'|'account_setup_pending'; }
@@ -277,10 +294,29 @@ export const learnerApi = {
   coursePaths: (token: string) => progressionApi.coursePaths(token),
   submitKnowledgeCheck: (attemptId: string, dto: SubmitKnowledgeCheckDto, token: string) =>
     progressionApi.submitKnowledgeCheck(attemptId, dto, token),
+  quizzes: (token: string) => progressionApi.quizzes(token),
 };
+
+export interface ApiStudentQuiz {
+  lesson_id: string;
+  lesson_title: string;
+  lesson_ordinal: number;
+  course_id: string;
+  course_title: string;
+  assignment_id: string;
+  quiz_title: string;
+  classroom_assignment_id: string | null;
+  attempt_id: string | null;
+  attempt_status: string | null;
+  score: number | null;
+  passed: boolean | null;
+  pass_percent: number | null;
+  status: 'not_started' | 'in_progress' | 'passed' | 'failed';
+}
 
 export const progressionApi = {
   coursePath: (courseId: string, token: string) => apiGet<CoursePathResponse>(`/me/courses/${courseId}/path`, token),
+  quizzes: (token: string) => apiGet<ApiStudentQuiz[]>("/me/quizzes", token),
   qualifiedL4Version: (courseId: string, token: string) =>
     apiGet<ApiQualifiedProgramHandoff | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
   coursePaths: async (token: string): Promise<CoursePathResponse[]> => {

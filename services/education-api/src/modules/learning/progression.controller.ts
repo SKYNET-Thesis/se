@@ -18,6 +18,11 @@ export class ProgressionController {
     return this.progression.coursePath(user, courseId);
   }
 
+  @Get("me/quizzes")
+  myQuizzes(@CurrentUser() user: AuthenticatedUser) {
+    return this.progression.myQuizzes(user);
+  }
+
   @Get("me/courses/:courseId/qualification/c1-l4")
   async qualifiedL4Version(@CurrentUser() user: AuthenticatedUser, @Param("courseId", ParseUUIDPipe) courseId: string) {
     const qualification = await this.progression.resolveQualifiedL4ProgramVersion(user, courseId);
