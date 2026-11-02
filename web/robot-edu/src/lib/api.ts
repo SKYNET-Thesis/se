@@ -3,7 +3,7 @@ export class ApiError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001/api/v1").replace(/\/$/, "");
+const baseUrl = (((import.meta as any).env?.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:3001/api/v1").replace(/\/$/, "");
 
 export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
