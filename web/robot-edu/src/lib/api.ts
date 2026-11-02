@@ -191,7 +191,24 @@ export async function apiRequest<T>(path: string, accessToken: string, method: "
 export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; }
 export interface ApiRobotResource { id: string; name: string; serialNo: string; modelName: string; status?: string; }
 export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; assignment_count: number; }
-export interface ApiMyLearning { classroom_assignment_id: string; title: string; lesson_id: string; lesson_title: string; classroom_name: string; course_title: string; attempt_id: string | null; attempt_status: string | null; learning_status: 'assigned'|'started'|'completed'; }
+export interface ApiMyLearning {
+  classroom_assignment_id: string;
+  title: string;
+  instructions?: string | null;
+  lesson_id: string;
+  lesson_title: string;
+  challenge_id?: string | null;
+  challenge_title?: string | null;
+  classroom_name: string;
+  course_title: string;
+  attempt_id: string | null;
+  attempt_status: string | null;
+  due_at?: string | null;
+  score?: number | null;
+  teacher_feedback?: string | null;
+  status?: 'assigned' | 'in_progress' | 'submitted' | 'evaluated';
+  learning_status: 'assigned' | 'started' | 'completed' | 'in_progress' | 'submitted' | 'evaluated';
+}
 export interface ApiOrganizationMembership { membershipId?: string; organizationId: string; roleCode: string; status: string; permissionCodes?: string[]; }
 export interface ApiAccessContext { systemRoleCodes: string[]; memberships: ApiOrganizationMembership[]; }
 export interface ApiSchoolMember { id:string; full_name:string; email:string|null; status:string; membership_id:string; membership_status:string; role_code:string; employee_code?:string|null; student_code?:string|null; grade_level?:string|null; guardian_email?:string|null; account_state?:'active'|'invited'|'account_setup_pending'; }

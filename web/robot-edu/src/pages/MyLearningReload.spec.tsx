@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   sessionState: { session: null as null | { access_token: string; user: { id: string } }, loading: true, sessionRevision: 0 },
   myLearning: vi.fn(),
+  coursePaths: vi.fn(),
   roles: vi.fn(),
 }));
 
@@ -16,6 +17,7 @@ vi.mock('../lib/api', async (importOriginal) => {
   return {
     ...actual,
     learnerApi: { ...actual.learnerApi, myLearning: mocks.myLearning },
+    progressionApi: { ...actual.progressionApi, coursePaths: mocks.coursePaths },
     identityApi: { ...actual.identityApi, roles: mocks.roles },
   };
 });
@@ -45,6 +47,7 @@ describe('My Learning full hard-reload provider lifecycle', () => {
     container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
     mocks.sessionState = { session: null, loading: true, sessionRevision: 0 };
     mocks.myLearning.mockReset().mockResolvedValue([assignment]);
+    mocks.coursePaths.mockReset().mockResolvedValue([]);
     mocks.roles.mockReset().mockResolvedValue({ systemRoleCodes: [], memberships: [{ organizationId: 'org-1', roleCode: 'student', status: 'active', permissionCodes: [] }] });
   });
   afterEach(() => { act(() => root.unmount()); container.remove(); });
@@ -58,8 +61,13 @@ describe('My Learning full hard-reload provider lifecycle', () => {
 
     expect(mocks.myLearning).toHaveBeenCalledWith('student-token');
     expect(mocks.roles).toHaveBeenCalledWith('student-token');
-    expect(container.textContent).toContain('Published after reload');
     expect(container.textContent).not.toContain('Restoring your learning');
+
+    const assignmentsTab = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((t) => t.textContent?.includes('Assignments'));
+    await act(async () => {
+      assignmentsTab?.click();
+    });
+    expect(container.textContent).toContain('Published after reload');
   });
 
   it('does not restart learning for repeated equivalent authenticated events', async () => {
@@ -69,6 +77,10 @@ describe('My Learning full hard-reload provider lifecycle', () => {
     await renderApp();
 
     expect(mocks.myLearning).toHaveBeenCalledTimes(1);
+    const assignmentsTab = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((t) => t.textContent?.includes('Assignments'));
+    await act(async () => {
+      assignmentsTab?.click();
+    });
     expect(container.textContent).toContain('Published after reload');
   });
 });

@@ -301,6 +301,11 @@ describe("LearningService assignment delivery", () => {
       expect(sql).toContain("ca.status='published'");
       expect(sql).toContain("cm.classroom_role='student'");
       expect(sql).toContain("m.organization_id=c.organization_id");
+      expect(sql).toContain("due_at");
+      expect(sql).toContain("challenge_title");
+      expect(sql).toContain("score");
+      expect(sql).toContain("teacher_feedback");
+      expect(sql).toContain("status");
     }
   });
 
