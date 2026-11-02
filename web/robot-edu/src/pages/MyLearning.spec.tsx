@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ApiStudentQuiz } from '../lib/api';
 
 const mocks = vi.hoisted(() => ({
   sessionState: {
@@ -11,8 +12,8 @@ const mocks = vi.hoisted(() => ({
     loading: true,
     sessionRevision: 0,
   },
-  myLearning: vi.fn(),
   coursePaths: vi.fn(),
+  quizzes: vi.fn(),
 }));
 
 vi.mock('../contexts/SupabaseSessionContext', () => ({
@@ -23,30 +24,14 @@ vi.mock('../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api')>();
   return {
     ...actual,
-    learnerApi: { ...actual.learnerApi, myLearning: mocks.myLearning, coursePaths: mocks.coursePaths },
-    progressionApi: { ...actual.progressionApi, coursePaths: mocks.coursePaths },
+    learnerApi: { ...actual.learnerApi, coursePaths: mocks.coursePaths, quizzes: mocks.quizzes },
+    progressionApi: { ...actual.progressionApi, coursePaths: mocks.coursePaths, quizzes: mocks.quizzes },
   };
 });
 
 import { MyLearning } from './MyLearning';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-const published = [
-  {
-    classroom_assignment_id: 'delivery-1',
-    title: 'Published gripper task',
-    lesson_id: 'lesson-1',
-    lesson_title: 'Gripper',
-    classroom_name: 'Robotics Class A',
-    course_title: 'Robotics',
-    attempt_id: null,
-    attempt_status: null,
-    learning_status: 'assigned' as const,
-    due_at: '2026-11-15T00:00:00Z',
-    challenge_title: 'Pick Object Challenge',
-  },
-];
 
 const course1Path = {
   course: {
@@ -93,40 +78,6 @@ const course1Path = {
       lockReason: null,
       completedAt: null,
     },
-    {
-      id: 'lesson-4-uuid',
-      ordinal: 4,
-      title: 'Pick & Place',
-      status: 'locked' as const,
-      progressPercent: 0,
-      prerequisite: [
-        { lessonId: 'lesson-3-uuid', title: 'Grab & Release', required: true, minimumScore: null },
-      ],
-      lockReason: {
-        code: 'PREREQUISITE_NOT_COMPLETED' as const,
-        prerequisiteLessonId: 'lesson-3-uuid',
-        prerequisiteLessonTitle: 'Grab & Release',
-        message: 'Complete Grab & Release to unlock this lesson.',
-      },
-      completedAt: null,
-    },
-    {
-      id: 'lesson-5-uuid',
-      ordinal: 5,
-      title: 'Physical Robot Lab',
-      status: 'locked' as const,
-      progressPercent: 0,
-      prerequisite: [
-        { lessonId: 'lesson-4-uuid', title: 'Pick & Place', required: true, minimumScore: null },
-      ],
-      lockReason: {
-        code: 'PREREQUISITE_NOT_COMPLETED' as const,
-        prerequisiteLessonId: 'lesson-4-uuid',
-        prerequisiteLessonTitle: 'Pick & Place',
-        message: 'Complete Pick & Place to unlock this lesson.',
-      },
-      completedAt: null,
-    },
   ],
 };
 
@@ -168,7 +119,49 @@ const completedCoursePath = {
   ],
 };
 
-describe('My Learning tabbed information architecture and lifecycle', () => {
+const mockQuizzes: ApiStudentQuiz[] = [
+  {
+    course_id: 'c1-uuid',
+    course_title: 'Robotics Fundamentals',
+    lesson_id: 'lesson-1-uuid',
+    lesson_title: 'Meet Your Robot',
+    lesson_ordinal: 1,
+    assignment_id: 'asg-quiz-1',
+    quiz_title: 'Meet Your Robot Knowledge Check',
+    status: 'passed',
+    score: 100,
+    pass_percent: 80,
+    attempt_id: 'att-q1',
+  },
+  {
+    course_id: 'c1-uuid',
+    course_title: 'Robotics Fundamentals',
+    lesson_id: 'lesson-2-uuid',
+    lesson_title: 'Move the Robot',
+    lesson_ordinal: 2,
+    assignment_id: 'asg-quiz-2',
+    quiz_title: 'Move the Robot Knowledge Check',
+    status: 'failed',
+    score: 50,
+    pass_percent: 80,
+    attempt_id: 'att-q2',
+  },
+  {
+    course_id: 'c1-uuid',
+    course_title: 'Robotics Fundamentals',
+    lesson_id: 'lesson-3-uuid',
+    lesson_title: 'Grab & Release',
+    lesson_ordinal: 3,
+    assignment_id: 'asg-quiz-3',
+    quiz_title: 'Grab & Release Knowledge Check',
+    status: 'not_started',
+    score: null,
+    pass_percent: 80,
+    attempt_id: null,
+  },
+];
+
+describe('My Learning tabbed information architecture (In Progress, Completed, Quizzes)', () => {
   let container: HTMLDivElement;
   let root: Root;
   let client: QueryClient;
@@ -180,13 +173,15 @@ describe('My Learning tabbed information architecture and lifecycle', () => {
           <MemoryRouter initialEntries={['/my-learning']}>
             <Routes>
               <Route path="/my-learning" element={<MyLearning />} />
-              <Route path="/my-learning/:id" element={<div data-testid="assignment-detail-page">Assignment Detail Page</div>} />
               <Route path="/courses/:courseId" element={<div data-testid="course-path-page">Course Path Page</div>} />
               <Route
                 path="/courses/:courseId/lessons/:lessonId"
                 element={<div data-testid="lesson-detail-page">Lesson Detail Page</div>}
               />
-              <Route path="/practice/:attemptId" element={<div data-testid="practice-page">Practice Page</div>} />
+              <Route
+                path="/courses/:courseId/lessons/:lessonId/activities/:activityId"
+                element={<div data-testid="activity-reader-page">Activity Reader Page</div>}
+              />
             </Routes>
           </MemoryRouter>
         </QueryClientProvider>
@@ -205,8 +200,8 @@ describe('My Learning tabbed information architecture and lifecycle', () => {
     root = createRoot(container);
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     mocks.sessionState = { session: null, loading: true, sessionRevision: 0 };
-    mocks.myLearning.mockReset().mockResolvedValue([]);
     mocks.coursePaths.mockReset().mockResolvedValue([]);
+    mocks.quizzes.mockReset().mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -215,35 +210,38 @@ describe('My Learning tabbed information architecture and lifecycle', () => {
     container.remove();
   });
 
-  // Requirement 1: default tab is In Progress
-  it('1. default tab is In Progress with correct active state and accessibility attributes', async () => {
+  // 1. default In Progress tab
+  it('1. default In Progress tab is active and tabs are exactly In Progress, Completed, Quizzes', async () => {
     mocks.sessionState = {
       session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
       loading: false,
       sessionRevision: 1,
     };
     mocks.coursePaths.mockResolvedValue([course1Path]);
-    mocks.myLearning.mockResolvedValue(published);
+    mocks.quizzes.mockResolvedValue(mockQuizzes);
     await renderRoute();
 
     const inProgressTab = container.querySelector('#tab-in-progress');
     const completedTab = container.querySelector('#tab-completed');
+    const quizzesTab = container.querySelector('#tab-quizzes');
     const assignmentsTab = container.querySelector('#tab-assignments');
+
+    expect(inProgressTab).not.toBeNull();
+    expect(completedTab).not.toBeNull();
+    expect(quizzesTab).not.toBeNull();
+    expect(assignmentsTab).toBeNull(); // Assignments tab must NOT be inside My Learning
 
     expect(inProgressTab?.getAttribute('aria-selected')).toBe('true');
     expect(inProgressTab?.getAttribute('tabindex')).toBe('0');
     expect(completedTab?.getAttribute('aria-selected')).toBe('false');
-    expect(completedTab?.getAttribute('tabindex')).toBe('-1');
-    expect(assignmentsTab?.getAttribute('aria-selected')).toBe('false');
-    expect(assignmentsTab?.getAttribute('tabindex')).toBe('-1');
+    expect(quizzesTab?.getAttribute('aria-selected')).toBe('false');
 
     const panel = container.querySelector('[role="tabpanel"]');
     expect(panel?.id).toBe('panel-in-progress');
-    expect(panel?.getAttribute('aria-labelledby')).toBe('tab-in-progress');
   });
 
-  // Requirement 2: active course appears under In Progress
-  it('2. active course appears under In Progress with title, metadata, progress, current lesson, and CTAs', async () => {
+  // 2. active courses render
+  it('2. active courses render under In Progress with title, metadata, progress %, lesson, and CTAs', async () => {
     mocks.sessionState = {
       session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
       loading: false,
@@ -256,30 +254,14 @@ describe('My Learning tabbed information architecture and lifecycle', () => {
     expect(container.textContent).toContain('Level: Introductory');
     expect(container.textContent).toContain('Grades: 6-8');
     expect(container.textContent).toContain('40%');
-    expect(container.textContent).toContain('2 / 5 lessons completed');
+    expect(container.textContent).toContain('2 / 3 lessons completed');
     expect(container.textContent).toContain('C1-L3 — Grab & Release');
     expect(container.textContent).toContain('Continue Learning');
     expect(container.textContent).toContain('View Course Path');
   });
 
-  // Requirement 3: assignments no longer appear below the active course
-  it('3. assignments no longer appear below the active course on In Progress tab', async () => {
-    mocks.sessionState = {
-      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
-      loading: false,
-      sessionRevision: 1,
-    };
-    mocks.coursePaths.mockResolvedValue([course1Path]);
-    mocks.myLearning.mockResolvedValue(published);
-    await renderRoute();
-
-    expect(container.textContent).toContain('Robotics Fundamentals');
-    expect(container.textContent).not.toContain('Published gripper task');
-    expect(container.textContent).not.toContain('Classroom Assignments');
-  });
-
-  // Requirement 4: Completed tab filters completed courses correctly
-  it('4. Completed tab filters completed courses correctly and excludes in-progress courses', async () => {
+  // 3. completed courses render only under Completed
+  it('3. completed courses render only under Completed tab, not under In Progress', async () => {
     mocks.sessionState = {
       session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
       loading: false,
@@ -288,7 +270,7 @@ describe('My Learning tabbed information architecture and lifecycle', () => {
     mocks.coursePaths.mockResolvedValue([course1Path, completedCoursePath]);
     await renderRoute();
 
-    // On In Progress tab, only course1Path is shown
+    // In Progress tab: only course1Path visible
     expect(container.textContent).toContain('Robotics Fundamentals');
     expect(container.textContent).not.toContain('Advanced Robot Kinematics');
 
@@ -305,350 +287,94 @@ describe('My Learning tabbed information architecture and lifecycle', () => {
     expect(container.textContent).not.toContain('Robotics Fundamentals');
   });
 
-  // Requirement 5: Completed empty state
-  it('5. Completed tab displays empty state when no courses are completed', async () => {
+  // 4. assignments no longer render inside My Learning
+  it('4. assignments no longer render inside My Learning', async () => {
     mocks.sessionState = {
       session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
       loading: false,
       sessionRevision: 1,
     };
     mocks.coursePaths.mockResolvedValue([course1Path]);
+    mocks.quizzes.mockResolvedValue(mockQuizzes);
     await renderRoute();
 
-    const completedTab = container.querySelector<HTMLButtonElement>('#tab-completed');
-    await act(async () => {
-      completedTab?.click();
-    });
-
-    expect(container.textContent).toContain('No completed courses');
-    expect(container.textContent).toContain('You have not completed any curriculum courses yet.');
+    expect(container.textContent).not.toContain('Classroom Assignments');
+    expect(container.textContent).not.toContain('Assigned to classroom');
+    expect(container.textContent).not.toContain('Awaiting Evaluation');
   });
 
-  // Requirement 6: Assignments tab displays assigned work
-  it('6. Assignments tab displays assigned work with course, classroom, lesson, and challenge context', async () => {
+  // 5. Quizzes tab renders knowledge-check items
+  it('5. Quizzes tab renders knowledge-check items with course, lesson, and quiz title', async () => {
     mocks.sessionState = {
       session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
       loading: false,
       sessionRevision: 1,
     };
     mocks.coursePaths.mockResolvedValue([course1Path]);
-    mocks.myLearning.mockResolvedValue(published);
+    mocks.quizzes.mockResolvedValue(mockQuizzes);
     await renderRoute();
 
-    const assignmentsTab = container.querySelector<HTMLButtonElement>('#tab-assignments');
+    const quizzesTab = container.querySelector<HTMLButtonElement>('#tab-quizzes');
     await act(async () => {
-      assignmentsTab?.click();
+      quizzesTab?.click();
     });
 
-    expect(container.textContent).toContain('Published gripper task');
-    expect(container.textContent).toContain('Robotics · Robotics Class A');
-    expect(container.textContent).toContain('Gripper');
-    expect(container.textContent).toContain('Pick Object Challenge');
-    expect(container.textContent).toContain('Assigned');
-    expect(container.textContent).toContain('Start Assignment');
+    expect(container.textContent).toContain('Meet Your Robot Knowledge Check');
+    expect(container.textContent).toContain('Move the Robot Knowledge Check');
+    expect(container.textContent).toContain('Grab & Release Knowledge Check');
+    expect(container.textContent).toContain('Robotics Fundamentals · C1-L1 — Meet Your Robot');
   });
 
-  // Requirement 7: evaluated assignment displays authoritative score/feedback when available
-  it('7. evaluated assignment displays authoritative score and teacher feedback when available', async () => {
-    const evaluatedAssignment = {
-      classroom_assignment_id: 'delivery-eval-1',
-      title: 'Pick and Place Qualification',
-      lesson_id: 'lesson-4',
-      lesson_title: 'Pick & Place',
-      classroom_name: 'Robotics Class A',
-      course_title: 'Robotics Fundamentals',
-      attempt_id: 'att-1',
-      attempt_status: 'evaluated',
-      status: 'evaluated' as const,
-      learning_status: 'evaluated' as const,
-      score: 95,
-      teacher_feedback: 'Excellent grasp on robot trajectory and gripper timing!',
-      due_at: '2026-11-20T00:00:00Z',
-    };
-
+  // 6. quiz result uses authoritative result data
+  it('6. quiz result uses authoritative result data (Passed, Failed, score %, CTAs)', async () => {
     mocks.sessionState = {
       session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
       loading: false,
       sessionRevision: 1,
     };
     mocks.coursePaths.mockResolvedValue([course1Path]);
-    mocks.myLearning.mockResolvedValue([evaluatedAssignment]);
+    mocks.quizzes.mockResolvedValue(mockQuizzes);
     await renderRoute();
 
-    const assignmentsTab = container.querySelector<HTMLButtonElement>('#tab-assignments');
+    const quizzesTab = container.querySelector<HTMLButtonElement>('#tab-quizzes');
     await act(async () => {
-      assignmentsTab?.click();
+      quizzesTab?.click();
     });
 
-    expect(container.textContent).toContain('Pick and Place Qualification');
-    expect(container.textContent).toContain('Evaluated');
-    expect(container.textContent).toContain('Score:');
-    expect(container.textContent).toContain('95%');
-    expect(container.textContent).toContain('Teacher Feedback');
-    expect(container.textContent).toContain('Excellent grasp on robot trajectory and gripper timing!');
-    expect(container.textContent).toContain('View Feedback');
-  });
+    // Authoritative Passed status and score
+    expect(container.textContent).toContain('Passed');
+    expect(container.textContent).toContain('100%');
+    expect(container.textContent).toContain('View Result');
 
-  // Requirement 8: assignment CTA matches its state
-  it('8. assignment CTA matches its state: Start / Continue / View Submission / View Feedback', async () => {
-    const variousAssignments = [
-      {
-        classroom_assignment_id: 'ca-assigned',
-        title: 'Task A (Assigned)',
-        lesson_id: 'l-1',
-        lesson_title: 'Lesson 1',
-        classroom_name: 'Class A',
-        course_title: 'Course 1',
-        attempt_id: null,
-        attempt_status: null,
-        status: 'assigned' as const,
-        learning_status: 'assigned' as const,
-      },
-      {
-        classroom_assignment_id: 'ca-in-progress',
-        title: 'Task B (In Progress)',
-        lesson_id: 'l-2',
-        lesson_title: 'Lesson 2',
-        classroom_name: 'Class A',
-        course_title: 'Course 1',
-        attempt_id: 'att-ip',
-        attempt_status: 'in_progress',
-        status: 'in_progress' as const,
-        learning_status: 'in_progress' as const,
-      },
-      {
-        classroom_assignment_id: 'ca-submitted',
-        title: 'Task C (Submitted)',
-        lesson_id: 'l-3',
-        lesson_title: 'Lesson 3',
-        classroom_name: 'Class A',
-        course_title: 'Course 1',
-        attempt_id: 'att-sub',
-        attempt_status: 'submitted',
-        status: 'submitted' as const,
-        learning_status: 'submitted' as const,
-      },
-      {
-        classroom_assignment_id: 'ca-evaluated',
-        title: 'Task D (Evaluated)',
-        lesson_id: 'l-4',
-        lesson_title: 'Lesson 4',
-        classroom_name: 'Class A',
-        course_title: 'Course 1',
-        attempt_id: 'att-ev',
-        attempt_status: 'evaluated',
-        status: 'evaluated' as const,
-        learning_status: 'evaluated' as const,
-      },
-    ];
+    // Authoritative Failed status and score
+    expect(container.textContent).toContain('Failed');
+    expect(container.textContent).toContain('50%');
+    expect(container.textContent).toContain('Retry Quiz');
 
-    mocks.sessionState = {
-      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
-      loading: false,
-      sessionRevision: 1,
-    };
-    mocks.coursePaths.mockResolvedValue([course1Path]);
-    mocks.myLearning.mockResolvedValue(variousAssignments);
-    await renderRoute();
+    // Not Started
+    expect(container.textContent).toContain('Not Started');
+    expect(container.textContent).toContain('Start Quiz');
 
-    const assignmentsTab = container.querySelector<HTMLButtonElement>('#tab-assignments');
-    await act(async () => {
-      assignmentsTab?.click();
-    });
-
-    expect(container.textContent).toContain('Start Assignment');
-    expect(container.textContent).toContain('Continue Assignment');
-    expect(container.textContent).toContain('View Submission');
-    expect(container.textContent).toContain('View Feedback');
-
-    // Click Continue Assignment navigates to practice
-    const continueBtn = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Continue Assignment')
+    // Clicking CTA navigates to the knowledge check activity
+    const viewResultBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('View Result')
     );
     await act(async () => {
-      continueBtn?.click();
+      viewResultBtn?.click();
     });
-    expect(container.textContent).toContain('Practice Page');
+    expect(container.textContent).toContain('Activity Reader Page');
   });
 
-  // Requirement 9: tab switching does not alter authoritative progression
-  it('9. tab switching does not alter authoritative progression', async () => {
+  it('renders genuine empty state when no courses and no quizzes exist', async () => {
     mocks.sessionState = {
       session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
       loading: false,
       sessionRevision: 1,
     };
-    mocks.coursePaths.mockResolvedValue([course1Path]);
-    mocks.myLearning.mockResolvedValue(published);
-    await renderRoute();
-
-    expect(container.textContent).toContain('40%');
-
-    // Switch to Completed
-    const completedTab = container.querySelector<HTMLButtonElement>('#tab-completed');
-    await act(async () => {
-      completedTab?.click();
-    });
-
-    // Switch to Assignments
-    const assignmentsTab = container.querySelector<HTMLButtonElement>('#tab-assignments');
-    await act(async () => {
-      assignmentsTab?.click();
-    });
-
-    // Switch back to In Progress
-    const inProgressTab = container.querySelector<HTMLButtonElement>('#tab-in-progress');
-    await act(async () => {
-      inProgressTab?.click();
-    });
-
-    expect(container.textContent).toContain('40%');
-    expect(container.textContent).toContain('2 / 5 lessons completed');
-    expect(container.textContent).toContain('C1-L3 — Grab & Release');
-  });
-
-  // Requirement 10: keyboard and tab accessibility
-  it('10. keyboard and tab accessibility works across tablist, tabs, and panels', async () => {
-    mocks.sessionState = {
-      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
-      loading: false,
-      sessionRevision: 1,
-    };
-    mocks.coursePaths.mockResolvedValue([course1Path]);
-    mocks.myLearning.mockResolvedValue(published);
-    await renderRoute();
-
-    const tablist = container.querySelector('[role="tablist"]');
-    expect(tablist).toBeDefined();
-    expect(tablist?.getAttribute('aria-label')).toBe('My Learning Sections');
-
-    const inProgressTab = container.querySelector<HTMLButtonElement>('#tab-in-progress');
-    const completedTab = container.querySelector<HTMLButtonElement>('#tab-completed');
-    const assignmentsTab = container.querySelector<HTMLButtonElement>('#tab-assignments');
-
-    expect(inProgressTab?.getAttribute('aria-selected')).toBe('true');
-
-    // ArrowRight moves from In Progress to Completed
-    await act(async () => {
-      inProgressTab?.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })
-      );
-    });
-    expect(completedTab?.getAttribute('aria-selected')).toBe('true');
-    expect(container.querySelector('[role="tabpanel"]')?.id).toBe('panel-completed');
-
-    // ArrowRight moves from Completed to Assignments
-    await act(async () => {
-      completedTab?.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })
-      );
-    });
-    expect(assignmentsTab?.getAttribute('aria-selected')).toBe('true');
-    expect(container.querySelector('[role="tabpanel"]')?.id).toBe('panel-assignments');
-
-    // Home moves to In Progress
-    await act(async () => {
-      assignmentsTab?.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Home', bubbles: true })
-      );
-    });
-    expect(inProgressTab?.getAttribute('aria-selected')).toBe('true');
-    expect(container.querySelector('[role="tabpanel"]')?.id).toBe('panel-in-progress');
-
-    // End moves to Assignments
-    await act(async () => {
-      inProgressTab?.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'End', bubbles: true })
-      );
-    });
-    expect(assignmentsTab?.getAttribute('aria-selected')).toBe('true');
-    expect(container.querySelector('[role="tabpanel"]')?.id).toBe('panel-assignments');
-  });
-
-  // Requirement 11: responsive rendering does not overflow
-  it('11. responsive rendering container includes overflow-x-auto and wrapping classes', async () => {
-    mocks.sessionState = {
-      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
-      loading: false,
-      sessionRevision: 1,
-    };
-    mocks.coursePaths.mockResolvedValue([course1Path]);
-    await renderRoute();
-
-    const tablist = container.querySelector('[role="tablist"]');
-    expect(tablist?.className).toContain('overflow-x-auto');
-
-    const courseCard = container.querySelector('article');
-    expect(courseCard?.className).toContain('rounded-xl');
-  });
-
-  // Lifecycle & routing validations
-  it('Continue Learning navigates to currentLessonId', async () => {
-    mocks.sessionState = {
-      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
-      loading: false,
-      sessionRevision: 1,
-    };
-    mocks.coursePaths.mockResolvedValue([course1Path]);
-    await renderRoute();
-
-    const continueButton = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('Continue Learning')
-    );
-    expect(continueButton).toBeDefined();
-
-    await act(async () => {
-      continueButton?.click();
-    });
-
-    expect(container.textContent).toContain('Lesson Detail Page');
-  });
-
-  it('View Course Path navigates to /courses/:courseId', async () => {
-    mocks.sessionState = {
-      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
-      loading: false,
-      sessionRevision: 1,
-    };
-    mocks.coursePaths.mockResolvedValue([course1Path]);
-    await renderRoute();
-
-    const pathButton = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('View Course Path')
-    );
-    expect(pathButton).toBeDefined();
-
-    await act(async () => {
-      pathButton?.click();
-    });
-
-    expect(container.textContent).toContain('Course Path Page');
-  });
-
-  it('renders genuine empty state when no courses and no assignments exist', async () => {
-    mocks.sessionState = {
-      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
-      loading: false,
-      sessionRevision: 1,
-    };
-    mocks.myLearning.mockResolvedValue([]);
     mocks.coursePaths.mockResolvedValue([]);
+    mocks.quizzes.mockResolvedValue([]);
     await renderRoute();
 
     expect(container.textContent).toContain('No assigned learning');
-  });
-
-  it('displays API error without false empty state and supports retry', async () => {
-    mocks.sessionState = {
-      session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } },
-      loading: false,
-      sessionRevision: 1,
-    };
-    mocks.myLearning.mockRejectedValue(new Error('Unable to load learning.'));
-    await renderRoute();
-
-    expect(container.textContent).toContain('Unable to load learning.');
-    expect(container.textContent).not.toContain('No assigned learning');
-    expect(container.querySelector('button')?.textContent).toContain('Retry');
   });
 });

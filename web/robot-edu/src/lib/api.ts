@@ -294,10 +294,29 @@ export const learnerApi = {
   coursePaths: (token: string) => progressionApi.coursePaths(token),
   submitKnowledgeCheck: (attemptId: string, dto: SubmitKnowledgeCheckDto, token: string) =>
     progressionApi.submitKnowledgeCheck(attemptId, dto, token),
+  quizzes: (token: string) => progressionApi.quizzes(token),
 };
+
+export interface ApiStudentQuiz {
+  lesson_id: string;
+  lesson_title: string;
+  lesson_ordinal: number;
+  course_id: string;
+  course_title: string;
+  assignment_id: string;
+  quiz_title: string;
+  classroom_assignment_id: string | null;
+  attempt_id: string | null;
+  attempt_status: string | null;
+  score: number | null;
+  passed: boolean | null;
+  pass_percent: number | null;
+  status: 'not_started' | 'in_progress' | 'passed' | 'failed';
+}
 
 export const progressionApi = {
   coursePath: (courseId: string, token: string) => apiGet<CoursePathResponse>(`/me/courses/${courseId}/path`, token),
+  quizzes: (token: string) => apiGet<ApiStudentQuiz[]>("/me/quizzes", token),
   qualifiedL4Version: (courseId: string, token: string) =>
     apiGet<ApiQualifiedProgramHandoff | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
   coursePaths: async (token: string): Promise<CoursePathResponse[]> => {

@@ -7,21 +7,21 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { PageHeader } from '../components/ui/PageHeader';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
-import { learnerApi, progressionApi, type ApiMyLearning, type CoursePathResponse } from '../lib/api';
+import { progressionApi, type ApiStudentQuiz, type CoursePathResponse } from '../lib/api';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
 import { cn } from '../utils/cn';
 
-export type LearningTabKey = 'in-progress' | 'completed' | 'assignments';
+export type MyLearningTabKey = 'in-progress' | 'completed' | 'quizzes';
 
 export interface TabConfig {
-  id: LearningTabKey;
+  id: MyLearningTabKey;
   label: string;
 }
 
-export const LEARNING_TABS: TabConfig[] = [
+export const MY_LEARNING_TABS: TabConfig[] = [
   { id: 'in-progress', label: 'In Progress' },
   { id: 'completed', label: 'Completed' },
-  { id: 'assignments', label: 'Assignments' },
+  { id: 'quizzes', label: 'Quizzes' },
 ];
 
 export function isCourseCompleted(coursePath: CoursePathResponse): boolean {
@@ -33,72 +33,35 @@ export function isCourseCompleted(coursePath: CoursePathResponse): boolean {
   );
 }
 
-export function getAssignmentStatus(
-  item: ApiMyLearning
-): 'assigned' | 'in_progress' | 'submitted' | 'evaluated' {
-  if (item.status) {
-    if (item.status === 'evaluated') return 'evaluated';
-    if (item.status === 'submitted') return 'submitted';
-    if (item.status === 'in_progress') return 'in_progress';
-    return 'assigned';
-  }
-  if (
-    item.attempt_status === 'evaluated' ||
-    item.learning_status === 'evaluated' ||
-    item.teacher_feedback ||
-    (item.score !== undefined && item.score !== null)
-  ) {
-    return 'evaluated';
-  }
-  if (item.attempt_status === 'submitted' || item.learning_status === 'completed') {
-    return 'submitted';
-  }
-  if (item.attempt_status === 'in_progress' || item.learning_status === 'started' || item.attempt_id) {
-    return 'in_progress';
-  }
-  return 'assigned';
-}
-
-export function getAssignmentStatusTone(
-  status: 'assigned' | 'in_progress' | 'submitted' | 'evaluated'
-): BadgeTone {
+export function getQuizStatusBadge(
+  status: ApiStudentQuiz['status']
+): { tone: BadgeTone; label: string } {
   switch (status) {
-    case 'assigned':
-      return 'neutral';
+    case 'passed':
+      return { tone: 'ok', label: 'Passed' };
+    case 'failed':
+      return { tone: 'danger', label: 'Failed' };
     case 'in_progress':
-      return 'accent';
-    case 'submitted':
-      return 'warn';
-    case 'evaluated':
-      return 'ok';
+      return { tone: 'accent', label: 'In Progress' };
+    case 'not_started':
+    default:
+      return { tone: 'neutral', label: 'Not Started' };
   }
 }
 
-export function getAssignmentStatusLabel(
-  status: 'assigned' | 'in_progress' | 'submitted' | 'evaluated'
-): string {
+export function getQuizCta(
+  status: ApiStudentQuiz['status']
+): { label: string; variant: 'primary' | 'secondary' } {
   switch (status) {
-    case 'assigned':
-      return 'Assigned';
+    case 'passed':
+      return { label: 'View Result', variant: 'secondary' };
+    case 'failed':
+      return { label: 'Retry Quiz', variant: 'primary' };
     case 'in_progress':
-      return 'In Progress';
-    case 'submitted':
-      return 'Submitted';
-    case 'evaluated':
-      return 'Evaluated';
-  }
-}
-
-export function getAssignmentCta(status: 'assigned' | 'in_progress' | 'submitted' | 'evaluated') {
-  switch (status) {
-    case 'assigned':
-      return { label: 'Start Assignment', variant: 'primary' as const };
-    case 'in_progress':
-      return { label: 'Continue Assignment', variant: 'primary' as const };
-    case 'submitted':
-      return { label: 'View Submission', variant: 'secondary' as const };
-    case 'evaluated':
-      return { label: 'View Feedback', variant: 'secondary' as const };
+      return { label: 'Continue Quiz', variant: 'primary' };
+    case 'not_started':
+    default:
+      return { label: 'Start Quiz', variant: 'primary' };
   }
 }
 
@@ -106,14 +69,7 @@ export function MyLearning() {
   const { session, loading: authLoading, sessionRevision } = useSupabaseSession();
   const token = session?.access_token ?? '';
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<LearningTabKey>('in-progress');
-
-  const assignmentsQuery = useQuery({
-    queryKey: studentLearningKeys.list(session?.user.id, sessionRevision),
-    queryFn: () => learnerApi.myLearning(token),
-    enabled: Boolean(!authLoading && token),
-    staleTime: 30_000,
-  });
+  const [activeTab, setActiveTab] = useState<MyLearningTabKey>('in-progress');
 
   const coursePathsQuery = useQuery({
     queryKey: studentLearningKeys.coursePaths(session?.user.id, sessionRevision),
@@ -122,34 +78,41 @@ export function MyLearning() {
     staleTime: 30_000,
   });
 
-  const loading = authLoading || assignmentsQuery.isLoading;
-  const error = assignmentsQuery.error;
+  const quizzesQuery = useQuery({
+    queryKey: studentLearningKeys.quizzes(session?.user.id, sessionRevision),
+    queryFn: () => progressionApi.quizzes(token),
+    enabled: Boolean(!authLoading && token),
+    staleTime: 30_000,
+  });
+
+  const loading = authLoading || coursePathsQuery.isLoading;
+  const error = coursePathsQuery.error || quizzesQuery.error;
   const courses = coursePathsQuery.data ?? [];
-  const assignments = assignmentsQuery.data ?? [];
+  const quizzes = quizzesQuery.data ?? [];
 
   const inProgressCourses = courses.filter((cp) => !isCourseCompleted(cp));
   const completedCourses = courses.filter((cp) => isCourseCompleted(cp));
 
-  const hasAnyLearning = courses.length > 0 || assignments.length > 0;
+  const hasAnyLearning = courses.length > 0 || quizzes.length > 0;
 
   const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
     let targetIndex = -1;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
       e.preventDefault();
-      targetIndex = (index + 1) % LEARNING_TABS.length;
+      targetIndex = (index + 1) % MY_LEARNING_TABS.length;
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
       e.preventDefault();
-      targetIndex = (index - 1 + LEARNING_TABS.length) % LEARNING_TABS.length;
+      targetIndex = (index - 1 + MY_LEARNING_TABS.length) % MY_LEARNING_TABS.length;
     } else if (e.key === 'Home') {
       e.preventDefault();
       targetIndex = 0;
     } else if (e.key === 'End') {
       e.preventDefault();
-      targetIndex = LEARNING_TABS.length - 1;
+      targetIndex = MY_LEARNING_TABS.length - 1;
     }
 
     if (targetIndex >= 0) {
-      const nextTab = LEARNING_TABS[targetIndex];
+      const nextTab = MY_LEARNING_TABS[targetIndex];
       setActiveTab(nextTab.id);
       const tabElement = document.getElementById(`tab-${nextTab.id}`);
       tabElement?.focus();
@@ -160,7 +123,7 @@ export function MyLearning() {
     <main className="mx-auto max-w-5xl px-5 py-8 sm:px-8">
       <PageHeader
         title="My Learning"
-        description="Authoritative curriculum progression and assigned classroom learning."
+        description="Curriculum progress and course practice across your enrolled robotics tracks."
       />
 
       {loading && <p className="mt-6 text-sm text-ink-muted">Restoring your learning…</p>}
@@ -172,8 +135,8 @@ export function MyLearning() {
             className="mt-3"
             variant="secondary"
             onClick={() => {
-              void assignmentsQuery.refetch();
               void coursePathsQuery.refetch();
+              void quizzesQuery.refetch();
             }}
           >
             Retry
@@ -185,7 +148,7 @@ export function MyLearning() {
         <div className="mt-8">
           <EmptyState
             title="No assigned learning"
-            description="Your teacher has not published learning for your classrooms yet."
+            description="You do not have any enrolled courses or learning activities yet."
           />
         </div>
       )}
@@ -198,7 +161,7 @@ export function MyLearning() {
               aria-label="My Learning Sections"
               className="flex space-x-8 overflow-x-auto no-scrollbar"
             >
-              {LEARNING_TABS.map((tab, index) => {
+              {MY_LEARNING_TABS.map((tab, index) => {
                 const isActive = activeTab === tab.id;
                 return (
                   <button
@@ -430,99 +393,67 @@ export function MyLearning() {
               </div>
             )}
 
-            {activeTab === 'assignments' && (
+            {activeTab === 'quizzes' && (
               <div className="space-y-6">
-                {assignments.length === 0 ? (
+                {quizzes.length === 0 ? (
                   <EmptyState
-                    title="No classroom assignments"
-                    description="Your teacher has not published assignments for your classrooms yet."
+                    title="No practice quizzes"
+                    description="No practice quizzes or knowledge checks are available in your enrolled courses."
                   />
                 ) : (
                   <div className="grid gap-6">
-                    {assignments.map((item) => {
-                      const status = getAssignmentStatus(item);
-                      const statusTone = getAssignmentStatusTone(status);
-                      const statusLabel = getAssignmentStatusLabel(status);
-                      const cta = getAssignmentCta(status);
+                    {quizzes.map((quiz) => {
+                      const badge = getQuizStatusBadge(quiz.status);
+                      const cta = getQuizCta(quiz.status);
 
                       return (
                         <article
-                          key={item.classroom_assignment_id}
+                          key={quiz.assignment_id || `${quiz.course_id}-${quiz.lesson_id}`}
                           className="rounded-xl border border-line bg-surface p-6 shadow-sm"
-                          aria-labelledby={`assignment-title-${item.classroom_assignment_id}`}
+                          aria-labelledby={`quiz-title-${quiz.lesson_id}`}
                         >
                           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                             <div>
                               <p className="text-sm text-ink-muted">
-                                {item.course_title} · {item.classroom_name}
+                                {quiz.course_title} · C1-L{quiz.lesson_ordinal} — {quiz.lesson_title}
                               </p>
                               <h3
-                                id={`assignment-title-${item.classroom_assignment_id}`}
+                                id={`quiz-title-${quiz.lesson_id}`}
                                 className="mt-1 text-xl font-bold text-ink"
                               >
-                                {item.title}
+                                {quiz.quiz_title}
                               </h3>
                             </div>
-                            <Badge tone={statusTone}>{statusLabel}</Badge>
+                            <Badge tone={badge.tone}>{badge.label}</Badge>
                           </div>
 
-                          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm text-ink-muted border-t border-b border-line py-3">
-                            <div>
-                              <span className="text-xs uppercase tracking-wider text-ink-subtle block">
-                                Lesson
+                          {quiz.score !== null && quiz.score !== undefined && (
+                            <div className="mt-4 flex items-center gap-2 text-sm border-t border-line pt-3">
+                              <span className="text-ink-muted">Score:</span>
+                              <span
+                                className={cn(
+                                  'font-bold',
+                                  quiz.status === 'passed' ? 'text-ok' : 'text-danger'
+                                )}
+                              >
+                                {quiz.score}%
                               </span>
-                              <span className="font-medium text-ink">{item.lesson_title}</span>
-                            </div>
-                            {item.challenge_title && (
-                              <div>
-                                <span className="text-xs uppercase tracking-wider text-ink-subtle block">
-                                  Challenge
+                              {quiz.pass_percent && (
+                                <span className="text-xs text-ink-subtle">
+                                  (Passing: {quiz.pass_percent}%)
                                 </span>
-                                <span className="font-medium text-ink">{item.challenge_title}</span>
-                              </div>
-                            )}
-                            <div>
-                              <span className="text-xs uppercase tracking-wider text-ink-subtle block">
-                                Due Date
-                              </span>
-                              <span className="font-medium text-ink">
-                                {item.due_at
-                                  ? new Date(item.due_at).toLocaleDateString()
-                                  : 'No due date'}
-                              </span>
-                            </div>
-                          </div>
-
-                          {status === 'evaluated' &&
-                            item.score !== undefined &&
-                            item.score !== null && (
-                              <div className="mt-4 flex items-center gap-2">
-                                <span className="text-sm font-semibold text-ink">Score:</span>
-                                <span className="text-base font-bold text-ok">{item.score}%</span>
-                              </div>
-                            )}
-
-                          {item.teacher_feedback && (
-                            <div className="mt-4 rounded-lg bg-sunken p-4">
-                              <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-                                Teacher Feedback
-                              </span>
-                              <p className="mt-1 text-sm text-ink whitespace-pre-wrap">
-                                {item.teacher_feedback}
-                              </p>
+                              )}
                             </div>
                           )}
 
-                          <div className="mt-6 flex flex-wrap items-center gap-3">
+                          <div className="mt-5 flex flex-wrap items-center gap-3">
                             <Button
                               variant={cta.variant}
-                              onClick={() => {
-                                if (status === 'in_progress' && item.attempt_id) {
-                                  navigate(`/practice/${item.attempt_id}`);
-                                } else {
-                                  navigate(`/my-learning/${item.classroom_assignment_id}`);
-                                }
-                              }}
+                              onClick={() =>
+                                navigate(
+                                  `/courses/${quiz.course_id}/lessons/${quiz.lesson_id}/activities/${quiz.lesson_id}-knowledge-check`
+                                )
+                              }
                             >
                               {cta.label}
                             </Button>

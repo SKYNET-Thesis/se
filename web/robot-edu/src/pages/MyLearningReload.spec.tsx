@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   sessionState: { session: null as null | { access_token: string; user: { id: string } }, loading: true, sessionRevision: 0 },
-  myLearning: vi.fn(),
   coursePaths: vi.fn(),
+  quizzes: vi.fn(),
   roles: vi.fn(),
 }));
 
@@ -16,8 +16,7 @@ vi.mock('../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api')>();
   return {
     ...actual,
-    learnerApi: { ...actual.learnerApi, myLearning: mocks.myLearning },
-    progressionApi: { ...actual.progressionApi, coursePaths: mocks.coursePaths },
+    progressionApi: { ...actual.progressionApi, coursePaths: mocks.coursePaths, quizzes: mocks.quizzes },
     identityApi: { ...actual.identityApi, roles: mocks.roles },
   };
 });
@@ -29,7 +28,12 @@ import { MyLearning } from './MyLearning';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const assignment = { classroom_assignment_id: 'delivery-1', title: 'Published after reload', lesson_id: 'lesson-1', lesson_title: 'Gripper', classroom_name: 'Robotics Class A', course_title: 'Robotics', attempt_id: null, attempt_status: null, learning_status: 'assigned' as const };
+const course = {
+  course: { id: 'c1', title: 'Robotics Reloaded', status: 'published', level: 'Intro', recommendedGrades: '6-8' },
+  progressPercent: 30,
+  currentLessonId: 'l-1',
+  lessons: [{ id: 'l-1', ordinal: 1, title: 'L1', status: 'current' as const, progressPercent: 0, prerequisite: [] }],
+};
 
 describe('My Learning full hard-reload provider lifecycle', () => {
   let container: HTMLDivElement;
@@ -46,8 +50,8 @@ describe('My Learning full hard-reload provider lifecycle', () => {
   beforeEach(() => {
     container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
     mocks.sessionState = { session: null, loading: true, sessionRevision: 0 };
-    mocks.myLearning.mockReset().mockResolvedValue([assignment]);
-    mocks.coursePaths.mockReset().mockResolvedValue([]);
+    mocks.coursePaths.mockReset().mockResolvedValue([course]);
+    mocks.quizzes.mockReset().mockResolvedValue([]);
     mocks.roles.mockReset().mockResolvedValue({ systemRoleCodes: [], memberships: [{ organizationId: 'org-1', roleCode: 'student', status: 'active', permissionCodes: [] }] });
   });
   afterEach(() => { act(() => root.unmount()); container.remove(); });
@@ -59,15 +63,10 @@ describe('My Learning full hard-reload provider lifecycle', () => {
     mocks.sessionState = { session: { access_token: 'student-token', user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
     await renderApp();
 
-    expect(mocks.myLearning).toHaveBeenCalledWith('student-token');
+    expect(mocks.coursePaths).toHaveBeenCalledWith('student-token');
     expect(mocks.roles).toHaveBeenCalledWith('student-token');
     expect(container.textContent).not.toContain('Restoring your learning');
-
-    const assignmentsTab = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((t) => t.textContent?.includes('Assignments'));
-    await act(async () => {
-      assignmentsTab?.click();
-    });
-    expect(container.textContent).toContain('Published after reload');
+    expect(container.textContent).toContain('Robotics Reloaded');
   });
 
   it('does not restart learning for repeated equivalent authenticated events', async () => {
@@ -76,11 +75,7 @@ describe('My Learning full hard-reload provider lifecycle', () => {
     mocks.sessionState = { session: { access_token: 'student-token', user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
     await renderApp();
 
-    expect(mocks.myLearning).toHaveBeenCalledTimes(1);
-    const assignmentsTab = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="tab"]')).find((t) => t.textContent?.includes('Assignments'));
-    await act(async () => {
-      assignmentsTab?.click();
-    });
-    expect(container.textContent).toContain('Published after reload');
+    expect(mocks.coursePaths).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain('Robotics Reloaded');
   });
 });
