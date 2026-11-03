@@ -267,7 +267,7 @@ export function MyLearning() {
                             </span>
                             {currentLesson ? (
                               <p className="mt-1 text-base font-semibold text-ink">
-                                C1-L{currentLesson.ordinal} — {currentLesson.title}
+                                {currentLesson.title}
                               </p>
                             ) : (
                               <p className="mt-1 text-sm text-ink-muted">
@@ -415,7 +415,7 @@ export function MyLearning() {
                           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                             <div>
                               <p className="text-sm text-ink-muted">
-                                {quiz.course_title} · C1-L{quiz.lesson_ordinal} — {quiz.lesson_title}
+                                {quiz.course_title} · {quiz.lesson_title}
                               </p>
                               <h3
                                 id={`quiz-title-${quiz.lesson_id}`}

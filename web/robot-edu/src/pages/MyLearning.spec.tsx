@@ -255,7 +255,8 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
     expect(container.textContent).toContain('Grades: 6-8');
     expect(container.textContent).toContain('40%');
     expect(container.textContent).toContain('2 / 3 lessons completed');
-    expect(container.textContent).toContain('C1-L3 — Grab & Release');
+    expect(container.textContent).toContain('Grab & Release');
+    expect(container.textContent).not.toMatch(/C1-L[1-5]/);
     expect(container.textContent).toContain('Continue Learning');
     expect(container.textContent).toContain('View Course Path');
   });
@@ -322,7 +323,7 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
     expect(container.textContent).toContain('Meet Your Robot Knowledge Check');
     expect(container.textContent).toContain('Move the Robot Knowledge Check');
     expect(container.textContent).toContain('Grab & Release Knowledge Check');
-    expect(container.textContent).toContain('Robotics Fundamentals · C1-L1 — Meet Your Robot');
+    expect(container.textContent).toContain('Robotics Fundamentals · Meet Your Robot');
   });
 
   // 6. quiz result uses authoritative result data

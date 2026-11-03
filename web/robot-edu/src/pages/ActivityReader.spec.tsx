@@ -115,6 +115,7 @@ describe('ActivityReader loading isolation', () => {
       });
 
       expect(container.textContent).toContain('Understanding Robot Movement');
+      expect(container.textContent).not.toMatch(/C1-L[1-5]/);
       expect(container.textContent).toContain('Reading');
       expect(container.textContent).toContain('4 min');
       expect(container.textContent).toContain('Learn the Concepts');
