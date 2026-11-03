@@ -68,6 +68,17 @@ export interface CoursePathResponse {
   lessons: CoursePathLesson[];
 }
 
+export interface ApiActivityProgress {
+  activityId: string;
+  status: 'completed' | 'not_started';
+  completedAt: string | null;
+}
+
+export interface ApiCourseActivityProgress {
+  courseId: string;
+  activities: ApiActivityProgress[];
+}
+
 export interface LessonObjective {
   code: string;
   description: string;
@@ -316,6 +327,8 @@ export interface ApiStudentQuiz {
 
 export const progressionApi = {
   coursePath: (courseId: string, token: string) => apiGet<CoursePathResponse>(`/me/courses/${courseId}/path`, token),
+  activityProgress: (courseId: string, token: string) => apiGet<ApiCourseActivityProgress>(`/me/courses/${courseId}/activity-progress`, token),
+  completeActivity: (activityId: string, token: string) => apiRequest<ApiActivityProgress>(`/me/activities/${activityId}/complete`, token, 'POST'),
   quizzes: (token: string) => apiGet<ApiStudentQuiz[]>("/me/quizzes", token),
   qualifiedL4Version: (courseId: string, token: string) =>
     apiGet<ApiQualifiedProgramHandoff | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),

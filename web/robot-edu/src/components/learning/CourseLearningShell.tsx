@@ -11,6 +11,7 @@ import {
 import { sessionExpandedState } from './CourseLearningState';
 import { ActivityCard } from './ActivityCard';
 import { activityCompletionState } from './activityCompletionState';
+import { useActivityProgress } from './useActivityProgress';
 
 export function CourseLearningShell({
   courseId,
@@ -59,6 +60,10 @@ export function CourseLearningShell({
     enabled: Boolean(session?.access_token && courseId),
     staleTime: 30_000,
   });
+  const activityProgressQuery = useActivityProgress(courseId);
+  const completedActivityIds = activityProgressQuery.data?.activities
+    .filter((item) => item.status === 'completed')
+    .map((item) => item.activityId);
 
   const currentLessonFallback = {
     id: lesson.id,
@@ -165,6 +170,18 @@ export function CourseLearningShell({
           {pathOverride?.lessons || pathQuery.data?.lessons ? (
             <p className="px-2 pt-1 text-xs text-ink-muted">{completedLessonCount} of {lessons.length} lessons completed</p>
           ) : null}
+          {!activityProgressQuery.canVerify && (
+            <p role="status" className="px-2 pt-2 text-xs text-ink-muted">Sign in to verify activity progress.</p>
+          )}
+          {activityProgressQuery.canVerify && !activityProgressQuery.data && activityProgressQuery.isPending && (
+            <p role="status" className="px-2 pt-2 text-xs text-ink-muted">Checking activity progress…</p>
+          )}
+          {activityProgressQuery.isError && (
+            <div className="px-2 pt-2 text-xs text-ink-muted" role="alert">
+              {activityProgressQuery.data ? 'Progress could not be updated.' : 'Activity progress could not be verified.'}
+              <button type="button" className="ml-2 font-semibold text-accent-ink underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" onClick={() => void activityProgressQuery.refetch()}>Retry</button>
+            </div>
+          )}
 
           <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-5">
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
@@ -206,6 +223,7 @@ export function CourseLearningShell({
                   expanded={Boolean(expandedModules[item.id])}
                   onToggle={() => toggleModule(item.id)}
                   sections={itemSections}
+                  completedActivityIds={completedActivityIds}
                   activityId={item.id === lessonId ? activityId : undefined}
                   pathname={location.pathname}
                 />
@@ -234,6 +252,7 @@ function LessonModuleNavItem({
   expanded,
   onToggle,
   sections,
+  completedActivityIds,
   activityId,
   pathname,
 }: {
@@ -243,6 +262,7 @@ function LessonModuleNavItem({
   expanded: boolean;
   onToggle: () => void;
   sections: LessonActivitySection[];
+  completedActivityIds?: string[];
   activityId?: string;
   pathname: string;
 }) {
@@ -337,7 +357,7 @@ function LessonModuleNavItem({
                             <ActivityCard
                               activity={activity}
                               href={unavailable ? undefined : `/courses/${courseId}/lessons/${lesson.id}/activities/${activity.id}`}
-                              completion={activityCompletionState(activity.id, { locked: unavailable, lessonStatus: lesson.status })}
+                              completion={unavailable ? 'locked' : completedActivityIds ? activityCompletionState(activity.id, { completedActivityIds }) : 'checking'}
                               active={isSelected}
                             />
                           </div>

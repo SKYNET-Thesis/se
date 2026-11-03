@@ -1,6 +1,6 @@
 import type { LessonProgressStatus } from '../../lib/api';
 
-export type ActivityCompletionState = 'incomplete' | 'completed' | 'locked';
+export type ActivityCompletionState = 'incomplete' | 'completed' | 'locked' | 'checking';
 
 /** Only IDs supplied by an authoritative activity-completion response may produce a tick. */
 export function activityCompletionState(
