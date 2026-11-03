@@ -162,7 +162,8 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
       challenge_id: null,
     });
     await render();
-    expect(container.textContent).toContain('Robotics Fundamentals · C1-L2');
+    expect(container.textContent).toContain('Robotics Fundamentals');
+    expect(container.textContent).not.toMatch(/C1-L[1-5]/);
     expect(container.querySelector('[data-testid="blockly"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="so101"]')).not.toBeNull();
     expect(container.textContent).toContain('robot_move_home');
@@ -312,9 +313,9 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
     // PASS card
     expect(container.textContent).toContain('Simulation Passed');
     expect(container.textContent).toContain('Target A reached successfully.');
-    expect(container.textContent).toContain('C1-L2 Move the Robot completed.');
+    expect(container.textContent).toContain('Move the Robot completed.');
     expect(container.textContent).toContain('Next lesson unlocked:');
-    expect(container.textContent).toContain('Grab & Release (C1-L3)');
+    expect(container.textContent).toContain('Grab & Release');
     expect(container.textContent).toContain('Continue to Course Path');
 
     // Query invalidation
@@ -498,7 +499,7 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
       content: { completionCriteria: 'Pick and release object.' },
     });
     await render();
-    expect(container.textContent).toContain('Robotics Fundamentals · C1-L3');
+    expect(container.textContent).toContain('Robotics Fundamentals');
     expect(container.textContent).toContain('robot_gripper_open');
     expect(container.textContent).toContain('robot_gripper_close');
     expect(container.textContent).toContain('robot_move_to');
@@ -528,7 +529,7 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
       content: { completionCriteria: 'Release object inside target zone.' },
     });
     await render();
-    expect(container.textContent).toContain('Robotics Fundamentals · C1-L4');
+    expect(container.textContent).toContain('Robotics Fundamentals');
     expect(container.textContent).toContain('robot_move_home');
     expect(container.textContent).toContain('robot_move_to');
     expect(container.textContent).toContain('robot_gripper_open');
@@ -632,9 +633,9 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
 
       expect(container.textContent).toContain('Simulation Passed');
       expect(container.textContent).toContain('You successfully grasped, lifted, and released the object.');
-      expect(container.textContent).toContain('C1-L3 Grab & Release completed.');
+      expect(container.textContent).toContain('Grab & Release completed.');
       expect(container.textContent).toContain('Next lesson unlocked:');
-      expect(container.textContent).toContain('Pick & Place (C1-L4)');
+      expect(container.textContent).toContain('Pick & Place');
       expect(container.textContent).toContain('Continue to Course Path');
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: studentLearningKeys.all });
     });
@@ -674,7 +675,7 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
       expect(container.textContent).toContain('The gripper closed, but the object was not grasped.');
       expect(container.textContent).toContain('Review your approach and gripper blocks, then try again.');
       expect(container.textContent).not.toContain('Next lesson unlocked:');
-      expect(container.textContent).not.toContain('Pick & Place (C1-L4)');
+      expect(container.textContent).not.toContain('Pick & Place');
     });
 
     it('evaluates L3 with Run Simulation, displays lift failure feedback', async () => {
@@ -808,7 +809,7 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
 
     it('renders L4 task context, Blockly workspace, SO-101 3D preview, challenge object, and target zone', async () => {
       await render();
-      expect(container.textContent).toContain('Robotics Fundamentals · C1-L4');
+      expect(container.textContent).toContain('Robotics Fundamentals');
       expect(container.textContent).toContain('Pick & Place');
       expect(container.textContent).toContain('Release the required object inside the target zone');
       expect(container.textContent).toContain('Red Cube · learning_preview_v1');
@@ -858,7 +859,7 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
       expect(container.textContent).toContain('Simulation Passed');
       expect(container.textContent).toContain('You successfully placed the object inside the target zone.');
       expect(container.textContent).toContain('Course 1 simulation challenge complete.');
-      expect(container.textContent).toContain('Physical Robot Lab (C1-L5)');
+      expect(container.textContent).toContain('Physical Robot Lab');
       expect(container.textContent).toContain('Continue to Course Path');
       expect(container.textContent).not.toContain('Run on robot');
     });

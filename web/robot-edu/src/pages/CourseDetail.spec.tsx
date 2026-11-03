@@ -166,6 +166,7 @@ describe('CourseDetail / Course Path', () => {
     expect(container.textContent).toContain('Robotics Fundamentals');
     expect(container.textContent).toContain('2 / 5 lessons completed');
     expect(container.textContent).toContain('40%');
+    expect(container.textContent).not.toMatch(/C1-L[1-5]/);
 
     const text = Array.from(container.querySelectorAll('[data-testid="lesson-row"]')).map((row) => row.textContent).join(' ');
     const l1Index = text.indexOf('Meet Your Robot');
@@ -214,7 +215,7 @@ describe('CourseDetail / Course Path', () => {
 
     const lesson1Item = container.querySelectorAll('[data-testid="lesson-row"]')[0];
     expect(lesson1Item.textContent).toContain('Meet Your Robot');
-    expect(lesson1Item.textContent).toContain('C1-L1');
+    expect(lesson1Item.textContent).not.toContain('C1-L1');
     expect(lesson1Item.textContent).toContain('✓ Completed');
     expect(lesson1Item.textContent).toContain('Review lesson');
 
