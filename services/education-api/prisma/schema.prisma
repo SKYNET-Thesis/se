@@ -699,6 +699,7 @@ model users {
   learning_experiments            learning_experiments[]
   learning_symbolic_evaluations   learning_symbolic_evaluations[] @relation("learning_symbolic_evaluations_requested_by")
   learning_feedback               learning_feedback[]
+  learning_activity_progress      learning_activity_progress[]
   learning_lesson_progress        learning_lesson_progress[]
   learning_program_versions       learning_program_versions[]
   learning_programs               learning_programs[]
@@ -1228,6 +1229,26 @@ model learning_lesson_progress {
   @@index([learner_user_id], map: "idx_lesson_progress_user")
 }
 
+/// Self-confirmed Reading and Demonstration completion only. Evaluated activities are projected from assessment evidence.
+/// This table has check constraints and row level security configured in its SQL migration.
+model learning_activity_progress {
+  id              String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learner_user_id String           @db.Uuid
+  lesson_id       String           @db.Uuid
+  activity_id     String
+  status          String           @default("completed")
+  completion_method String         @default("self_report")
+  completed_at    DateTime         @default(now()) @db.Timestamptz(6)
+  created_at      DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime         @default(now()) @db.Timestamptz(6)
+  users           users            @relation(fields: [learner_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_lessons learning_lessons @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([learner_user_id, activity_id])
+  @@index([lesson_id])
+  @@index([learner_user_id])
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model learning_lessons {
@@ -1241,6 +1262,7 @@ model learning_lessons {
   learning_lesson_prerequisites_learning_lesson_prerequisites_lesson_idTolearning_lessons              learning_lesson_prerequisites[] @relation("learning_lesson_prerequisites_lesson_idTolearning_lessons")
   learning_lesson_prerequisites_learning_lesson_prerequisites_prerequisite_lesson_idTolearning_lessons learning_lesson_prerequisites[] @relation("learning_lesson_prerequisites_prerequisite_lesson_idTolearning_lessons")
   learning_lesson_progress                                                                             learning_lesson_progress[]
+  learning_activity_progress                                                                           learning_activity_progress[]
   learning_courses                                                                                     learning_courses                @relation(fields: [course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   learning_objectives                                                                                  learning_objectives[]
 
