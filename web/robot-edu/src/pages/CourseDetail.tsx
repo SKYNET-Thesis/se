@@ -148,7 +148,6 @@ function LessonRow({ lesson, courseId }: { lesson: CoursePathLesson; courseId: s
     <li data-testid="lesson-row" className={`overflow-hidden rounded-xl border bg-surface transition-colors ${isCurrent || isInProgress ? 'border-accent' : 'border-line'}`}>
       <div className="flex items-center gap-3 p-3 sm:p-4">
         <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded((value) => !value)} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2">
-          <span className={`grid h-10 min-w-10 shrink-0 place-items-center rounded-lg px-1.5 font-mono text-[11px] font-semibold ${isCompleted ? 'bg-ok-soft text-ok' : isCurrent || isInProgress ? 'bg-accent-soft text-accent-ink' : 'bg-sunken text-ink-muted'}`}>{lesson.code ?? `L${lesson.ordinal}`}</span>
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-2"><span className="font-semibold text-ink">{lesson.title}</span><Badge tone={isCompleted ? 'ok' : isCurrent ? 'accent' : isInProgress ? 'warn' : 'neutral'}>{isCompleted ? '✓ Completed' : isCurrent ? '▶ Current' : isInProgress ? '• In Progress' : isLocked ? '🔒 Locked' : 'Available'}</Badge></span>
             <span className="mt-1 block line-clamp-1 text-sm text-ink-muted">{lesson.summary}</span>

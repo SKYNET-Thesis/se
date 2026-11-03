@@ -83,7 +83,7 @@ function RobotReadinessPanel({
     },
     {
       id: 'qualification',
-      title: 'C1-L4 Symbolic PASS Qualification',
+      title: 'Pick & Place Simulation Qualification',
       description: lesson.qualification
         ? `Qualified Version ${lesson.qualification.versionNumber} verified`
         : 'Authoritative symbolic PASS required',
@@ -101,7 +101,7 @@ function RobotReadinessPanel({
           <h2 className="text-xl font-bold text-ink">Robot Readiness / Safety Check</h2>
         </div>
         <div className="rounded-lg border border-line bg-sunken p-4 text-xs text-ink-muted">
-          Simulation qualification is required before physical lab preflight. Return to C1-L4 to qualify your program.
+          Simulation qualification is required before physical lab preflight. Return to Pick & Place to qualify your program.
         </div>
       </section>
     );
@@ -960,7 +960,7 @@ export function ActivityReader() {
 
         <header className="mt-8 border-b border-line pb-6">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent-ink">
-            {lesson.course_title} · C1-L{lesson.ordinal}
+            {lesson.course_title}
           </p>
           <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-ink md:text-4xl">
             {activity.title}
@@ -1073,7 +1073,7 @@ export function ActivityReader() {
                           Pick &amp; Place — Version {lesson.qualification.versionNumber}
                         </h2>
                         <p className="mt-2 text-sm text-ink-muted leading-relaxed">
-                          This exact immutable ProgramVersion passed authoritative C1-L4 simulation evaluation and is resolved by backend provenance for C1-L5 Physical Robot Lab handoff.
+                          This exact immutable ProgramVersion passed authoritative Pick & Place simulation evaluation and is resolved by backend provenance for Physical Robot Lab handoff.
                         </p>
                       </div>
 
@@ -1118,7 +1118,7 @@ export function ActivityReader() {
                         <h2 className="text-2xl font-bold text-ink">Awaiting Qualification</h2>
                       </div>
                       <p className="text-sm text-ink-muted leading-relaxed">
-                        No qualified ProgramVersion found. You must successfully pass the authoritative C1-L4 Pick &amp; Place challenge simulation to qualify a program version for physical lab execution.
+                        No qualified ProgramVersion found. You must successfully pass the authoritative Pick &amp; Place challenge simulation to qualify a program version for physical lab execution.
                       </p>
                       <div className="pt-2">
                         <Link

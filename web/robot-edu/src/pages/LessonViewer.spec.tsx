@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import React, { act } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -21,6 +21,7 @@ describe('LessonViewer activity-map boundary', () => {
   it('renders an activity map rather than the instructional article', async () => {
     await render();
     expect(container.textContent).toContain('Learning activities');
+    expect(container.textContent).not.toContain('C1-L2');
     expect(container.textContent).toContain('Movement Fundamentals');
     expect(container.textContent).toContain('Understanding Robot Movement');
     expect(container.textContent).toContain('Reading • 4 min');

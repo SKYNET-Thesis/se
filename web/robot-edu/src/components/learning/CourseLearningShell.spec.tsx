@@ -31,6 +31,9 @@ describe('CourseLearningShell', () => {
     await act(async () => { root.render(<QueryClientProvider client={client}><MemoryRouter><CourseLearningShell courseId="course-1" lessonId="lesson-2" lesson={lesson} pathOverride={pathOverride}><div>Lesson content</div></CourseLearningShell></MemoryRouter></QueryClientProvider>); await Promise.resolve(); });
     expect(mocks.path).toHaveBeenCalled();
     expect(container.textContent).toContain('Meet Your Robot');
+    expect(container.textContent).not.toMatch(/C1-L[1-5]/);
+    expect(container.querySelectorAll('[data-completion="completed"]')).toHaveLength(0);
+    expect(container.textContent).toContain('1 of 5 lessons completed');
     expect(container.querySelector('[aria-label="Course lessons"]')?.children.length).toBe(5);
     const menu = container.querySelector('button[aria-controls="course-material-nav"]');
     expect(menu?.getAttribute('aria-expanded')).toBe('false');
@@ -71,20 +74,21 @@ describe('CourseLearningShell', () => {
     };
     await act(async () => { root.render(<QueryClientProvider client={client}><MemoryRouter><CourseLearningShell courseId="course-1" lessonId="lesson-2" lesson={lesson} pathOverride={pathOverride} focused activityId="lesson-2-reading-1"><div>Activity content</div></CourseLearningShell></MemoryRouter></QueryClientProvider>); await Promise.resolve(); });
 
-    const l1 = container.querySelector('button[aria-label="Expand C1-L1"]') as HTMLButtonElement;
-    const l2 = container.querySelector('button[aria-label="Collapse C1-L2"]') as HTMLButtonElement;
+    const l1 = container.querySelector('button[aria-label="Expand Meet Your Robot"]') as HTMLButtonElement;
+    const l2 = container.querySelector('button[aria-label="Collapse Move the Robot"]') as HTMLButtonElement;
     expect(l1).toBeTruthy();
     expect(l2).toBeTruthy();
     await act(async () => { l1.click(); });
     expect(l1.getAttribute('aria-expanded')).toBe('true');
     expect(l2.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('#course-module-lesson-3')?.getAttribute('style')).toContain('display: none');
     expect(container.textContent).not.toContain('Authoritative learning item 1');
 
-    await act(async () => { (container.querySelector('button[aria-label="Expand all modules"]') as HTMLButtonElement).click(); });
-    expect(container.querySelectorAll('button[aria-label^="Collapse C1-L"]')).toHaveLength(5);
+    await act(async () => { (container.querySelector('button[aria-label="Expand all lessons"]') as HTMLButtonElement).click(); });
+    expect(container.querySelectorAll('nav[aria-label="Course lessons"] button[aria-label^="Collapse "]')).toHaveLength(5);
 
-    await act(async () => { (container.querySelector('button[aria-label="Collapse all modules"]') as HTMLButtonElement).click(); });
-    expect(container.querySelectorAll('button[aria-label^="Expand C1-L"]')).toHaveLength(5);
+    await act(async () => { (container.querySelector('button[aria-label="Collapse all lessons"]') as HTMLButtonElement).click(); });
+    expect(container.querySelectorAll('nav[aria-label="Course lessons"] button[aria-label^="Expand "]')).toHaveLength(5);
   });
 
   it('renders Course Material strictly as navigation without descriptive paragraphs', async () => {
@@ -163,7 +167,7 @@ describe('CourseLearningShell', () => {
     const selectedLink = container.querySelector('a[aria-current="page"]');
     expect(selectedLink).not.toBeNull();
     expect(selectedLink?.getAttribute('href')).toContain('lesson-2-reading-1');
-    expect(selectedLink?.className).toContain('border-accent');
+    expect(selectedLink?.parentElement?.className).toContain('border-accent');
     expect(selectedLink?.className).toContain('bg-accent-soft');
 
     // 4. Hover & focus classes exist on interactive items
@@ -174,7 +178,7 @@ describe('CourseLearningShell', () => {
 
     // 5. Locked lesson remains non-navigable with lock reason
     expect(container.querySelector('a[href="/courses/course-1/lessons/lesson-3"]')).toBeNull();
-    const l3Toggle = container.querySelector('button[aria-label="Expand C1-L3"]') as HTMLButtonElement;
+    const l3Toggle = container.querySelector('button[aria-label="Expand Grab & Release"]') as HTMLButtonElement;
     await act(async () => {
       l3Toggle?.click();
     });
@@ -215,8 +219,10 @@ describe('CourseLearningShell', () => {
       await Promise.resolve();
     });
 
-    const getBtn = (code: string) =>
-      container.querySelector(`button[aria-label$="${code}"]`) as HTMLButtonElement;
+    const getBtn = (code: string) => {
+      const title = ['Meet Your Robot', 'Move the Robot', 'Grab & Release', 'Pick & Place', 'Physical Robot Lab'][Number(code.split('-L')[1]) - 1];
+      return container.querySelector(`button[aria-label$="${title}"]`) as HTMLButtonElement;
+    };
 
     // 1. L2 expanded alone initially
     expect(getBtn('C1-L2').getAttribute('aria-expanded')).toBe('true');
@@ -252,7 +258,7 @@ describe('CourseLearningShell', () => {
     expect(getBtn('C1-L3').getAttribute('aria-expanded')).toBe('true');
 
     // 5. Expand All expands all five lessons
-    const expandAllBtn = container.querySelector('button[aria-label="Expand all modules"]') as HTMLButtonElement;
+    const expandAllBtn = container.querySelector('button[aria-label="Expand all lessons"]') as HTMLButtonElement;
     await act(async () => {
       expandAllBtn.click();
     });
@@ -274,7 +280,7 @@ describe('CourseLearningShell', () => {
     expect(getBtn('C1-L5').getAttribute('aria-expanded')).toBe('true');
 
     // 7. Collapse All closes all lesson panels
-    const collapseAllBtn = container.querySelector('button[aria-label="Collapse all modules"]') as HTMLButtonElement;
+    const collapseAllBtn = container.querySelector('button[aria-label="Collapse all lessons"]') as HTMLButtonElement;
     await act(async () => {
       collapseAllBtn.click();
     });
@@ -319,8 +325,10 @@ describe('CourseLearningShell', () => {
       await Promise.resolve();
     });
 
-    const getBtn = (code: string) =>
-      container.querySelector(`button[aria-label$="${code}"]`) as HTMLButtonElement;
+    const getBtn = (code: string) => {
+      const title = ['Meet Your Robot', 'Move the Robot', 'Grab & Release', 'Pick & Place', 'Physical Robot Lab'][Number(code.split('-L')[1]) - 1];
+      return container.querySelector(`button[aria-label$="${title}"]`) as HTMLButtonElement;
+    };
 
     // Expand L1 and L3 while L2 is the active lesson with selected activity
     await act(async () => {
@@ -379,8 +387,10 @@ describe('CourseLearningShell', () => {
       await Promise.resolve();
     });
 
-    const getBtn = (code: string) =>
-      container.querySelector(`button[aria-label$="${code}"]`) as HTMLButtonElement;
+    const getBtn = (code: string) => {
+      const title = ['Meet Your Robot', 'Move the Robot', 'Grab & Release', 'Pick & Place', 'Physical Robot Lab'][Number(code.split('-L')[1]) - 1];
+      return container.querySelector(`button[aria-label$="${title}"]`) as HTMLButtonElement;
+    };
 
     // Expand L1 as well
     await act(async () => {

@@ -6,10 +6,11 @@ import { progressionApi, type CoursePathLesson, type LessonDetailResponse } from
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import {
   buildLessonActivitySections,
-  activityTypeLabels,
   type LessonActivitySection,
 } from './lessonActivities';
 import { sessionExpandedState } from './CourseLearningState';
+import { ActivityCard } from './ActivityCard';
+import { activityCompletionState } from './activityCompletionState';
 
 export function CourseLearningShell({
   courseId,
@@ -50,6 +51,8 @@ export function CourseLearningShell({
     });
   }, [courseId, lessonId]);
 
+  useEffect(() => setMobileOpen(false), [location.pathname]);
+
   const pathQuery = useQuery({
     queryKey: ['course-learning-shell', courseId, session?.user.id],
     queryFn: () => progressionApi.coursePath(courseId, session?.access_token ?? ''),
@@ -59,20 +62,22 @@ export function CourseLearningShell({
 
   const currentLessonFallback = {
     id: lesson.id,
-    course_id: lesson.course_id,
     title: lesson.title,
     ordinal: lesson.ordinal,
-    code: `C1-L${lesson.ordinal}`,
+    code: null,
     status: lesson.status,
     progressPercent: lesson.progressPercent,
     lockReason: lesson.lockReason,
-    prerequisites: lesson.prerequisites,
+    prerequisite: lesson.prerequisites,
+    completedAt: null,
+    summary: lesson.content?.summary ?? null,
     learningItems: [],
     estimatedMinutes: lesson.content?.estimatedMinutes ?? null,
   } as CoursePathLesson;
 
   const lessons = pathOverride?.lessons ?? pathQuery.data?.lessons ?? [currentLessonFallback];
   const sections = buildLessonActivitySections(lesson);
+  const completedLessonCount = lessons.filter((item) => item.status === 'completed').length;
 
   const toggleModule = (id: string) =>
     setExpandedModules((current) => {
@@ -122,10 +127,19 @@ export function CourseLearningShell({
         </button>
       )}
 
+      {mobileOpen && (
+        <button
+          type="button"
+          aria-label="Close course material"
+          className="fixed inset-0 z-30 bg-ink/40 lg:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
       <aside
         id="course-material-nav"
         aria-label="Course Material"
-        className={`${mobileOpen ? 'block' : 'hidden'} w-full shrink-0 transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none lg:block ${
+        className={`${mobileOpen ? 'block' : 'hidden'} fixed inset-y-0 left-0 z-40 w-[min(90vw,22rem)] shrink-0 overflow-y-auto bg-surface transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none lg:static lg:z-auto lg:block lg:w-auto lg:overflow-visible ${
           focusedRoute
             ? focusedNavigatorCollapsed
               ? 'lg:w-0 lg:overflow-hidden lg:opacity-0'
@@ -134,17 +148,23 @@ export function CourseLearningShell({
         }`}
       >
         <div
-          className={`rounded-xl border border-line bg-surface p-5 shadow-hairline ${
+          className={`min-h-full rounded-xl border border-line bg-surface p-5 shadow-hairline lg:min-h-0 ${
             focusedRoute ? 'lg:sticky lg:top-0 lg:h-[100dvh] lg:overflow-y-auto' : 'sticky top-5'
           }`}
         >
+          <div className="flex items-start justify-between gap-3">
           <Link
             to={`/courses/${courseId}`}
-            className="flex items-start gap-2.5 rounded-lg p-2 text-sm font-semibold text-ink transition-colors duration-150 ease-out hover:bg-sunken hover:text-accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="flex min-w-0 items-start gap-2.5 rounded-lg p-2 text-base font-bold leading-snug text-ink transition-colors duration-150 ease-out hover:bg-sunken hover:text-accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <BookOpenIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent-ink" />
             <span>{lesson.course_title}</span>
           </Link>
+          <button type="button" aria-label="Close course material" onClick={() => setMobileOpen(false)} className="rounded-lg px-2 py-1 text-xl text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden">×</button>
+          </div>
+          {pathOverride?.lessons || pathQuery.data?.lessons ? (
+            <p className="px-2 pt-1 text-xs text-ink-muted">{completedLessonCount} of {lessons.length} lessons completed</p>
+          ) : null}
 
           <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-5">
             <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
@@ -155,7 +175,7 @@ export function CourseLearningShell({
                 type="button"
                 onClick={expandAll}
                 className="rounded px-1.5 py-1 transition-colors duration-150 ease-out hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                aria-label="Expand all modules"
+                aria-label="Expand all lessons"
               >
                 Expand all
               </button>
@@ -166,7 +186,7 @@ export function CourseLearningShell({
                 type="button"
                 onClick={collapseAll}
                 className="rounded px-1.5 py-1 transition-colors duration-150 ease-out hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                aria-label="Collapse all modules"
+                aria-label="Collapse all lessons"
               >
                 Collapse all
               </button>
@@ -227,13 +247,9 @@ function LessonModuleNavItem({
   pathname: string;
 }) {
   const locked = lesson.status === 'locked';
-  const code = lesson.code ?? `C1-L${lesson.ordinal}`;
   const content = (
     <>
-      <span className="grid h-7 min-w-[44px] shrink-0 place-items-center whitespace-nowrap rounded-md bg-sunken font-mono text-[10px] font-semibold text-ink-muted">
-        {code}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{lesson.title}</span>
+      <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug">{lesson.title}</span>
       {lesson.status === 'completed' ? (
         <CheckCircle2Icon aria-label="Completed" className="h-4 w-4 shrink-0 text-ok" />
       ) : locked ? (
@@ -271,11 +287,11 @@ function LessonModuleNavItem({
 
         <button
           type="button"
-          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${code}`}
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${lesson.title}`}
           aria-expanded={expanded}
           aria-controls={panelId}
           onClick={onToggle}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded text-ink-muted transition-colors duration-150 ease-out hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-reduce:transition-none"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded text-ink-muted transition-colors duration-150 ease-out hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-reduce:transition-none"
         >
           <ChevronDownIcon
             className={`h-4 w-4 transition-transform duration-200 ease-out motion-reduce:transition-none ${
@@ -287,12 +303,14 @@ function LessonModuleNavItem({
 
       <div
         id={panelId}
+        hidden={!expanded}
+        style={!expanded ? { display: 'none' } : undefined}
         className={`grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none ${
           expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
         }`}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="border-l border-line pb-2 pl-3 pr-1 pt-1 text-xs">
+          <div className="border-l border-line pb-4 pl-3 pr-1 pt-2 text-xs">
             {locked && lesson.lockReason && (
               <p className="flex items-start gap-1.5 py-1.5 text-ink-muted">
                 <LockIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-subtle" />
@@ -301,67 +319,28 @@ function LessonModuleNavItem({
             )}
 
             {sections.length > 0 && (
-              <div className="space-y-3 pt-1">
+              <div className="space-y-5 pt-1">
                 {sections.map((section) => (
-                  <div key={section.title} className="space-y-1">
-                    <p className="px-2 pt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-ink-subtle">
+                  <div key={section.title} className="space-y-2">
+                    <p className="px-2 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">
                       {section.title}
                     </p>
-                    <div className="space-y-0.5">
+                    <div className="space-y-1 pl-1">
                       {section.items.map((activity) => {
                         const isSelected =
                           active &&
                           (activity.id === activityId || pathname.endsWith(`/${activity.id}`));
                         const unavailable = locked || activity.status === 'unavailable';
 
-                        if (unavailable) {
-                          return (
-                            <div
-                              key={activity.id}
-                              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-ink-muted cursor-default"
-                              title={locked ? (lesson.lockReason?.message ?? 'Lesson is locked') : undefined}
-                            >
-                              <LockIcon className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-                              <div className="min-w-0 flex-1">
-                                <span className="block truncate font-medium">{activity.title}</span>
-                                <span className="block text-[11px] text-ink-subtle">
-                                  {activityTypeLabels[activity.type]}
-                                  {activity.durationMinutes ? ` • ${activity.durationMinutes} min` : ''}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        }
-
                         return (
-                          <Link
-                            key={activity.id}
-                            aria-current={isSelected ? 'page' : undefined}
-                            to={`/courses/${courseId}/lessons/${lesson.id}/activities/${activity.id}`}
-                            className={`group block rounded-md px-2 py-1.5 transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-                              isSelected
-                                ? 'border-l-2 border-accent bg-accent-soft font-semibold text-accent-ink pl-2'
-                                : 'text-ink hover:bg-sunken hover:text-accent-ink'
-                            }`}
-                          >
-                            <span
-                              className={`block truncate text-xs ${
-                                isSelected
-                                  ? 'font-semibold text-accent-ink'
-                                  : 'font-medium text-ink group-hover:text-accent-ink'
-                              }`}
-                            >
-                              {activity.title}
-                            </span>
-                            <span
-                              className={`block text-[11px] font-normal ${
-                                isSelected ? 'text-accent-ink/80' : 'text-ink-muted'
-                              }`}
-                            >
-                              {activityTypeLabels[activity.type]}
-                              {activity.durationMinutes ? ` • ${activity.durationMinutes} min` : ''}
-                            </span>
-                          </Link>
+                          <div key={activity.id} className={isSelected ? 'border-l-2 border-accent' : ''} title={unavailable ? (lesson.lockReason?.message ?? 'Activity unavailable') : undefined}>
+                            <ActivityCard
+                              activity={activity}
+                              href={unavailable ? undefined : `/courses/${courseId}/lessons/${lesson.id}/activities/${activity.id}`}
+                              completion={activityCompletionState(activity.id, { locked: unavailable, lessonStatus: lesson.status })}
+                              active={isSelected}
+                            />
+                          </div>
                         );
                       })}
                     </div>
