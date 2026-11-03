@@ -8,6 +8,7 @@ export const studentLearningKeys = {
   practice: (attemptId:string) => [...studentLearningKeys.all, 'practice', attemptId] as const,
   coursePaths: (userId = '', sessionRevision = 0) => [...studentLearningKeys.all, 'course-paths', userId, sessionRevision] as const,
   coursePath: (courseId = '', userId = '', sessionRevision = 0) => [...studentLearningKeys.all, 'course-path', courseId, userId, sessionRevision] as const,
+  activityProgress: (courseId = '', userId = '', sessionRevision = 0) => [...studentLearningKeys.all, 'activity-progress', courseId, userId, sessionRevision] as const,
   lessonDetail: (lessonId = '', userId = '', sessionRevision = 0) => [...studentLearningKeys.all, 'lesson-detail', lessonId, userId, sessionRevision] as const,
   quizzes: (userId = '', sessionRevision = 0) => [...studentLearningKeys.all, 'quizzes', userId, sessionRevision] as const,
 };

@@ -5,18 +5,23 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActivityReader } from './ActivityReader';
 
-const mocks = vi.hoisted(() => ({ query: vi.fn() }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), complete: vi.fn(), invalidate: vi.fn(), setQueryData: vi.fn(), progressData: { courseId: 'course-1', activities: [] as Array<{ activityId: string; status: 'completed' | 'not_started'; completedAt: string | null }> } }));
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => mocks.query(),
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  useQueryClient: () => ({ invalidateQueries: mocks.invalidate, setQueryData: mocks.setQueryData }),
 }));
+vi.mock('../lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/api')>();
+  return { ...actual, progressionApi: { ...actual.progressionApi, completeActivity: mocks.complete } };
+});
 vi.mock('../contexts/SupabaseSessionContext', () => ({
   useSupabaseSession: () => ({ session: { access_token: 'token', user: { id: 'student' } }, sessionRevision: 1 }),
 }));
 vi.mock('../components/learning/CourseLearningShell', () => ({
   CourseLearningShell: ({ children }: { children: React.ReactNode }) => <div data-testid="learning-shell">{children}</div>,
 }));
+vi.mock('../components/learning/useActivityProgress', () => ({ useActivityProgress: () => ({ data: mocks.progressData }) }));
 
 describe('ActivityReader loading isolation', () => {
   let root: Root;
@@ -116,6 +121,7 @@ describe('ActivityReader loading isolation', () => {
 
       expect(container.textContent).toContain('Understanding Robot Movement');
       expect(container.textContent).not.toMatch(/C1-L[1-5]/);
+      expect(container.textContent).toContain('Mark as Completed');
       expect(container.textContent).toContain('Reading');
       expect(container.textContent).toContain('4 min');
       expect(container.textContent).toContain('Learn the Concepts');
@@ -124,6 +130,37 @@ describe('ActivityReader loading isolation', () => {
       expect(container.textContent).toContain('Pauses & Motion Timing');
       expect(container.textContent).toContain('Safety Protocols');
       expect(container.textContent).toContain('Confirm the target coordinates are within the safe reachable envelope.');
+    });
+
+    it('marks Reading only after a server-confirmed completion response', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
+      mocks.complete.mockResolvedValue({ activityId: 'lesson-2-reading-1', status: 'completed', completedAt: '2026-11-03T10:00:00Z' });
+      await act(async () => {
+        root.render(<MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/lesson-2-reading-1']}><Routes><Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} /></Routes></MemoryRouter>);
+        await Promise.resolve();
+      });
+      const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent === 'Mark as Completed');
+      expect(mocks.complete).not.toHaveBeenCalled();
+      await act(async () => { button?.click(); await Promise.resolve(); });
+      expect(mocks.complete).toHaveBeenCalledWith('lesson-2-reading-1', 'token');
+      expect(mocks.setQueryData).toHaveBeenCalled();
+      expect(mocks.invalidate).toHaveBeenCalled();
+      expect(container.textContent).toContain('Activity completed.');
+    });
+
+    it('keeps Reading unconfirmed when completion request fails', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
+      mocks.complete.mockRejectedValue(new Error('Connection lost'));
+      await act(async () => {
+        root.render(<MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/lesson-2-reading-1']}><Routes><Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} /></Routes></MemoryRouter>);
+        await Promise.resolve();
+      });
+      const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent === 'Mark as Completed');
+      await act(async () => { button?.click(); await Promise.resolve(); });
+      expect(container.textContent).toContain('Connection lost');
+      expect(container.textContent).not.toContain('Activity completed.');
+      expect(mocks.setQueryData).not.toHaveBeenCalled();
+      expect(container.textContent).toContain('Mark as Completed');
     });
 
     it('renders Robot Concept in Action in the Demonstration activity', async () => {

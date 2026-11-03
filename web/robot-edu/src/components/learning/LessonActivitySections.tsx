@@ -3,10 +3,15 @@ import { ChevronDownIcon } from 'lucide-react';
 import { buildLessonActivitySections } from './lessonActivities';
 import { ActivityCard } from './ActivityCard';
 import { activityCompletionState } from './activityCompletionState';
+import { useActivityProgress } from './useActivityProgress';
 import type { LessonDetailResponse } from '../../lib/api';
 
 export function LessonActivitySections({ lesson }: { lesson: LessonDetailResponse }) {
   const sections = buildLessonActivitySections(lesson);
+  const activityProgressQuery = useActivityProgress(lesson.course_id);
+  const completedActivityIds = activityProgressQuery.data?.activities
+    .filter((item) => item.status === 'completed')
+    .map((item) => item.activityId);
   const [expanded, setExpanded] = useState<string[]>(sections.map((section) => section.title));
   const toggle = (title: string) =>
     setExpanded((current) =>
@@ -25,6 +30,18 @@ export function LessonActivitySections({ lesson }: { lesson: LessonDetailRespons
           </p>
         </div>
       </div>
+      {!activityProgressQuery.canVerify && (
+        <p role="status" className="mt-3 text-sm text-ink-muted">Sign in to verify activity progress.</p>
+      )}
+      {activityProgressQuery.canVerify && !activityProgressQuery.data && activityProgressQuery.isPending && (
+        <p role="status" className="mt-3 text-sm text-ink-muted">Checking activity progress…</p>
+      )}
+      {activityProgressQuery.isError && (
+        <p role="alert" className="mt-3 text-sm text-ink-muted">
+          {activityProgressQuery.data ? 'Progress could not be updated.' : 'Activity progress could not be verified.'}
+          <button type="button" className="ml-2 font-semibold text-accent-ink underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" onClick={() => void activityProgressQuery.refetch()}>Retry</button>
+        </p>
+      )}
 
       {sections.map((section) => {
         const open = expanded.includes(section.title);
@@ -62,7 +79,7 @@ export function LessonActivitySections({ lesson }: { lesson: LessonDetailRespons
                         key={activity.id}
                         activity={activity}
                         href={unavailable ? undefined : `/courses/${lesson.course_id}/lessons/${lesson.id}/activities/${activity.id}`}
-                        completion={activityCompletionState(activity.id, { locked: unavailable, lessonStatus: lesson.status })}
+                        completion={unavailable ? 'locked' : completedActivityIds ? activityCompletionState(activity.id, { completedActivityIds }) : 'checking'}
                       />
                     );
                   })}

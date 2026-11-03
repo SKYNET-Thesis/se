@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -18,11 +18,12 @@ import {
   buildLessonActivities,
   activityTypeLabels,
 } from '../components/learning/lessonActivities';
-import { catalogApi, learnerApi, type LessonDetailResponse } from '../lib/api';
+import { catalogApi, learnerApi, progressionApi, type LessonDetailResponse } from '../lib/api';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
 import { Badge } from '../components/ui/Badge';
 import { createRobotExecutionClient, type PhysicalExecution } from '../lib/robotExecution';
+import { useActivityProgress } from '../components/learning/useActivityProgress';
 
 function RobotReadinessPanel({
   lesson,
@@ -630,6 +631,7 @@ function PracticeQuiz({
   courseId: string;
 }) {
   const { session } = useSupabaseSession();
+  const queryClient = useQueryClient();
   const [started, setStarted] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [index, setIndex] = useState(0);
@@ -668,6 +670,9 @@ function PracticeQuiz({
         session.access_token,
       );
       setResult({ passed: graded.passed, score: graded.score });
+      if (graded.passed) {
+        void queryClient.invalidateQueries({ queryKey: studentLearningKeys.all });
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not submit this knowledge check.');
     } finally {
@@ -860,12 +865,26 @@ export function ActivityReader() {
   const { courseId = '', lessonId = '', activityId = '' } = useParams();
   const navigate = useNavigate();
   const { session, sessionRevision } = useSupabaseSession();
+  const queryClient = useQueryClient();
+  const progressQuery = useActivityProgress(courseId);
+  const [savingCompletion, setSavingCompletion] = useState(false);
+  const [completionError, setCompletionError] = useState<string | null>(null);
+  const [completionNotice, setCompletionNotice] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: studentLearningKeys.lessonDetail(lessonId, session?.user?.id, sessionRevision),
     queryFn: () => catalogApi.lessonDetail(lessonId, session?.access_token ?? ''),
     enabled: Boolean(session?.access_token && lessonId),
   });
+
+  if (query.isError && !query.data) {
+    return (
+      <div className="mx-auto max-w-4xl px-6 py-16 text-sm text-ink-muted" role="alert">
+        Activity could not be loaded.
+        <button type="button" className="ml-2 font-semibold text-accent-ink underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent" onClick={() => void query.refetch()}>Retry</button>
+      </div>
+    );
+  }
 
   if (query.isLoading || query.data?.id !== lessonId) {
     return (
@@ -900,6 +919,36 @@ export function ActivityReader() {
   const activities = buildLessonActivities(lesson);
   const index = activities.findIndex((item) => item.id === activityId);
   const activity = activities[index] ?? activities[0];
+  const completed = progressQuery.data?.activities?.some(
+    (item) => item.activityId === activity.id && item.status === 'completed',
+  ) ?? false;
+
+  const markCompleted = async () => {
+    if (!session || !progressQuery.data?.activities || savingCompletion || completed) return;
+    setSavingCompletion(true);
+    setCompletionError(null);
+    setCompletionNotice(null);
+    try {
+      const row = await progressionApi.completeActivity(activity.id, session.access_token);
+      if (row.activityId !== activity.id || row.status !== 'completed' || !row.completedAt) {
+        throw new Error('The server did not confirm this activity completion.');
+      }
+      const key = studentLearningKeys.activityProgress(courseId, session.user.id, sessionRevision);
+      queryClient.setQueryData(key, (previous: { courseId: string; activities: typeof row[] } | undefined) => {
+        if (!previous) return previous;
+        return {
+          ...previous,
+          activities: [...previous.activities.filter((item) => item.activityId !== row.activityId), row],
+        };
+      });
+      setCompletionNotice('Activity completed.');
+      void queryClient.invalidateQueries({ queryKey: key });
+    } catch (cause) {
+      setCompletionError(cause instanceof Error ? cause.message : 'Could not save activity completion.');
+    } finally {
+      setSavingCompletion(false);
+    }
+  };
 
   const go = (offset: number) => {
     const next = activities[index + offset];
@@ -1337,6 +1386,25 @@ export function ActivityReader() {
                 </section>
               )}
             </>
+          )}
+
+          {(activity.type === 'reading' || activity.type === 'demonstration') && (
+            <section className="border-t border-line pt-6" aria-busy={savingCompletion}>
+              {completed ? (
+                <p className="text-sm font-semibold text-ok">✓ Activity completed</p>
+              ) : (
+                <button
+                  type="button"
+                  disabled={savingCompletion || !session || !progressQuery.data?.activities}
+                  onClick={() => void markCompleted()}
+                  className="min-h-11 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+                >
+                  {savingCompletion ? 'Saving…' : 'Mark as Completed'}
+                </button>
+              )}
+              {completionError && <p role="alert" className="mt-2 text-sm text-danger">{completionError}</p>}
+              {completionNotice && <p role="status" className="mt-2 text-sm text-ok">{completionNotice}</p>}
+            </section>
           )}
 
           {activity.type === 'physical_lab' && (

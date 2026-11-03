@@ -1,17 +1,31 @@
-import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../identity/auth/current-user.decorator";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { SupabaseAuthGuard } from "../identity/auth/supabase-auth.guard";
 import { SubmitKnowledgeCheckDto } from "./dto/submit-knowledge-check.dto";
 import { ProgressionService } from "./progression.service";
+import { ActivityProgressService } from './activity-progress.service';
 
 @ApiTags("Learning progression")
 @ApiBearerAuth()
 @UseGuards(SupabaseAuthGuard)
 @Controller()
 export class ProgressionController {
-  constructor(private readonly progression: ProgressionService) {}
+  constructor(private readonly progression: ProgressionService, private readonly activityProgress: ActivityProgressService) {}
+
+  @Get('me/courses/:courseId/activity-progress')
+  courseActivityProgress(@CurrentUser() user: AuthenticatedUser, @Param('courseId', ParseUUIDPipe) courseId: string) {
+    return this.activityProgress.courseProgress(user, courseId);
+  }
+
+  @Post('me/activities/:activityId/complete')
+  completeActivity(@CurrentUser() user: AuthenticatedUser, @Param('activityId') activityId: string, @Body() body: unknown) {
+    if (body && (typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length > 0)) {
+      throw new BadRequestException('Activity completion request must not include a body.');
+    }
+    return this.activityProgress.completeSelfReport(user, activityId);
+  }
 
   @Get("me/courses/:courseId/path")
   coursePath(@CurrentUser() user: AuthenticatedUser, @Param("courseId", ParseUUIDPipe) courseId: string) {
