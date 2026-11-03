@@ -3,7 +3,7 @@ export class ApiError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001/api/v1").replace(/\/$/, "");
+const baseUrl = (((import.meta as any).env?.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:3001/api/v1").replace(/\/$/, "");
 
 export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -17,8 +17,170 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export interface ApiCourse { id: string; title: string; description: string | null; status: string; }
+export interface ApiCourse { id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
 export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
+
+export type LessonProgressStatus = "completed" | "current" | "available" | "locked" | "in_progress";
+
+export interface LessonLockReason {
+  code: "PREREQUISITE_NOT_COMPLETED" | "PREREQUISITE_MINIMUM_SCORE_NOT_MET";
+  prerequisiteLessonId: string;
+  prerequisiteLessonTitle: string;
+  message: string;
+}
+
+export interface LessonPrerequisite {
+  lessonId: string;
+  title: string;
+  required: boolean;
+  minimumScore: number | null;
+}
+
+export interface CoursePathLesson {
+  id: string;
+  code: string | null;
+  ordinal: number;
+  title: string;
+  status: LessonProgressStatus;
+  progressPercent: number;
+  prerequisite: LessonPrerequisite[];
+  lockReason: LessonLockReason | null;
+  completedAt: string | null;
+  summary: string | null;
+  learningItems: string[];
+  estimatedMinutes: number | null;
+}
+
+export interface CoursePathResponse {
+  course: {
+    id: string;
+    title: string;
+    status: string;
+    description: string | null;
+    label: string | null;
+    level: string | null;
+    recommendedGrades: string | null;
+    learningOutcome: string | null;
+    competencies: Array<{ code: string; title: string }>;
+  };
+  progressPercent: number;
+  currentLessonId: string | null;
+  lessons: CoursePathLesson[];
+}
+
+export interface LessonObjective {
+  code: string;
+  description: string;
+  competencyCode?: string | null;
+  competencyTitle?: string | null;
+}
+
+export interface LessonConceptSection {
+  title: string;
+  content: string;
+}
+
+export interface LessonContent {
+  version: number;
+  summary: string;
+  learningObjectives: string[];
+  conceptSections: LessonConceptSection[];
+  robotConcept: string;
+  taskPreview: string;
+  estimatedMinutes?: number;
+  safetyNotes: string[];
+  completionCriteria: string;
+  objective?: string;
+  lessonType?: string;
+}
+
+export interface KnowledgeCheckQuestion {
+  id: string;
+  prompt: string;
+  options: string[];
+}
+
+export interface LessonAssignmentConstraints {
+  kind?: string;
+  questions?: KnowledgeCheckQuestion[];
+  target?: Record<string, unknown>;
+  unlocksPhysicalLesson?: boolean;
+  completionAuthority?: string;
+}
+
+export interface LessonAssignmentInfo {
+  id: string;
+  classroomAssignmentId: string;
+  title: string;
+  instructions: string;
+  allowedBlocks: string[];
+  constraints?: LessonAssignmentConstraints;
+  challengeTitle?: string | null;
+  challengeDescription?: string | null;
+}
+
+export interface LessonAttemptSummary {
+  id: string;
+  status: string;
+  score: number | null;
+  submittedAt?: string | null;
+}
+
+export interface LessonDetailResponse {
+  id: string;
+  course_id: string;
+  course_title: string;
+  title: string;
+  ordinal: number;
+  content: LessonContent;
+  objectives: LessonObjective[];
+  status: LessonProgressStatus;
+  progressPercent: number;
+  lockReason: LessonLockReason | null;
+  prerequisites: LessonPrerequisite[];
+  qualification?: ApiQualifiedProgramHandoff | null;
+  assignment: LessonAssignmentInfo | null;
+  activeAttempt: LessonAttemptSummary | null;
+  priorAttempt: LessonAttemptSummary | null;
+  created_at: string;
+}
+
+export interface ApiQualifiedProgramHandoff {
+  courseId?: string;
+  lessonId: string;
+  qualifiedProgramVersionId?: string;
+  programVersionId: string;
+  programId?: string;
+  versionNumber: number;
+  challengeId?: string;
+  symbolicEvaluationId?: string;
+  evaluationId: string;
+  schematicExperimentId?: string;
+  experimentId: string;
+  verdict?: "passed";
+  attemptId: string;
+  passedAt: string;
+  qualifiedAt?: string;
+  robotProgram?: unknown;
+  changeSummary?: string | null;
+}
+
+export interface KnowledgeCheckAnswerInput {
+  questionId: string;
+  optionId: string;
+}
+
+export interface SubmitKnowledgeCheckDto {
+  answers: KnowledgeCheckAnswerInput[];
+}
+
+export interface KnowledgeCheckSubmissionResult {
+  attemptId: string;
+  passed: boolean;
+  score: number;
+  completedLessonId: string | null;
+  newlyUnlockedLessonIds: string[];
+}
 
 export async function apiRequest<T>(path: string, accessToken: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { method, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -29,7 +191,24 @@ export async function apiRequest<T>(path: string, accessToken: string, method: "
 export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; }
 export interface ApiRobotResource { id: string; name: string; serialNo: string; modelName: string; status?: string; }
 export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; assignment_count: number; }
-export interface ApiMyLearning { classroom_assignment_id: string; title: string; lesson_id: string; lesson_title: string; classroom_name: string; course_title: string; attempt_id: string | null; attempt_status: string | null; learning_status: 'assigned'|'started'|'completed'; }
+export interface ApiMyLearning {
+  classroom_assignment_id: string;
+  title: string;
+  instructions?: string | null;
+  lesson_id: string;
+  lesson_title: string;
+  challenge_id?: string | null;
+  challenge_title?: string | null;
+  classroom_name: string;
+  course_title: string;
+  attempt_id: string | null;
+  attempt_status: string | null;
+  due_at?: string | null;
+  score?: number | null;
+  teacher_feedback?: string | null;
+  status?: 'assigned' | 'in_progress' | 'submitted' | 'evaluated';
+  learning_status: 'assigned' | 'started' | 'completed' | 'in_progress' | 'submitted' | 'evaluated';
+}
 export interface ApiOrganizationMembership { membershipId?: string; organizationId: string; roleCode: string; status: string; permissionCodes?: string[]; }
 export interface ApiAccessContext { systemRoleCodes: string[]; memberships: ApiOrganizationMembership[]; }
 export interface ApiSchoolMember { id:string; full_name:string; email:string|null; status:string; membership_id:string; membership_status:string; role_code:string; employee_code?:string|null; student_code?:string|null; grade_level?:string|null; guardian_email?:string|null; account_state?:'active'|'invited'|'account_setup_pending'; }
@@ -45,7 +224,7 @@ export interface ApiClassroomStudentImportResult { processed:number;createdAndAd
 export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
 export interface ApiOffering { id:string; code:string; title:string; status:string; }
 export interface ApiDeliveryChallenge { id:string; title:string; }
-export interface ApiDeliveryOption { lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; challenges:ApiDeliveryChallenge[]; }
+export interface ApiDeliveryOption { course_id:string; course_title:string; lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; challenges:ApiDeliveryChallenge[]; }
 export interface ApiEnrollment { id: string; course_id: string; classroom_id: string | null; status: string; enrolled_at?: string; completed_at?: string | null; }
 export interface ApiClassroomAssignment { id: string; classroom_id: string; assignment_id: string; lesson_id: string; lesson_title?:string; challenge_id: string | null; challenge_title?:string|null; title: string; instructions: string | null; allowed_blocks?: unknown; constraints?: unknown; status: string; available_from?:string|null; due_at?:string|null; close_at?:string|null; max_attempts?:number|null; published_by?:string|null; }
 export interface ApiAttempt { id: string; classroom_assignment_id: string; attempt_number?: number; program_id?: string | null; status: string; started_at?: string; submitted_at?: string | null; }
@@ -53,8 +232,29 @@ export interface ApiProgram { id: string; title: string; workspace_json: Record<
 export interface ApiProgramVersion { id: string; version_number: number; robot_program: Record<string, unknown>; }
 export interface ApiSubmission { id: string; program_version_id: string; status: string; assignment_id?:string; program_id?:string; submitted_at?:string|null; }
 export interface ApiExperiment { id: string; status: string; execution_mode: string; input_snapshot?:{attemptId?:string;programVersionId?:string}; submission_id?:string; }
-export interface ApiSymbolicRuleResult { ordinal: number; type: string; passed: boolean; expected: Record<string, unknown>; observed: Record<string, unknown>; evidence: Array<{ timelineIndex?: number }>; reason: string; }
-export interface ApiSymbolicEvaluation { id: string; experimentId: string; programVersionId: string; evaluatorVersion: string; ruleSetSchemaVersion: number; ruleSetHash: string; verdict: "passed" | "failed"; ruleResults: ApiSymbolicRuleResult[]; metrics: { ruleCount: number; passedRuleCount: number }; createdAt: string; }
+export interface ApiSymbolicRuleResult { ordinal: number; type: string; passed: boolean; expected: Record<string, unknown>; observed: Record<string, unknown>; evidence: Array<{ timelineIndex?: number }>; reason: string; code?: string; message?: string; }
+export interface ApiObjectState { objectId: string; position: { x: number; y: number; z: number }; graspedBy: "left" | "right" | null; state: "free" | "grasped" | "carried" | "released"; }
+export interface ApiSymbolicEvaluation {
+  id: string;
+  experimentId: string;
+  programVersionId: string;
+  versionNumber?: number;
+  evaluatorVersion: string;
+  ruleSetSchemaVersion: number;
+  ruleSetHash: string;
+  verdict: "passed" | "failed";
+  ruleResults: ApiSymbolicRuleResult[];
+  metrics: { ruleCount: number; passedRuleCount: number };
+  createdAt: string;
+  status?: "success" | "failed";
+  taskState?: "not_started" | "in_progress" | "success" | "failed";
+  robotState?: Record<string, unknown>;
+  objectState?: ApiObjectState | null;
+  attemptId?: string;
+  lesson?: { id: string; title: string; ordinal: number; courseId: string; courseTitle: string };
+  feedback?: { summary?: string; code?: string; message?: string; messages?: string[]; ruleResults?: Array<{ ordinal: number; type: string; passed: boolean; code?: string; message?: string; reason: string }> };
+  evidence?: { experimentId: string; evaluationId: string; programVersionId: string; versionNumber?: number };
+}
 export interface ApiFeedback { id: string; submission_id: string; content: string; feedback_type: string; created_at: string; }
 export interface ApiRubricCriterion { id: string; title: string; description: string | null; maxPoints: number | string; ordinal: number; }
 export interface ApiInstructorSubmission { id: string; assignment_id: string; learner_user_id: string; status: string; submitted_at: string | null; full_name?: string; assignment_title?:string; review_status?:string; rubric_criteria?: ApiRubricCriterion[]; overall_feedback?: string | null; }
@@ -86,10 +286,55 @@ export const learnerApi = {
   symbolicEvaluation: (evaluationId: string, token: string) => apiGet<ApiSymbolicEvaluation>(`/me/symbolic-evaluations/${evaluationId}`, token),
   submissions: (token:string) => apiGet<ApiSubmission[]>("/me/submissions",token),
   experiments: (token:string) => apiGet<ApiExperiment[]>("/me/experiments",token),
-  symbolicEvaluations: (token:string) => apiGet<ApiSymbolicEvaluation[]>("/me/symbolic-evaluations",token),
+  symbolicEvaluations: (token: string, attemptId?: string) => apiGet<ApiSymbolicEvaluation[]>(attemptId ? `/me/symbolic-evaluations?attemptId=${encodeURIComponent(attemptId)}` : "/me/symbolic-evaluations", token),
   artifacts: (experimentId: string, token: string) => apiGet<Record<string, unknown>[]>(`/me/experiments/${experimentId}/artifacts`, token),
   myFeedback: (submissionId: string, token: string) => apiGet<ApiFeedback[]>(`/me/submissions/${submissionId}/feedback`, token),
   createReflection: (submissionId: string, token: string, body: { promptKey: string; promptText: string; responseText: string }) => apiRequest<Record<string, unknown>>(`/me/submissions/${submissionId}/reflections`, token, "POST", body),
+  coursePath: (courseId: string, token: string) => progressionApi.coursePath(courseId, token),
+  coursePaths: (token: string) => progressionApi.coursePaths(token),
+  submitKnowledgeCheck: (attemptId: string, dto: SubmitKnowledgeCheckDto, token: string) =>
+    progressionApi.submitKnowledgeCheck(attemptId, dto, token),
+  quizzes: (token: string) => progressionApi.quizzes(token),
+};
+
+export interface ApiStudentQuiz {
+  lesson_id: string;
+  lesson_title: string;
+  lesson_ordinal: number;
+  course_id: string;
+  course_title: string;
+  assignment_id: string;
+  quiz_title: string;
+  classroom_assignment_id: string | null;
+  attempt_id: string | null;
+  attempt_status: string | null;
+  score: number | null;
+  passed: boolean | null;
+  pass_percent: number | null;
+  status: 'not_started' | 'in_progress' | 'passed' | 'failed';
+}
+
+export const progressionApi = {
+  coursePath: (courseId: string, token: string) => apiGet<CoursePathResponse>(`/me/courses/${courseId}/path`, token),
+  quizzes: (token: string) => apiGet<ApiStudentQuiz[]>("/me/quizzes", token),
+  qualifiedL4Version: (courseId: string, token: string) =>
+    apiGet<ApiQualifiedProgramHandoff | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
+  coursePaths: async (token: string): Promise<CoursePathResponse[]> => {
+    const enrollments = await learnerApi.enrollments(token).catch(() => [] as ApiEnrollment[]);
+    let courseIds = enrollments.filter((e) => e.status === "active" && e.course_id).map((e) => e.course_id);
+    if (!courseIds.length) {
+      const coursesRes = await catalogApi.courses(token, 1, 50).catch(() => ({ items: [] as ApiCourse[] }));
+      courseIds = coursesRes.items.map((c) => c.id);
+    }
+    if (!courseIds.length) return [];
+    const uniqueIds = Array.from(new Set(courseIds));
+    const paths = await Promise.all(
+      uniqueIds.map((id) => progressionApi.coursePath(id, token).catch(() => null))
+    );
+    return paths.filter((p): p is CoursePathResponse => Boolean(p));
+  },
+  submitKnowledgeCheck: (attemptId: string, dto: SubmitKnowledgeCheckDto, token: string) =>
+    apiRequest<KnowledgeCheckSubmissionResult>(`/me/attempts/${attemptId}/knowledge-check`, token, "POST", dto),
 };
 
 export const instructorApi = {
@@ -131,6 +376,7 @@ export const catalogApi = {
   course: (courseId: string, token: string) => apiGet<ApiCourse>(`/courses/${courseId}`, token),
   lessons: (courseId: string, token: string) => apiGet<ApiRecord[]>(`/courses/${courseId}/lessons`, token),
   lesson: (lessonId: string, token: string) => apiGet<ApiRecord>(`/lessons/${lessonId}`, token),
+  lessonDetail: (lessonId: string, token: string) => apiGet<LessonDetailResponse>(`/lessons/${lessonId}`, token),
   levels: (token: string) => apiGet<ApiRecord[]>("/learning-levels", token),
   competencies: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiRecord>>(`/competencies?page=${page}&pageSize=${pageSize}`, token),
   myCompetencies: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiRecord>>(`/me/competencies?page=${page}&pageSize=${pageSize}`, token),
@@ -191,7 +437,7 @@ export const runtimeApi = { health: (token: string) => apiGet<ApiRecord>("/runti
 export const robotExecutionApi = {
   eligibility: (token: string, attemptId: string) => apiGet<ApiRecord>(`/me/attempts/${attemptId}/physical-execution-eligibility`, token),
   active: (token: string, attemptId: string) => apiGet<ApiRecord | null>(`/me/attempts/${attemptId}/physical-executions/active`, token),
-  execute: (token: string, attemptId: string) => apiRequest<ApiRecord>(`/me/attempts/${attemptId}/physical-executions/start`, token, "POST"),
+  execute: (token: string, attemptId: string, payload?: { safetyConfirmed?: boolean }) => apiRequest<ApiRecord>(`/me/attempts/${attemptId}/physical-executions/start`, token, "POST", payload),
   execution: (token: string, executionId: string) => apiGet<ApiRecord>(`/me/physical-executions/${executionId}`, token),
   stop: (token: string, executionId: string) => apiRequest<ApiRecord>(`/me/physical-executions/${executionId}/stop`, token, "POST"),
 };

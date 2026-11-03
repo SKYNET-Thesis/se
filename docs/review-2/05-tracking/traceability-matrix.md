@@ -1,0 +1,30 @@
+# Review 2 Traceability Matrix
+
+Status values describe the current repository, not the intended final scope:
+**VERIFIED** means a concrete code path exists; **PARTIAL** means only part of
+the acceptance path is implemented or tested; **PLANNED** means the design is
+not evidenced as an operational integration; **BLOCKED** means required
+external evidence is unavailable.
+
+| Registration reference | FR | Actor | Testable acceptance criterion | Workflow | Entity or state | Diagram | Code or API evidence | Proposed test IDs | Owner | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Role-governed platform and organization context | FR-01 | System Admin, School Admin, Teacher, Student | A request without an active authorized membership is rejected without exposing another organization’s record. | WF-01–04 | `users`, `memberships`, `roles`; active/suspended | C4 01–03; Logical 13 | `identity` guards/services; organization-scope checks across education modules | `TC-FR01-01..03`, `TC-NFR01-01` | Lê Nguyễn Quang Đức | VERIFIED / test evidence required |
+| Organization, classroom and resource governance | FR-02 | School Admin | Only an entitled robot can be allocated to an owned classroom, and conflicting active allocation is rejected. | WF-01 | `learning_classrooms`, `org_entitlements`, `learning_classroom_robot_allocations` | Activity 04; Logical 13/15; Physical 17/20 | `GET /education-admin/classrooms/:id/eligible-robots`; `PUT /education-admin/classrooms/:id/robot-allocation` | `TC-FR02-01..03`, `TC-WF01-01..02` | Lê Nguyễn Quang Đức | VERIFIED / integration evidence required |
+| Prepare lessons and publish classroom work | FR-03 | Teacher | An authorized teacher can create and publish an assignment to a classroom; an unauthorized actor cannot publish it. | WF-02 | classroom assignment draft/published | Activity 05; State 11; Logical 14 | learning controller create/update/publish routes and scope service | `TC-FR03-01..03`, `TC-WF02-01` | Trần Tiến Đạt | VERIFIED / state mapping partial |
+| Program version ownership and submission | FR-04 | Student | A learner can submit only their own immutable program version for an eligible attempt; another learner’s version is rejected. | WF-02 | attempt in-progress/submitted; submission lifecycle | Activity 05; State 10; Logical 16a; Physical 19 | programming controller program/version/submission routes | `TC-FR04-01..03`, `TC-WF02-02` | Trần Tiến Đạt | VERIFIED / E2E evidence required |
+| Schematic experiment and symbolic evaluation | FR-05 | Student | A scoped schematic run persists truthful status/result/evidence; invalid mode or access is rejected. | WF-03 | experiment pending/running/succeeded/failed/cancelled | Activity 06; State 08 | experiment controller create/run-schematic/evaluate/result/events/artifacts | `TC-FR05-01..03`, `TC-WF03-01..02` | Vũ Anh Tuấn | VERIFIED for schematic / state mapping partial |
+| Bounded physical execution through local runtime | FR-06 | Student, Local Robot Runtime | A physical request requires eligibility and runtime acknowledgement; duplicate/unsafe/unavailable execution is rejected or stopped without reporting false success. | WF-03 | execution pending/queued/running/cancelled/failed/completed | Activity 06; States 08–09 | physical-execution controller/service and robot-runtime client; runtime health/status | `TC-FR06-01..03`, `TC-WF03-03`, `TC-NFR02-01` | Vũ Anh Tuấn | PARTIAL; physical E2E BLOCKED |
+| Teacher assessment, feedback and learner reflection | FR-07 | Teacher, Student | An authorized teacher assesses a class submission; only the owning learner can read feedback and add reflection. | WF-04 | submission reviewed; assessment/feedback/reflection persisted | Activity 07; State 10; Logical 16a; Physical 19 | assessment controller/service routes and classroom scope checks | `TC-FR07-01..03`, `TC-WF04-01..02` | Phạm Viết Lợi | VERIFIED / E2E evidence required |
+| AI/model/dataset provenance and compatibility boundary | FR-08 | Student, Teacher, AI workstream | Authorized users can view traceable model/dataset/evaluation metadata; unavailable provider operations are not reported as successful. | WF-04 | model/dataset/evaluation status metadata | Activity 07; Logical 16b; Physical 22 | metadata controller/service read APIs; service explicitly has no configured write/provider workflow | `TC-FR08-01..03`, `TC-WF04-03`, `TC-NFR03-01` | Phạm Viết Lợi | PARTIAL / external AI execution PLANNED |
+
+## Proposed measurable NFRs
+
+| NFR | Metric | Proposed threshold | Measurement method | Status |
+|---|---|---|---|---|
+| NFR-01 Authorization isolation | Predefined cross-organization and cross-role negative cases | 100% rejected | Automated API integration suite using seeded organizations and roles | Design target; execution evidence pending |
+| NFR-02 Runtime safety/reliability | Duplicate, unavailable, timeout, stop and communication-loss cases | No false successful terminal result; every accepted request has persisted terminal/error evidence | Mock runtime integration tests plus supervised hardware test for physical claims | Mockable portion partial; hardware blocked |
+| NFR-03 API responsiveness | Ordinary authenticated API request latency, excluding AI inference and physical execution | 95th percentile ≤3 seconds in the declared staging dataset | Timestamped load test with environment/configuration recorded | Proposed; staging blocked |
+| NFR-04 Runtime acknowledgement | Time from accepted physical command request to acknowledgement or explicit timeout | ≤5 seconds | Instrumented client/runtime integration test | Proposed; physical environment blocked |
+| NFR-05 Traceability | Executed runs with actor, activity, resource/configuration, timestamps and terminal state | 100% of executed test runs | Database/evidence query against seeded executions | Specification exists; evidence pending |
+| NFR-06 Test automation | Committed test cases automated in CI by Defense 1.1 | ≥50%, with 100% main workflow tests passing and ≥90% total pass rate | Test inventory reconciled to CI logs on the tagged revision | Future commitment target, not current result |
+

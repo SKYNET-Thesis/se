@@ -33,11 +33,13 @@ export class ProgrammingService {
       await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id);
       if (attempt.program_id) throw new ConflictException("This attempt already has a program.");
       if (this.hasLearningPreview(dto.robotProgram)) await this.validateRobotProgram(dto.robotProgram, await this.assignmentAllowsLearningPreview(attempt.assignment_id));
+      await this.validateCurriculumProgram(attempt.assignment_id, dto.robotProgram);
+      const workspaceIssues = await this.curriculumWorkspaceIssues(attempt.assignment_id, dto.workspaceJson);
       const created = await tx.$queryRaw<ProgramRow[]>`
         INSERT INTO public.learning_programs(owner_user_id,assignment_id,title,schema_version,workspace_json,robot_program,validation_result)
         VALUES(${user.vistaUserId}::uuid,${attempt.assignment_id}::uuid,${dto.title ?? "Untitled program"},1,
           ${JSON.stringify(dto.workspaceJson)}::jsonb,${JSON.stringify(dto.robotProgram)}::jsonb,
-          ${JSON.stringify(this.validationResult(dto.robotProgram))}::jsonb)
+          ${JSON.stringify(this.validationResult(dto.robotProgram, workspaceIssues))}::jsonb)
         RETURNING id,owner_user_id,assignment_id,title,schema_version,workspace_json,robot_program,validation_result`;
       await tx.$executeRaw`UPDATE public.learning_assignment_attempts SET program_id=${created[0].id}::uuid WHERE id=${attemptId}::uuid`;
       return created[0];
@@ -46,14 +48,15 @@ export class ProgrammingService {
 
   async updateProgram(user: AuthenticatedUser, programId: string, dto: UpdateProgramDto) {
     const current = await this.ownProgram(user, programId);
-    if (dto.robotProgram) { this.validateRobotProgram(dto.robotProgram); if (this.hasLearningPreview(dto.robotProgram)) await this.validateRobotProgram(dto.robotProgram, await this.assignmentAllowsLearningPreview(current.assignment_id)); }
+    if (dto.robotProgram) { this.validateRobotProgram(dto.robotProgram); if (this.hasLearningPreview(dto.robotProgram)) await this.validateRobotProgram(dto.robotProgram, await this.assignmentAllowsLearningPreview(current.assignment_id)); await this.validateCurriculumProgram(current.assignment_id, dto.robotProgram); }
     const workspace = dto.workspaceJson === undefined ? current.workspace_json : dto.workspaceJson;
     const robot = dto.robotProgram === undefined ? current.robot_program : dto.robotProgram;
+    const workspaceIssues = await this.curriculumWorkspaceIssues(current.assignment_id, workspace);
     return this.prisma.$queryRaw<ProgramRow[]>`
       UPDATE public.learning_programs SET
         title=${dto.title ?? current.title}, workspace_json=${JSON.stringify(workspace)}::jsonb,
         robot_program=${JSON.stringify(robot)}::jsonb,
-        validation_result=${JSON.stringify(this.validationResult(robot as Record<string, unknown>))}::jsonb,
+        validation_result=${JSON.stringify(this.validationResult(robot as Record<string, unknown>, workspaceIssues))}::jsonb,
         updated_at=now()
       WHERE id=${programId}::uuid AND owner_user_id=${user.vistaUserId}::uuid
       RETURNING id,owner_user_id,assignment_id,title,schema_version,workspace_json,robot_program,validation_result`;
@@ -77,6 +80,8 @@ export class ProgrammingService {
       await this.assertProgramHasOwnScopedAttempt(user, programId);
       this.validateRobotProgram(program.robot_program as Record<string, unknown>);
       if (this.hasLearningPreview(program.robot_program as Record<string, unknown>)) await this.validateRobotProgram(program.robot_program as Record<string, unknown>, await this.assignmentAllowsLearningPreview(program.assignment_id));
+      await this.validateCurriculumProgram(program.assignment_id, program.robot_program as Record<string, unknown>);
+      await this.validateCurriculumWorkspace(program.assignment_id, program.workspace_json);
       const next = await tx.$queryRaw<{ version_number: number }[]>`
         SELECT COALESCE(MAX(version_number),0)+1 AS version_number
         FROM public.learning_program_versions WHERE program_id=${programId}::uuid`;
@@ -115,6 +120,8 @@ export class ProgrammingService {
         WHERE id=${dto.programVersionId}::uuid AND program_id=${attempt.program_id}::uuid`;
       const version = versions[0];
       if (!version) throw new BadRequestException("Program version does not belong to this attempt program.");
+      await this.validateCurriculumProgram(attempt.assignment_id, version.robot_program as Record<string, unknown>);
+      await this.validateCurriculumWorkspace(attempt.assignment_id, version.workspace_json);
       const submissions = await tx.$queryRaw<{ id: string; assignment_id: string; learner_user_id: string; program_id: string; program_version_id: string; status: string; submitted_at: Date }[]>`
         INSERT INTO public.learning_submissions(assignment_id,learner_user_id,program_id,program_version_id,submitted_workspace,submitted_program,reflection,status,submitted_at)
         VALUES(${attempt.assignment_id}::uuid,${user.vistaUserId}::uuid,${attempt.program_id}::uuid,${dto.programVersionId}::uuid,
@@ -167,11 +174,58 @@ export class ProgrammingService {
   private async assignmentAllowsLearningPreview(assignmentId: string | null): Promise<boolean> {
     if (!assignmentId) return false;
     const rows = await this.prisma.$queryRaw<{ allowed: boolean }[]>`
-      SELECT EXISTS(SELECT 1 FROM public.learning_assignments a JOIN public.learning_challenge_conditions c ON c.challenge_id=a.challenge_id WHERE a.id=${assignmentId}::uuid AND c.rule_key='preview_target_match') AS allowed`;
+      SELECT EXISTS(
+        SELECT 1 FROM public.learning_assignments a
+        WHERE a.id=${assignmentId}::uuid AND (
+          a.allowed_blocks ? 'preview.move_xyz'
+          OR EXISTS(SELECT 1 FROM public.learning_challenge_conditions c WHERE c.challenge_id=a.challenge_id AND c.rule_key='preview_target_match')
+        )
+      ) AS allowed`;
     return rows[0]?.allowed === true;
   }
 
   private hasLearningPreview(value: Record<string, unknown>): boolean { return Array.isArray(value?.steps) && value.steps.some((step) => (step as Record<string, unknown>)?.type === "preview.move_xyz"); }
+
+  private async validateCurriculumProgram(assignmentId: string | null, value: Record<string, unknown>): Promise<void> {
+    if (!assignmentId) return;
+    const rows = await this.prisma.$queryRaw<Array<{ constraints: unknown; allowed_blocks: string[] }>>`
+      SELECT constraints,allowed_blocks FROM public.learning_assignments WHERE id=${assignmentId}::uuid`;
+    const assignment = rows?.[0];
+    const constraints = assignment?.constraints && typeof assignment.constraints === "object" && !Array.isArray(assignment.constraints) ? assignment.constraints as Record<string, unknown> : {};
+    if (constraints.kind !== "symbolic_program") return;
+    const allowed = new Set(Array.isArray(assignment.allowed_blocks) ? assignment.allowed_blocks : []);
+    const supported = new Set(["arm.select", "home", "preview.move_xyz", "wait", "gripper.open", "gripper.close"]);
+    if ([...allowed].some((id) => !supported.has(id))) throw new BadRequestException("This lesson contains an unsupported allowed-block capability.");
+    for (const step of value.steps as Array<Record<string, unknown>>) {
+      if (!allowed.has(step.type as string)) throw new BadRequestException("This program uses an action that is not available for this lesson.");
+    }
+  }
+
+  private async validateCurriculumWorkspace(assignmentId: string | null, workspace: unknown): Promise<void> {
+    const disallowed = await this.curriculumWorkspaceIssues(assignmentId, workspace);
+    if (disallowed.length) throw new BadRequestException("The saved Blockly workspace contains blocks that are not available for this lesson.");
+  }
+
+  private async curriculumWorkspaceIssues(assignmentId: string | null, workspace: unknown): Promise<string[]> {
+    if (!assignmentId) return [];
+    const rows = await this.prisma.$queryRaw<Array<{ constraints: unknown; allowed_blocks: string[] }>>`
+      SELECT constraints,allowed_blocks FROM public.learning_assignments WHERE id=${assignmentId}::uuid`;
+    const assignment = rows?.[0];
+    const constraints = assignment?.constraints && typeof assignment.constraints === "object" && !Array.isArray(assignment.constraints) ? assignment.constraints as Record<string, unknown> : {};
+    if (constraints.kind !== "symbolic_program") return [];
+    const mapping: Record<string, string> = { "arm.select": "robot_select_arm", home: "robot_move_home", "preview.move_xyz": "robot_move_to", wait: "robot_wait", "gripper.open": "robot_gripper_open", "gripper.close": "robot_gripper_close" };
+    const allowed = new Set(["robot_start", ...(assignment.allowed_blocks ?? []).map((id) => mapping[id]).filter(Boolean)]);
+    const disallowed = new Set<string>();
+    const visit = (value: unknown): void => {
+      if (Array.isArray(value)) return value.forEach(visit);
+      if (!value || typeof value !== "object") return;
+      const record = value as Record<string, unknown>;
+      if (typeof record.type === "string" && !allowed.has(record.type)) disallowed.add(record.type);
+      Object.values(record).forEach(visit);
+    };
+    visit(workspace);
+    return [...disallowed].sort();
+  }
 
   private validateRobotProgram(value: Record<string, unknown>, allowLearningPreview?: boolean): void {
     if (!value || typeof value !== "object" || value.schemaVersion !== 1 || value.kind !== "robot_program" || !Array.isArray(value.steps)) {
@@ -202,7 +256,7 @@ export class ProgrammingService {
     }
   }
 
-  private validationResult(robotProgram: Record<string, unknown>) {
-    return { valid: true, schemaVersion: 1, actionCount: (robotProgram.steps as unknown[]).length, validatedAt: new Date().toISOString() };
+  private validationResult(robotProgram: Record<string, unknown>, workspaceIssues: string[] = []) {
+    return { valid: workspaceIssues.length === 0, schemaVersion: 1, actionCount: (robotProgram.steps as unknown[]).length, workspaceIssues, validatedAt: new Date().toISOString() };
   }
 }

@@ -11,7 +11,7 @@ type Viewer = HTMLElement & {
 };
 
 /** Read-only SO-101 viewer adapted from LeLab's Apache-2.0 URDF viewer path. */
-export function So101Viewer3D({ state, learningTarget = null }: { state: SimState; learningTarget?: { x: number; y: number; z: number } | null }) {
+export function So101Viewer3D({ state, learningTarget = null, targetZone = null }: { state: SimState; learningTarget?: { x: number; y: number; z: number } | null; targetZone?: { x: number; y: number; w: number; h: number } | null }) {
   const host = useRef<HTMLDivElement>(null);
   const viewer = useRef<Viewer | null>(null);
   const jointValues = useRef<Record<string, number>>({});
@@ -125,6 +125,35 @@ export function So101Viewer3D({ state, learningTarget = null }: { state: SimStat
     });
     return () => { disposed = true; };
   }, [learningTarget, ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const element = viewer.current;
+    if (!element?.robot) return;
+    let disposed = false;
+    void import('three').then((THREE) => {
+      if (disposed || !element.robot) return;
+      const existingZone = element.robot.getObjectByName('vista-target-zone');
+      if (existingZone) element.robot.remove(existingZone);
+      if (!targetZone) return;
+      const zoneMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(targetZone.w / 1300, targetZone.h / 1300, 0.002),
+        new THREE.MeshStandardMaterial({
+          color: 0x3b82f6,
+          transparent: true,
+          opacity: 0.35,
+          roughness: 0.5,
+        }),
+      );
+      zoneMesh.name = 'vista-target-zone';
+      const centerX = targetZone.x + targetZone.w / 2;
+      const centerY = targetZone.y + targetZone.h / 2;
+      zoneMesh.position.set((centerX - 300) / 1300, (centerY - 200) / 1300, 0.001);
+      element.robot.add(zoneMesh);
+      element.redraw?.();
+    });
+    return () => { disposed = true; };
+  }, [ready, targetZone]);
 
   return error ? <div className="grid h-full place-items-center p-6 text-center text-sm text-ink-muted">3D preview unavailable: {error}</div> : <div ref={host} className="h-full w-full" aria-label="Interactive 3D SO-101 robot preview" />;
 }

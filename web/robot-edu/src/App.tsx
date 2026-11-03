@@ -10,9 +10,12 @@ import { Dashboard } from './pages/Dashboard';
 import { Courses } from './pages/Courses';
 import { CourseDetail } from './pages/CourseDetail';
 import { LessonViewer } from './pages/LessonViewer';
+import { CourseInfo } from './pages/CourseInfo';
+import { ActivityReader } from './pages/ActivityReader';
 import { AssignmentDetail } from './pages/AssignmentDetail';
 import { Studio } from './pages/Studio';
 import { Practice } from './pages/Practice';
+import { SimulationResult } from './pages/SimulationResult';
 import { RobotLab } from './pages/RobotLab';
 import { TeacherOverview } from './pages/teacher/TeacherOverview';
 import { TeacherCourses } from './pages/teacher/TeacherCourses';
@@ -38,6 +41,7 @@ import { WebSettings } from './pages/WebSettings';
 import { SchoolImportUsers } from './pages/school/SchoolImportUsers';
 import { SchoolQueryProvider } from './queries/SchoolQueryProvider';
 import { StudentAssignmentDetail } from './pages/StudentAssignmentDetail';
+import { StudentAssignments } from './pages/StudentAssignments';
 import { TeacherSubmissionReview } from './pages/teacher/TeacherSubmissionReview';
 
 // Homepage V2 preview, a public page outside RequireSession. Registered only in development builds, or in a
@@ -60,8 +64,10 @@ export function App() {
                   <Route path="settings" element={<WebSettings />} />
                   <Route path="courses" element={<Courses />} />
                   <Route path="courses/:courseId" element={<CourseDetail />} />
+                  <Route path="courses/:courseId/info" element={<CourseInfo />} />
                   <Route path="courses/:courseId/lessons/:lessonId" element={<LessonViewer />} />
-                  <Route path="assignments" element={<LearningLoop />} />
+                  <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+                  <Route path="assignments" element={<StudentAssignments />} />
                   <Route path="my-learning" element={<MyLearning />} />
                   <Route path="my-learning/:classroomAssignmentId" element={<StudentAssignmentDetail />} />
                   <Route path="learning-loop" element={<LearningLoop />} />
@@ -69,6 +75,7 @@ export function App() {
                   <Route path="studio" element={<Studio />} />
                   <Route path="studio/:programId" element={<Studio />} />
                   <Route path="practice/:attemptId" element={<Practice mode="physical-enabled" />} />
+                  <Route path="practice/:attemptId/result/:evaluationId" element={<SimulationResult />} />
                   <Route path="lab" element={<RobotLab />} />
                   <Route path="teacher" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherOverview /></RequireRole>} />
                   <Route path="teacher/classes" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherClasses /></RequireRole>} />
@@ -77,7 +84,7 @@ export function App() {
                   <Route path="teacher/courses" element={<RequireRole roles={['teacher']}><TeacherCourses /></RequireRole>} />
                   <Route path="teacher/assignments" element={<RequireRole roles={['teacher']}><TeacherAssignments /></RequireRole>} />
                   <Route path="teacher/assignments/new" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
-                  <Route path="teacher/assignments/:assignmentId/edit" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
+                  <Route path="teacher/assignments/:classroomId/:assignmentId/edit" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
                   <Route path="teacher/submissions" element={<RequireRole roles={['teacher']}><TeacherSubmissions /></RequireRole>} />
                   <Route path="admin/users" element={<RequireRole roles={['admin']}><AdminUsers /></RequireRole>} />
                   <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />

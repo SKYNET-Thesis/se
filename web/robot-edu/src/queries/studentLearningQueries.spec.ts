@@ -3,6 +3,8 @@ import { allowsPhysicalExecution, nextAttemptAction, studentLearningKeys } from 
 
 describe('student learning query contract', () => {
   it('scopes assignment and attempt evidence keys', () => {
+    expect(studentLearningKeys.list('student-a', 1)).not.toEqual(studentLearningKeys.list('student-b', 1));
+    expect(studentLearningKeys.list('student-a', 1)).not.toEqual(studentLearningKeys.list('student-a', 2));
     expect(studentLearningKeys.assignment('delivery-a')).not.toEqual(studentLearningKeys.assignment('delivery-b'));
     expect(studentLearningKeys.practice('attempt-a')).not.toEqual(studentLearningKeys.practice('attempt-b'));
   });

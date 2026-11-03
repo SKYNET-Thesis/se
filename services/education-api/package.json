@@ -9,6 +9,8 @@
     "seed:demo-identities": "npm run build && node --env-file=.env dist/scripts/seed-demo-identities.js",
     "seed:demo-delivery": "npm run build && node --env-file=.env dist/scripts/seed-demo-delivery.js",
     "seed:demo-school-admin": "npm run build && node --env-file=.env dist/scripts/seed-demo-school-admin.js",
+    "seed:course1": "npm run build && node --env-file=.env dist/scripts/seed-course1.js",
+    "seed:course1-demo-delivery": "npm run build && node --env-file=.env dist/scripts/course1-demo-delivery.js",
     "seed:wf01-demo-robot": "npm run build && node --env-file=.env dist/scripts/seed-wf01-demo-robot.js",
     "test": "jest --runInBand",
     "start": "node dist/main.js",

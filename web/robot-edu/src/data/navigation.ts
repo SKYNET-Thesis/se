@@ -31,7 +31,8 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     items: [
     { to: '/', label: 'Dashboard', icon: LayoutDashboardIcon, end: true },
     { to: '/courses', label: 'Courses', icon: BookOpenIcon },
-    { to: '/my-learning', label: 'My Learning', icon: ClipboardListIcon }]
+    { to: '/my-learning', label: 'My Learning', icon: ClipboardListIcon },
+    { to: '/assignments', label: 'Assignments', icon: ClipboardCheckIcon }]
 
   },
   {
@@ -60,6 +61,15 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     { to: '/lab', label: 'Robot Lab', icon: Cpu },
     { to: '/courses', label: 'Student catalogue', icon: BookOpenIcon }]
 
+  }],
+
+  teaching_assistant: [
+  {
+    title: 'Teaching',
+    items: [
+    { to: '/teacher', label: 'Overview', icon: LayoutDashboardIcon, end: true },
+    { to: '/teacher/classes', label: 'My Classes', icon: UsersIcon },
+    { to: '/teacher/submissions', label: 'Submissions', icon: InboxIcon }]
   }],
 
   admin: [

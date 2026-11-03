@@ -1,5 +1,12 @@
 # System Context — VISTA
 
+> **Legacy subsystem view.** This document describes the robot-learning and
+> teleoperation scope. The canonical education-platform C4 Level 1 diagram is
+> [C4 Level 1 — System Context](../diagrams/architecture/c4-1-system-context.md),
+> with the complete diagram index in [VISTA Diagrams](../diagrams/README.md).
+> Keep this file for the detailed local robot-learning context; do not use it as
+> the whole-platform system boundary in Report 4.
+
 > Draft đã phản ánh góp ý GVHD; sẽ là phần mở đầu của SRS và tài liệu kiến trúc.
 
 ## Bài toán
