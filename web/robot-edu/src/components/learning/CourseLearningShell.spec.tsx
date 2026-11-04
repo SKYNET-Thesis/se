@@ -41,6 +41,13 @@ describe('CourseLearningShell', () => {
     expect(container.querySelectorAll('[data-completion="completed"]')).toHaveLength(0);
     expect(container.textContent).toContain('1 of 5 lessons completed');
     expect(container.querySelector('[aria-label="Course lessons"]')?.children.length).toBe(5);
+    expect(container.querySelector('[aria-label="Move the Robot: current lesson"][data-lesson-status="current"]')).not.toBeNull();
+    expect(container.querySelector('[aria-label="Meet Your Robot: completed"][data-lesson-status="completed"]')).not.toBeNull();
+    expect(container.querySelector('[data-lesson-status="completed"] .lucide-check')).not.toBeNull();
+    expect(container.querySelector('[data-lesson-status="current"] .lucide-check')).toBeNull();
+    expect(container.querySelector('[data-lesson-status="current"]')?.childElementCount).toBe(0);
+    expect(container.querySelector('button[aria-label="Collapse Move the Robot"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/courses/course-1/lessons/lesson-2"] .lucide-chevron-right')).toBeNull();
     const menu = container.querySelector('button[aria-controls="course-material-nav"]');
     expect(menu?.getAttribute('aria-expanded')).toBe('false');
     expect(container.textContent).toContain('Lesson content');

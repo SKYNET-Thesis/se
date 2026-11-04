@@ -1,8 +1,22 @@
 name: Education CI
-on: [pull_request]
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Deploy the current commit or roll back to the previous image"
+        type: choice
+        options: [deploy, rollback]
+        default: deploy
 permissions: { contents: read }
+concurrency:
+  group: education-deploy-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   api:
+    if: github.event_name != 'workflow_dispatch' || inputs.action != 'rollback'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: services/education-api } }
     env: { DATABASE_URL: "postgresql://review2:review2@127.0.0.1:5432/review2" }
@@ -15,6 +29,7 @@ jobs:
       - run: npm run build
       - run: npx prisma validate --schema prisma/schema.prisma
   web:
+    if: github.event_name != 'workflow_dispatch' || inputs.action != 'rollback'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: web/robot-edu } }
     steps:
@@ -25,3 +40,181 @@ jobs:
       - run: npm test
       - run: npm run lint
       - run: npm run build
+        env: { VITE_API_BASE_URL: /api/v1 }
+  docker:
+    if: github.event_name != 'workflow_dispatch' || inputs.action != 'rollback'
+    needs: api
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production image
+        run: docker build -t vista-education-api:${{ github.sha }} services/education-api
+  changes:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.paths.outputs.api }}
+      web: ${{ steps.paths.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Select production targets
+        id: paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ACTION: ${{ inputs.action }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            echo 'api=true' >> "$GITHUB_OUTPUT"
+            if [ "$ACTION" = rollback ]; then echo 'web=false' >> "$GITHUB_OUTPUT"; else echo 'web=true' >> "$GITHUB_OUTPUT"; fi
+            exit 0
+          fi
+          if [[ "$BEFORE" =~ ^0+$ ]]; then
+            echo 'api=true' >> "$GITHUB_OUTPUT"
+            echo 'web=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only --no-renames "$BEFORE" "$GITHUB_SHA")"
+          api=false
+          web=false
+          while IFS= read -r path; do
+            case "$path" in
+              services/education-api/*|packages/contracts/*) api=true ;;
+            esac
+            case "$path" in
+              web/robot-edu/*|packages/contracts/*) web=true ;;
+            esac
+          done <<< "$changed"
+          echo "api=$api" >> "$GITHUB_OUTPUT"
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "Production targets: API=$api web=$web"
+  deploy-api:
+    if: always() && vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.changes.result == 'success' && needs.changes.outputs.api == 'true' && ((github.event_name == 'workflow_dispatch' && inputs.action == 'rollback') || (needs.api.result == 'success' && needs.web.result == 'success' && needs.docker.result == 'success'))
+    needs: [api, web, docker, changes]
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    environment: aws-demo
+    steps:
+      - name: Check backend deployment settings
+        env:
+          ROLE_ARN: ${{ vars.AWS_API_DEPLOY_ROLE_ARN }}
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+          INSTANCE_ID: ${{ vars.API_INSTANCE_ID }}
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          : "${ROLE_ARN:?Missing AWS_API_DEPLOY_ROLE_ARN}"
+          test "$ROLE_ARN" = arn:aws:iam::157098813811:role/vista-demo-github-api-deploy || { echo 'AWS_API_DEPLOY_ROLE_ARN is not the approved role' >&2; exit 2; }
+          : "${INSTANCE_ID:?Missing API_INSTANCE_ID}"
+          test "$INSTANCE_ID" = i-0fa8cb318ce21afa5 || { echo 'API_INSTANCE_ID is not the approved EC2 instance' >&2; exit 2; }
+          if [ "$ACTION" != rollback ]; then
+            : "${ECR_REPOSITORY_URL:?Missing ECR_REPOSITORY_URL}"
+            test "$ECR_REPOSITORY_URL" = 157098813811.dkr.ecr.ap-southeast-1.amazonaws.com/vista/demo/education-api || { echo 'ECR_REPOSITORY_URL is not the approved repository' >&2; exit 2; }
+          fi
+      - uses: actions/checkout@v4
+        if: inputs.action != 'rollback'
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_API_DEPLOY_ROLE_ARN }}
+          aws-region: ap-southeast-1
+      - name: Build and push commit image
+        if: inputs.action != 'rollback'
+        env:
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+        run: |
+          set -euo pipefail
+          IMAGE="$ECR_REPOSITORY_URL:${GITHUB_SHA}"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR_REPOSITORY_URL%%/*}"
+          REPOSITORY_NAME="${ECR_REPOSITORY_URL#*/}"
+          if aws ecr describe-images --repository-name "$REPOSITORY_NAME" --image-ids "imageTag=${GITHUB_SHA}" >/dev/null 2>ecr-error.log; then
+            echo "Using existing immutable image for $GITHUB_SHA"
+          elif grep -q 'ImageNotFoundException' ecr-error.log; then
+            echo "Building immutable image for $GITHUB_SHA"
+            docker build -t "$IMAGE" services/education-api
+            docker push "$IMAGE"
+          else
+            echo 'Could not check ECR image; deployment stopped.' >&2
+            cat ecr-error.log >&2
+            exit 1
+          fi
+          rm -f ecr-error.log
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Deploy through SSM and check result
+        env:
+          INSTANCE_ID: ${{ vars.API_INSTANCE_ID }}
+          ACTION: ${{ inputs.action }}
+        run: |
+          set -euo pipefail
+          if [ "$ACTION" = rollback ]; then
+            COMMAND='/usr/local/bin/vista-rollback-api'
+          else
+            COMMAND="/usr/local/bin/vista-deploy-api $IMAGE"
+          fi
+          COMMAND_ID="$(aws ssm send-command --instance-ids "$INSTANCE_ID" --document-name AWS-RunShellScript --parameters "commands=$COMMAND" --query Command.CommandId --output text)"
+          echo "SSM command: $COMMAND_ID"
+          for _attempt in $(seq 1 60); do
+            STATUS="$(aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query Status --output text 2>/dev/null || true)"
+            case "$STATUS" in
+              Success) aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query '{Status:Status,ResponseCode:ResponseCode}'; break ;;
+              Failed|Cancelled|TimedOut|DeliveryTimedOut|ExecutionTimedOut) aws ssm get-command-invocation --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --query '{Status:Status,ResponseCode:ResponseCode}'; exit 1 ;;
+            esac
+            sleep 10
+          done
+          test "$STATUS" = Success || { echo 'SSM deployment did not finish within 10 minutes' >&2; exit 1; }
+          echo 'Checking production API through nginx and CloudFront'
+          curl --fail --silent --show-error --retry 6 --retry-delay 5 https://api.skynex.best/api/v1/health >/dev/null
+          curl --fail --silent --show-error --retry 6 --retry-delay 5 https://skynex.best/api/v1/health >/dev/null
+  deploy-web:
+    if: always() && vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.changes.result == 'success' && needs.changes.outputs.web == 'true' && needs.api.result == 'success' && needs.web.result == 'success' && (needs.deploy-api.result == 'success' || (needs.deploy-api.result == 'skipped' && needs.changes.outputs.api != 'true'))
+    needs: [api, web, changes, deploy-api]
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    environment: aws-demo
+    defaults: { run: { working-directory: web/robot-edu } }
+    steps:
+      - name: Check frontend deployment settings
+        env:
+          ROLE_ARN: ${{ vars.AWS_WEB_DEPLOY_ROLE_ARN }}
+          WEB_BUCKET: ${{ vars.WEB_BUCKET }}
+          DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          set -euo pipefail
+          : "${ROLE_ARN:?Missing AWS_WEB_DEPLOY_ROLE_ARN}"
+          test "$ROLE_ARN" = arn:aws:iam::157098813811:role/vista-demo-github-web-deploy || { echo 'AWS_WEB_DEPLOY_ROLE_ARN is not the approved role' >&2; exit 2; }
+          : "${WEB_BUCKET:?Missing WEB_BUCKET}"
+          : "${DISTRIBUTION_ID:?Missing CLOUDFRONT_DISTRIBUTION_ID}"
+          test "$WEB_BUCKET" = vista-demo-web-157098813811-sg || { echo 'WEB_BUCKET is not the approved bucket' >&2; exit 2; }
+          test "$DISTRIBUTION_ID" = E1A274BBLHUGAO || { echo 'CLOUDFRONT_DISTRIBUTION_ID is not the approved distribution' >&2; exit 2; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: web/robot-edu/package-lock.json }
+      - run: npm ci
+      - name: Build public web assets
+        env:
+          VITE_SUPABASE_URL: ${{ vars.PUBLIC_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
+          VITE_API_BASE_URL: /api/v1
+        run: |
+          set -euo pipefail
+          : "${VITE_SUPABASE_URL:?Missing PUBLIC_SUPABASE_URL}"
+          : "${VITE_SUPABASE_ANON_KEY:?Missing PUBLIC_SUPABASE_ANON_KEY}"
+          npm run build
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_WEB_DEPLOY_ROLE_ARN }}
+          aws-region: ap-southeast-1
+      - name: Publish and verify web
+        env:
+          WEB_BUCKET: ${{ vars.WEB_BUCKET }}
+          DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          set -euo pipefail
+          echo "Publishing web commit $GITHUB_SHA to $WEB_BUCKET"
+          aws s3 sync dist/ "s3://$WEB_BUCKET/" --delete
+          INVALIDATION_ID="$(aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths '/*' --query Invalidation.Id --output text)"
+          echo "CloudFront invalidation: $INVALIDATION_ID"
+          aws cloudfront wait invalidation-completed --distribution-id "$DISTRIBUTION_ID" --id "$INVALIDATION_ID"
+          curl --fail --silent --show-error --retry 6 --retry-delay 5 https://skynex.best/ >/dev/null
+          echo 'Production web health check passed: https://skynex.best/'

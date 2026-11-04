@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpenIcon, CheckCircle2Icon, ChevronDownIcon, ChevronRightIcon, MenuIcon, LockIcon } from 'lucide-react';
+import { BookOpenIcon, CheckIcon, ChevronDownIcon, MenuIcon, LockIcon } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { progressionApi, type CoursePathLesson, type LessonDetailResponse } from '../../lib/api';
@@ -267,16 +267,33 @@ function LessonModuleNavItem({
   pathname: string;
 }) {
   const locked = lesson.status === 'locked';
+  const statusLabel = {
+    completed: 'completed',
+    current: 'current lesson',
+    in_progress: 'in progress',
+    available: 'not started',
+    locked: 'locked',
+  }[lesson.status];
   const content = (
     <>
+      <span
+        role="img"
+        aria-label={`${lesson.title}: ${statusLabel}`}
+        data-lesson-status={lesson.status}
+        className={`grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full border ${
+          lesson.status === 'completed'
+            ? 'border-ok bg-ok text-white'
+            : lesson.status === 'current' || lesson.status === 'in_progress'
+              ? 'border-accent bg-transparent text-accent-ink'
+              : locked
+                ? 'border-line-strong bg-sunken text-ink-subtle'
+                : 'border-line-strong bg-surface text-ink-subtle'
+        }`}
+      >
+        {lesson.status === 'completed' ? <CheckIcon aria-hidden="true" className="h-3 w-3" strokeWidth={3} /> : null}
+        {locked ? <LockIcon aria-hidden="true" className="h-2.5 w-2.5" strokeWidth={2.5} /> : null}
+      </span>
       <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug">{lesson.title}</span>
-      {lesson.status === 'completed' ? (
-        <CheckCircle2Icon aria-label="Completed" className="h-4 w-4 shrink-0 text-ok" />
-      ) : locked ? (
-        <LockIcon aria-label="Locked" className="h-3.5 w-3.5 shrink-0 text-ink-subtle" />
-      ) : (
-        <ChevronRightIcon className="h-4 w-4 shrink-0 text-accent-ink" />
-      )}
     </>
   );
 
