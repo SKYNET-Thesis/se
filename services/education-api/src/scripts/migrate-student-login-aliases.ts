@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { ConfigService } from "@nestjs/config";
 import { SupabaseAdminService } from "../modules/education-admin/supabase-admin.service";
@@ -20,23 +19,16 @@ async function main() {
     JOIN public.education_school_user_profiles p ON p.user_id=u.id
     WHERE p.person_type='student'
       AND u.auth_user_id IS NOT NULL
-      AND u.auth_identifier IS NULL
   `;
 
   let migrated = 0;
   for (const student of students) {
-    const identifier = randomUUID();
-    const internalEmail = `student-${identifier}@students.auth.vista.invalid`;
+    const internalEmail = `student-${student.id}@students.auth.vista.invalid`;
     await supabaseAdmin.replaceStudentLoginEmail(student.auth_user_id, internalEmail);
-
-    const updated = await prisma.$executeRaw`
-      UPDATE public.users SET auth_identifier=${identifier}::uuid
-      WHERE id=${student.id}::uuid AND auth_user_id=${student.auth_user_id}::uuid AND auth_identifier IS NULL`;
-    if (updated !== 1) throw new Error("Student identity mapping changed during migration.");
     migrated += 1;
   }
 
-  console.log(`Migrated ${migrated} linked student identities to internal login aliases.`);
+  console.log(`Migrated ${migrated} linked student identities to aliases derived from VISTA user IDs.`);
 }
 
 main()

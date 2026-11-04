@@ -16,8 +16,7 @@ export class StudentAuthService {
     if (!student || student.status !== "active" || student.account_state !== "active" || !student.auth_user_id) {
       throw new UnauthorizedException(INVALID_STUDENT_CREDENTIALS);
     }
-    const internalEmail = student.auth_identifier ? this.internalEmail(student.auth_identifier) : null;
-    if (!internalEmail) throw new UnauthorizedException(INVALID_STUDENT_CREDENTIALS);
+    const internalEmail = this.internalEmail(student.user_id);
     try {
       const session = await this.supabase.authenticateStudent(internalEmail, dto.password);
       return this.publicSession(session);
@@ -28,7 +27,7 @@ export class StudentAuthService {
 
   async setup(dto: StudentSetupDto) {
     const student = await this.findPendingStudent(dto.schoolCode, dto.studentCode, this.hashSetupCode(dto.setupCode));
-    if (!student?.auth_identifier) throw new UnauthorizedException(INVALID_STUDENT_CREDENTIALS);
+    if (!student) throw new UnauthorizedException(INVALID_STUDENT_CREDENTIALS);
     const claimed = await this.prisma.$executeRaw`
       UPDATE public.auth_tokens
       SET used_at = now()
@@ -39,7 +38,7 @@ export class StudentAuthService {
         AND expires_at > now()`;
     if (claimed !== 1) throw new UnauthorizedException(INVALID_STUDENT_CREDENTIALS);
 
-    const internalEmail = this.internalEmail(student.auth_identifier);
+    const internalEmail = this.internalEmail(student.user_id);
     let authUser: { id: string };
     const createdIdentity = !student.auth_user_id;
     try {
@@ -92,7 +91,7 @@ export class StudentAuthService {
 
   private findStudent(schoolCode: string, studentCode: string) {
     return this.prisma.$queryRaw<StudentLoginRow[]>`
-      SELECT u.id AS user_id, u.auth_user_id, u.auth_identifier, u.status,
+      SELECT u.id AS user_id, u.auth_user_id, u.status,
              p.account_state
       FROM public.organizations o
       JOIN public.education_school_user_profiles p ON p.organization_id = o.id
@@ -107,7 +106,7 @@ export class StudentAuthService {
 
   private findPendingStudent(schoolCode: string, studentCode: string, setupCodeHash: string) {
     return this.prisma.$queryRaw<PendingStudentRow[]>`
-      SELECT u.id AS user_id, u.auth_identifier, u.auth_user_id, o.id AS organization_id, t.id AS setup_token_id
+      SELECT u.id AS user_id, u.auth_user_id, o.id AS organization_id, t.id AS setup_token_id
       FROM public.organizations o
       JOIN public.education_school_user_profiles p ON p.organization_id = o.id
       JOIN public.users u ON u.id = p.user_id
@@ -137,8 +136,8 @@ export class StudentAuthService {
       WHERE id = ${tokenId}::uuid AND purpose = 'student_setup'`;
   }
 
-  private internalEmail(identifier: string): string {
-    return `student-${identifier}@students.auth.vista.invalid`;
+  private internalEmail(userId: string): string {
+    return `student-${userId}@students.auth.vista.invalid`;
   }
 
   private publicSession(session: SupabasePasswordSession) {
@@ -155,14 +154,12 @@ export class StudentAuthService {
 interface StudentLoginRow {
   user_id: string;
   auth_user_id: string | null;
-  auth_identifier: string | null;
   status: string;
   account_state: string;
 }
 
 interface PendingStudentRow {
   user_id: string;
-  auth_identifier: string | null;
   auth_user_id: string | null;
   organization_id: string;
   setup_token_id: string;
