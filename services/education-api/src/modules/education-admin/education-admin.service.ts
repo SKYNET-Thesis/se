@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
@@ -112,15 +113,16 @@ export class EducationAdminService {
     const existingRows = requestedCodes.length === 0 ? [] : dto.kind === "teachers"
       ? await this.prisma.$queryRaw<Array<{ code: string }>>`SELECT lower(employee_code) AS code FROM public.education_school_user_profiles WHERE organization_id=${organizationId}::uuid AND employee_code IS NOT NULL AND lower(employee_code)=ANY(${requestedCodes}::text[])`
       : await this.prisma.$queryRaw<Array<{ code: string }>>`SELECT lower(student_code) AS code FROM public.education_school_user_profiles WHERE organization_id=${organizationId}::uuid AND student_code IS NOT NULL AND lower(student_code)=ANY(${requestedCodes}::text[])`;
+    const schoolCode = dto.kind === "students" && requestedCodes.length ? await this.ensureSchoolCode(organizationId) : undefined;
     const existingCodes = new Set(existingRows.map(item => item.code));
-    const results = [] as Array<{ row: number; status: "created" | "unchanged" | "failed"; code?: ImportErrorCode; message?: string; name?: string; schoolCode?: string }>;
+    const results = [] as Array<{ row: number; status: "created" | "unchanged" | "failed"; code?: ImportErrorCode; message?: string; name?: string; schoolCode?: string; studentCode?: string; setupCode?: string }>;
     for (const { index, row, code, errors } of prepared) {
-      if (errors.length) { results.push({ row: index + 2, status: "failed", code: "VALIDATION_ERROR", message: errors.join(" "), name: `${row.firstName} ${row.lastName}`.trim(), schoolCode: dto.kind === "teachers" ? row.employeeCode : row.studentCode }); continue; }
-      if (existingCodes.has(code)) { results.push({ row: index + 2, status: "unchanged", name: `${row.firstName} ${row.lastName}`.trim(), schoolCode: dto.kind === "teachers" ? row.employeeCode : row.studentCode }); continue; }
+      if (errors.length) { results.push({ row: index + 2, status: "failed", code: "VALIDATION_ERROR", message: errors.join(" "), name: `${row.firstName} ${row.lastName}`.trim(), ...(dto.kind === "teachers" ? { schoolCode: row.employeeCode } : { studentCode: row.studentCode }) }); continue; }
+      if (existingCodes.has(code) && dto.kind === "teachers") { results.push({ row: index + 2, status: "unchanged", name: `${row.firstName} ${row.lastName}`.trim(), schoolCode: row.employeeCode }); continue; }
       try { results.push({ row: index + 2, ...(await this.provisionImportRow(organizationId, dto.kind, row)) }); }
-      catch (error) { const safe = classifyImportError(error); const identifier = dto.kind === "teachers" ? row.employeeCode : row.studentCode; this.logger.error({ event: "school_user_import_failed", kind: dto.kind, row: index + 2, organizationId, identifier, code: safe.code, error: error instanceof ImportProvisioningError ? error.internalDetail : error instanceof Error ? error.message : String(error) }); results.push({ row: index + 2, status: "failed", ...safe, name: `${row.firstName} ${row.lastName}`.trim(), schoolCode: identifier }); }
+      catch (error) { const safe = classifyImportError(error); const identifier = dto.kind === "teachers" ? row.employeeCode : row.studentCode; this.logger.error({ event: "school_user_import_failed", kind: dto.kind, row: index + 2, organizationId, identifier, code: safe.code, error: error instanceof ImportProvisioningError ? error.internalDetail : error instanceof Error ? error.message : String(error) }); results.push({ row: index + 2, status: "failed", ...safe, name: `${row.firstName} ${row.lastName}`.trim(), ...(dto.kind === "teachers" ? { schoolCode: identifier } : { studentCode: identifier }) }); }
     }
-    return { processed: results.length, created: results.filter(item => item.status === "created").length, unchanged: results.filter(item => item.status === "unchanged").length, failed: results.filter(item => item.status === "failed").length, results };
+    return { processed: results.length, created: results.filter(item => item.status === "created").length, unchanged: results.filter(item => item.status === "unchanged").length, failed: results.filter(item => item.status === "failed").length, schoolCode, results };
   }
 
   private validateImportRow(kind: "teachers" | "students", row: ImportSchoolUserRowDto, emails: Set<string>, codes: Set<string>) {
@@ -133,8 +135,8 @@ export class EducationAdminService {
 
   private async provisionImportRow(organizationId: string, kind: "teachers" | "students", row: ImportSchoolUserRowDto) {
     if (kind === "students") {
-      await this.studentProvisioning.provision(organizationId, row);
-      return { status: "created" as const };
+      const student = await this.studentProvisioning.provision(organizationId, row);
+      return { status: student.status, setupCode: student.setupCode, name: `${row.firstName.trim()} ${row.lastName.trim()}`, studentCode: row.studentCode?.trim() };
     }
     const email = row.email?.trim().toLowerCase() || null; const code = (kind === "teachers" ? row.employeeCode : row.studentCode)!.trim(); const fullName = `${row.firstName.trim()} ${row.lastName.trim()}`;
     let authUserId: string | null = null;
@@ -147,6 +149,24 @@ export class EducationAdminService {
       await tx.$executeRaw`INSERT INTO public.education_school_user_profiles(organization_id,user_id,person_type,employee_code,student_code,grade_level,guardian_email,account_state) VALUES(${organizationId}::uuid,${userId}::uuid,'teacher',${code},NULL,NULL,NULL,${accountState}) ON CONFLICT(organization_id,user_id) DO UPDATE SET employee_code=EXCLUDED.employee_code,account_state=EXCLUDED.account_state,updated_at=now()`;
     });
     return { status: "created" as const };
+  }
+
+  private async ensureSchoolCode(organizationId: string): Promise<string> {
+    const current = await this.prisma.organizations.findUnique({ where: { id: organizationId }, select: { school_code: true } });
+    if (!current) throw new NotFoundException("Organization was not found.");
+    if (current.school_code) return current.school_code;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const candidate = `VST-${randomBytes(5).toString("hex").toUpperCase()}`;
+      const updated = await this.prisma.$queryRaw<Array<{ school_code: string }>>`
+        UPDATE public.organizations
+        SET school_code=${candidate}
+        WHERE id=${organizationId}::uuid AND school_code IS NULL
+        RETURNING school_code`;
+      if (updated[0]) return updated[0].school_code;
+      const winner = await this.prisma.organizations.findUnique({ where: { id: organizationId }, select: { school_code: true } });
+      if (winner?.school_code) return winner.school_code;
+    }
+    throw new ConflictException("A school code could not be allocated. Please retry the import.");
   }
 
   async eligibleRobots(user: AuthenticatedUser, classroomId: string) {

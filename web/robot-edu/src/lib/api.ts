@@ -199,6 +199,23 @@ export async function apiRequest<T>(path: string, accessToken: string, method: "
   return response.json() as Promise<T>;
 }
 
+export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> {
+  if (import.meta.env.PROD && new URL(baseUrl, window.location.origin).protocol !== "https:") {
+    throw new Error("Secure API transport is required for student authentication.");
+  }
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`);
+  }
+  return response.json() as Promise<T>;
+}
+
 export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; }
 export interface ApiRobotResource { id: string; name: string; serialNo: string; modelName: string; status?: string; }
 export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; assignment_count: number; }
@@ -228,7 +245,7 @@ export interface ApiSchoolPerson { id:string; displayName:string; role:'student'
 export interface ApiMemberCandidate { userId:string; displayName:string; organizationRole:'student'|'instructor'; schoolCode:string|null; accountState:'active'|'invited'|'account_setup_pending'; alreadyMember:boolean; }
 export interface ApiPage<T> { items:T[]; page:number; pageSize:number; total:number; }
 export type ApiImportErrorCode='VALIDATION_ERROR'|'DUPLICATE_USER'|'ACCOUNT_INVITE_FAILED'|'ACCOUNT_PROVISIONING_FAILED'|'DATABASE_WRITE_FAILED'|'NOT_AUTHORIZED'|'UNKNOWN_IMPORT_ERROR';
-export interface ApiSchoolImportResult { processed:number; created:number; unchanged:number; failed:number; results:Array<{row:number;status:'created'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name?:string;schoolCode?:string}>; }
+export interface ApiSchoolImportResult { processed:number; created:number; unchanged:number; failed:number; schoolCode?:string; results:Array<{row:number;status:'created'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name?:string;schoolCode?:string;studentCode?:string;setupCode?:string}>; }
 export interface ApiClassroomStudentPreviewRow { row:number;firstName:string;lastName:string;studentCode:string;gradeLevel:string;email:string|null;status:'new_student'|'existing_student'|'already_in_class'|'needs_review';errors:string[];warnings:string[]; }
 export interface ApiClassroomStudentPreview { processed:number;newStudents:number;existingStudents:number;alreadyInClass:number;needsReview:number;rows:ApiClassroomStudentPreviewRow[]; }
 export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string}>; }
@@ -367,6 +384,11 @@ export const identityApi = {
   permissions: (token: string) => apiGet<ApiRecord[]>("/me/permissions", token),
   memberships: (token: string) => apiGet<ApiOrganizationMembership[]>("/me/memberships", token),
   updateProfile: (token: string, fullName: string) => apiRequest<ApiIdentity>("/me/profile", token, "PATCH", { fullName }),
+};
+export interface ApiStudentAuthSession { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; token_type: string; }
+export const studentAuthApi = {
+  login: (body: { schoolCode: string; studentCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/login", body),
+  setup: (body: { schoolCode: string; studentCode: string; setupCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/setup", body),
 };
 export const educationAdminApi = {
   overview: (organizationId:string,token:string) => apiGet<ApiSchoolOverview>(`/education-admin/organizations/${organizationId}/overview`,token),

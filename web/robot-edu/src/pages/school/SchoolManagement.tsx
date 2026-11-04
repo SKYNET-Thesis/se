@@ -13,7 +13,7 @@ import { classroomStudentImportInvalidations, memberInvalidations, schoolAdminEn
 import { ClassroomRobotAllocation } from './ClassroomRobotAllocation';
 import { MemberCandidatePicker } from './MemberCandidatePicker';
 import { candidateMutationBody, candidatePageCount, candidateSearchChange, useDebouncedValue } from './memberCandidateState';
-import { ClassroomStudentImport } from './ClassroomStudentImport';
+import { ClassroomStudentImport } from './ClassroomStudentImport.tsx';
 
 const PAGE_SIZE = 20;
 
