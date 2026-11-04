@@ -1,6 +1,6 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { DownloadIcon, FileUpIcon, SearchIcon, ShieldAlertIcon } from 'lucide-react';
+import { CopyIcon, DownloadIcon, FileUpIcon, SearchIcon, ShieldAlertIcon } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { useNavigate } from 'react-router-dom';
@@ -27,12 +27,17 @@ export function SchoolImportUsers() {
   const [provisioning, setProvisioning] = useState(false);
   const [result, setResult] = useState<ApiSchoolImportResult | null>(null);
   const [provisionError, setProvisionError] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const summary = useMemo(() => importSummary(rows), [rows]);
   const filteredRows = useMemo(() => filterImportRows(rows, filter, query), [rows, filter, query]);
   const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const visibleRows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const noun = kind === 'students' ? 'student' : 'teacher';
+  useEffect(() => {
+    if (reviewOpen) return;
+    setResult(current => current ? { ...current, results: current.results.map(item => ({ ...item, setupCode: undefined })) } : null);
+  }, [reviewOpen]);
   const resetReviewControls = () => { setFilter('All'); setQuery(''); setPage(1); };
   const switchKind = (next: ImportKind) => { setKind(next); setRows([]); setFileName(''); setResult(null); setProvisionError(null); setReviewOpen(false); resetReviewControls(); };
   const chooseAnother = () => { setRows([]); setFileName(''); setResult(null); setProvisionError(null); setReviewOpen(false); resetReviewControls(); if (fileRef.current) fileRef.current.value = ''; };
@@ -51,7 +56,7 @@ export function SchoolImportUsers() {
     <div className="mt-7 flex gap-2 border-b border-line" role="tablist" aria-label="Import type">
       {(['teachers', 'students'] as ImportKind[]).map(item => <button key={item} type="button" role="tab" aria-selected={kind === item} onClick={() => switchKind(item)} className={kind === item ? 'border-b-2 border-accent px-4 py-3 text-sm font-semibold text-accent' : 'px-4 py-3 text-sm font-medium text-ink-muted hover:text-ink'}>{item === 'teachers' ? 'Teachers' : 'Students'}</button>)}
     </div>
-    <p className="mt-4 text-sm text-ink-muted">{kind === 'students' ? 'Student email is optional. Primary-school students can be managed using their school student code.' : 'Teacher email and employee code are required.'}</p>
+    <p className="mt-4 text-sm text-ink-muted">{kind === 'students' ? 'Student email is optional. Students sign in with a school code, student code, and password; first-time students receive a one-use setup code.' : 'Teacher email and employee code are required.'}</p>
     <section className="mt-6 rounded-xl border border-line bg-surface p-5">
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" onClick={download} icon={<DownloadIcon className="h-4 w-4" />}>Download {noun} template</Button>
@@ -74,7 +79,10 @@ export function SchoolImportUsers() {
         <div className="overflow-x-auto rounded-lg border border-line"><table className="w-full min-w-[1000px] text-left text-sm"><thead className="sticky top-0 bg-sunken text-xs uppercase tracking-wide text-ink-muted"><tr><th className="px-3 py-3">Row</th><th className="px-3 py-3">{kind === 'students' ? 'Student' : 'Teacher'}</th>{kind === 'students' ? <><th className="px-3 py-3">Student code</th><th className="px-3 py-3">Grade</th><th className="px-3 py-3">Email</th><th className="px-3 py-3">Guardian email</th></> : <><th className="px-3 py-3">Employee code</th><th className="px-3 py-3">Email</th></>}<th className="px-3 py-3">Status</th><th className="px-3 py-3">Issue</th></tr></thead><tbody>{visibleRows.map(row => <ImportTableRow key={row.row} row={row} kind={kind} />)}{visibleRows.length === 0 && <tr><td colSpan={kind === 'students' ? 8 : 6} className="px-3 py-10 text-center text-ink-muted">No records match this filter.</td></tr>}</tbody></table></div>
         <div className="flex items-center justify-end gap-3 text-sm"><Button variant="secondary" size="sm" disabled={page === 1} onClick={() => setPage(current => current - 1)}>Previous</Button><span className="text-ink-muted">Page {page} of {pageCount}</span><Button variant="secondary" size="sm" disabled={page === pageCount} onClick={() => setPage(current => current + 1)}>Next</Button></div>
         {provisionError && <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{provisionError}</p>}
-        {result && resultView ? <div className={resultView.tone === 'success' ? 'rounded-md bg-ok-soft px-4 py-4 text-sm text-ok' : resultView.tone === 'partial' ? 'rounded-md bg-warn-soft px-4 py-4 text-sm text-warn' : 'rounded-md bg-danger-soft px-4 py-4 text-sm text-danger'}><p className="text-base font-semibold">{resultView.title}</p><p className="mt-1">{resultView.description}</p>{resultView.tone === 'failed' && <p className="mt-1">Please try again. If the problem continues, contact your administrator.</p>}{result.failed > 0 && <div className="mt-4 space-y-2 border-t border-current/20 pt-3">{result.results.filter(item => item.status === 'failed').map(item => <div key={item.row}><p className="font-medium">{item.name || `Row ${item.row}`}{item.schoolCode ? ` · ${item.schoolCode}` : ''}</p><p className="text-xs opacity-90">{item.message || 'Could not create account. Please try again.'}</p></div>)}</div>}</div> : summary.Ready !== rows.length && <div className="flex items-center gap-2 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn"><ShieldAlertIcon className="h-4 w-4" />Resolve duplicate and review rows before importing.</div>}
+        {result?.schoolCode && kind === 'students' && <div className="rounded-md border border-line bg-sunken px-4 py-3"><p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">School code</p><p className="mt-1 font-mono text-lg font-semibold text-ink">{result.schoolCode}</p><p className="mt-1 text-xs text-ink-muted">Share this with students along with their student code.</p></div>}
+        {result?.results.some(item => item.setupCode) && <section className="rounded-md border border-line bg-surface px-4 py-4"><h3 className="font-semibold text-ink">One-time student setup codes</h3><p className="mt-1 text-sm text-ink-muted">Share each code with its student. Students use it once to set their own password; codes expire after seven days. These codes are not saved and disappear when this result closes.</p><div className="mt-3 divide-y divide-line">{result.results.filter(item => item.setupCode).map(item => <div key={`${item.row}-${item.setupCode}`} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-medium text-ink">{item.name || `Row ${item.row}`}</p><p className="font-mono text-sm text-ink-muted">{item.studentCode} · {item.setupCode}</p></div><Button size="sm" variant="secondary" icon={<CopyIcon className="h-4 w-4" />} onClick={() => { void navigator.clipboard.writeText(item.setupCode ?? '').catch(() => setCopyError('Could not copy the setup code.')); }}>Copy</Button></div>)}</div></section>}
+        {copyError && <p role="alert" className="text-sm text-danger">{copyError}</p>}
+        {result && resultView ? <div className={resultView.tone === 'success' ? 'rounded-md bg-ok-soft px-4 py-4 text-sm text-ok' : resultView.tone === 'partial' ? 'rounded-md bg-warn-soft px-4 py-4 text-sm text-warn' : 'rounded-md bg-danger-soft px-4 py-4 text-sm text-danger'}><p className="text-base font-semibold">{resultView.title}</p><p className="mt-1">{resultView.description}</p>{resultView.tone === 'failed' && <p className="mt-1">Please try again. If the problem continues, contact your administrator.</p>}{result.failed > 0 && <div className="mt-4 space-y-2 border-t border-current/20 pt-3">{result.results.filter(item => item.status === 'failed').map(item => <div key={item.row}><p className="font-medium">{item.name || `Row ${item.row}`}{item.schoolCode || item.studentCode ? ` · ${item.schoolCode ?? item.studentCode}` : ''}</p><p className="text-xs opacity-90">{item.message || 'Could not create account. Please try again.'}</p></div>)}</div>}</div> : summary.Ready !== rows.length && <div className="flex items-center gap-2 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn"><ShieldAlertIcon className="h-4 w-4" />Resolve duplicate and review rows before importing.</div>}
       </div>
     </Dialog>
   </main>;
