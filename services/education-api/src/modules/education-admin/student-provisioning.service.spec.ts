@@ -35,7 +35,7 @@ describe("StudentProvisioningService", () => {
 
   it("does not rotate an unexpired setup code on student re-import", async () => {
     txQueryRaw.mockImplementation((strings: TemplateStringsArray) => strings.join(" ").includes("education_school_user_profiles")
-      ? [{ user_id: "user-existing", auth_user_id: null, auth_identifier: "identity-existing", account_state: "account_setup_pending", has_live_setup_code: true }]
+      ? [{ user_id: "user-existing", auth_user_id: null, account_state: "account_setup_pending", has_live_setup_code: true }]
       : []);
 
     await expect(service.provision("school-a", { firstName: "Bao", lastName: "Ngoc", studentCode: "S1", gradeLevel: "Grade 3" })).resolves.toEqual({

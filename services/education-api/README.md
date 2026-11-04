@@ -37,8 +37,8 @@ Students sign in with a school code, student code, and password. The API resolve
 those codes to the stable VISTA user and authenticates against Supabase Auth.
 Supabase owns passwords and sessions; VISTA stores neither. `users.email` is
 optional contact/recovery information and is never the student-facing login ID.
-`users.auth_identifier` is a stable opaque UUID used to form an internal,
-non-routable Supabase login alias; the alias is never returned as contact data.
+The Supabase login alias is derived directly from the stable VISTA `users.id`;
+the alias is never returned as contact data.
 
 Student imports return a school code and newly issued one-time setup codes to
 the authorized school administrator. Setup codes are generated from CSPRNG
@@ -53,16 +53,18 @@ migration in `prisma/migrations/20261104000000_student_code_auth/migration.sql`:
 
 - `organizations.school_code` is unique and nullable until the first student
   import allocates one.
-- `users.auth_identifier` is a stable, unique provider-login key, separate from
-  contact email; the obsolete local `password_hash` field is removed.
+- Student aliases derive from `users.id`; there is no separate login identifier
+  column and no local password hash.
 - Student codes are unique within an organization.
 - `auth_tokens.purpose` now permits `student_setup`.
 
-After applying that migration, run `npm run migrate:student-auth-identifiers`
-once with server-only `SUPABASE_SERVICE_ROLE_KEY` configuration. It assigns
-opaque aliases to already-linked student identities while preserving their
-Supabase passwords and VISTA contact email values. Existing pending, unlinked
-students receive setup codes when their student rows are re-imported.
+The follow-up migration drops the previously introduced `auth_identifier`
+column. After applying all migrations, run `npm run migrate:student-login-aliases`
+once with server-only `SUPABASE_SERVICE_ROLE_KEY` configuration. It updates
+linked student identities to aliases derived from `users.id`, preserving their
+Supabase passwords and VISTA contact email values. The script is safe to rerun.
+Existing pending, unlinked students receive setup codes when their student rows
+are re-imported.
 
 Student login/setup endpoints are rate-limited to 10 attempts per IP per minute
 per API process and require HTTPS in production. Production deployments must

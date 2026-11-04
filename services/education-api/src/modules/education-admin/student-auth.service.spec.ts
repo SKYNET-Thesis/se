@@ -30,37 +30,37 @@ describe("StudentAuthService", () => {
   });
 
   it("maps school and student codes to an internal Supabase identifier without returning it", async () => {
-    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_user_id: "auth-user-1", auth_identifier: "identity-1", email: "contact@example.test", status: "active", account_state: "active" }]);
+    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_user_id: "auth-user-1", email: "contact@example.test", status: "active", account_state: "active" }]);
 
     const result = await service.login({ schoolCode: "VST-SCHOOL", studentCode: "S-1", password: "secret" });
 
     expect(result).toEqual(session);
-    expect(supabase.authenticateStudent).toHaveBeenCalledWith("student-identity-1@students.auth.vista.invalid", "secret");
+    expect(supabase.authenticateStudent).toHaveBeenCalledWith("student-user-1@students.auth.vista.invalid", "secret");
     expect(JSON.stringify(result)).not.toContain("contact@example.test");
   });
 
   it("rejects inactive and unresolved student profiles before provider authentication", async () => {
-    queryRaw.mockResolvedValue([{ auth_user_id: null, auth_identifier: "identity-1", email: null, status: "invited", account_state: "account_setup_pending" }]);
+    queryRaw.mockResolvedValue([{ auth_user_id: null, email: null, status: "invited", account_state: "account_setup_pending" }]);
 
     await expect(service.login({ schoolCode: "VST-SCHOOL", studentCode: "S-1", password: "secret" })).rejects.toBeInstanceOf(UnauthorizedException);
     expect(supabase.authenticateStudent).not.toHaveBeenCalled();
   });
 
   it("consumes the hashed setup token, activates the VISTA profile, and returns only provider session fields", async () => {
-    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_identifier: "identity-1", organization_id: "org-1", setup_token_id: "token-1" }]);
+    queryRaw.mockResolvedValue([{ user_id: "user-1", organization_id: "org-1", setup_token_id: "token-1" }]);
 
     await expect(service.setup({ schoolCode: "VST-SCHOOL", studentCode: "S-1", setupCode: "one-time-secret-code", password: "student-created-password" })).resolves.toEqual(session);
 
-    expect(supabase.createStudentIdentity).toHaveBeenCalledWith("student-identity-1@students.auth.vista.invalid", "student-created-password");
+    expect(supabase.createStudentIdentity).toHaveBeenCalledWith("student-user-1@students.auth.vista.invalid", "student-created-password");
     expect(prismaExecuteRaw).toHaveBeenCalledTimes(1);
     expect(executeRaw).toHaveBeenCalledTimes(2);
     expect(executeRaw.mock.calls.flat()).not.toContain("student-created-password");
     expect(executeRaw.mock.calls.flat()).not.toContain("one-time-secret-code");
-    expect(supabase.authenticateStudent).toHaveBeenCalledWith("student-identity-1@students.auth.vista.invalid", "student-created-password");
+    expect(supabase.authenticateStudent).toHaveBeenCalledWith("student-user-1@students.auth.vista.invalid", "student-created-password");
   });
 
   it("does not create a provider identity when another request already claimed the setup code", async () => {
-    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_identifier: "identity-1", organization_id: "org-1", setup_token_id: "token-1" }]);
+    queryRaw.mockResolvedValue([{ user_id: "user-1", organization_id: "org-1", setup_token_id: "token-1" }]);
     prismaExecuteRaw.mockResolvedValueOnce(0);
 
     await expect(service.setup({ schoolCode: "VST-SCHOOL", studentCode: "S-1", setupCode: "one-time-secret-code", password: "student-created-password" })).rejects.toBeInstanceOf(UnauthorizedException);
@@ -71,7 +71,7 @@ describe("StudentAuthService", () => {
   });
 
   it("cleans up a new provider identity and releases the code when domain activation fails", async () => {
-    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_identifier: "identity-1", auth_user_id: null, organization_id: "org-1", setup_token_id: "token-1" }]);
+    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_user_id: null, organization_id: "org-1", setup_token_id: "token-1" }]);
     transaction.mockRejectedValueOnce(new Error("database unavailable"));
 
     await expect(service.setup({ schoolCode: "VST-SCHOOL", studentCode: "S-1", setupCode: "one-time-secret-code", password: "student-created-password" })).rejects.toBeInstanceOf(UnauthorizedException);
@@ -82,12 +82,12 @@ describe("StudentAuthService", () => {
   });
 
   it("sets the password on an already-linked student provider identity", async () => {
-    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_identifier: "identity-1", auth_user_id: "auth-existing", organization_id: "org-1", setup_token_id: "token-1" }]);
+    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_user_id: "auth-existing", organization_id: "org-1", setup_token_id: "token-1" }]);
 
     await service.setup({ schoolCode: "VST-SCHOOL", studentCode: "S-1", setupCode: "one-time-secret-code", password: "student-created-password" });
 
     expect(supabase.setStudentPassword).toHaveBeenCalledWith("auth-existing", "student-created-password");
-    expect(supabase.replaceStudentLoginEmail).toHaveBeenCalledWith("auth-existing", "student-identity-1@students.auth.vista.invalid");
+    expect(supabase.replaceStudentLoginEmail).toHaveBeenCalledWith("auth-existing", "student-user-1@students.auth.vista.invalid");
     expect(supabase.createStudentIdentity).not.toHaveBeenCalled();
     expect(supabase.deleteStudentIdentity).not.toHaveBeenCalled();
     expect(prismaExecuteRaw).toHaveBeenCalledTimes(1);

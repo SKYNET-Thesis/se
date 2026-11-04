@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/database/prisma.service";
@@ -19,7 +19,7 @@ export class StudentProvisioningService {
     return this.prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${organizationId}), hashtext(${studentCode.toLowerCase()}))`;
       const existing = (await tx.$queryRaw<ExistingStudent[]>`
-        SELECT p.user_id, u.auth_user_id, u.auth_identifier, p.account_state,
+        SELECT p.user_id, u.auth_user_id, p.account_state,
           EXISTS (
             SELECT 1 FROM public.auth_tokens t
             WHERE t.user_id=u.id AND t.purpose='student_setup'
@@ -36,16 +36,15 @@ export class StudentProvisioningService {
       if (existing) {
         const requiresSetup = existing.account_state === "account_setup_pending" || existing.account_state === "invited";
         const setupCode = requiresSetup && !existing.has_live_setup_code
-          ? await this.issueSetupCode(tx, existing.user_id, existing.auth_identifier)
+          ? await this.issueSetupCode(tx, existing.user_id)
           : undefined;
         if (classroomId) await this.addClassroomMembership(tx, existing.user_id, organizationId, classroomId);
         return { userId: existing.user_id, status: "unchanged" as const, setupCode };
       }
 
-      const internalIdentifier = randomUUID();
       const users = await tx.$queryRaw<{ id: string }[]>`
-        INSERT INTO public.users(auth_identifier,email,full_name,status,signup_method)
-        VALUES(${internalIdentifier}::uuid,${email},${fullName},'invited','admin_created')
+        INSERT INTO public.users(email,full_name,status,signup_method)
+        VALUES(${email},${fullName},'invited','admin_created')
         RETURNING id`;
       const userId = users[0]?.id;
       if (!userId) throw new ImportProvisioningError("ACCOUNT_PROVISIONING_FAILED", "Domain user insert returned no row.");
@@ -60,16 +59,12 @@ export class StudentProvisioningService {
         INSERT INTO public.education_school_user_profiles(organization_id,user_id,person_type,student_code,grade_level,guardian_email,account_state)
         VALUES(${organizationId}::uuid,${userId}::uuid,'student',${studentCode},${row.gradeLevel?.trim() || null},${row.guardianEmail?.trim().toLowerCase() || null},'account_setup_pending')`;
       if (classroomId) await this.addClassroomMembership(tx, userId, organizationId, classroomId, membershipId);
-      const setupCode = await this.issueSetupCode(tx, userId, internalIdentifier);
+      const setupCode = await this.issueSetupCode(tx, userId);
       return { userId, status: "created" as const, setupCode };
     });
   }
 
-  private async issueSetupCode(tx: Prisma.TransactionClient, userId: string, authIdentifier: string | null): Promise<string> {
-    const identifier = authIdentifier ?? randomUUID();
-    if (!authIdentifier) {
-      await tx.$executeRaw`UPDATE public.users SET auth_identifier=${identifier}::uuid WHERE id=${userId}::uuid AND auth_identifier IS NULL`;
-    }
+  private async issueSetupCode(tx: Prisma.TransactionClient, userId: string): Promise<string> {
     const code = randomBytes(24).toString("base64url");
     const tokenHash = createHash("sha256").update(code, "utf8").digest("hex");
     const expiresAt = new Date(Date.now() + SETUP_CODE_TTL_MS);
@@ -108,7 +103,6 @@ export class StudentProvisioningService {
 interface ExistingStudent {
   user_id: string;
   auth_user_id: string | null;
-  auth_identifier: string | null;
   account_state: string;
   has_live_setup_code: boolean;
 }
