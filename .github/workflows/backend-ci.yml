@@ -174,6 +174,7 @@ jobs:
     environment: aws-demo
     defaults: { run: { working-directory: web/robot-edu } }
     steps:
+      - uses: actions/checkout@v4
       - name: Check frontend deployment settings
         env:
           ROLE_ARN: ${{ vars.AWS_WEB_DEPLOY_ROLE_ARN }}
@@ -187,7 +188,6 @@ jobs:
           : "${DISTRIBUTION_ID:?Missing CLOUDFRONT_DISTRIBUTION_ID}"
           test "$WEB_BUCKET" = vista-demo-web-157098813811-sg || { echo 'WEB_BUCKET is not the approved bucket' >&2; exit 2; }
           test "$DISTRIBUTION_ID" = E1A274BBLHUGAO || { echo 'CLOUDFRONT_DISTRIBUTION_ID is not the approved distribution' >&2; exit 2; }
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: web/robot-edu/package-lock.json }
       - run: npm ci
