@@ -14,6 +14,8 @@ export class StatusRepository implements OnModuleInit, OnModuleDestroy {
   }
 
   onModuleInit(): void {
+    const defaultEnabled = process.env.NODE_ENV === "production" ? "false" : "true";
+    if (this.config.get<string>("MQTT_ENABLED", defaultEnabled) !== "true") return;
     const host = this.config.get<string>("MQTT_HOST", "localhost");
     const port = this.config.get<number>("MQTT_PORT", 1883);
 

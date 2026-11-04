@@ -5,6 +5,7 @@ import { CreateProgramDto } from "./dto/create-program.dto";
 import { CreateProgramVersionDto } from "./dto/create-program-version.dto";
 import { SubmitAttemptDto } from "./dto/submit-attempt.dto";
 import { UpdateProgramDto } from "./dto/update-program.dto";
+import { assertRobotProgramBounds } from "./robot-program-limits";
 import { LearningScopeService } from "./learning-scope.service";
 
 interface AttemptProgramRow { attempt_id: string; classroom_id: string; assignment_id: string; program_id: string | null; }
@@ -228,6 +229,7 @@ export class ProgrammingService {
   }
 
   private validateRobotProgram(value: Record<string, unknown>, allowLearningPreview?: boolean): void {
+    assertRobotProgramBounds(value);
     if (!value || typeof value !== "object" || value.schemaVersion !== 1 || value.kind !== "robot_program" || !Array.isArray(value.steps)) {
       throw new BadRequestException("RobotProgram must be a version 1 robot_program with steps.");
     }
