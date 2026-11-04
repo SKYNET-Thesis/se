@@ -51,6 +51,10 @@ BenchmarkDotNet.Artifacts/
 *.nupkg
 *.snupkg
 packages/
+# Keep source contracts at the repository root visible to Git.
+!/packages/
+/packages/*
+!/packages/contracts/
 
 # Uncomment ONLY if you do not use PackageReference
 # !packages/build/
@@ -72,4 +76,29 @@ appsettings.Development.json
 
 .tmp-review/ 
 apps/mobile/android/ 
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+!**/*.tfvars.example
+**/*.tfvars.json
+!**/*.tfvars.example.json
+**/backend.hcl
+**/crash.log
+**/*.tfplan
+**/plan.out
+**/tfplan
+# Local cloud credentials and private key material.
+.aws/
+**/aws-credentials*
+**/id_rsa
+**/id_ed25519
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.key
+!**/*.example.pem
+!**/*.example.key
+!**/fixtures/**/*.pem
+!**/fixtures/**/*.key
 VISTA_SEP490_FA26S183_R2_REPORTS_BM01_FIXED/

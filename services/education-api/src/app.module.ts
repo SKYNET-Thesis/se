@@ -8,10 +8,11 @@ import { StatusModule } from "./modules/status/status.module";
 import { RuntimeModule } from "./modules/runtime/runtime.module";
 import { MetadataModule } from "./modules/metadata/metadata.module";
 import { EducationAdminModule } from "./modules/education-admin/education-admin.module";
+import { validateProductionConfig } from "./config/production-config";
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateProductionConfig }),
     CommonModule,
     HealthModule,
     IdentityModule,
