@@ -28,6 +28,7 @@ export function SchoolImportUsers() {
   const [result, setResult] = useState<ApiSchoolImportResult | null>(null);
   const [provisionError, setProvisionError] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
+  const [copySuccess, setCopySuccess] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const summary = useMemo(() => importSummary(rows), [rows]);
   const filteredRows = useMemo(() => filterImportRows(rows, filter, query), [rows, filter, query]);
@@ -37,6 +38,8 @@ export function SchoolImportUsers() {
   useEffect(() => {
     if (reviewOpen) return;
     setResult(current => current ? { ...current, results: current.results.map(item => ({ ...item, setupCode: undefined })) } : null);
+    setCopyError(null);
+    setCopySuccess(null);
   }, [reviewOpen]);
   const resetReviewControls = () => { setFilter('All'); setQuery(''); setPage(1); };
   const switchKind = (next: ImportKind) => { setKind(next); setRows([]); setFileName(''); setResult(null); setProvisionError(null); setReviewOpen(false); resetReviewControls(); };
@@ -48,6 +51,21 @@ export function SchoolImportUsers() {
   const submitImport = async (targetRows = rows) => { if (!organizationId || !targetRows.length) return; setProvisioning(true); setProvisionError(null); try { const next=await educationAdminApi.importUsers(organizationId, token, { kind, rows: targetRows.map(row => ({ firstName:row.firstName,lastName:row.lastName,email:row.email||undefined,employeeCode:row.employeeCode,studentCode:row.studentCode,gradeLevel:row.gradeLevel,guardianEmail:row.guardianEmail||undefined })) });setResult(next);if(next.created+next.unchanged>0)await Promise.all(importInvalidations(organizationId).map(queryKey=>queryClient.invalidateQueries({queryKey}))); } catch { setProvisionError('Import could not be completed. Please try again.'); } finally { setProvisioning(false); } };
   const retryFailed = () => { const failedRows = new Set(result?.results.filter(item => item.status === 'failed').map(item => item.row) ?? []); setResult(null); void submitImport(rows.filter(row => failedRows.has(row.row))); };
   const resultView = result ? importResultView(result) : null;
+  const setupCodeResults = result?.results.filter(item => item.setupCode) ?? [];
+  const copyText = async (text: string) => {
+    setCopyError(null);
+    setCopySuccess(null);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopySuccess('Setup code details copied. Share each line only with its matching student.');
+    } catch {
+      setCopyError('Could not copy setup code details.');
+    }
+  };
+  const copyAllSetupCodes = () => {
+    const lines = setupCodeResults.map(item => `${item.name || `Row ${item.row}`} | student code: ${item.studentCode || '—'} | school code: ${result?.schoolCode || '—'} | setup code: ${item.setupCode}`);
+    void copyText(lines.join('\n'));
+  };
 
   return <main className="mx-auto max-w-6xl px-5 py-8">
     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">School administration</p>
@@ -80,8 +98,9 @@ export function SchoolImportUsers() {
         <div className="flex items-center justify-end gap-3 text-sm"><Button variant="secondary" size="sm" disabled={page === 1} onClick={() => setPage(current => current - 1)}>Previous</Button><span className="text-ink-muted">Page {page} of {pageCount}</span><Button variant="secondary" size="sm" disabled={page === pageCount} onClick={() => setPage(current => current + 1)}>Next</Button></div>
         {provisionError && <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{provisionError}</p>}
         {result?.schoolCode && kind === 'students' && <div className="rounded-md border border-line bg-sunken px-4 py-3"><p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">School code</p><p className="mt-1 font-mono text-lg font-semibold text-ink">{result.schoolCode}</p><p className="mt-1 text-xs text-ink-muted">Share this with students along with their student code.</p></div>}
-        {result?.results.some(item => item.setupCode) && <section className="rounded-md border border-line bg-surface px-4 py-4"><h3 className="font-semibold text-ink">One-time student setup codes</h3><p className="mt-1 text-sm text-ink-muted">Share each code with its student. Students use it once to set their own password; codes expire after seven days. These codes are not saved and disappear when this result closes.</p><div className="mt-3 divide-y divide-line">{result.results.filter(item => item.setupCode).map(item => <div key={`${item.row}-${item.setupCode}`} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-medium text-ink">{item.name || `Row ${item.row}`}</p><p className="font-mono text-sm text-ink-muted">{item.studentCode} · {item.setupCode}</p></div><Button size="sm" variant="secondary" icon={<CopyIcon className="h-4 w-4" />} onClick={() => { void navigator.clipboard.writeText(item.setupCode ?? '').catch(() => setCopyError('Could not copy the setup code.')); }}>Copy</Button></div>)}</div></section>}
+        {setupCodeResults.length > 0 && <section className="rounded-md border border-line bg-surface px-4 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold text-ink">One-time student setup codes</h3><Button size="sm" variant="secondary" icon={<CopyIcon className="h-4 w-4" />} onClick={copyAllSetupCodes}>Copy all codes</Button></div><p className="mt-1 text-sm text-ink-muted">Share each code with its student. Students use it once to set their own password; codes expire after seven days. These codes are not saved and disappear when this result closes.</p><div className="mt-3 divide-y divide-line">{setupCodeResults.map(item => <div key={`${item.row}-${item.setupCode}`} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-medium text-ink">{item.name || `Row ${item.row}`}</p><p className="font-mono text-sm text-ink-muted">{item.studentCode} · {item.setupCode}</p></div><Button size="sm" variant="secondary" icon={<CopyIcon className="h-4 w-4" />} onClick={() => { void copyText(item.setupCode ?? ''); }}>Copy</Button></div>)}</div></section>}
         {copyError && <p role="alert" className="text-sm text-danger">{copyError}</p>}
+        {copySuccess && <p role="status" className="text-sm text-ok">{copySuccess}</p>}
         {result && resultView ? <div className={resultView.tone === 'success' ? 'rounded-md bg-ok-soft px-4 py-4 text-sm text-ok' : resultView.tone === 'partial' ? 'rounded-md bg-warn-soft px-4 py-4 text-sm text-warn' : 'rounded-md bg-danger-soft px-4 py-4 text-sm text-danger'}><p className="text-base font-semibold">{resultView.title}</p><p className="mt-1">{resultView.description}</p>{resultView.tone === 'failed' && <p className="mt-1">Please try again. If the problem continues, contact your administrator.</p>}{result.failed > 0 && <div className="mt-4 space-y-2 border-t border-current/20 pt-3">{result.results.filter(item => item.status === 'failed').map(item => <div key={item.row}><p className="font-medium">{item.name || `Row ${item.row}`}{item.schoolCode || item.studentCode ? ` · ${item.schoolCode ?? item.studentCode}` : ''}</p><p className="text-xs opacity-90">{item.message || 'Could not create account. Please try again.'}</p></div>)}</div>}</div> : summary.Ready !== rows.length && <div className="flex items-center gap-2 rounded-md bg-warn-soft px-3 py-2 text-sm text-warn"><ShieldAlertIcon className="h-4 w-4" />Resolve duplicate and review rows before importing.</div>}
       </div>
     </Dialog>

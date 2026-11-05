@@ -17,7 +17,7 @@ export class StudentProvisioningService {
     const studentCode = row.studentCode!.trim().toUpperCase();
 
     return this.prisma.$transaction(async tx => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${organizationId}), hashtext(${studentCode.toLowerCase()}))`;
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${organizationId}), hashtext(${studentCode.toLowerCase()}))`;
       const existing = (await tx.$queryRaw<ExistingStudent[]>`
         SELECT p.user_id, u.auth_user_id, p.account_state,
           EXISTS (

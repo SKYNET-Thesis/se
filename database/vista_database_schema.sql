@@ -16,7 +16,6 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE public.users (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  auth_identifier uuid UNIQUE,
   email text,
   full_name text NOT NULL,
   status text NOT NULL DEFAULT 'invited'::text CHECK (status = ANY (ARRAY['invited'::text, 'active'::text, 'disabled'::text])),

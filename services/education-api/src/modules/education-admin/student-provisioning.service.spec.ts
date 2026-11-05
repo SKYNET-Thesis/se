@@ -24,6 +24,7 @@ describe("StudentProvisioningService", () => {
 
     expect(result).toMatchObject({ userId: "user-new", status: "created", setupCode: expect.any(String) });
     expect(transaction).toHaveBeenCalledTimes(1);
+    expect(txQueryRaw.mock.calls[0][0].join(" ")).toContain("SELECT 1 FROM pg_advisory_xact_lock");
     expect(txExecuteRaw.mock.calls.flat().join(" ")).toContain("account_setup_pending");
     expect(txExecuteRaw.mock.calls.flat().join(" ")).toContain("learning_classroom_members");
     const tokenQuery = txExecuteRaw.mock.calls.find(call => call[0].join(" ").includes("auth_tokens"));
