@@ -71,6 +71,7 @@ export function Login() {
         await client.auth.signOut();
       } catch {
         // The original sign-in error is more useful to the user than a cleanup failure.
+        void 0;
       }
       setError(reason instanceof Error ? reason.message : "Unable to sign in. Please check your credentials and try again.");
     } finally {
