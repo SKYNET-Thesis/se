@@ -5,12 +5,13 @@ import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface
 import { CoursePathLesson, CoursePathLockReason, CoursePathResponse, ProgressionProjection } from "./dto/course-path.dto";
 import { SubmitKnowledgeCheckDto } from "./dto/submit-knowledge-check.dto";
 import { LearningScopeService } from "./learning-scope.service";
+import { gradeQuestionBankQuiz, IssuedQuestionRow, issueQuestionBankQuiz } from './question-bank-quiz.snapshot';
 
 export interface QueryDb { $queryRaw<T = unknown>(query: TemplateStringsArray | unknown, ...values: unknown[]): Promise<T>; }
 interface CourseRow { id: string; title: string; status: string; description: string | null; label: string | null; level: string | null; recommended_grades: string | null; learning_outcome: string | null; competencies: Array<{ code: string; title: string }> | null; }
 interface PrerequisiteRow { lessonId: string; title: string; required: boolean; minimumScore: number | string | null; status: string | null; progressPercent: number | string | null; }
 interface LessonRow { id: string; code?: string | null; ordinal: number; title: string; progress_status: string | null; progress_percent: number | string | null; completed_at: Date | null; prerequisites: PrerequisiteRow[] | null; summary?: string | null; learning_items?: string[] | null; estimated_minutes?: number | string | null; }
-interface KnowledgeCheckRow { attempt_id: string; lesson_id: string; course_id: string; classroom_id: string; status: string; constraints: unknown; success_criteria: unknown; }
+interface KnowledgeCheckRow { attempt_id: string; assignment_id?: string; lesson_id: string; course_id: string; classroom_id: string; status: string; constraints: unknown; success_criteria: unknown; workspace_snapshot?: unknown; grading_snapshot?: unknown; result_snapshot?: unknown; }
 interface SymbolicChainRow { evaluation_id: string; verdict: "passed" | "failed"; attempt_id: string; lesson_id: string; course_id: string; program_version_id: string; challenge_id: string; }
 
 export interface SymbolicProjectionInput { evaluationId: string; attemptId: string; programVersionId: string; verdict: "passed" | "failed"; }
@@ -77,9 +78,9 @@ export class ProgressionService {
         latest.status AS attempt_status,
         latest.score::float AS score,
         (latest.result_snapshot->>'passed')::boolean AS passed,
-        COALESCE((latest.result_snapshot->>'passPercent')::int, (ch.success_criteria->>'passPercent')::int, 80) AS pass_percent,
+        COALESCE((latest.result_snapshot->>'passPercent')::int, (ch.success_criteria->>'passPercent')::int, (a.constraints->>'passPercent')::int, 80) AS pass_percent,
         CASE
-          WHEN latest.status = 'evaluated' AND ((latest.result_snapshot->>'passed')::boolean = true OR latest.score >= COALESCE((latest.result_snapshot->>'passPercent')::int, (ch.success_criteria->>'passPercent')::int, 80)) THEN 'passed'
+          WHEN latest.status = 'evaluated' AND ((latest.result_snapshot->>'passed')::boolean = true OR latest.score >= COALESCE((latest.result_snapshot->>'passPercent')::int, (ch.success_criteria->>'passPercent')::int, (a.constraints->>'passPercent')::int, 80)) THEN 'passed'
           WHEN latest.status = 'evaluated' THEN 'failed'
           WHEN latest.id IS NOT NULL THEN 'in_progress'
           ELSE 'not_started'
@@ -105,13 +106,32 @@ export class ProgressionService {
       ORDER BY co.title, l.ordinal`;
   }
 
+  async prepareQuestionBankQuiz(db: QueryDb, assignmentId: string, lessonId: string, organizationId: string, passPercent: number | undefined) {
+    const legacy = await db.$queryRaw<Array<{ legacy: boolean }>>`
+      SELECT EXISTS (SELECT 1 FROM public.learning_lessons l JOIN public.learning_lessons first ON first.course_id=l.course_id AND first.ordinal=1
+        WHERE l.id=${lessonId}::uuid AND first.content->'courseOverview'->>'label'='Course 1') AS legacy`;
+    if (legacy[0]?.legacy) throw new ConflictException('Course 1 uses the existing quiz.');
+    const rows = await db.$queryRaw<IssuedQuestionRow[]>`
+      SELECT aq.question_version_id,aq.question_id,aq.ordinal,aq.points::float,
+        v.status,v.type,v.stem,v.options,v.answer_key,v.explanation,q.organization_id,q.lesson_id,
+        (SELECT COUNT(*)::int FROM public.learning_question_version_objectives m WHERE m.question_version_id=v.id) AS objective_count
+      FROM public.learning_assignment_question_versions aq
+      JOIN public.learning_question_versions v ON v.id=aq.question_version_id
+      JOIN public.learning_questions q ON q.id=v.question_id AND q.id=aq.question_id
+      WHERE aq.assignment_id=${assignmentId}::uuid ORDER BY aq.ordinal FOR SHARE OF v,aq`;
+    return issueQuestionBankQuiz(rows, assignmentId, lessonId, organizationId, passPercent ?? NaN);
+  }
+
   async submitKnowledgeCheck(user: AuthenticatedUser, attemptId: string, dto: SubmitKnowledgeCheckDto): Promise<KnowledgeCheckResult> {
     if (user.status !== "active") throw new NotFoundException("Knowledge check was not found.");
     return this.prisma.$transaction(async (tx) => {
       const attempts = await tx.$queryRaw<KnowledgeCheckRow[]>`
-        SELECT a.id AS attempt_id,a.status,la.lesson_id,l.course_id,ca.classroom_id,la.constraints,ch.success_criteria
+        SELECT a.id AS attempt_id,a.status,a.workspace_snapshot,g.grading_snapshot,a.result_snapshot,
+          la.id AS assignment_id,la.lesson_id,l.course_id,ca.classroom_id,la.constraints,ch.success_criteria
         FROM public.learning_assignment_attempts a
-        JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.status='published'
+        LEFT JOIN public.learning_quiz_attempt_grading g ON g.attempt_id=a.id
+        JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id
+          AND (ca.status='published' OR a.workspace_snapshot->>'kind'='question_bank_quiz')
         JOIN public.learning_assignments la ON la.id=ca.assignment_id
         JOIN public.learning_lessons l ON l.id=la.lesson_id
         JOIN public.learning_course_offerings o ON o.course_id=l.course_id AND o.status='active'
@@ -119,17 +139,23 @@ export class ProgressionService {
           AND enrolled_classroom.offering_id=o.id AND enrolled_classroom.status='active'
         JOIN public.learning_enrollments enrollment ON enrollment.course_id=l.course_id AND enrollment.offering_id=o.id
           AND enrollment.classroom_id=enrolled_classroom.id AND enrollment.learner_user_id=a.learner_user_id AND enrollment.status='active'
-        JOIN public.learning_challenges ch ON ch.id=la.challenge_id AND ch.status='published'
+        LEFT JOIN public.learning_challenges ch ON ch.id=la.challenge_id AND ch.status='published'
         JOIN public.learning_classroom_members cm ON cm.classroom_id=ca.classroom_id
           AND cm.user_id=a.learner_user_id AND cm.classroom_role='student' AND cm.status='active'
         JOIN public.memberships m ON m.id=cm.membership_id AND m.user_id=a.learner_user_id AND m.status='active'
         JOIN public.learning_classrooms classroom ON classroom.id=ca.classroom_id AND classroom.organization_id=m.organization_id
         WHERE a.id=${attemptId}::uuid AND a.learner_user_id=${user.vistaUserId}::uuid
-          AND a.status IN ('in_progress','submitted')
+          AND a.status IN ('in_progress','submitted','evaluated')
+          AND (a.workspace_snapshot->>'kind'='question_bank_quiz' OR ch.id IS NOT NULL)
         FOR UPDATE OF a`;
       const attempt = attempts[0];
       if (!attempt) throw new NotFoundException("Knowledge check was not found.");
       await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id);
+      if ((attempt.workspace_snapshot as { kind?: string } | undefined)?.kind === 'question_bank_quiz') {
+        if (attempt.status !== 'evaluated') await this.assertPrerequisites(tx, user.vistaUserId, attempt.lesson_id);
+        return this.submitQuestionBankKnowledgeCheck(tx, user, attempt, dto);
+      }
+      if (attempt.status === 'evaluated') throw new NotFoundException('Knowledge check was not found.');
       await this.assertPrerequisites(tx, user.vistaUserId, attempt.lesson_id);
       const definition = parseKnowledgeCheck(attempt.constraints, attempt.success_criteria);
       const score = gradeKnowledgeCheck(definition, dto);
@@ -148,6 +174,69 @@ export class ProgressionService {
       const projection = await this.completeLesson(tx, user.vistaUserId, attempt.lesson_id);
       return { attemptId, passed, score, ...projection };
     });
+  }
+
+  private async submitQuestionBankKnowledgeCheck(tx: QueryDb, user: AuthenticatedUser, attempt: KnowledgeCheckRow, dto: SubmitKnowledgeCheckDto): Promise<KnowledgeCheckResult> {
+    if (!attempt.assignment_id) throw new ConflictException('Quiz snapshot is missing assignment identity.');
+    if (attempt.status === 'evaluated') {
+      const result = attempt.result_snapshot as (KnowledgeCheckResult & { kind?: string; schemaVersion?: number }) | null;
+      if (!result || result.kind !== 'question_bank_quiz_result' || result.schemaVersion !== 1 || typeof result.score !== 'number' || typeof result.passed !== 'boolean' || result.attemptId !== attempt.attempt_id) throw new ConflictException('Quiz result integrity check failed.');
+      return result;
+    }
+    const graded = gradeQuestionBankQuiz(attempt.workspace_snapshot, attempt.grading_snapshot, attempt.assignment_id, attempt.lesson_id, dto);
+    const saved = await tx.$queryRaw<Array<{ id: string }>>`
+      UPDATE public.learning_assignment_attempts SET status='evaluated',score=${graded.score},submitted_at=COALESCE(submitted_at,now()),
+        result_snapshot=${JSON.stringify({ kind: 'question_bank_quiz_result', schemaVersion: 1, score: graded.score, passPercent: graded.passPercent, passed: graded.passed })}::jsonb
+      WHERE id=${attempt.attempt_id}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status IN ('in_progress','submitted')
+      RETURNING id`;
+    if (!saved[0]) throw new ConflictException('Quiz could not be finalized.');
+    const projection = graded.passed && await this.questionBankLessonReady(tx, user.vistaUserId, attempt.lesson_id, attempt.assignment_id)
+      ? await this.completeLesson(tx, user.vistaUserId, attempt.lesson_id)
+      : { completedLessonId: null, newlyUnlockedLessonIds: [] };
+    if (!projection.completedLessonId) await this.markLessonInProgress(tx, user.vistaUserId, attempt.lesson_id);
+    const result = { kind: 'question_bank_quiz_result', schemaVersion: 1, attemptId: attempt.attempt_id, ...graded, ...projection };
+    await tx.$queryRaw`
+      UPDATE public.learning_assignment_attempts SET result_snapshot=${JSON.stringify(result)}::jsonb
+      WHERE id=${attempt.attempt_id}::uuid AND learner_user_id=${user.vistaUserId}::uuid RETURNING id`;
+    return result;
+  }
+
+  private async questionBankLessonReady(db: QueryDb, learnerId: string, lessonId: string, assignmentId: string): Promise<boolean> {
+    const activities = await db.$queryRaw<Array<{ id: string; type: string; assignment_id: string | null }>>`
+      SELECT a.id,a.type,CASE WHEN a.content_ref->>'kind'='assignment' THEN a.content_ref->>'id' ELSE NULL END AS assignment_id
+      FROM public.learning_activities a JOIN public.learning_sections s ON s.id=a.section_id AND s.status='published'
+      WHERE s.lesson_id=${lessonId}::uuid AND a.status='published' AND a.required=true`;
+    if (!activities.some((activity) => activity.type === 'knowledge_check' && activity.assignment_id === assignmentId)) return false;
+    for (const activity of activities) {
+      if (activity.type === 'reading' || activity.type === 'demonstration') {
+        const progress = await db.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM public.learning_activity_progress WHERE learner_user_id=${learnerId}::uuid
+            AND activity_definition_id=${activity.id}::uuid AND status='completed' LIMIT 1`;
+        if (!progress.length) return false;
+      } else if (activity.type === 'knowledge_check' && activity.assignment_id) {
+        const passed = await db.$queryRaw<Array<{ id: string }>>`
+          SELECT att.id FROM public.learning_assignment_attempts att
+          JOIN public.learning_classroom_assignments ca ON ca.id=att.classroom_assignment_id
+          WHERE ca.assignment_id=${activity.assignment_id}::uuid AND att.learner_user_id=${learnerId}::uuid
+            AND att.status='evaluated' AND att.result_snapshot->>'passed'='true' LIMIT 1`;
+        if (!passed.length) return false;
+      } else if (['guided_practice', 'simulation', 'challenge'].includes(activity.type) && activity.assignment_id) {
+        const passed = await db.$queryRaw<Array<{ id: string }>>`
+          SELECT se.id FROM public.learning_submissions sub
+          JOIN public.learning_symbolic_evaluations se ON se.submission_id=sub.id
+            AND se.program_version_id=sub.program_version_id AND se.requested_by_user_id=${learnerId}::uuid AND se.verdict='passed'
+          JOIN public.learning_experiments e ON e.id=se.experiment_id AND e.learner_user_id=${learnerId}::uuid
+            AND e.status='succeeded' AND e.execution_mode='schematic'
+          JOIN public.learning_assignment_attempts att ON att.id::text=e.input_snapshot->>'attemptId'
+            AND att.learner_user_id=${learnerId}::uuid AND att.status='evaluated'
+          JOIN public.learning_classroom_assignments ca ON ca.id=att.classroom_assignment_id
+            AND ca.assignment_id=sub.assignment_id AND ca.status='published'
+          WHERE sub.assignment_id=${activity.assignment_id}::uuid AND sub.learner_user_id=${learnerId}::uuid
+            AND sub.status='submitted' LIMIT 1`;
+        if (!passed.length) return false;
+      } else return false;
+    }
+    return true;
   }
 
   async projectSymbolicPass(db: QueryDb, user: AuthenticatedUser, input: SymbolicProjectionInput): Promise<ProgressionProjection> {
@@ -438,7 +527,7 @@ function parseKnowledgeCheck(constraintsValue: unknown, criteriaValue: unknown):
 function gradeKnowledgeCheck(definition: KnowledgeCheckDefinition, dto: SubmitKnowledgeCheckDto): number {
   const answers = new Map<string, string>();
   for (const answer of dto.answers) {
-    if (answers.has(answer.questionId) || !definition.questionIds.includes(answer.questionId) || !definition.options[answer.questionId].includes(answer.optionId)) throw new BadRequestException("Knowledge check answers are invalid.");
+    if (answers.has(answer.questionId) || !definition.questionIds.includes(answer.questionId) || typeof answer.optionId !== 'string' || answer.optionIds !== undefined || !definition.options[answer.questionId].includes(answer.optionId)) throw new BadRequestException("Knowledge check answers are invalid.");
     answers.set(answer.questionId, answer.optionId);
   }
   if (answers.size !== definition.questionIds.length) throw new BadRequestException("Answer every knowledge-check question.");

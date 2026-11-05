@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { PaginationDto } from "./dto/pagination.dto";
@@ -21,7 +21,7 @@ export class LearningService {
     const rows = await this.prisma.$queryRaw<CourseRow[]>`
       SELECT DISTINCT c.id,c.title,c.description,c.status,c.created_at,c.updated_at
       FROM public.learning_courses c
-      WHERE ${unrestricted} OR EXISTS (
+      WHERE ${unrestricted} OR (c.status='published' AND EXISTS (
         SELECT 1 FROM public.learning_enrollments e
         JOIN public.learning_course_offerings o ON o.id=e.offering_id AND o.course_id=c.id AND o.status='active'
         JOIN public.learning_classrooms cl ON cl.id=e.classroom_id AND cl.offering_id=o.id AND cl.status='active'
@@ -30,7 +30,7 @@ export class LearningService {
         JOIN public.memberships m ON m.id=cm.membership_id AND m.user_id=e.learner_user_id
           AND m.organization_id=cl.organization_id AND m.status='active'
         WHERE e.course_id=c.id AND e.learner_user_id=${user.vistaUserId}::uuid AND e.status='active'
-      )
+      ))
       ORDER BY c.created_at DESC LIMIT ${page.pageSize} OFFSET ${(page.page - 1) * page.pageSize}
     `;
     return { items: rows, page: page.page, pageSize: page.pageSize };
@@ -291,6 +291,7 @@ export class LearningService {
       WHERE c.id=${classroomId}::uuid ORDER BY l.ordinal`;
   }
   async createAssignment(user:AuthenticatedUser,classroomId:string,dto:CreateAssignmentDto) {
+    if (dto.quizPassPercent !== undefined && dto.challengeId !== undefined) throw new BadRequestException('A Question Bank quiz cannot use a robot challenge.');
     await this.scope.assertTeacherClassroomAccess(user,classroomId);
     const lessons=await this.prisma.$queryRaw<{id:string;organization_id:string}[]>`
       SELECT l.id,c.organization_id
@@ -314,8 +315,8 @@ export class LearningService {
     }
     return this.prisma.$transaction(async(tx)=>{
       const assignments=await tx.$queryRaw<{id:string}[]>`
-        INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions)
-        VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""}) RETURNING id`;
+        INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions,constraints)
+        VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""},${JSON.stringify(dto.quizPassPercent === undefined ? {} : { kind: 'knowledge_check', passPercent: dto.quizPassPercent })}::jsonb) RETURNING id`;
       const deliveries=await tx.$queryRaw<Record<string,unknown>[]>`
         INSERT INTO public.learning_classroom_assignments(classroom_id,assignment_id,status)
         VALUES(${classroomId}::uuid,${assignments[0].id}::uuid,'draft')
@@ -327,14 +328,22 @@ export class LearningService {
   async publishAssignment(user:AuthenticatedUser,classroomId:string,assignmentId:string){
     await this.scope.assertTeacherClassroomAccess(user,classroomId);
     return this.prisma.$transaction(async(tx)=>{
-      const deliveries=await tx.$queryRaw<{id:string;status:string}[]>`
-        SELECT id,status FROM public.learning_classroom_assignments
-        WHERE classroom_id=${classroomId}::uuid AND assignment_id=${assignmentId}::uuid
+      const deliveries=await tx.$queryRaw<{id:string;status:string;constraints:unknown;challenge_id:string|null}[]>`
+        SELECT ca.id,ca.status,a.constraints,a.challenge_id FROM public.learning_classroom_assignments ca
+        JOIN public.learning_assignments a ON a.id=ca.assignment_id
+        WHERE ca.classroom_id=${classroomId}::uuid AND ca.assignment_id=${assignmentId}::uuid
         FOR UPDATE`;
       const delivery=deliveries[0];
       if(!delivery) throw new NotFoundException("Assignment was not found.");
       if(delivery.status==='closed'||delivery.status==='archived'){
         throw new ConflictException("Assignment cannot be published from its current state.");
+      }
+      if ((delivery.constraints as { kind?: string } | null)?.kind === 'knowledge_check' && !delivery.challenge_id) {
+        const questions = await tx.$queryRaw<Array<{ count: number; unavailable: number }>>`
+          SELECT COUNT(*)::int AS count,COUNT(*) FILTER (WHERE v.status<>'published')::int AS unavailable
+          FROM public.learning_assignment_question_versions aq JOIN public.learning_question_versions v ON v.id=aq.question_version_id
+          WHERE aq.assignment_id=${assignmentId}::uuid`;
+        if (!questions[0]?.count || questions[0].unavailable) throw new ConflictException('Quiz requires published QuestionVersions before delivery.');
       }
       if(delivery.status==='draft'){
         await tx.$queryRaw`
@@ -361,8 +370,8 @@ export class LearningService {
     return this.prisma.learning_assignments.update({where:{id:assignmentId},data:{...(dto.title!==undefined?{title:dto.title}:{}),...(dto.instructions!==undefined?{instructions:dto.instructions}:{})}});
   }
   async startAttempt(user:AuthenticatedUser,classroomAssignmentId:string) {
-    const assignment = await this.prisma.$queryRaw<{ classroom_id:string; lesson_id?: string; max_attempts:number|null }[]>`
-      SELECT ca.classroom_id,a.lesson_id,ca.max_attempts FROM public.learning_classroom_assignments ca
+    const assignment = await this.prisma.$queryRaw<{ classroom_id:string; lesson_id?: string; assignment_id?: string; challenge_id?: string|null; constraints?:unknown; organization_id?:string; max_attempts:number|null }[]>`
+      SELECT ca.classroom_id,a.lesson_id,a.id AS assignment_id,a.challenge_id,a.constraints,classroom.organization_id,ca.max_attempts FROM public.learning_classroom_assignments ca
       JOIN public.learning_assignments a ON a.id=ca.assignment_id
       JOIN public.learning_lessons lesson ON lesson.id=a.lesson_id
       JOIN public.learning_classrooms classroom ON classroom.id=ca.classroom_id AND classroom.status='active'
@@ -383,8 +392,11 @@ export class LearningService {
       // Serializes attempt-number allocation per learner/assignment and avoids a
       // MAX()+1 uniqueness race without changing the existing schema.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${classroomAssignmentId}:${user.vistaUserId}`}))`;
-      const active=await tx.$queryRaw<{ id:string;classroom_assignment_id:string;learner_user_id:string;attempt_number:number;status:string;started_at:Date }[]>`SELECT id,classroom_assignment_id,learner_user_id,attempt_number,status,started_at FROM public.learning_assignment_attempts WHERE classroom_assignment_id=${classroomAssignmentId}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status='in_progress' ORDER BY attempt_number DESC LIMIT 1`;
-      if(active[0])return active[0];
+      const active=await tx.$queryRaw<{ id:string;classroom_assignment_id:string;learner_user_id:string;attempt_number:number;status:string;started_at:Date;workspace_snapshot?:unknown }[]>`SELECT id,classroom_assignment_id,learner_user_id,attempt_number,status,started_at,workspace_snapshot FROM public.learning_assignment_attempts WHERE classroom_assignment_id=${classroomAssignmentId}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status='in_progress' ORDER BY attempt_number DESC LIMIT 1`;
+      if(active[0]) {
+        const { workspace_snapshot, ...attempt } = active[0];
+        return (workspace_snapshot as {kind?:string}|undefined)?.kind === 'question_bank_quiz' ? { ...attempt, quiz: workspace_snapshot } : attempt;
+      }
       const rows = await tx.$queryRaw<{ n:number; existing:number }[]>`
         SELECT COALESCE(MAX(attempt_number),0)+1 AS n, COUNT(*)::int AS existing
         FROM public.learning_assignment_attempts
@@ -393,13 +405,25 @@ export class LearningService {
       if (!next || (assignment[0].max_attempts !== null && next.existing >= assignment[0].max_attempts)) {
         throw new NotFoundException("Assignment was not found.");
       }
+      const config = assignment[0].constraints as { kind?: string; passPercent?: number } | undefined;
+      if (config?.kind === 'knowledge_check' && !assignment[0].challenge_id) {
+        if (!this.progression || !assignment[0].assignment_id || !assignment[0].lesson_id || !assignment[0].organization_id) throw new ConflictException('Quiz assignment configuration is incomplete.');
+        const snapshot = await this.progression.prepareQuestionBankQuiz(tx, assignment[0].assignment_id, assignment[0].lesson_id, assignment[0].organization_id, config.passPercent);
+        const created = await tx.$queryRaw<{ id: string; classroom_assignment_id: string; learner_user_id: string; attempt_number: number; status: string; started_at: Date }[]>`INSERT INTO public.learning_assignment_attempts(classroom_assignment_id,learner_user_id,attempt_number,workspace_snapshot)
+          VALUES(${classroomAssignmentId}::uuid,${user.vistaUserId}::uuid,${next.n},${JSON.stringify(snapshot.publicSnapshot)}::jsonb)
+          RETURNING id,classroom_assignment_id,learner_user_id,attempt_number,status,started_at`;
+        await tx.$queryRaw`
+          INSERT INTO public.learning_quiz_attempt_grading(attempt_id,grading_snapshot)
+          VALUES(${created[0].id}::uuid,${JSON.stringify(snapshot.privateSnapshot)}::jsonb) RETURNING attempt_id`;
+        return { ...created[0], quiz: snapshot.publicSnapshot };
+      }
       const created = await tx.$queryRaw<{ id: string; classroom_assignment_id: string; learner_user_id: string; attempt_number: number; status: string; started_at: Date }[]>`INSERT INTO public.learning_assignment_attempts(classroom_assignment_id,learner_user_id,attempt_number)
         VALUES(${classroomAssignmentId}::uuid,${user.vistaUserId}::uuid,${next.n})
         RETURNING id,classroom_assignment_id,learner_user_id,attempt_number,status,started_at`;
       return created[0];
     });
   }
-  async myAttempts(user:AuthenticatedUser){return this.prisma.$queryRaw`SELECT id,classroom_assignment_id,attempt_number,status,started_at,submitted_at FROM public.learning_assignment_attempts WHERE learner_user_id=${user.vistaUserId}::uuid ORDER BY started_at DESC`;}
+  async myAttempts(user:AuthenticatedUser){return this.prisma.$queryRaw`SELECT id,classroom_assignment_id,attempt_number,status,score,(result_snapshot->>'passed')::boolean AS passed,started_at,submitted_at FROM public.learning_assignment_attempts WHERE learner_user_id=${user.vistaUserId}::uuid ORDER BY started_at DESC`;}
   async myAttempt(user:AuthenticatedUser,id:string){const r=await this.prisma.$queryRaw<Record<string,unknown>[]>`SELECT id,classroom_assignment_id,attempt_number,status,workspace_snapshot,program_snapshot,result_snapshot,started_at,submitted_at FROM public.learning_assignment_attempts WHERE id=${id}::uuid AND learner_user_id=${user.vistaUserId}::uuid`;if(!r[0])throw new NotFoundException("Attempt was not found.");return r[0];}
   async assignmentTitleForAttempt(user:AuthenticatedUser,id:string){await this.myAttempt(user,id);const r=await this.prisma.$queryRaw<{title:string}[]>`SELECT a.title FROM public.learning_assignment_attempts at JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id JOIN public.learning_assignments a ON a.id=ca.assignment_id WHERE at.id=${id}::uuid AND at.learner_user_id=${user.vistaUserId}::uuid`;return r[0]?.title??null;}
 }

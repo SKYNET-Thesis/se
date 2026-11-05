@@ -14,12 +14,19 @@ describe("LearningService assignment delivery", () => {
   const assertStudentClassroomAccess = jest.fn();
   const service = new LearningService(
     { $queryRaw: queryRaw, $transaction: transaction } as never,
-    { assertStudentClassroomAccess } as never,
+    { assertStudentClassroomAccess, isSystemAdministrator: () => false } as never,
   );
 
   beforeEach(() => {
     queryRaw.mockReset(); executeRaw.mockReset(); transaction.mockReset(); assertStudentClassroomAccess.mockReset();
     assertStudentClassroomAccess.mockResolvedValue(undefined);
+  });
+
+  it('includes only published courses in the learner catalogue query', async () => {
+    queryRaw.mockResolvedValueOnce([]);
+    await service.courses(user as never, { page: 1, pageSize: 20 });
+    const sql = (queryRaw.mock.calls[0][0] as TemplateStringsArray).join('?');
+    expect(sql).toContain("c.status='published'");
   });
 
   it("returns classroom curriculum identity with delivery options", async () => {

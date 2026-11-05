@@ -67,7 +67,12 @@ export function Login() {
       if (loginType === "student" && !isStudent) throw new Error("This account has no active student access.");
       if (!hasAnyRole) throw new Error("This account has no active VISTA role.");
     } catch (reason) {
-      try { await client.auth.signOut(); } catch { void 0; }
+      try {
+        await client.auth.signOut();
+      } catch {
+        // The original sign-in error is more useful to the user than a cleanup failure.
+        void 0;
+      }
       setError(reason instanceof Error ? reason.message : "Unable to sign in. Please check your credentials and try again.");
     } finally {
       setSubmitting(false);
