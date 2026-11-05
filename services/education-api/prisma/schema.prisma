@@ -449,6 +449,7 @@ model organizations {
   learning_classrooms       learning_classrooms[]
   learning_course_offerings learning_course_offerings[]
   learning_courses          learning_courses[]
+  learning_questions        learning_questions[]
   licenses                  licenses[]
   memberships               memberships[]
   org_entitlements          org_entitlements[]
@@ -694,6 +695,10 @@ model users {
   learning_competency_progress    learning_competency_progress[]
   learning_course_offerings       learning_course_offerings[]
   learning_courses                learning_courses[]
+  learning_questions              learning_questions[] @relation("question_creator")
+  learning_question_versions_authored learning_question_versions[] @relation("question_version_author")
+  learning_question_versions_reviewed learning_question_versions[] @relation("question_version_reviewer")
+  learning_question_versions_published learning_question_versions[] @relation("question_version_publisher")
   learning_enrollments            learning_enrollments[]
   learning_experiment_comparisons learning_experiment_comparisons[]
   learning_experiments            learning_experiments[]
@@ -773,6 +778,7 @@ model learning_assignment_attempts {
   workspace_snapshot             Json                           @default("{}")
   program_snapshot               Json                           @default("{}")
   result_snapshot                Json                           @default("{}")
+  learning_quiz_attempt_grading   learning_quiz_attempt_grading?
   score                          Decimal?                       @db.Decimal(7, 2)
   started_at                     DateTime                       @default(now()) @db.Timestamptz(6)
   submitted_at                   DateTime?                      @db.Timestamptz(6)
@@ -804,6 +810,7 @@ model learning_assignments {
   learning_programs              learning_programs[]
   learning_rubric_criteria       learning_rubric_criteria[]
   learning_submissions           learning_submissions[]
+  learning_assignment_question_versions learning_assignment_question_versions[]
 
   @@index([lesson_id], map: "idx_learning_assignments_lesson")
 }
@@ -1029,6 +1036,7 @@ model learning_courses {
   organizations             organizations?              @relation(fields: [organization_id], references: [id], onUpdate: NoAction)
   learning_enrollments      learning_enrollments[]
   learning_lessons          learning_lessons[]
+  learning_questions        learning_questions[]
 
   @@index([level_id], map: "idx_learning_courses_level")
 }
@@ -1236,6 +1244,7 @@ model learning_activity_progress {
   learner_user_id String           @db.Uuid
   lesson_id       String           @db.Uuid
   activity_id     String
+  activity_definition_id String? @db.Uuid
   status          String           @default("completed")
   completion_method String         @default("self_report")
   completed_at    DateTime         @default(now()) @db.Timestamptz(6)
@@ -1243,10 +1252,56 @@ model learning_activity_progress {
   updated_at      DateTime         @default(now()) @db.Timestamptz(6)
   users           users            @relation(fields: [learner_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   learning_lessons learning_lessons @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_activities learning_activities? @relation(fields: [activity_definition_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@unique([learner_user_id, activity_id])
   @@index([lesson_id])
   @@index([learner_user_id])
+  @@index([activity_definition_id])
+}
+
+model learning_sections {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lesson_id String @db.Uuid
+  title String
+  ordinal Int
+  status String @default("draft")
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  learning_lessons learning_lessons @relation(fields: [lesson_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  learning_activities learning_activities[]
+
+  @@unique([lesson_id, ordinal])
+  @@index([lesson_id, status, ordinal])
+}
+
+model learning_activities {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  section_id String @db.Uuid
+  title String
+  type String
+  ordinal Int
+  required Boolean @default(true)
+  content_ref Json @default("{}")
+  status String @default("draft")
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  learning_sections learning_sections @relation(fields: [section_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  learning_activity_objectives learning_activity_objectives[]
+  learning_activity_progress learning_activity_progress[]
+
+  @@unique([section_id, ordinal])
+  @@index([section_id, status, ordinal])
+}
+
+model learning_activity_objectives {
+  activity_id String @db.Uuid
+  objective_id String @db.Uuid
+  learning_activities learning_activities @relation(fields: [activity_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_objectives learning_objectives @relation(fields: [objective_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([activity_id, objective_id])
+  @@index([objective_id])
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1265,6 +1320,8 @@ model learning_lessons {
   learning_activity_progress                                                                           learning_activity_progress[]
   learning_courses                                                                                     learning_courses                @relation(fields: [course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   learning_objectives                                                                                  learning_objectives[]
+  learning_sections                                                                                    learning_sections[]
+  learning_questions                                                                                   learning_questions[]
 
   @@unique([course_id, ordinal])
   @@index([course_id], map: "idx_learning_lessons_course")
@@ -1303,9 +1360,97 @@ model learning_objectives {
   ordinal                         Int                               @default(1)
   learning_objective_competencies learning_objective_competencies[]
   learning_lessons                learning_lessons                  @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_activity_objectives    learning_activity_objectives[]
+  learning_question_version_objectives learning_question_version_objectives[]
 
   @@unique([lesson_id, code])
   @@index([lesson_id], map: "idx_learning_objectives_lesson")
+}
+
+/// Question identity is stable; content and answer keys live in immutable published versions.
+model learning_questions {
+  id                String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id   String @db.Uuid
+  code              String
+  course_id         String @db.Uuid
+  lesson_id         String @db.Uuid
+  domain            String?
+  created_by        String @db.Uuid
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime @default(now()) @db.Timestamptz(6)
+  organizations     organizations @relation(fields: [organization_id], references: [id], onDelete: Restrict)
+  learning_courses  learning_courses @relation(fields: [course_id], references: [id], onDelete: Restrict)
+  learning_lessons  learning_lessons @relation(fields: [lesson_id], references: [id], onDelete: Restrict)
+  creator           users @relation("question_creator", fields: [created_by], references: [id], onDelete: Restrict)
+  versions          learning_question_versions[]
+  assignments       learning_assignment_question_versions[]
+
+  @@unique([organization_id, code])
+  @@index([course_id, lesson_id])
+  @@index([organization_id, lesson_id])
+}
+
+model learning_question_versions {
+  id              String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  question_id     String @db.Uuid
+  version_number  Int
+  type            String
+  difficulty      String
+  cognitive_level String
+  stem            String
+  options         Json
+  answer_key      Json
+  explanation     String?
+  source_reference String?
+  status          String @default("draft")
+  authored_by     String @db.Uuid
+  reviewed_by     String? @db.Uuid
+  published_by    String? @db.Uuid
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @db.Timestamptz(6)
+  question        learning_questions @relation(fields: [question_id], references: [id], onDelete: Restrict)
+  author          users @relation("question_version_author", fields: [authored_by], references: [id], onDelete: Restrict)
+  reviewer        users? @relation("question_version_reviewer", fields: [reviewed_by], references: [id], onDelete: Restrict)
+  publisher       users? @relation("question_version_publisher", fields: [published_by], references: [id], onDelete: Restrict)
+  objectives      learning_question_version_objectives[]
+  assignments     learning_assignment_question_versions[]
+
+  @@unique([question_id, version_number])
+  @@index([question_id, status])
+}
+
+model learning_question_version_objectives {
+  question_version_id String @db.Uuid
+  objective_id        String @db.Uuid
+  version             learning_question_versions @relation(fields: [question_version_id], references: [id], onDelete: Restrict)
+  objective           learning_objectives @relation(fields: [objective_id], references: [id], onDelete: Restrict)
+
+  @@id([question_version_id, objective_id])
+  @@index([objective_id])
+}
+
+model learning_assignment_question_versions {
+  assignment_id       String @db.Uuid
+  question_id         String @db.Uuid
+  question_version_id String @db.Uuid
+  ordinal             Int
+  points              Decimal @db.Decimal(7, 2)
+  assignment          learning_assignments @relation(fields: [assignment_id], references: [id], onDelete: Restrict)
+  version             learning_question_versions @relation(fields: [question_version_id], references: [id], onDelete: Restrict)
+  question            learning_questions @relation(fields: [question_id], references: [id], onDelete: Restrict)
+
+  @@id([assignment_id, question_version_id])
+  @@unique([assignment_id, ordinal])
+  @@unique([assignment_id, question_id], map: "learning_assignment_question_identity_key")
+  @@index([question_version_id])
+}
+
+/// Private answer keys for an issued Question Bank quiz. No client role may select this table.
+model learning_quiz_attempt_grading {
+  attempt_id       String @id @db.Uuid
+  grading_snapshot Json
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  attempt          learning_assignment_attempts @relation(fields: [attempt_id], references: [id], onDelete: Restrict)
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

@@ -72,6 +72,15 @@ describe("ProgressionController HTTP contract", () => {
     expect(progression.submitKnowledgeCheck).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts multiple-choice selections and rejects client score, PASS and answer keys', async () => {
+    const endpoint = `/api/v1/me/attempts/${uuid}/knowledge-check`;
+    progression.submitKnowledgeCheck.mockResolvedValue({ score: 100, passed: true });
+    await request(app.getHttpServer()).post(endpoint).set('Authorization', 'Bearer token').send({ answers: [{ questionId: uuid, optionIds: ['a', 'b'] }] }).expect(201);
+    await request(app.getHttpServer()).post(endpoint).set('Authorization', 'Bearer token').send({ answers: [{ questionId: uuid, optionIds: ['a', 'b'], answerKey: ['a'] }] }).expect(400);
+    await request(app.getHttpServer()).post(endpoint).set('Authorization', 'Bearer token').send({ answers: [{ questionId: uuid, optionIds: ['a', 'b'] }], score: 100, passed: true }).expect(400);
+    expect(progression.submitKnowledgeCheck).toHaveBeenCalledTimes(1);
+  });
+
   it("resolves qualified C1-L4 program version for authenticated learner", async () => {
     progression.resolveQualifiedL4ProgramVersion = jest.fn().mockResolvedValue({
       courseId: uuid,

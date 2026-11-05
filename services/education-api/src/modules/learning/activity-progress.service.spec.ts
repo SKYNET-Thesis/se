@@ -120,4 +120,57 @@ describe('ActivityProgressService', () => {
     await expect(service.completeSelfReport(user1 as never, readId)).rejects.toBeInstanceOf(NotFoundException);
     expect(transaction).not.toHaveBeenCalled();
   });
+
+  it('uses published UUID activities for a new course without projecting Course 1 ordinal slots', async () => {
+    const activityId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const completedAt = new Date('2026-11-04T10:00:00Z');
+    query.mockResolvedValueOnce([{ id: lessonId, ordinal: 5, legacy_course: false }])
+      .mockResolvedValueOnce([{ id: activityId, lesson_id: lessonId, type: 'reading' }])
+      .mockResolvedValueOnce([{ activity_id: activityId, completed_at: completedAt }])
+      .mockResolvedValueOnce([]);
+    const result = await service.courseProgress(user1 as never, courseId);
+    expect(result.activities).toEqual([{ activityId, status: 'completed', completedAt }]);
+    expect(result.activities.some((item) => item.activityId.endsWith('-physical'))).toBe(false);
+  });
+
+  it('projects only server-persisted quiz or symbolic PASS for new activities', async () => {
+    const quizId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const simId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const completedAt = new Date('2026-11-04T10:00:00Z');
+    query.mockResolvedValueOnce([{ id: lessonId, ordinal: 2, legacy_course: false }])
+      .mockResolvedValueOnce([{ id: quizId, lesson_id: lessonId, type: 'knowledge_check' }, { id: simId, lesson_id: lessonId, type: 'simulation' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ activity_id: quizId, completed_at: completedAt }]);
+    const result = await service.courseProgress(user1 as never, courseId);
+    expect(result.activities).toEqual([
+      { activityId: quizId, status: 'completed', completedAt },
+      { activityId: simId, status: 'not_started', completedAt: null },
+    ]);
+    const sql = (query.mock.calls[3][0] as TemplateStringsArray).join('?');
+    expect(sql).toContain("result_snapshot->>'passed'");
+    expect(sql).toContain("se.verdict='passed'");
+  });
+
+  it('allows idempotent self-completion only for a published UUID Reading or Demonstration', async () => {
+    const activityId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    query.mockResolvedValueOnce([{ id: activityId, lesson_id: lessonId, course_id: courseId, type: 'reading' }]);
+    const txQuery = jest.fn().mockResolvedValue([{ activity_id: activityId, completed_at: new Date('2026-11-04T10:00:00Z') }]);
+    transaction.mockImplementation(async (fn) => fn({ $queryRaw: txQuery }));
+    await expect(service.completeSelfReport(user1 as never, activityId)).resolves.toMatchObject({ activityId, status: 'completed' });
+    expect((txQuery.mock.calls[0][0] as TemplateStringsArray).join('?')).toContain('activity_definition_id');
+    expect((txQuery.mock.calls[0][0] as TemplateStringsArray).join('?')).toContain('ON CONFLICT');
+  });
+
+  it('rejects client-forged PASS on a UUID evaluated activity', async () => {
+    const activityId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    query.mockResolvedValueOnce([{ id: activityId, lesson_id: lessonId, course_id: courseId, type: 'simulation' }]);
+    await expect(service.completeSelfReport(user1 as never, activityId)).rejects.toBeInstanceOf(BadRequestException);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('does not accept a Course 1 style activity ID for a new course', async () => {
+    query.mockResolvedValueOnce([{ id: lessonId, course_id: courseId, ordinal: 5, legacy_course: false }]);
+    await expect(service.completeSelfReport(user1 as never, `${lessonId}-reading-1`)).rejects.toBeInstanceOf(NotFoundException);
+    expect(transaction).not.toHaveBeenCalled();
+  });
 });

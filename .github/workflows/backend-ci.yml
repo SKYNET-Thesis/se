@@ -25,6 +25,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: services/education-api/package-lock.json }
       - run: npm ci
+      - run: npx prisma generate --schema prisma/schema.prisma
       - run: npm test
       - run: npm run build
       - run: npx prisma validate --schema prisma/schema.prisma

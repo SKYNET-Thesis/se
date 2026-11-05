@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { CameraOffIcon, CheckCircle2Icon, CircleDashedIcon, PuzzleIcon, RefreshCwIcon } from 'lucide-react';
 import type { ArmStatus } from '../types/robot';
 import { useAdmin } from '../contexts/AdminContext';
@@ -13,6 +13,9 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { SectionHeading } from '../components/ui/SectionHeading';
 import { StatusDot } from '../components/ui/StatusDot';
 import { formatRelative } from '../utils/format';
+import { DigitalTwinPanel } from '../components/digital-twin/DigitalTwinPanel';
+import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
+import { useDigitalTwinViewerScope } from '../components/digital-twin/useDigitalTwinViewerScope';
 
 const integrationChecks = [
 { label: 'Robot control backend', detail: 'No endpoint configured', ok: false },
@@ -26,6 +29,9 @@ export function RobotLab() {
   const { loading, hardware, simulation, error, refresh } = useRobotStatus();
   const { experiments } = usePrograms();
   const { robots } = useAdmin();
+  const { session } = useSupabaseSession();
+  const twinScope = useDigitalTwinViewerScope(session?.access_token, robots.map((robot) => robot.id));
+  const refreshTwinScope = useCallback(() => { void twinScope.refresh(); }, [twinScope.refresh]);
   const hwMeta = hardware ? connectionMeta[hardware.connection] : null;
 
   return (
@@ -127,6 +133,8 @@ export function RobotLab() {
           </section>
         </div>
       </div>
+
+      <DigitalTwinPanel viewerScopeToken={twinScope.scope?.token} scopeStatus={twinScope.status} scopeExpiresAt={twinScope.scope?.expiresAt} onScopeRejected={refreshTwinScope} />
 
       <section aria-labelledby="history-heading" className="mt-12">
         <SectionHeading

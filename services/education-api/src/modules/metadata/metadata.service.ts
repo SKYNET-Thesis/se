@@ -21,10 +21,10 @@ export class MetadataService {
   async offering(user: AuthenticatedUser, id: string) { return this.one(await this.visibleOfferings(user, id, { page: 1, pageSize: 1 }), "Course offering was not found."); }
   async classroomCourse(user: AuthenticatedUser, classroomId: string) { return this.one(await this.prisma.$queryRaw`SELECT c.id,c.title,c.description,c.status,c.level_id,o.id AS offering_id,o.code AS offering_code,o.title AS offering_title,o.status AS offering_status FROM public.learning_classrooms cl JOIN public.learning_course_offerings o ON o.id=cl.offering_id JOIN public.learning_courses c ON c.id=o.course_id WHERE cl.id=${classroomId}::uuid AND (${this.systemAdmin(user)} OR EXISTS (SELECT 1 FROM public.learning_classroom_members cm JOIN public.memberships m ON m.id=cm.membership_id WHERE cm.classroom_id=cl.id AND cm.user_id=${user.vistaUserId}::uuid AND cm.status='active' AND m.status='active' AND m.organization_id=cl.organization_id))`, "Classroom was not found."); }
 
-  async challenges(user: AuthenticatedUser, page: PaginationDto) { return this.page(this.visibleChallenges(user, undefined, page), page); }
-  async challenge(user: AuthenticatedUser, id: string) { return this.one(await this.visibleChallenges(user, id, { page: 1, pageSize: 1 }), "Challenge was not found."); }
+  async challenges(user: AuthenticatedUser, page: PaginationDto) { return this.page(this.visibleChallenges(user, undefined, page).then((rows) => rows.map(publicChallenge)), page); }
+  async challenge(user: AuthenticatedUser, id: string) { return publicChallenge(this.one(await this.visibleChallenges(user, id, { page: 1, pageSize: 1 }), "Challenge was not found.")); }
   async challengeObjects(user: AuthenticatedUser, id: string) { await this.challenge(user, id); return this.prisma.$queryRaw`SELECT id,challenge_id,object_key,object_type,label,properties,initial_pose,target_pose,metadata,created_at FROM public.learning_challenge_objects WHERE challenge_id=${id}::uuid ORDER BY object_key`; }
-  async challengeConditions(user: AuthenticatedUser, id: string) { await this.challenge(user, id); return this.prisma.$queryRaw`SELECT id,challenge_id,condition_type,rule_key,rule_config,description,ordinal,created_at FROM public.learning_challenge_conditions WHERE challenge_id=${id}::uuid ORDER BY ordinal,id`; }
+  async challengeConditions(user: AuthenticatedUser, id: string) { await this.challenge(user, id); const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>`SELECT id,challenge_id,condition_type,description,ordinal,created_at FROM public.learning_challenge_conditions WHERE challenge_id=${id}::uuid ORDER BY ordinal,id`; return rows.map(publicChallengeCondition); }
 
   async benchmarkTasks(page: PaginationDto) { return this.page(this.prisma.$queryRaw`SELECT id,code,name,object_type,target_container,instruction_template,pass_criterion,metadata FROM public.benchmark_tasks WHERE active=true ORDER BY code LIMIT ${page.pageSize} OFFSET ${(page.page - 1) * page.pageSize}`, page); }
   async benchmarkTask(id: string) { return this.one(await this.prisma.$queryRaw`SELECT id,code,name,object_type,target_container,instruction_template,pass_criterion,metadata FROM public.benchmark_tasks WHERE id=${id}::uuid AND active=true`, "Benchmark task was not found."); }
@@ -69,7 +69,7 @@ export class MetadataService {
   async vlaExperiment(user: AuthenticatedUser, id: string) { const row = await this.vlaInteraction(user, id); return this.ownedExperiment(user, row.experiment_id); }
 
   private async visibleOfferings(user: AuthenticatedUser, id: string | undefined, page: PaginationDto) { return this.prisma.$queryRaw`SELECT DISTINCT o.id,o.course_id,o.organization_id,o.code,o.title,o.academic_term,o.academic_year,o.start_at,o.end_at,o.enrollment_open_at,o.enrollment_close_at,o.max_students,o.status,o.created_at,o.updated_at,c.title AS course_title FROM public.learning_course_offerings o JOIN public.learning_courses c ON c.id=o.course_id LEFT JOIN public.learning_classrooms cl ON cl.offering_id=o.id LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id=cl.id AND cm.user_id=${user.vistaUserId}::uuid AND cm.status='active' LEFT JOIN public.memberships m ON m.id=cm.membership_id AND m.status='active' AND m.organization_id=cl.organization_id LEFT JOIN public.learning_enrollments e ON e.offering_id=o.id AND e.learner_user_id=${user.vistaUserId}::uuid AND e.status='active' WHERE (${id ?? null}::uuid IS NULL OR o.id=${id ?? null}::uuid) AND (${this.systemAdmin(user)} OR m.id IS NOT NULL OR e.id IS NOT NULL) ORDER BY o.created_at DESC LIMIT ${page.pageSize} OFFSET ${(page.page - 1) * page.pageSize}`; }
-  private async visibleChallenges(user: AuthenticatedUser, id: string | undefined, page: PaginationDto) { return this.prisma.$queryRaw`SELECT DISTINCT ch.id,ch.title,ch.description,ch.tabletop_config,ch.success_criteria,ch.permitted_modes,ch.status,ch.created_at,ch.updated_at FROM public.learning_challenges ch JOIN public.learning_assignments a ON a.challenge_id=ch.id JOIN public.learning_classroom_assignments ca ON ca.assignment_id=a.id JOIN public.learning_classrooms cl ON cl.id=ca.classroom_id LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id=cl.id AND cm.user_id=${user.vistaUserId}::uuid AND cm.status='active' LEFT JOIN public.memberships m ON m.id=cm.membership_id AND m.status='active' AND m.organization_id=cl.organization_id WHERE (${id ?? null}::uuid IS NULL OR ch.id=${id ?? null}::uuid) AND (${this.systemAdmin(user)} OR m.id IS NOT NULL) AND (ch.status='published' OR ${this.systemAdmin(user)} OR cm.classroom_role IN ('teacher','teaching_assistant')) ORDER BY ch.created_at DESC LIMIT ${page.pageSize} OFFSET ${(page.page - 1) * page.pageSize}`; }
+  private async visibleChallenges(user: AuthenticatedUser, id: string | undefined, page: PaginationDto) { return this.prisma.$queryRaw<Record<string, unknown>[]>`SELECT DISTINCT ch.id,ch.title,ch.description,ch.tabletop_config,ch.permitted_modes,ch.status,ch.created_at,ch.updated_at FROM public.learning_challenges ch JOIN public.learning_assignments a ON a.challenge_id=ch.id JOIN public.learning_classroom_assignments ca ON ca.assignment_id=a.id JOIN public.learning_classrooms cl ON cl.id=ca.classroom_id LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id=cl.id AND cm.user_id=${user.vistaUserId}::uuid AND cm.status='active' LEFT JOIN public.memberships m ON m.id=cm.membership_id AND m.status='active' AND m.organization_id=cl.organization_id WHERE (${id ?? null}::uuid IS NULL OR ch.id=${id ?? null}::uuid) AND (${this.systemAdmin(user)} OR m.id IS NOT NULL) AND (ch.status='published' OR ${this.systemAdmin(user)} OR cm.classroom_role IN ('teacher','teaching_assistant')) ORDER BY ch.created_at DESC LIMIT ${page.pageSize} OFFSET ${(page.page - 1) * page.pageSize}`; }
   private async visibleModels(user: AuthenticatedUser, id: string | undefined, page: PaginationDto) { return this.prisma.$queryRaw`SELECT DISTINCT a.id,a.name,a.description,a.owner_type,a.owner_organization_id,a.owner_user_id,a.visibility,a.status,a.created_at,a.updated_at FROM public.ai_models a WHERE (${id ?? null}::uuid IS NULL OR a.id=${id ?? null}::uuid) AND (${this.systemAdmin(user)} OR a.visibility='public' OR a.owner_user_id=${user.vistaUserId}::uuid OR EXISTS (SELECT 1 FROM public.org_entitlements oe JOIN public.user_assignments ua ON ua.entitlement_id=oe.id AND ua.organization_id=oe.organization_id JOIN public.memberships m ON m.id=ua.membership_id AND m.organization_id=ua.organization_id WHERE oe.ai_model_id=a.id AND ua.revoked_at IS NULL AND m.user_id=${user.vistaUserId}::uuid AND m.status='active')) ORDER BY a.created_at DESC LIMIT ${page.pageSize} OFFSET ${(page.page - 1) * page.pageSize}`; }
   private async ownedDemo(user: AuthenticatedUser, id: string) { return this.one(await this.prisma.$queryRaw`SELECT d.id,d.organization_id,d.benchmark_task_id,d.observation_configuration_id,d.source,d.instruction,d.outcome,d.started_at,d.ended_at,d.frame_count,d.provenance,d.metrics,d.created_at,b.code AS benchmark_task_code,b.name AS benchmark_task_name FROM public.demonstration_episodes d JOIN public.benchmark_tasks b ON b.id=d.benchmark_task_id WHERE d.id=${id}::uuid AND d.recorded_by=${user.vistaUserId}::uuid`, "Demonstration was not found."); }
   private async ownedDataset(user: AuthenticatedUser, id: string) { return this.one(await this.prisma.$queryRaw`SELECT id,organization_id,name,version,split_definition,huggingface_repo,huggingface_revision,provenance,is_frozen,created_at FROM public.dataset_versions WHERE id=${id}::uuid AND created_by=${user.vistaUserId}::uuid`, "Dataset version was not found."); }
@@ -83,4 +83,28 @@ export class MetadataService {
   // Raw SQL has intentionally narrow projections per endpoint. Prisma exposes
   // untyped raw rows, so the HTTP boundary returns the selected row unchanged.
   private one(rows: any, message: string): any { if (!rows[0]) throw new NotFoundException(message); return rows[0]; }
+}
+
+function publicChallenge(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    tabletop_config: row.tabletop_config,
+    permitted_modes: row.permitted_modes,
+    status: row.status,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function publicChallengeCondition(row: Record<string, unknown>) {
+  return {
+    id: row.id,
+    challenge_id: row.challenge_id,
+    condition_type: row.condition_type,
+    description: row.description,
+    ordinal: row.ordinal,
+    created_at: row.created_at,
+  };
 }

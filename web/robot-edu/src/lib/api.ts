@@ -445,6 +445,10 @@ export const modelApi = { trainingRuns: (token: string, page = 1, pageSize = 20)
 export const vlaProvenanceApi = { forExperiment: (id: string, token: string) => apiGet<ApiRecord[]>(`/me/experiments/${id}/vla-interactions`, token), detail: (id: string, token: string) => apiGet<ApiRecord>(`/me/vla-interactions/${id}`, token), summary: (id: string, token: string) => apiGet<ApiRecord>(`/me/vla-interactions/${id}/summary`, token), experiment: (id: string, token: string) => apiGet<ApiRecord>(`/me/vla-interactions/${id}/experiment`, token), steps: (id: string, token: string) => apiGet<ApiRecord[]>(`/me/vla-interactions/${id}/action-steps`, token) };
 export const dashboardApi = { mine: (token: string) => apiGet<ApiRecord>("/me/dashboard", token), learningSummary: (token: string) => apiGet<ApiRecord>("/me/learning-summary", token), recentActivity: (token: string) => apiGet<ApiRecord[]>("/me/recent-activity", token) };
 export const runtimeApi = { health: (token: string) => apiGet<ApiRecord>("/runtime/health", token), status: (token: string) => apiGet<ApiRecord>("/runtime/status", token) };
+export interface DigitalTwinViewerScope { token: string; expiresAt: string; organizationId: string; robotId: string; }
+export const digitalTwinApi = {
+  viewerScope: (robotId: string, token: string) => apiRequest<DigitalTwinViewerScope>(`/robots/${robotId}/digital-twin/viewer-scope`, token, "POST"),
+};
 /** Future Nest-only robot execution boundary. It deliberately does not expose
  * a CHECKIK URL, runtime token, serial port, or canonical program payload. */
 export const robotExecutionApi = {
