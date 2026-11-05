@@ -65,8 +65,11 @@ packages/
 
 # Generated SQL scripts (optional)
 *.sql
+!services/education-api/prisma/migrations/20261106_question_bank_quiz_attempt/migration.sql
+!services/education-api/prisma/migrations/20261105_question_bank_foundation/migration.sql
 !database/*.sql
 !database/**/*.sql
+!services/education-api/prisma/migrations/20261104_curriculum_foundation/migration.sql
 
 ########################################
 # ASP.NET Core

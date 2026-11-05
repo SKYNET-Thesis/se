@@ -16,6 +16,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE public.users (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
+  auth_identifier uuid UNIQUE,
   email text,
   full_name text NOT NULL,
   status text NOT NULL DEFAULT 'invited'::text CHECK (status = ANY (ARRAY['invited'::text, 'active'::text, 'disabled'::text])),
@@ -32,7 +33,7 @@ CREATE TABLE public.users (
 CREATE TABLE public.auth_tokens (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
-  purpose text NOT NULL CHECK (purpose = ANY (ARRAY['activation'::text, 'password_reset'::text, 'email_verify'::text])),
+  purpose text NOT NULL CHECK (purpose = ANY (ARRAY['activation'::text, 'password_reset'::text, 'email_verify'::text, 'student_setup'::text])),
   token_hash text NOT NULL UNIQUE,
   expires_at timestamp with time zone NOT NULL,
   used_at timestamp with time zone,
@@ -109,6 +110,7 @@ CREATE TABLE public.leads (
 CREATE TABLE public.organizations (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   name text NOT NULL,
+  school_code text UNIQUE,
   type text NOT NULL CHECK (type = ANY (ARRAY['institution'::text, 'personal'::text])),
   segment text NOT NULL CHECK (segment = ANY (ARRAY['education'::text, 'research'::text, 'assistive'::text, 'hobby'::text])),
   status text NOT NULL DEFAULT 'active'::text CHECK (status = ANY (ARRAY['active'::text, 'suspended'::text, 'closed'::text])),
@@ -1067,7 +1069,8 @@ CREATE TABLE public.education_school_user_profiles (
   account_state text NOT NULL CHECK (account_state = ANY (ARRAY['invited'::text, 'active'::text, 'account_setup_pending'::text])),
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  CONSTRAINT education_school_user_profiles_pkey PRIMARY KEY (id)
+  CONSTRAINT education_school_user_profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT uq_school_profiles_org_student_code UNIQUE (organization_id, student_code)
 );
 
 

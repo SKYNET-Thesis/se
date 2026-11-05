@@ -199,6 +199,23 @@ export async function apiRequest<T>(path: string, accessToken: string, method: "
   return response.json() as Promise<T>;
 }
 
+export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> {
+  if (import.meta.env.PROD && new URL(baseUrl, window.location.origin).protocol !== "https:") {
+    throw new Error("Secure API transport is required for student authentication.");
+  }
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`);
+  }
+  return response.json() as Promise<T>;
+}
+
 export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; }
 export interface ApiRobotResource { id: string; name: string; serialNo: string; modelName: string; status?: string; }
 export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; assignment_count: number; }
@@ -228,7 +245,7 @@ export interface ApiSchoolPerson { id:string; displayName:string; role:'student'
 export interface ApiMemberCandidate { userId:string; displayName:string; organizationRole:'student'|'instructor'; schoolCode:string|null; accountState:'active'|'invited'|'account_setup_pending'; alreadyMember:boolean; }
 export interface ApiPage<T> { items:T[]; page:number; pageSize:number; total:number; }
 export type ApiImportErrorCode='VALIDATION_ERROR'|'DUPLICATE_USER'|'ACCOUNT_INVITE_FAILED'|'ACCOUNT_PROVISIONING_FAILED'|'DATABASE_WRITE_FAILED'|'NOT_AUTHORIZED'|'UNKNOWN_IMPORT_ERROR';
-export interface ApiSchoolImportResult { processed:number; created:number; unchanged:number; failed:number; results:Array<{row:number;status:'created'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name?:string;schoolCode?:string}>; }
+export interface ApiSchoolImportResult { processed:number; created:number; unchanged:number; failed:number; schoolCode?:string; results:Array<{row:number;status:'created'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name?:string;schoolCode?:string;studentCode?:string;setupCode?:string}>; }
 export interface ApiClassroomStudentPreviewRow { row:number;firstName:string;lastName:string;studentCode:string;gradeLevel:string;email:string|null;status:'new_student'|'existing_student'|'already_in_class'|'needs_review';errors:string[];warnings:string[]; }
 export interface ApiClassroomStudentPreview { processed:number;newStudents:number;existingStudents:number;alreadyInClass:number;needsReview:number;rows:ApiClassroomStudentPreviewRow[]; }
 export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string}>; }
@@ -368,6 +385,13 @@ export const identityApi = {
   memberships: (token: string) => apiGet<ApiOrganizationMembership[]>("/me/memberships", token),
   updateProfile: (token: string, fullName: string) => apiRequest<ApiIdentity>("/me/profile", token, "PATCH", { fullName }),
 };
+export interface ApiStudentAuthSession { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; token_type: string; }
+export interface ApiStudentPasswordRecoveryCode { recoveryCode: string; expiresAt: string; }
+export const studentAuthApi = {
+  login: (body: { schoolCode: string; studentCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/login", body),
+  setup: (body: { schoolCode: string; studentCode: string; setupCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/setup", body),
+  recover: (body: { schoolCode: string; studentCode: string; recoveryCode: string; password: string }) => apiPublicPost<{ status: "password_updated" }>("/auth/students/recover", body),
+};
 export const educationAdminApi = {
   overview: (organizationId:string,token:string) => apiGet<ApiSchoolOverview>(`/education-admin/organizations/${organizationId}/overview`,token),
   people: (organizationId:string,token:string,filters:{page:number;pageSize:number;search?:string;role?:'student'|'instructor'}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);if(filters.role)query.set('role',filters.role);return apiGet<ApiPage<ApiSchoolPerson>>(`/education-admin/organizations/${organizationId}/people?${query}`,token); },
@@ -378,6 +402,7 @@ export const educationAdminApi = {
   memberCandidates: (organizationId:string,classroomId:string,token:string,filters:{page:number;pageSize:number;search?:string}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);return apiGet<ApiPage<ApiMemberCandidate>>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/member-candidates?${query}`,token); },
   createClassroom: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms`,token,'POST',body),
   importUsers: (organizationId:string,token:string,body:ApiRecord) => apiRequest<ApiSchoolImportResult>(`/education-admin/organizations/${organizationId}/user-imports`,token,'POST',body),
+  issueStudentPasswordRecovery: (organizationId:string,studentId:string,token:string) => apiRequest<ApiStudentPasswordRecoveryCode>(`/education-admin/organizations/${organizationId}/students/${studentId}/password-recovery`,token,'POST'),
   previewClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentPreview>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports/preview`,token,'POST',body),
   confirmClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentImportResult>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports`,token,'POST',body),
   upsertMember: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`,token,'POST',body),
@@ -445,6 +470,10 @@ export const modelApi = { trainingRuns: (token: string, page = 1, pageSize = 20)
 export const vlaProvenanceApi = { forExperiment: (id: string, token: string) => apiGet<ApiRecord[]>(`/me/experiments/${id}/vla-interactions`, token), detail: (id: string, token: string) => apiGet<ApiRecord>(`/me/vla-interactions/${id}`, token), summary: (id: string, token: string) => apiGet<ApiRecord>(`/me/vla-interactions/${id}/summary`, token), experiment: (id: string, token: string) => apiGet<ApiRecord>(`/me/vla-interactions/${id}/experiment`, token), steps: (id: string, token: string) => apiGet<ApiRecord[]>(`/me/vla-interactions/${id}/action-steps`, token) };
 export const dashboardApi = { mine: (token: string) => apiGet<ApiRecord>("/me/dashboard", token), learningSummary: (token: string) => apiGet<ApiRecord>("/me/learning-summary", token), recentActivity: (token: string) => apiGet<ApiRecord[]>("/me/recent-activity", token) };
 export const runtimeApi = { health: (token: string) => apiGet<ApiRecord>("/runtime/health", token), status: (token: string) => apiGet<ApiRecord>("/runtime/status", token) };
+export interface DigitalTwinViewerScope { token: string; expiresAt: string; organizationId: string; robotId: string; }
+export const digitalTwinApi = {
+  viewerScope: (robotId: string, token: string) => apiRequest<DigitalTwinViewerScope>(`/robots/${robotId}/digital-twin/viewer-scope`, token, "POST"),
+};
 /** Future Nest-only robot execution boundary. It deliberately does not expose
  * a CHECKIK URL, runtime token, serial port, or canonical program payload. */
 export const robotExecutionApi = {

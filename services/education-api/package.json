@@ -6,6 +6,7 @@
     "build": "tsc -p tsconfig.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "migrate:student-login-aliases": "npm run build && node --env-file=.env dist/scripts/migrate-student-login-aliases.js",
     "seed:demo-identities": "npm run build && node --env-file=.env dist/scripts/seed-demo-identities.js",
     "seed:demo-delivery": "npm run build && node --env-file=.env dist/scripts/seed-demo-delivery.js",
     "seed:demo-school-admin": "npm run build && node --env-file=.env dist/scripts/seed-demo-school-admin.js",

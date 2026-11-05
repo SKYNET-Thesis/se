@@ -26,5 +26,11 @@ import { RobotRuntimeClient } from "./robot-runtime.client";
 import { ProgressionController } from "./progression.controller";
 import { ProgressionService } from "./progression.service";
 import { ActivityProgressService } from './activity-progress.service';
-@Module({imports:[IdentityModule],controllers:[LearningController,ProgrammingController,AssessmentController,ExperimentController,LearningInsightsController,VrLessonController,DemonstrationLessonController,PhysicalExecutionController,ProgressionController],providers:[LearningService,LearningScopeService,ProgrammingService,AssessmentService,ExperimentService,SchematicEngineService,SymbolicRuleCompilerService,SymbolicRuleEvaluatorService,SymbolicEvaluationPreparationService,SymbolicEvaluationService,LearningInsightsService,VrLessonService,DemonstrationLessonService,RobotRuntimeClient,PhysicalExecutionService,ProgressionService,ActivityProgressService],exports:[LearningScopeService]})
+import { CurriculumController } from './curriculum.controller';
+import { CurriculumService } from './curriculum.service';
+import { QuestionBankController } from './question-bank.controller';
+import { QuestionBankService } from './question-bank.service';
+import { DigitalTwinScopeController } from './digital-twin-scope.controller';
+import { DigitalTwinScopeService } from './digital-twin-scope.service';
+@Module({imports:[IdentityModule],controllers:[LearningController,ProgrammingController,AssessmentController,ExperimentController,LearningInsightsController,VrLessonController,DemonstrationLessonController,PhysicalExecutionController,ProgressionController,CurriculumController,QuestionBankController,DigitalTwinScopeController],providers:[LearningService,LearningScopeService,ProgrammingService,AssessmentService,ExperimentService,SchematicEngineService,SymbolicRuleCompilerService,SymbolicRuleEvaluatorService,SymbolicEvaluationPreparationService,SymbolicEvaluationService,LearningInsightsService,VrLessonService,DemonstrationLessonService,RobotRuntimeClient,PhysicalExecutionService,ProgressionService,ActivityProgressService,CurriculumService,QuestionBankService,DigitalTwinScopeService],exports:[LearningScopeService]})
 export class LearningModule {}
