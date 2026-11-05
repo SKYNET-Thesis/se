@@ -10,14 +10,17 @@ export function Login() {
   const { client, session, loading, configurationError } = useSupabaseSession();
   const [loginType, setLoginType] = useState<"email" | "student">("email");
   const [firstLogin, setFirstLogin] = useState(false);
+  const [recovering, setRecovering] = useState(false);
   const [email, setEmail] = useState("");
   const [schoolCode, setSchoolCode] = useState("");
   const [studentCode, setStudentCode] = useState("");
   const [setupCode, setSetupCode] = useState("");
+  const [recoveryCode, setRecoveryCode] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   if (session && !submitting) return <Navigate to="/" replace />;
@@ -27,7 +30,19 @@ export function Login() {
     if (!client) return;
     setSubmitting(true);
     setError(null);
+    setSuccess(null);
     try {
+      if (loginType === "student" && recovering) {
+        if (password !== passwordConfirmation) throw new Error("The passwords do not match.");
+        await studentAuthApi.recover({ schoolCode, studentCode, recoveryCode, password });
+        setRecovering(false);
+        setFirstLogin(false);
+        setRecoveryCode("");
+        setPassword("");
+        setPasswordConfirmation("");
+        setSuccess("Password reset. Sign in with your new password.");
+        return;
+      }
       let accessToken: string;
       if (loginType === "email") {
         const { data, error: signInError } = await client.auth.signInWithPassword({ email: email.trim(), password });
@@ -96,10 +111,12 @@ export function Login() {
             ) : (
               <>
                 <div className="mt-8 grid grid-cols-2 border-b border-[#bdc5bd]" role="group" aria-label="Sign-in method">
-                  <button type="button" aria-pressed={loginType === "email"} onClick={() => { setLoginType("email"); setFirstLogin(false); setError(null); }} className={loginType === "email" ? "border-b-2 border-[#1b6c61] px-3 py-3 text-sm font-semibold text-[#176255]" : "px-3 py-3 text-sm font-medium text-[#68736b] hover:text-[#17211c]"}>Email</button>
-                  <button type="button" aria-pressed={loginType === "student"} onClick={() => { setLoginType("student"); setError(null); }} className={loginType === "student" ? "border-b-2 border-[#1b6c61] px-3 py-3 text-sm font-semibold text-[#176255]" : "px-3 py-3 text-sm font-medium text-[#68736b] hover:text-[#17211c]"}>Student codes</button>
+                  <button type="button" aria-pressed={loginType === "email"} onClick={() => { setLoginType("email"); setFirstLogin(false); setRecovering(false); setError(null); setSuccess(null); }} className={loginType === "email" ? "border-b-2 border-[#1b6c61] px-3 py-3 text-sm font-semibold text-[#176255]" : "px-3 py-3 text-sm font-medium text-[#68736b] hover:text-[#17211c]"}>Email</button>
+                  <button type="button" aria-pressed={loginType === "student"} onClick={() => { setLoginType("student"); setRecovering(false); setError(null); setSuccess(null); }} className={loginType === "student" ? "border-b-2 border-[#1b6c61] px-3 py-3 text-sm font-semibold text-[#176255]" : "px-3 py-3 text-sm font-medium text-[#68736b] hover:text-[#17211c]"}>Student codes</button>
                 </div>
-                {loginType === "student" && <div className="mt-4 flex items-center justify-between gap-3 text-sm"><span className="text-[#59615c]">{firstLogin ? "First-time setup" : "Student sign in"}</span><button type="button" onClick={() => { setFirstLogin(value => !value); setError(null); }} className="font-semibold text-[#176255] underline underline-offset-4">{firstLogin ? "Back to sign in" : "Set up account"}</button></div>}
+                {loginType === "student" && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm"><span className="text-[#59615c]">{recovering ? "Password recovery" : firstLogin ? "First-time setup" : "Student sign in"}</span>{recovering ? <button type="button" onClick={() => { setRecovering(false); setRecoveryCode(""); setPassword(""); setPasswordConfirmation(""); setError(null); }} className="font-semibold text-[#176255] underline underline-offset-4">Back to sign in</button> : <div className="flex gap-4"><button type="button" onClick={() => { setFirstLogin(value => !value); setError(null); setSuccess(null); }} className="font-semibold text-[#176255] underline underline-offset-4">{firstLogin ? "Back to sign in" : "Set up account"}</button>{!firstLogin && <button type="button" onClick={() => { setRecovering(true); setError(null); setSuccess(null); }} className="font-semibold text-[#176255] underline underline-offset-4">Forgot password?</button>}</div>}</div>}
+                {recovering && <p className="mt-3 text-sm leading-relaxed text-[#59615c]">Ask your school administrator for a recovery code. Each code works once and expires after 30 minutes.</p>}
+                {success && <p role="status" className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-sm text-emerald-800">{success}</p>}
                 <form onSubmit={submit} className="mt-5 space-y-5">
                 {loginType === "email" ? <div className="block text-sm font-medium text-[#26312a]">
                   <label htmlFor="login-email">Email</label>
@@ -110,20 +127,20 @@ export function Login() {
                 </div> : <>
                   <label className="block text-sm font-medium text-[#26312a]">School code<input required autoComplete="organization" value={schoolCode} onChange={event => setSchoolCode(event.target.value)} placeholder="VST-..." className="mt-2 h-12 w-full rounded-full border border-[#bdc5bd] bg-white px-5 text-base text-[#17211c] outline-none focus:border-[#1b6c61] focus:ring-2 focus:ring-[#1b6c61]/20" /></label>
                   <label className="block text-sm font-medium text-[#26312a]">Student code<input required autoComplete="username" value={studentCode} onChange={event => setStudentCode(event.target.value)} placeholder="Your student code" className="mt-2 h-12 w-full rounded-full border border-[#bdc5bd] bg-white px-5 text-base text-[#17211c] outline-none focus:border-[#1b6c61] focus:ring-2 focus:ring-[#1b6c61]/20" /></label>
-                  {firstLogin && <label className="block text-sm font-medium text-[#26312a]">One-time setup code<input required autoComplete="one-time-code" value={setupCode} onChange={event => setSetupCode(event.target.value)} className="mt-2 h-12 w-full rounded-full border border-[#bdc5bd] bg-white px-5 font-mono text-base text-[#17211c] outline-none focus:border-[#1b6c61] focus:ring-2 focus:ring-[#1b6c61]/20" /></label>}
+                  {(firstLogin || recovering) && <label className="block text-sm font-medium text-[#26312a]">{firstLogin ? "One-time setup code" : "Recovery code"}<input required autoComplete="one-time-code" value={firstLogin ? setupCode : recoveryCode} onChange={event => firstLogin ? setSetupCode(event.target.value) : setRecoveryCode(event.target.value)} className="mt-2 h-12 w-full rounded-full border border-[#bdc5bd] bg-white px-5 font-mono text-base text-[#17211c] outline-none focus:border-[#1b6c61] focus:ring-2 focus:ring-[#1b6c61]/20" /></label>}
                 </>}
                 <div className="block text-sm font-medium text-[#26312a]">
                   <label htmlFor="login-password">Password</label>
                   <span className="relative mt-2 block">
-                    <input id="login-password" required minLength={loginType === "student" && firstLogin ? 12 : undefined} autoComplete={firstLogin ? "new-password" : "current-password"} type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={firstLogin ? "Create a password (12+ characters)" : "Your password"} className="h-12 w-full rounded-full border border-[#bdc5bd] bg-white px-5 pr-12 text-base text-[#17211c] outline-none transition-[border-color,box-shadow] placeholder:text-[#7b847d] focus:border-[#1b6c61] focus:ring-2 focus:ring-[#1b6c61]/20" />
+                    <input id="login-password" required minLength={loginType === "student" && (firstLogin || recovering) ? 12 : undefined} autoComplete={firstLogin || recovering ? "new-password" : "current-password"} type={showPassword ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} placeholder={firstLogin || recovering ? "Create a password (12+ characters)" : "Your password"} className="h-12 w-full rounded-full border border-[#bdc5bd] bg-white px-5 pr-12 text-base text-[#17211c] outline-none transition-[border-color,box-shadow] placeholder:text-[#7b847d] focus:border-[#1b6c61] focus:ring-2 focus:ring-[#1b6c61]/20" />
                     <button type="button" onClick={() => setShowPassword((visible) => !visible)} className="absolute right-2 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full text-[#68736b] transition-colors hover:bg-[#e6efea] hover:text-[#176255] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1b6c61]" aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword}>
                       {showPassword ? <EyeOffIcon aria-hidden className="h-[18px] w-[18px]" strokeWidth={1.8} /> : <EyeIcon aria-hidden className="h-[18px] w-[18px]" strokeWidth={1.8} />}
                     </button>
                   </span>
                 </div>
-                {loginType === "student" && firstLogin && <label className="block text-sm font-medium text-[#26312a]">Confirm password<input required minLength={12} autoComplete="new-password" type="password" value={passwordConfirmation} onChange={event => setPasswordConfirmation(event.target.value)} className="mt-2 h-12 w-full rounded-full border border-[#bdc5bd] bg-white px-5 text-base text-[#17211c] outline-none focus:border-[#1b6c61] focus:ring-2 focus:ring-[#1b6c61]/20" /></label>}
+                {loginType === "student" && (firstLogin || recovering) && <label className="block text-sm font-medium text-[#26312a]">Confirm password<input required minLength={12} autoComplete="new-password" type="password" value={passwordConfirmation} onChange={event => setPasswordConfirmation(event.target.value)} className="mt-2 h-12 w-full rounded-full border border-[#bdc5bd] bg-white px-5 text-base text-[#17211c] outline-none focus:border-[#1b6c61] focus:ring-2 focus:ring-[#1b6c61]/20" /></label>}
                 {error && <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-700">{error}</p>}
-                <Button type="submit" loading={submitting || loading} className="mt-3 h-12 w-full rounded-md !bg-[#1b6c61] !text-white hover:!bg-[#145249]">{firstLogin ? "Set password and continue" : "Sign in to workspace"}</Button>
+                <Button type="submit" loading={submitting || loading} className="mt-3 h-12 w-full rounded-md !bg-[#1b6c61] !text-white hover:!bg-[#145249]">{recovering ? "Reset password" : firstLogin ? "Set password and continue" : "Sign in to workspace"}</Button>
                 </form>
               </>
             )}

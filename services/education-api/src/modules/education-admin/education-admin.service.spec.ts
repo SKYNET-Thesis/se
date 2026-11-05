@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { ConflictException, NotFoundException } from "@nestjs/common";
 import { EducationAdminService } from "./education-admin.service";
 
@@ -165,6 +166,35 @@ describe("EducationAdminService school user provisioning", () => {
     expect(result).toMatchObject({ created: 1, failed: 0, schoolCode: "VST-SCHOOL", results: [{ setupCode: "one-time-code" }] });
     expect(provision).toHaveBeenCalledWith("school-a", row);
     expect(invite).not.toHaveBeenCalled();
+  });
+
+  it("issues a scoped, expiring password recovery code and stores only its hash", async () => {
+    queryRaw.mockResolvedValue([{ id: "student-1" }]);
+    const txQueryRaw = jest.fn().mockResolvedValue([{ locked: 1 }]);
+    const txExecuteRaw = jest.fn().mockResolvedValue(1);
+    transaction.mockImplementation(callback => callback({ $queryRaw: txQueryRaw, $executeRaw: txExecuteRaw }));
+
+    const before = Date.now();
+    const result = await service.issueStudentPasswordRecovery(actor, "school-a", "student-1");
+    const expiresAt = new Date(result.expiresAt).getTime();
+
+    expect(result.recoveryCode).toHaveLength(32);
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 30 * 60 * 1000);
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 30 * 60 * 1000);
+    expect(txExecuteRaw).toHaveBeenCalledTimes(3);
+    expect(txExecuteRaw.mock.calls[1]).toContain(createHash("sha256").update(result.recoveryCode, "utf8").digest("hex"));
+    expect(txExecuteRaw.mock.calls.flat()).not.toContain(result.recoveryCode);
+    expect(txExecuteRaw.mock.calls[2][0].join(" ")).toContain("student.password_recovery.issued");
+    expect(queryRaw.mock.calls[0][0].join(" ")).toContain("p.account_state = 'active'");
+  });
+
+  it("does not issue a password recovery code without the school provisioning permission", async () => {
+    const otherActor = { ...baseUser, memberships: [{ id: "m-2", organizationId: "school-a", roleCode: "teacher", status: "active", permissions: [] }] };
+
+    await expect(service.issueStudentPasswordRecovery(otherActor, "school-a", "student-1")).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(queryRaw).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
   });
 
   it("keeps student contact email separate from the provider login identifier", async () => {

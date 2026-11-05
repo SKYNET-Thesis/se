@@ -3,6 +3,7 @@ import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { StudentLoginDto } from "./dto/student-login.dto";
 import { StudentSetupDto } from "./dto/student-setup.dto";
+import { StudentPasswordRecoveryDto } from "./dto/student-password-recovery.dto";
 import { SupabaseAdminService, SupabasePasswordSession } from "./supabase-admin.service";
 
 const INVALID_STUDENT_CREDENTIALS = "School code, student code, password, or setup code is invalid.";
@@ -26,7 +27,7 @@ export class StudentAuthService {
   }
 
   async setup(dto: StudentSetupDto) {
-    const student = await this.findPendingStudent(dto.schoolCode, dto.studentCode, this.hashSetupCode(dto.setupCode));
+    const student = await this.findPendingStudent(dto.schoolCode, dto.studentCode, this.hashOneTimeCode(dto.setupCode));
     if (!student) throw new UnauthorizedException(INVALID_STUDENT_CREDENTIALS);
     const claimed = await this.prisma.$executeRaw`
       UPDATE public.auth_tokens
@@ -89,6 +90,27 @@ export class StudentAuthService {
     }
   }
 
+  async recover(dto: StudentPasswordRecoveryDto) {
+    const student = await this.findPasswordRecoveryStudent(dto.schoolCode, dto.studentCode, this.hashOneTimeCode(dto.recoveryCode));
+    if (!student) throw new UnauthorizedException(INVALID_STUDENT_CREDENTIALS);
+    const claimed = await this.prisma.$executeRaw`
+      UPDATE public.auth_tokens
+      SET used_at = now()
+      WHERE id = ${student.recovery_token_id}::uuid
+        AND user_id = ${student.user_id}::uuid
+        AND purpose = 'password_reset'
+        AND used_at IS NULL
+        AND expires_at > now()`;
+    if (claimed !== 1) throw new UnauthorizedException(INVALID_STUDENT_CREDENTIALS);
+
+    try {
+      await this.supabase.setStudentPassword(student.auth_user_id, dto.password);
+    } catch {
+      throw new UnauthorizedException("Student password recovery could not be completed. Ask your school administrator for a new code.");
+    }
+    return { status: "password_updated" as const };
+  }
+
   private findStudent(schoolCode: string, studentCode: string) {
     return this.prisma.$queryRaw<StudentLoginRow[]>`
       SELECT u.id AS user_id, u.auth_user_id, u.status,
@@ -125,7 +147,33 @@ export class StudentAuthService {
     `.then(rows => rows[0]);
   }
 
-  private hashSetupCode(code: string): string {
+  private findPasswordRecoveryStudent(schoolCode: string, studentCode: string, recoveryCodeHash: string) {
+    return this.prisma.$queryRaw<RecoverableStudent[]>`
+      SELECT u.id AS user_id, u.auth_user_id, t.id AS recovery_token_id
+      FROM public.organizations o
+      JOIN public.education_school_user_profiles p ON p.organization_id = o.id
+      JOIN public.users u ON u.id = p.user_id
+      JOIN public.memberships m ON m.organization_id = o.id AND m.user_id = u.id
+      JOIN public.roles r ON r.id = m.role_id
+      JOIN public.auth_tokens t ON t.user_id = u.id
+      WHERE upper(o.school_code) = upper(${schoolCode.trim()})
+        AND upper(p.student_code) = upper(${studentCode.trim()})
+        AND p.person_type = 'student'
+        AND p.account_state = 'active'
+        AND u.status = 'active'
+        AND u.auth_user_id IS NOT NULL
+        AND m.status = 'active'
+        AND r.code = 'student'
+        AND o.status = 'active'
+        AND t.purpose = 'password_reset'
+        AND t.token_hash = ${recoveryCodeHash}
+        AND t.used_at IS NULL
+        AND t.expires_at > now()
+      LIMIT 1
+    `.then(rows => rows[0]);
+  }
+
+  private hashOneTimeCode(code: string): string {
     return createHash("sha256").update(code.trim(), "utf8").digest("hex");
   }
 
@@ -163,4 +211,10 @@ interface PendingStudentRow {
   auth_user_id: string | null;
   organization_id: string;
   setup_token_id: string;
+}
+
+interface RecoverableStudent {
+  user_id: string;
+  auth_user_id: string;
+  recovery_token_id: string;
 }

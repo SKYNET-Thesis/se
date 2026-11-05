@@ -2,6 +2,7 @@ import { Body, Controller, Post, UseGuards } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { StudentLoginDto } from "./dto/student-login.dto";
 import { StudentSetupDto } from "./dto/student-setup.dto";
+import { StudentPasswordRecoveryDto } from "./dto/student-password-recovery.dto";
 import { StudentAuthHttpsGuard } from "./student-auth-https.guard";
 import { StudentAuthRateLimitGuard } from "./student-auth-rate-limit.guard";
 import { StudentAuthService } from "./student-auth.service";
@@ -20,5 +21,10 @@ export class StudentAuthController {
   @Post("setup")
   setup(@Body() dto: StudentSetupDto) {
     return this.studentAuth.setup(dto);
+  }
+
+  @Post("recover")
+  recover(@Body() dto: StudentPasswordRecoveryDto) {
+    return this.studentAuth.recover(dto);
   }
 }

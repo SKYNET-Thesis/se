@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
@@ -123,6 +123,45 @@ export class EducationAdminService {
       catch (error) { const safe = classifyImportError(error); const identifier = dto.kind === "teachers" ? row.employeeCode : row.studentCode; this.logger.error({ event: "school_user_import_failed", kind: dto.kind, row: index + 2, organizationId, identifier, code: safe.code, error: error instanceof ImportProvisioningError ? error.internalDetail : error instanceof Error ? error.message : String(error) }); results.push({ row: index + 2, status: "failed", ...safe, name: `${row.firstName} ${row.lastName}`.trim(), ...(dto.kind === "teachers" ? { schoolCode: identifier } : { studentCode: identifier }) }); }
     }
     return { processed: results.length, created: results.filter(item => item.status === "created").length, unchanged: results.filter(item => item.status === "unchanged").length, failed: results.filter(item => item.status === "failed").length, schoolCode, results };
+  }
+
+  async issueStudentPasswordRecovery(user: AuthenticatedUser, organizationId: string, studentId: string) {
+    await this.assertOrganizationPermission(user, organizationId, "education.members.provision");
+    const students = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT u.id
+      FROM public.organizations o
+      JOIN public.memberships m ON m.organization_id = o.id AND m.user_id = ${studentId}::uuid
+      JOIN public.roles r ON r.id = m.role_id
+      JOIN public.users u ON u.id = m.user_id
+      JOIN public.education_school_user_profiles p ON p.organization_id = o.id AND p.user_id = u.id
+      WHERE o.id = ${organizationId}::uuid
+        AND o.status = 'active'
+        AND m.status = 'active'
+        AND r.code = 'student'
+        AND p.person_type = 'student'
+        AND p.account_state = 'active'
+        AND u.status = 'active'
+        AND u.auth_user_id IS NOT NULL
+      LIMIT 1`;
+    if (!students[0]) throw new NotFoundException("An active student account was not found.");
+
+    const recoveryCode = randomBytes(24).toString("base64url");
+    const tokenHash = createHash("sha256").update(recoveryCode, "utf8").digest("hex");
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    await this.prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${studentId}), hashtext('student-password-reset'))`;
+      await tx.$executeRaw`
+        UPDATE public.auth_tokens
+        SET used_at = now()
+        WHERE user_id = ${studentId}::uuid AND purpose = 'password_reset' AND used_at IS NULL`;
+      await tx.$executeRaw`
+        INSERT INTO public.auth_tokens(user_id, purpose, token_hash, expires_at)
+        VALUES(${studentId}::uuid, 'password_reset', ${tokenHash}, ${expiresAt})`;
+      await tx.$executeRaw`
+        INSERT INTO public.audit_logs(actor_user_id, organization_id, action, target_type, target_id, details)
+        VALUES(${user.vistaUserId}::uuid, ${organizationId}::uuid, 'student.password_recovery.issued', 'student', ${studentId}::uuid, jsonb_build_object('expiresAt', ${expiresAt}))`;
+    });
+    return { recoveryCode, expiresAt: expiresAt.toISOString() };
   }
 
   private validateImportRow(kind: "teachers" | "students", row: ImportSchoolUserRowDto, emails: Set<string>, codes: Set<string>) {

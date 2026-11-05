@@ -386,9 +386,11 @@ export const identityApi = {
   updateProfile: (token: string, fullName: string) => apiRequest<ApiIdentity>("/me/profile", token, "PATCH", { fullName }),
 };
 export interface ApiStudentAuthSession { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; token_type: string; }
+export interface ApiStudentPasswordRecoveryCode { recoveryCode: string; expiresAt: string; }
 export const studentAuthApi = {
   login: (body: { schoolCode: string; studentCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/login", body),
   setup: (body: { schoolCode: string; studentCode: string; setupCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/setup", body),
+  recover: (body: { schoolCode: string; studentCode: string; recoveryCode: string; password: string }) => apiPublicPost<{ status: "password_updated" }>("/auth/students/recover", body),
 };
 export const educationAdminApi = {
   overview: (organizationId:string,token:string) => apiGet<ApiSchoolOverview>(`/education-admin/organizations/${organizationId}/overview`,token),
@@ -400,6 +402,7 @@ export const educationAdminApi = {
   memberCandidates: (organizationId:string,classroomId:string,token:string,filters:{page:number;pageSize:number;search?:string}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);return apiGet<ApiPage<ApiMemberCandidate>>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/member-candidates?${query}`,token); },
   createClassroom: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms`,token,'POST',body),
   importUsers: (organizationId:string,token:string,body:ApiRecord) => apiRequest<ApiSchoolImportResult>(`/education-admin/organizations/${organizationId}/user-imports`,token,'POST',body),
+  issueStudentPasswordRecovery: (organizationId:string,studentId:string,token:string) => apiRequest<ApiStudentPasswordRecoveryCode>(`/education-admin/organizations/${organizationId}/students/${studentId}/password-recovery`,token,'POST'),
   previewClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentPreview>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports/preview`,token,'POST',body),
   confirmClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentImportResult>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports`,token,'POST',body),
   upsertMember: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`,token,'POST',body),

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { UnauthorizedException } from "@nestjs/common";
 import { StudentAuthService } from "./student-auth.service";
 
@@ -93,5 +94,29 @@ describe("StudentAuthService", () => {
     expect(prismaExecuteRaw).toHaveBeenCalledTimes(1);
     expect(executeRaw).toHaveBeenCalledTimes(2);
     expect(executeRaw.mock.calls[1][0].join(" ")).toContain("account_state IN ('account_setup_pending', 'invited')");
+  });
+
+  it("consumes a hashed password recovery code and authenticates with the new password", async () => {
+    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_user_id: "auth-existing", recovery_token_id: "token-1" }]);
+
+    await expect(service.recover({ schoolCode: "VST-SCHOOL", studentCode: "S-1", recoveryCode: "one-time-recovery-code", password: "new-student-password" })).resolves.toEqual({ status: "password_updated" });
+
+    expect(queryRaw.mock.calls[0]).toContain(createHash("sha256").update("one-time-recovery-code", "utf8").digest("hex"));
+    expect(queryRaw.mock.calls[0]).not.toContain("one-time-recovery-code");
+    expect(prismaExecuteRaw).toHaveBeenCalledTimes(1);
+    expect(prismaExecuteRaw.mock.calls[0][0].join(" ")).toContain("password_reset");
+    expect(prismaExecuteRaw.mock.calls.flat()).not.toContain("one-time-recovery-code");
+    expect(supabase.setStudentPassword).toHaveBeenCalledWith("auth-existing", "new-student-password");
+    expect(supabase.authenticateStudent).not.toHaveBeenCalled();
+  });
+
+  it("does not reset a password when the recovery code is missing or already consumed", async () => {
+    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_user_id: "auth-existing", recovery_token_id: "token-1" }]);
+    prismaExecuteRaw.mockResolvedValueOnce(0);
+
+    await expect(service.recover({ schoolCode: "VST-SCHOOL", studentCode: "S-1", recoveryCode: "one-time-recovery-code", password: "new-student-password" })).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(supabase.setStudentPassword).not.toHaveBeenCalled();
+    expect(supabase.authenticateStudent).not.toHaveBeenCalled();
   });
 });

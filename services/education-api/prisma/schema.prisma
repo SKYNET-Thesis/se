@@ -103,7 +103,7 @@ model audit_logs {
 model auth_tokens {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id    String    @db.Uuid
-  /// Includes student_setup; token values are never stored, only their hashes.
+  /// Includes student_setup and password_reset; token values are never stored, only their hashes.
   purpose    String
   token_hash String    @unique
   expires_at DateTime  @db.Timestamptz(6)
