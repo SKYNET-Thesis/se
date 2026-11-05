@@ -15,6 +15,8 @@ async function bootstrap(): Promise<void> {
 
   if (process.env.TRUST_PROXY) app.getHttpAdapter().getInstance().set("trust proxy", Number(process.env.TRUST_PROXY));
 
+  if (process.env.TRUST_PROXY) app.getHttpAdapter().getInstance().set("trust proxy", Number(process.env.TRUST_PROXY));
+
   app.setGlobalPrefix("api/v1");
   app.enableCors({
     origin: process.env.WEB_ORIGIN?.split(",").map((origin) => origin.trim()) ?? false,
