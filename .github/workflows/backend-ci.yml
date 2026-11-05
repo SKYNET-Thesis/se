@@ -28,6 +28,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx prisma validate --schema prisma/schema.prisma
+        env: { DIRECT_URL: "${{ env.DATABASE_URL }}" }
   web:
     if: github.event_name != 'workflow_dispatch' || inputs.action != 'rollback'
     runs-on: ubuntu-latest

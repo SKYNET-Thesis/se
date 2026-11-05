@@ -69,6 +69,15 @@ describe("SchoolAdminQueryService", () => {
     expect(queryRaw.mock.calls[0]).toEqual(expect.arrayContaining(["bao", "student"]));
   });
 
+  it("uses student account state instead of email verification for active student accounts", async () => {
+    queryRaw.mockResolvedValue([{ total: 0, items: [] }]);
+
+    await service.people(actor, "school-a", { page: 1, pageSize: 20 });
+
+    const sql = queryRaw.mock.calls[0].flat().join(" ");
+    expect(sql).toContain("r.code='student' AND p.person_type='student' AND p.account_state='active' AND u.status='active'");
+  });
+
   it("returns searchable selectable member candidates", async () => {
     queryRaw.mockResolvedValue([{ total: 1, items: [{ userId: "student-1", displayName: "Bao Ngoc", organizationRole: "student", schoolCode: "S001", accountState: "account_setup_pending", alreadyMember: false }] }]);
     await expect(service.memberCandidates(actor, "school-a", "class-a", { page: 1, pageSize: 20, search: "S001" })).resolves.toMatchObject({

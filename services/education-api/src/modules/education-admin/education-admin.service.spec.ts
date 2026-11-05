@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { ConflictException, NotFoundException } from "@nestjs/common";
 import { EducationAdminService } from "./education-admin.service";
 
@@ -104,11 +105,12 @@ describe("EducationAdminService organization boundaries", () => {
 describe("EducationAdminService role derivation and provisioning scope", () => {
   const findClassroom = jest.fn().mockResolvedValue({ id: "class-a", organization_id: "school-a" });
   const findMembership = jest.fn(); const upsert = jest.fn(); const queryRaw = jest.fn(); const invite = jest.fn();
+  const findOrganization = jest.fn();
   const scope = { isSystemAdministrator: jest.fn().mockReturnValue(false) };
-  const service = new EducationAdminService({ $queryRaw: queryRaw, learning_classrooms: { findFirst: findClassroom }, memberships: { findFirst: findMembership }, learning_classroom_members: { upsert }, $transaction: jest.fn() } as never, scope as never, { invite } as never, { provision: jest.fn() } as never);
+  const service = new EducationAdminService({ $queryRaw: queryRaw, organizations: { findUnique: findOrganization }, learning_classrooms: { findFirst: findClassroom }, memberships: { findFirst: findMembership }, learning_classroom_members: { upsert }, $transaction: jest.fn() } as never, scope as never, { invite } as never, { provision: jest.fn().mockResolvedValue({ status: "unchanged" }) } as never);
   const schoolAdmin = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.classroom.members.manage", "education.members.provision"] }] };
 
-  beforeEach(() => { findMembership.mockReset(); upsert.mockReset().mockResolvedValue({ id: "cm-1" }); queryRaw.mockReset(); invite.mockReset(); });
+  beforeEach(() => { findMembership.mockReset(); upsert.mockReset().mockResolvedValue({ id: "cm-1" }); queryRaw.mockReset(); findOrganization.mockReset().mockResolvedValue({ school_code: "VST-SCHOOL" }); invite.mockReset(); });
 
   it.each([["student", "student"], ["instructor", "teacher"]])("derives %s membership as classroom role %s", async (organizationRole, classroomRole) => {
     findMembership.mockResolvedValue({ id: "membership-a", status: "active", roles: { code: organizationRole } });
@@ -150,31 +152,61 @@ describe("EducationAdminService role derivation and provisioning scope", () => {
 
 describe("EducationAdminService school user provisioning", () => {
   const queryRaw = jest.fn(); const transaction = jest.fn(); const invite = jest.fn(); const provision = jest.fn();
-  const prisma = { $queryRaw: queryRaw, $transaction: transaction };
+  const findOrganization = jest.fn();
+  const prisma = { $queryRaw: queryRaw, $transaction: transaction, organizations: { findUnique: findOrganization } };
   const scope = { isSystemAdministrator: jest.fn().mockReturnValue(false) };
   const service = new EducationAdminService(prisma as never, scope as never, { invite } as never, { provision } as never);
   const actor = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.members.provision"] }] };
 
-  beforeEach(() => { queryRaw.mockReset().mockResolvedValue([]); invite.mockReset(); provision.mockReset().mockResolvedValue({ userId: "user-new" }); transaction.mockReset(); });
+  beforeEach(() => { queryRaw.mockReset().mockResolvedValue([]); findOrganization.mockReset().mockResolvedValue({ school_code: "VST-SCHOOL" }); invite.mockReset(); provision.mockReset().mockResolvedValue({ userId: "user-new", status: "created", setupCode: "one-time-code" }); transaction.mockReset(); });
 
-  it("provisions a no-email student as pending without creating an auth identity or fake email", async () => {
+  it("provisions a no-email student and returns its one-time setup code", async () => {
     const row = { firstName: "Bao", lastName: "Ngoc", studentCode: "VISTA-STU-001", gradeLevel: "Grade 3", guardianEmail: "parent@example.com" };
     const result = await service.importUsers(actor, "school-a", { kind: "students", rows: [row] });
-    expect(result).toMatchObject({ created: 1, failed: 0 });
+    expect(result).toMatchObject({ created: 1, failed: 0, schoolCode: "VST-SCHOOL", results: [{ setupCode: "one-time-code" }] });
     expect(provision).toHaveBeenCalledWith("school-a", row);
     expect(invite).not.toHaveBeenCalled();
   });
 
-  it("invites and persists a student with email", async () => {
-    const row = { firstName: "Minh", lastName: "Khoa", studentCode: "VISTA-STU-003", gradeLevel: "Grade 7", email: "minh@example.com" };
-    const result = await service.importUsers(actor, "school-a", { kind: "students", rows: [row] });
-    expect(provision).toHaveBeenCalledWith("school-a", row); expect(result).toMatchObject({ created: 1, failed: 0 });
+  it("issues a scoped, expiring password recovery code and stores only its hash", async () => {
+    queryRaw.mockResolvedValue([{ id: "student-1" }]);
+    const txQueryRaw = jest.fn().mockResolvedValue([{ locked: 1 }]);
+    const txExecuteRaw = jest.fn().mockResolvedValue(1);
+    transaction.mockImplementation(callback => callback({ $queryRaw: txQueryRaw, $executeRaw: txExecuteRaw }));
+
+    const before = Date.now();
+    const result = await service.issueStudentPasswordRecovery(actor, "school-a", "student-1");
+    const expiresAt = new Date(result.expiresAt).getTime();
+
+    expect(result.recoveryCode).toHaveLength(32);
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 30 * 60 * 1000);
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 30 * 60 * 1000);
+    expect(txExecuteRaw).toHaveBeenCalledTimes(3);
+    expect(txExecuteRaw.mock.calls[1]).toContain(createHash("sha256").update(result.recoveryCode, "utf8").digest("hex"));
+    expect(txExecuteRaw.mock.calls.flat()).not.toContain(result.recoveryCode);
+    expect(txExecuteRaw.mock.calls[2][0].join(" ")).toContain("student.password_recovery.issued");
+    expect(queryRaw.mock.calls[0][0].join(" ")).toContain("p.account_state = 'active'");
   });
 
-  it("returns a safe classified invite failure", async () => {
-    const { ImportProvisioningError } = await import("./import-errors"); provision.mockRejectedValue(new ImportProvisioningError("ACCOUNT_INVITE_FAILED", "raw Supabase SMTP failure"));
+  it("does not issue a password recovery code without the school provisioning permission", async () => {
+    const otherActor = { ...baseUser, memberships: [{ id: "m-2", organizationId: "school-a", roleCode: "teacher", status: "active", permissions: [] }] };
+
+    await expect(service.issueStudentPasswordRecovery(otherActor, "school-a", "student-1")).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(queryRaw).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("keeps student contact email separate from the provider login identifier", async () => {
+    const row = { firstName: "Minh", lastName: "Khoa", studentCode: "VISTA-STU-003", gradeLevel: "Grade 7", email: "minh@example.com" };
+    const result = await service.importUsers(actor, "school-a", { kind: "students", rows: [row] });
+    expect(provision).toHaveBeenCalledWith("school-a", row); expect(result).toMatchObject({ created: 1, failed: 0 }); expect(invite).not.toHaveBeenCalled();
+  });
+
+  it("returns a safe classified account setup failure", async () => {
+    const { ImportProvisioningError } = await import("./import-errors"); provision.mockRejectedValue(new ImportProvisioningError("ACCOUNT_PROVISIONING_FAILED", "raw Supabase provider failure"));
     const result = await service.importUsers(actor, "school-a", { kind: "students", rows: [{ firstName: "Minh", lastName: "Khoa", studentCode: "S3", gradeLevel: "7", email: "minh@example.com" }] });
-    expect(result.results[0]).toMatchObject({ status: "failed", code: "ACCOUNT_INVITE_FAILED", message: "Account invitation could not be sent. Please try again." });
+    expect(result.results[0]).toMatchObject({ status: "failed", code: "ACCOUNT_PROVISIONING_FAILED", message: "We couldn't create this account. Please try again." });
     expect(JSON.stringify(result)).not.toMatch(/Supabase|SMTP|queryRaw|23514/);
   });
 
@@ -186,6 +218,7 @@ describe("EducationAdminService school user provisioning", () => {
   });
 
   it("prefetches existing student codes once for an idempotent 20-row reimport", async () => {
+    provision.mockResolvedValue({ userId: "user-existing", status: "unchanged" });
     const rows = Array.from({ length: 20 }, (_, index) => ({
       firstName: "Student",
       lastName: String(index + 1),
@@ -198,7 +231,7 @@ describe("EducationAdminService school user provisioning", () => {
 
     expect(result).toMatchObject({ processed: 20, created: 0, unchanged: 20, failed: 0 });
     expect(queryRaw).toHaveBeenCalledTimes(1);
-    expect(transaction).not.toHaveBeenCalled();
+    expect(provision).toHaveBeenCalledTimes(20);
     expect(invite).not.toHaveBeenCalled();
   });
 

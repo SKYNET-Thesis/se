@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { progressionApi } from './api';
+import { progressionApi, studentAuthApi } from './api';
 
 describe('progressionApi.coursePaths', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -42,5 +42,20 @@ describe('progressionApi activity progress contract', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/me/courses/course-1/activity-progress');
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'POST', body: undefined });
     expect(String(fetchMock.mock.calls[1][0])).toContain('/me/activities/lesson-1-reading-1/complete');
+  });
+});
+
+describe('studentAuthApi', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('sends code-based credentials to the public API without an auth bearer header', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ access_token: 'access', refresh_token: 'refresh', expires_in: 3600, token_type: 'bearer' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await studentAuthApi.login({ schoolCode: 'VST-SCHOOL', studentCode: 'S-1', password: 'student-password' });
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/auth/students/login');
+    expect(fetchMock.mock.calls[0][1].headers).not.toHaveProperty('Authorization');
+    expect(fetchMock.mock.calls[0][1].body).toContain('"schoolCode":"VST-SCHOOL"');
   });
 });
