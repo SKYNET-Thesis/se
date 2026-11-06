@@ -44,4 +44,21 @@ describe("DigitalTwinScopeService", () => {
     await expect(service.issueViewerScope(noCapability as never, "44444444-4444-4444-8444-444444444444")).rejects.toBeInstanceOf(ForbiddenException);
     expect(queryRaw).not.toHaveBeenCalled();
   });
+
+  it("lists entitled SO-101 robots in the member's organization and preserves the database access decision", async () => {
+    queryRaw.mockResolvedValueOnce([
+      { id: "44444444-4444-4444-8444-444444444444", name: "SO-101 Follower A", model_name: "SO-101", status: "available", allocation_status: "allocated", viewer_access: true },
+      { id: "55555555-5555-4555-8555-555555555555", name: "SO-101 Follower B", model_name: "SO-101", status: "offline", allocation_status: "not_allocated", viewer_access: false },
+    ]);
+
+    await expect(service.availableRobots(user as never)).resolves.toEqual([
+      { id: "44444444-4444-4444-8444-444444444444", name: "SO-101 Follower A", modelName: "SO-101", status: "available", allocationStatus: "allocated", viewerAccess: "authorized" },
+      { id: "55555555-5555-4555-8555-555555555555", name: "SO-101 Follower B", modelName: "SO-101", status: "offline", allocationStatus: "not_allocated", viewerAccess: "unavailable" },
+    ]);
+  });
+
+  it("does not disclose cross-organization robots when the database returns no entitled rows", async () => {
+    queryRaw.mockResolvedValueOnce([]);
+    await expect(service.availableRobots(user as never)).resolves.toEqual([]);
+  });
 });
