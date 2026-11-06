@@ -4,6 +4,7 @@ import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { ProgressionService } from "./progression.service";
 import { RobotRuntimeClient, RuntimeSnapshot } from "./robot-runtime.client";
+import { IotCommandService, IotPublishDefiniteFailureError } from "./iot-command.service";
 
 export const TERMINAL_CONTROL_SESSION_STATES = [
   "released",
@@ -77,6 +78,7 @@ export class PhysicalExecutionService {
     private readonly prisma: PrismaService,
     private readonly runtime: RobotRuntimeClient,
     @Optional() private readonly progression?: ProgressionService,
+    @Optional() private readonly iot?: IotCommandService,
   ) {}
 
   async eligibility(user: AuthenticatedUser, attemptId: string) {
@@ -236,18 +238,18 @@ export class PhysicalExecutionService {
     }
 
     let runtimeSnap: RuntimeSnapshot | null = null;
-    try {
+    if (!this.iot?.enabled()) try {
       runtimeSnap = await this.runtime.status(scope.robot_id);
     } catch {
       throw this.businessConflict("ROBOT_RUNTIME_UNAVAILABLE", "Robot execution service is unavailable.");
     }
-    if (!runtimeSnap) {
+    if (!runtimeSnap && !this.iot?.enabled()) {
       throw this.businessConflict("ROBOT_RUNTIME_UNAVAILABLE", "Robot execution service is unavailable.");
     }
-    if (runtimeSnap.stopped === true) {
+    if (runtimeSnap?.stopped === true) {
       throw this.businessConflict("ROBOT_RUNTIME_STOPPED", "Robot runtime is stopped.");
     }
-    const checkik = runtimeSnap.checkik as Record<string, unknown> | undefined;
+    const checkik = runtimeSnap?.checkik as Record<string, unknown> | undefined;
     if (checkik && checkik.reachable === false) {
       throw this.businessConflict("CHECKIK_UNAVAILABLE", "Robot hardware safety controller is unavailable.");
     }
@@ -265,12 +267,15 @@ export class PhysicalExecutionService {
     }
 
     const runId = `wf03-${prepared.id}`;
-    const snapshot = await this.runtime.createRun(scope.robot_id, {
+    const runRequest = {
       runId,
       programVersionId: scope.program_version_id,
       profile: "lesson",
       program: scope.robot_program,
-    });
+    };
+    const snapshot = this.iot?.enabled()
+      ? await this.publishIotLifecycle(prepared.id, prepared.controlSession.id, scope.robot_id, runRequest)
+      : await this.runtime.createRun(scope.robot_id, runRequest);
     try {
       await this.persistRuntimeSnapshot(prepared.id, prepared.controlSession.id, runId, snapshot);
     } catch {
@@ -288,6 +293,17 @@ export class PhysicalExecutionService {
   async status(user: AuthenticatedUser, experimentId: string) {
     this.requireStudentCapability(user);
     const execution = await this.execution(user, experimentId);
+    // IoT acknowledgements arrive asynchronously at the edge.  Until the
+    // deployment's acknowledgement sink is configured, never fall back to a
+    // private runtime HTTP request from an IAM/cloud API process.
+    if (this.iot?.enabled()) {
+      const lifecycle = await this.prisma.$queryRaw<Array<{state:string;acknowledged_at:Date|null;completed_at:Date|null;error_code:string|null}>>`
+        SELECT state,acknowledged_at,completed_at,error_code FROM public.iot_command_lifecycles
+        WHERE experiment_id=${experimentId}::uuid ORDER BY created_at DESC LIMIT 1`;
+      const row = lifecycle[0];
+      const state = row?.state === "acknowledged" ? "queued" : row?.state === "executing" ? "running" : row?.state === "completed" ? "succeeded" : row?.state === "failed" || row?.state === "timed_out" ? "failed" : "queued";
+      return this.executionDto(execution, { state, startedAtMs: row?.acknowledged_at?.getTime(), endedAtMs: row?.completed_at?.getTime(), errorCode: row?.error_code ?? undefined });
+    }
     const runId = execution.run_id ?? `wf03-${execution.experiment_id}`;
     let snapshot: RuntimeSnapshot;
     try {
@@ -511,6 +527,38 @@ export class PhysicalExecutionService {
     if (runtimeState === "preflight_failed") return { experiment: "failed", session: "fault", terminal: true };
     if (snapshot.errorCode === "runtime_execution_timeout") return { experiment: "failed", session: "fault", terminal: true };
     return { experiment: "failed", session: "fault", terminal: true };
+  }
+
+  private async publishIotLifecycle(experimentId: string, sessionId: string, robotId: string, request: Record<string, unknown>): Promise<RuntimeSnapshot> {
+    if (!this.iot) throw new Error("IoT publisher missing");
+    const command = this.iot.createRunCommand(robotId, Date.now(), request);
+    const owner = `api-${command.commandId}`;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${robotId}::text, 1))`;
+      await tx.$executeRaw`
+        INSERT INTO public.iot_command_lifecycles(command_id,experiment_id,control_session_id,robot_id,state,issued_at,expires_at,last_sequence,command_payload)
+        VALUES(${command.commandId},${experimentId}::uuid,${sessionId}::uuid,${robotId}::uuid,'pending_publish',
+          to_timestamp(${command.issuedAtMs}::double precision/1000),to_timestamp(${command.expiresAtMs}::double precision/1000),-1,${JSON.stringify(command.payload)}::jsonb)`;
+    });
+    const claimed = await this.prisma.$transaction((tx) => tx.$executeRaw(Prisma.sql`
+      UPDATE public.iot_command_lifecycles SET state='publishing',publish_attempts=publish_attempts+1,publish_owner=${owner},publish_started_at=now(),publish_lease_until=now()+interval '30 seconds',updated_at=now()
+      WHERE command_id=${command.commandId} AND state='pending_publish'`));
+    if (claimed !== 1) throw new Error("iot publish intent claim lost");
+    try { await this.iot.publishRunCommand(command); }
+    catch (error) {
+      const state = error instanceof IotPublishDefiniteFailureError ? "publish_failed" : "reconciliation_required";
+      const publishError = state === "publish_failed" ? "publish_failed" : "publish_outcome_unknown";
+      await this.prisma.$transaction((tx) => tx.$executeRaw(Prisma.sql`
+        UPDATE public.iot_command_lifecycles SET state=${state},publish_lease_until=NULL,publish_error=${publishError},updated_at=now()
+        WHERE command_id=${command.commandId} AND state='publishing' AND publish_owner=${owner}`));
+      throw error;
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        UPDATE public.iot_command_lifecycles SET state='queued',publish_lease_until=NULL,updated_at=now()
+        WHERE command_id=${command.commandId} AND state='publishing' AND publish_owner=${owner}`;
+      return { state: "queued", events: [{ type: "iot_command_published", commandId: command.commandId }] };
+    });
   }
 
   private async persistRuntimeSnapshot(experimentId: string, sessionId: string, runId: string, snapshot: RuntimeSnapshot, requestedEvent?: string) {

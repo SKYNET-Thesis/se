@@ -17,6 +17,8 @@ __pycache__/
 .venv/
 .idea/
 .vscode/
+.claude/settings.local.json
+.claude/*.local.json
 .expo/
 .expo-export-test/
 .expo-web-test/
@@ -71,6 +73,7 @@ packages/
 !database/*.sql
 !database/**/*.sql
 !services/education-api/prisma/migrations/20261104_curriculum_foundation/migration.sql
+!services/education-api/prisma/migrations/20261106_iot_publish_intent/migration.sql
 
 ########################################
 # ASP.NET Core
