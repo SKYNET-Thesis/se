@@ -471,7 +471,9 @@ export const vlaProvenanceApi = { forExperiment: (id: string, token: string) => 
 export const dashboardApi = { mine: (token: string) => apiGet<ApiRecord>("/me/dashboard", token), learningSummary: (token: string) => apiGet<ApiRecord>("/me/learning-summary", token), recentActivity: (token: string) => apiGet<ApiRecord[]>("/me/recent-activity", token) };
 export const runtimeApi = { health: (token: string) => apiGet<ApiRecord>("/runtime/health", token), status: (token: string) => apiGet<ApiRecord>("/runtime/status", token) };
 export interface DigitalTwinViewerScope { token: string; expiresAt: string; organizationId: string; robotId: string; }
+export interface DigitalTwinRobot { id: string; name: string; modelName: string; status: string; allocationStatus: 'allocated' | 'not_allocated'; viewerAccess: 'authorized' | 'unavailable'; }
 export const digitalTwinApi = {
+  availability: (token: string) => apiGet<DigitalTwinRobot[]>('/robots/digital-twin/availability', token),
   viewerScope: (robotId: string, token: string) => apiRequest<DigitalTwinViewerScope>(`/robots/${robotId}/digital-twin/viewer-scope`, token, "POST"),
 };
 /** Future Nest-only robot execution boundary. It deliberately does not expose

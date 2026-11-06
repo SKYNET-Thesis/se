@@ -1,13 +1,11 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { CameraOffIcon, CheckCircle2Icon, CircleDashedIcon, PuzzleIcon, RefreshCwIcon } from 'lucide-react';
 import type { ArmStatus } from '../types/robot';
-import { useAdmin } from '../contexts/AdminContext';
 import { usePrograms } from '../contexts/ProgramsContext';
 import { useRobotStatus } from '../hooks/useRobotStatus';
 import { connectionMeta } from '../components/robot/RobotStatusSummary';
 import { ExperimentList } from '../components/robot/ExperimentList';
 import { Button } from '../components/ui/Button';
-import { DemoTag } from '../components/ui/DemoTag';
 import { LinkButton } from '../components/ui/LinkButton';
 import { PageHeader } from '../components/ui/PageHeader';
 import { SectionHeading } from '../components/ui/SectionHeading';
@@ -16,6 +14,8 @@ import { formatRelative } from '../utils/format';
 import { DigitalTwinPanel } from '../components/digital-twin/DigitalTwinPanel';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { useDigitalTwinViewerScope } from '../components/digital-twin/useDigitalTwinViewerScope';
+import { RobotSelector } from '../components/digital-twin/RobotSelector';
+import { digitalTwinApi, type DigitalTwinRobot } from '../lib/api';
 
 const integrationChecks = [
 { label: 'Robot control backend', detail: 'No endpoint configured', ok: false },
@@ -28,9 +28,26 @@ const integrationChecks = [
 export function RobotLab() {
   const { loading, hardware, simulation, error, refresh } = useRobotStatus();
   const { experiments } = usePrograms();
-  const { robots } = useAdmin();
   const { session } = useSupabaseSession();
-  const twinScope = useDigitalTwinViewerScope(session?.access_token, robots.map((robot) => robot.id));
+  const [twinRobots, setTwinRobots] = useState<DigitalTwinRobot[]>([]);
+  const [robotsLoading, setRobotsLoading] = useState(false);
+  const [robotsError, setRobotsError] = useState<string | null>(null);
+  const [selectedRobotId, setSelectedRobotId] = useState<string>();
+  const [twinMode, setTwinMode] = useState<'physical' | 'simulation'>('physical');
+  useEffect(() => {
+    let active = true;
+    if (!session?.access_token) { setTwinRobots([]); setSelectedRobotId(undefined); setRobotsLoading(false); return; }
+    setRobotsLoading(true); setRobotsError(null);
+    void digitalTwinApi.availability(session.access_token).then((robots) => {
+      if (!active) return;
+      setTwinRobots(robots);
+      setSelectedRobotId((current) => current && robots.some((robot) => robot.id === current && robot.viewerAccess === 'authorized') ? current : robots.find((robot) => robot.viewerAccess === 'authorized')?.id);
+    }).catch((reason) => { if (active) { setTwinRobots([]); setSelectedRobotId(undefined); setRobotsError(reason instanceof Error ? reason.message : 'Could not load robot availability.'); } }).finally(() => { if (active) setRobotsLoading(false); });
+    return () => { active = false; };
+  }, [session?.access_token]);
+  const selectedRobot = twinRobots.find((robot) => robot.id === selectedRobotId);
+  const physicalRobotId = twinMode === 'physical' && selectedRobot?.viewerAccess === 'authorized' ? selectedRobot.id : undefined;
+  const twinScope = useDigitalTwinViewerScope(session?.access_token, physicalRobotId);
   const refreshTwinScope = useCallback(() => { void twinScope.refresh(); }, [twinScope.refresh]);
   const hwMeta = hardware ? connectionMeta[hardware.connection] : null;
 
@@ -117,24 +134,15 @@ export function RobotLab() {
             </div>
           </section>
 
-          <section aria-labelledby="benches-heading">
-            <SectionHeading id="benches-heading" title="Registered benches" action={<DemoTag label="Demo registry" />} />
-            <ul className="divide-y divide-line border-y border-line">
-              {robots.map((r) =>
-              <li key={r.id} className="flex items-center justify-between gap-3 py-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-ink">{r.name}</p>
-                    <p className="text-xs text-ink-subtle">{r.location}</p>
-                  </div>
-                  <span className="text-xs text-ink-muted">{r.integration === 'pending_verification' ? 'Pending verification' : 'Not configured'}</span>
-                </li>
-              )}
-            </ul>
-          </section>
         </div>
       </div>
 
-      <DigitalTwinPanel viewerScopeToken={twinScope.scope?.token} scopeStatus={twinScope.status} scopeExpiresAt={twinScope.scope?.expiresAt} onScopeRejected={refreshTwinScope} />
+      <RobotSelector robots={twinRobots} loading={robotsLoading} error={robotsError} selectedRobotId={selectedRobotId} onSelect={setSelectedRobotId} />
+      <div className="mt-4 flex gap-2" aria-label="Digital Twin source mode">
+        <Button variant={twinMode === 'physical' ? 'primary' : 'secondary'} onClick={() => setTwinMode('physical')}>Physical telemetry</Button>
+        <Button variant={twinMode === 'simulation' ? 'primary' : 'secondary'} onClick={() => setTwinMode('simulation')}>Simulation preview</Button>
+      </div>
+      <DigitalTwinPanel viewerScopeToken={twinMode === 'physical' ? twinScope.scope?.token : undefined} scopeStatus={twinMode === 'physical' ? twinScope.status : 'Simulation selected'} scopeExpiresAt={twinMode === 'physical' ? twinScope.scope?.expiresAt : undefined} onScopeRejected={refreshTwinScope} expectedRobotId={twinMode === 'physical' ? physicalRobotId : 'so101-mock'} mode={twinMode} />
 
       <section aria-labelledby="history-heading" className="mt-12">
         <SectionHeading

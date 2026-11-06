@@ -52,6 +52,7 @@ class JointState(BaseModel):
     sequence: int = Field(ge=0)
     connection: Literal["connected", "disconnected", "stale"]
     measured: list[JointReading]
+    calibrated: list[JointReading] | None = None
     commanded: list[JointReading] | None = None
     calibration_status: CalibrationStatus = CalibrationStatus.NOT_APPLICABLE
 
@@ -66,7 +67,7 @@ class JointState(BaseModel):
     def check_joint_sets(self):
         if self.source_mode is SourceMode.LIVE_PHYSICAL and self.calibration_status is CalibrationStatus.NOT_APPLICABLE:
             raise ValueError("physical telemetry requires an explicit calibration status")
-        for label, readings in (("measured", self.measured), ("commanded", self.commanded)):
+        for label, readings in (("measured", self.measured), ("calibrated", self.calibrated), ("commanded", self.commanded)):
             if readings is None:
                 continue
             names = [reading.name for reading in readings]

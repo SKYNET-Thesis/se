@@ -23,10 +23,10 @@ class FakeSocket {
 let root: Root;
 let host: HTMLDivElement;
 let snapshot: TwinSnapshot;
-function Probe() { const state = useTwinTelemetry('viewer-scope'); useEffect(() => { snapshot = state; }, [state]); return null; }
-const frame = (sequence: number, measuredAt: string) => ({
-  schema_version: 1, robot_id: 'so101-mock', source_mode: 'SIMULATION', controller_id: 'offline-fixture',
-  measured_at: measuredAt, sequence, connection: 'connected', calibration_status: 'NOT_APPLICABLE',
+function Probe({ scope = 'viewer-scope', expectedRobotId }: { scope?: string; expectedRobotId?: string }) { const state = useTwinTelemetry(scope, undefined, expectedRobotId); useEffect(() => { snapshot = state; }, [state]); return null; }
+const frame = (sequence: number, measuredAt: string, robotId = 'so101-mock', sourceMode: 'SIMULATION' | 'LIVE_PHYSICAL' = 'SIMULATION') => ({
+  schema_version: 1, robot_id: robotId, source_mode: sourceMode, controller_id: sourceMode === 'LIVE_PHYSICAL' ? 'lelab-owner' : 'offline-fixture',
+  measured_at: measuredAt, sequence, connection: 'connected', calibration_status: sourceMode === 'LIVE_PHYSICAL' ? 'UNCALIBRATED' : 'NOT_APPLICABLE',
   measured: SO101_NAMES.map(name => ({ name, position: name === 'gripper' ? 20 : 0, unit: name === 'gripper' ? 'percent' : 'rad' })),
 });
 
@@ -55,11 +55,11 @@ describe('mock WebSocket lifecycle', () => {
     expect(snapshot.fresh).toBe(false);
   });
   it('disconnects, reconnects with a new stream and closes on unmount', async () => {
-    const first = FakeSocket.instances[0];
+    const first = FakeSocket.instances.at(-1)!;
     await act(async () => { first.open(); first.message(frame(42, '2026-11-05T00:00:00Z')); first.disconnect(); });
     expect(snapshot.transport).toBe('disconnected'); expect(snapshot.fresh).toBe(false);
     await act(async () => vi.advanceTimersByTimeAsync(2000));
-    const second = FakeSocket.instances[1];
+    const second = FakeSocket.instances.at(-1)!;
     expect(second).toBeDefined();
     await act(async () => { second.open(); second.message(frame(0, '2026-11-05T00:00:02Z')); });
     expect(snapshot.frame?.sequence).toBe(0); expect(snapshot.fresh).toBe(true);
@@ -67,5 +67,32 @@ describe('mock WebSocket lifecycle', () => {
     expect(second.closed).toBe(true);
     // Avoid a second unmount in afterEach.
     root = createRoot(host);
+  });
+
+  it('closes the old socket, clears state and ignores late telemetry when the selected robot changes', async () => {
+    await act(async () => root.render(<Probe scope="scope-a" expectedRobotId="robot-a" />));
+    const first = FakeSocket.instances.at(-1)!;
+    await act(async () => { first.open(); first.message(frame(1, '2026-11-05T00:00:00Z', 'robot-a', 'LIVE_PHYSICAL')); });
+    expect(snapshot.frame?.robot_id).toBe('robot-a');
+
+    await act(async () => root.render(<Probe scope="scope-b" expectedRobotId="robot-b" />));
+    expect(first.closed).toBe(true);
+    expect(snapshot.frame).toBeNull();
+    await act(async () => first.message(frame(2, '2026-11-05T00:00:01Z', 'robot-a', 'LIVE_PHYSICAL')));
+    expect(snapshot.frame).toBeNull();
+
+    const second = FakeSocket.instances.at(-1)!;
+    await act(async () => { second.open(); second.message(frame(1, '2026-11-05T00:00:02Z', 'robot-a', 'LIVE_PHYSICAL')); });
+    expect(snapshot.frame).toBeNull();
+    await act(async () => second.message(frame(2, '2026-11-05T00:00:02Z', 'robot-b', 'LIVE_PHYSICAL')));
+    expect(snapshot.frame?.robot_id).toBe('robot-b');
+  });
+
+  it('does not treat mock frames as physical telemetry for a selected robot', async () => {
+    await act(async () => root.render(<Probe expectedRobotId="robot-a" />));
+    const socket = FakeSocket.instances.at(-1)!;
+    await act(async () => { socket.open(); socket.message(frame(1, '2026-11-05T00:00:00Z')); });
+    expect(snapshot.frame).toBeNull();
+    expect(snapshot.error).toContain('selected robot');
   });
 });

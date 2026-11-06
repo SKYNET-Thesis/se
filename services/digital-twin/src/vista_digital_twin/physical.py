@@ -6,6 +6,7 @@ from math import isfinite
 from typing import Mapping
 
 from .contracts import CalibrationStatus, JointReading, JointState, SO101_JOINTS, SourceMode
+from .calibration import CalibrationProfile
 
 
 class TelemetryRejected(ValueError):
@@ -22,12 +23,14 @@ class ScopedJointState:
 class LeLabFollowerTelemetryAdapter:
     """Translates an existing owner's get_observation() result without touching hardware."""
 
-    def __init__(self, *, robot_id: str, organization_id: str, owner_id: str):
+    def __init__(self, *, robot_id: str, organization_id: str, owner_id: str, follower_id: str | None = None, calibration_profile: CalibrationProfile | None = None):
         if not all(isinstance(value, str) and value for value in (robot_id, organization_id, owner_id)):
             raise ValueError("robot, organization and owner identities are required")
         self.robot_id = robot_id
         self.organization_id = organization_id
         self.owner_id = owner_id
+        self.follower_id = follower_id
+        self.calibration_profile = calibration_profile
         self._sequence = 0
         self._last: JointState | None = None
 
@@ -49,10 +52,17 @@ class LeLabFollowerTelemetryAdapter:
                     raise TelemetryRejected(f"raw motor observation out of range: {key}")
                 unit = "deg"
             readings.append(JointReading(name=name, position=float(value), unit=unit))
+        raw = {reading.name: reading.position for reading in readings}
+        calibrated = None
+        status = CalibrationStatus.UNCALIBRATED
+        if self.calibration_profile is not None and self.follower_id:
+            values = self.calibration_profile.transform(raw, robot_id=self.robot_id, follower_id=self.follower_id)
+            calibrated = [JointReading(name=name, position=value, unit="rad") for name, value in values.items()]
+            status = CalibrationStatus.VERIFIED
         state = JointState(
             schema_version=1, robot_id=self.robot_id, source_mode=SourceMode.LIVE_PHYSICAL,
             controller_id=self.owner_id, measured_at=measured_at, sequence=self._sequence,
-            connection="connected", measured=readings, calibration_status=CalibrationStatus.UNCALIBRATED,
+            connection="connected", measured=readings, calibrated=calibrated, calibration_status=status,
         )
         self._sequence += 1
         self._last = state

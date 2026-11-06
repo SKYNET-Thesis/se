@@ -4,7 +4,7 @@ export type JointReading = { name: So101JointName; position: number; unit: 'rad'
 export type JointState = {
   schema_version: 1; robot_id: string; source_mode: 'SIMULATION' | 'LIVE_PHYSICAL' | 'REPLAY'; controller_id: string;
   measured_at: string; sequence: number; connection: 'connected' | 'disconnected' | 'stale';
-  measured: JointReading[]; commanded?: JointReading[]; calibration_status: 'NOT_APPLICABLE' | 'UNCALIBRATED' | 'VERIFIED';
+  measured: JointReading[]; calibrated?: JointReading[]; commanded?: JointReading[]; calibration_status: 'NOT_APPLICABLE' | 'UNCALIBRATED' | 'VERIFIED';
 };
 export type TwinSnapshot = { frame: JointState | null; transport: 'connecting' | 'connected' | 'disconnected'; ageMs: number | null; fresh: boolean; error: string | null };
 const STALE_MS = 1000;
@@ -20,7 +20,7 @@ function readings(value: unknown): value is JointReading[] {
     if (reading.unit !== 'rad' && reading.unit !== 'deg' && reading.unit !== 'percent') return false;
     if (reading.name !== 'gripper' && reading.unit === 'percent') return false;
     if (reading.name === 'gripper' && reading.unit === 'percent' && (reading.position < 0 || reading.position > 100)) return false;
-    if (reading.name !== 'gripper' && toUrdfRadians(reading.name as So101JointName, reading.position, reading.unit) === null) return false;
+    if (toUrdfRadians(reading.name as So101JointName, reading.position, reading.unit) === null) return false;
     names.add(reading.name);
   }
   return names.size === SO101_NAMES.length;
@@ -37,7 +37,8 @@ export function parseTwinFrame(raw: unknown): JointState | null {
   if (!Number.isSafeInteger(frame.sequence) || (frame.sequence as number) < 0) return null;
   if (frame.connection !== 'connected' && frame.connection !== 'disconnected' && frame.connection !== 'stale') return null;
   if (typeof frame.measured_at !== 'string' || !/(Z|[+-]\d\d:\d\d)$/.test(frame.measured_at) || !Number.isFinite(Date.parse(frame.measured_at))) return null;
-  if (!readings(frame.measured) || (frame.commanded !== undefined && !readings(frame.commanded))) return null;
+  if (!readings(frame.measured) || (frame.calibrated !== undefined && !readings(frame.calibrated)) || (frame.commanded !== undefined && !readings(frame.commanded))) return null;
+  if (frame.source_mode === 'LIVE_PHYSICAL' && frame.calibration_status === 'VERIFIED' && !readings(frame.calibrated)) return null;
   return frame as JointState;
 }
 

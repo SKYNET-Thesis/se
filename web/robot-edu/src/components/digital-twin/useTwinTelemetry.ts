@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { acceptTwinFrame, isFresh, parseTwinFrame, twinWebSocketUrl, type JointState, type TwinSnapshot } from './twinTelemetry';
 
-export function useTwinTelemetry(viewerScopeToken?: string, onScopeRejected?: () => void): TwinSnapshot {
+export function useTwinTelemetry(viewerScopeToken?: string, onScopeRejected?: () => void, expectedRobotId?: string, enabled = true): TwinSnapshot {
   const [frame, setFrame] = useState<JointState | null>(null);
   const [transport, setTransport] = useState<TwinSnapshot['transport']>('connecting');
   const [now, setNow] = useState(Date.now());
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!enabled) { setFrame(null); setError(null); setTransport('disconnected'); return; }
+    setFrame(null); setError(null); setTransport('connecting');
     const url = twinWebSocketUrl();
     if (!url) { setTransport('disconnected'); setError('Configure VITE_DIGITAL_TWIN_WS_URL for this host.'); return; }
     let active = true;
@@ -27,6 +29,7 @@ export function useTwinTelemetry(viewerScopeToken?: string, onScopeRejected?: ()
         try { raw = JSON.parse(event.data); } catch { setError('Malformed telemetry frame.'); return; }
         const next = parseTwinFrame(raw);
         if (!next) { setError('Rejected invalid or non-mock telemetry.'); return; }
+        if (expectedRobotId && next.robot_id !== expectedRobotId) { setError('Telemetry does not match the selected robot.'); return; }
         if (!acceptTwinFrame(previous, next)) { setError('Rejected out-of-order telemetry.'); return; }
         previous = next;
         setFrame(next); setNow(Date.now()); setError(null);
@@ -41,7 +44,7 @@ export function useTwinTelemetry(viewerScopeToken?: string, onScopeRejected?: ()
     };
     connect();
     return () => { active = false; window.clearInterval(clock); window.clearTimeout(retry); socket?.close(); };
-  }, [viewerScopeToken, onScopeRejected]);
+  }, [viewerScopeToken, onScopeRejected, expectedRobotId, enabled]);
 
   return { frame, transport, ageMs: frame ? Math.max(0, now - Date.parse(frame.measured_at)) : null, fresh: isFresh(frame, transport, now), error };
 }
