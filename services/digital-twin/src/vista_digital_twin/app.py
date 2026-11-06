@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from .authorization import AuthorizationError, TwinAuthorizer
 from .mock import LatestState, MockTelemetry, load_fixture
 from .physical import LeLabFollowerTelemetryAdapter, TelemetryRejected
+from .calibration import VisualCalibrationStore
 
 
 DEFAULT_FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "so101_joint_states.json"
@@ -137,17 +138,25 @@ def create_app_from_environment() -> FastAPI:
     owner_id = os.getenv("VISTA_TWIN_PHYSICAL_OWNER_ID")
     organization_id = os.getenv("VISTA_TWIN_PHYSICAL_ORGANIZATION_ID")
     robot_id = os.getenv("VISTA_TWIN_PHYSICAL_ROBOT_ID")
+    follower_id = os.getenv("VISTA_TWIN_PHYSICAL_FOLLOWER_ID")
     auth_secret = os.getenv("VISTA_TWIN_AUTH_SECRET")
-    physical_values = (owner_id, organization_id, robot_id, auth_secret)
-    if any(physical_values) and not all(physical_values):
+    physical_identity = (owner_id, organization_id, robot_id)
+    if any(physical_identity) and (not all(physical_identity) or not auth_secret):
         raise RuntimeError("physical telemetry configuration is incomplete")
     owner = None
     authorizer = None
-    if all(physical_values):
-        owner = LeLabFollowerTelemetryAdapter(
-            owner_id=owner_id, organization_id=organization_id, robot_id=robot_id
-        )
+    if auth_secret:
         authorizer = TwinAuthorizer(auth_secret)
+    if all(physical_identity):
+        profile = None
+        if follower_id:
+            try:
+                profile = VisualCalibrationStore(os.getenv("VISTA_TWIN_CALIBRATION_DIR")).active(robot_id=robot_id, follower_id=follower_id)
+            except FileNotFoundError:
+                pass
+        owner = LeLabFollowerTelemetryAdapter(
+            owner_id=owner_id, organization_id=organization_id, robot_id=robot_id, follower_id=follower_id, calibration_profile=profile
+        )
     return create_app(
         rate_hz=float(os.getenv("VISTA_TWIN_MOCK_RATE_HZ", "30")),
         disconnect_at=int(os.environ["VISTA_TWIN_MOCK_DISCONNECT_AT"])

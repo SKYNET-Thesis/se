@@ -111,12 +111,11 @@ export function So101DigitalTwinViewer({ frame, fresh, calibrated }: { frame: Jo
         if (!robot || !nextFrame || !isCurrent) { moving = false; return; }
         const values: Record<string, number> = {};
         for (const name of SO101_NAMES) {
-          const reading = nextFrame.measured.find(item => item.name === name);
+          const reading = (nextFrame.source_mode === 'LIVE_PHYSICAL' ? nextFrame.calibrated : nextFrame.measured)?.find(item => item.name === name);
           if (!reading) { moving = false; return; }
           const value = toUrdfRadians(name, reading.position, reading.unit);
-          if (value === null && name !== 'gripper') { moving = false; return; }
-          // Percent has no calibrated Jaw transfer function. Keep the model's zero pose.
-          values[name] = value ?? 0;
+          if (value === null) { moving = false; return; }
+          values[name] = value;
         }
         target = values; moving = true;
       };

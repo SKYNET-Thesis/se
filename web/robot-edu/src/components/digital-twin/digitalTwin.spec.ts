@@ -29,11 +29,16 @@ describe('so101_new_calib asset and mapping', () => {
     for (const filename of filenames) expect(existsSync(resolve(root, 'meshes', filename))).toBe(true);
     expect(() => resolveSo101Mesh('package://so_arm_description/meshes/unknown.stl')).toThrow();
   });
-  it('converts angular units without inventing signs or offsets, and enforces limits', () => {
+  it('converts LeLab SO-101 units without inventing signs or offsets, and enforces limits', () => {
     expect(toUrdfRadians('shoulder_pan', 90, 'deg')).toBeCloseTo(Math.PI / 2);
     expect(toUrdfRadians('shoulder_lift', -0.4, 'rad')).toBe(-0.4);
     expect(toUrdfRadians('elbow_flex', 2, 'rad')).toBeNull();
-    expect(toUrdfRadians('gripper', 50, 'percent')).toBeNull();
+    // LeLab's existing SO-101 viewer maps the calibrated follower's 0–100
+    // gripper observation directly to the URDF Jaw's -10°..100° range.
+    expect(toUrdfRadians('gripper', 0, 'percent')).toBe(0);
+    expect(toUrdfRadians('gripper', 50, 'percent')).toBeCloseTo(50 * Math.PI / 180);
+    expect(toUrdfRadians('gripper', 100, 'percent')).toBeCloseTo(100 * Math.PI / 180);
+    expect(toUrdfRadians('gripper', 101, 'percent')).toBeNull();
     expect(toUrdfRadians('gripper', 0.5, 'rad')).toBe(0.5);
     expect(toUrdfRadians('gripper', 90, 'deg')).toBeCloseTo(Math.PI / 2);
   });
@@ -74,6 +79,12 @@ describe('physical telemetry boundary', () => {
     };
     expect(parseTwinFrame(physical)?.source_mode).toBe('LIVE_PHYSICAL');
     expect(parseTwinFrame({ ...physical, calibration_status: 'invented' })).toBeNull();
-    expect(parseTwinFrame({ ...physical, calibration_status: 'VERIFIED' })?.calibration_status).toBe('VERIFIED');
+    expect(parseTwinFrame({ ...physical, calibration_status: 'VERIFIED', calibrated: physical.measured.map(reading => ({ ...reading, unit: 'rad' as const, position: reading.name === 'gripper' ? 0.3 : 0 })) })?.calibration_status).toBe('VERIFIED');
+    expect(parseTwinFrame({
+      ...physical,
+      measured: physical.measured.map(reading => reading.name === 'gripper'
+        ? { ...reading, position: 2, unit: 'rad' as const }
+        : reading),
+    })).toBeNull();
   });
 });

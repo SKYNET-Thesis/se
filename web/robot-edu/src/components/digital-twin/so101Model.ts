@@ -31,7 +31,15 @@ export function resolveSo101Mesh(path: string): string {
 }
 
 export function toUrdfRadians(name: So101JointName, position: number, unit: 'rad' | 'deg' | 'percent'): number | null {
-  if (name === 'gripper' && unit === 'percent') return null; // No measured percent→Jaw calibration.
+  // Reuse LeLab's SO-101 URDF mapping: its calibrated follower reports
+  // gripper.pos in 0..100, which is the Jaw angle expressed in degrees.
+  // This only converts a unit; physical frames still require VERIFIED before
+  // So101DigitalTwinViewer will apply any pose.
+  if (name === 'gripper' && unit === 'percent') {
+    const radians = position * Math.PI / 180;
+    const spec = SO101_JOINTS[name];
+    return Number.isFinite(radians) && radians >= spec.lower && radians <= spec.upper ? radians : null;
+  }
   if (unit === 'percent') return null;
   const radians = unit === 'deg' ? position * Math.PI / 180 : position;
   const spec = SO101_JOINTS[name];
