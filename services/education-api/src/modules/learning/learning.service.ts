@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
+import { Prisma } from "@prisma/client";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { PaginationDto } from "./dto/pagination.dto";
 import { CreateAssignmentDto } from "./dto/create-assignment.dto";
@@ -7,6 +8,13 @@ import { UpdateAssignmentDto } from "./dto/update-assignment.dto";
 import { LearningScopeService } from "./learning-scope.service";
 import { ProgressionService, QualifiedProgramVersionHandoff } from "./progression.service";
 import { normalizeLessonContent } from "./lesson-content.schema";
+import { assertCurriculumMutable, curriculumDeliverability, deliveryEvidence } from "./course-lifecycle";
+
+const requiredTitle = (value: string, label: string): string => {
+  const title = value.trim();
+  if (!title) throw new BadRequestException(`${label} cannot be empty.`);
+  return title;
+};
 
 @Injectable()
 export class LearningService {
@@ -15,6 +23,114 @@ export class LearningService {
     private readonly scope: LearningScopeService,
     private readonly progression?: ProgressionService,
   ) {}
+
+  async createGlobalCourse(user: AuthenticatedUser, input: { title: string; description?: string }) {
+    this.assertSystemAdministrator(user);
+    return this.prisma.learning_courses.create({ data: {
+      title: requiredTitle(input.title, 'Course title'), description: input.description?.trim(), status: 'draft', created_by: user.vistaUserId,
+    } });
+  }
+
+  async updateGlobalCourse(user: AuthenticatedUser, courseId: string, input: { title?: string; description?: string }) {
+    this.assertSystemAdministrator(user);
+    const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } });
+    if (!course) throw new NotFoundException('Course was not found.');
+    return this.prisma.learning_courses.update({ where: { id: courseId }, data: {
+      ...(input.title === undefined ? {} : { title: requiredTitle(input.title, 'Course title') }),
+      ...(input.description === undefined ? {} : { description: input.description.trim() }),
+    } });
+  }
+
+  async publishCourse(user: AuthenticatedUser, courseId: string) {
+    this.assertSystemAdministrator(user);
+    const course = await this.prisma.learning_courses.findUnique({ where: { id: courseId } });
+    if (!course || course.organization_id !== null) throw new NotFoundException('Course was not found.');
+    if (course.status === 'archived') throw new ConflictException('An archived course cannot be published.');
+    const lessons = await curriculumDeliverability(this.prisma, courseId);
+    if (!lessons.length) throw new ConflictException('A course needs at least one lesson before publishing.');
+    // Course 1 and other legacy courses deliver content through the activity adapter, not
+    // section rows, so requiring sections here would reject valid existing curricula.
+    const undeliverable = lessons.filter((lesson) => !lesson.legacyCourse && lesson.publishedActivities === 0);
+    if (undeliverable.length) {
+      throw new ConflictException(
+        `Every lesson needs at least one published section with a published activity before the course can be published (${undeliverable.length} lesson(s) are not deliverable).`,
+      );
+    }
+    return this.prisma.learning_courses.update({ where: { id: courseId }, data: { status: 'published' } });
+  }
+
+  async archiveCourse(user: AuthenticatedUser, courseId: string) {
+    this.assertSystemAdministrator(user);
+    const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } });
+    if (!course) throw new NotFoundException('Course was not found.');
+    const evidence = await deliveryEvidence(this.prisma, courseId);
+    if (evidence.activeEnrollments > 0 || evidence.activeOfferings > 0 || evidence.activeClassrooms > 0) {
+      throw new ConflictException(
+        'This course still has active delivery. Archive classrooms and deactivate offerings before archiving it.',
+      );
+    }
+    return this.prisma.learning_courses.update({ where: { id: courseId }, data: { status: 'archived' } });
+  }
+
+  async createCourseLesson(user: AuthenticatedUser, courseId: string, input: { title: string; content?: Record<string, unknown> }) {
+    this.assertSystemAdministrator(user); const course = await this.globalCourse(courseId);
+    await assertCurriculumMutable(this.prisma, courseId, 'Adding lessons');
+    const ordinal = (await this.prisma.learning_lessons.aggregate({ where: { course_id: courseId }, _max: { ordinal: true } }))._max.ordinal ?? 0;
+    return this.prisma.learning_lessons.create({ data: { course_id: courseId, title: requiredTitle(input.title, 'Lesson title')!, content: (input.content ?? {}) as Prisma.InputJsonValue, ordinal: ordinal + 1 } });
+  }
+
+  async updateCourseLesson(user: AuthenticatedUser, lessonId: string, input: { title?: string; content?: Record<string, unknown> }) {
+    this.assertSystemAdministrator(user); const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.globalCourse(lesson.course_id);
+    if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
+    // Titles are cosmetic; lesson body content is meaning-bearing for enrolled learners.
+    if (input.content !== undefined) await assertCurriculumMutable(this.prisma, lesson.course_id, 'Changing lesson content');
+    return this.prisma.learning_lessons.update({ where: { id: lessonId }, data: { ...(input.title === undefined ? {} : { title: requiredTitle(input.title, 'Lesson title') }), ...(input.content === undefined ? {} : { content: input.content as Prisma.InputJsonValue }) } });
+  }
+
+  async reorderCourseLessons(user: AuthenticatedUser, courseId: string, orderedIds: string[]) {
+    this.assertSystemAdministrator(user); const course = await this.globalCourse(courseId);
+    if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
+    await assertCurriculumMutable(this.prisma, courseId, 'Reordering lessons');
+    const current = await this.prisma.learning_lessons.findMany({ where: { course_id: courseId }, select: { id: true } });
+    if (current.length !== orderedIds.length || !current.every(l => orderedIds.includes(l.id))) throw new BadRequestException('Reorder must include every lesson exactly once.');
+    return this.prisma.$transaction(async tx => {
+      // Prisma creates @@unique as a unique index, not a deferrable constraint.
+      // Lock the course to serialize competing reorders, then move every ordinal
+      // out of the target range before assigning the requested positions.
+      await tx.$queryRaw`SELECT id FROM public.learning_courses WHERE id=${courseId}::uuid FOR UPDATE`;
+      const lessons = await tx.learning_lessons.findMany({ where: { course_id: courseId }, select: { id: true } });
+      if (lessons.length !== orderedIds.length || !lessons.every((lesson) => orderedIds.includes(lesson.id))) {
+        throw new BadRequestException('Reorder must include every lesson exactly once.');
+      }
+      await tx.$executeRaw`UPDATE public.learning_lessons SET ordinal=ordinal+${lessons.length} WHERE course_id=${courseId}::uuid`;
+      for (let i = 0; i < orderedIds.length; i += 1) {
+        await tx.learning_lessons.update({ where: { id: orderedIds[i] }, data: { ordinal: i + 1 } });
+      }
+      return { courseId, orderedIds };
+    });
+  }
+
+  async setLessonPrerequisites(user: AuthenticatedUser, lessonId: string, prerequisiteLessonIds: string[]) {
+    this.assertSystemAdministrator(user); const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.globalCourse(lesson.course_id);
+    if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
+    if (prerequisiteLessonIds.includes(lessonId)) throw new BadRequestException('A lesson cannot require itself.'); const count = await this.prisma.learning_lessons.count({ where: { id: { in: prerequisiteLessonIds }, course_id: lesson.course_id } }); if (count !== prerequisiteLessonIds.length) throw new BadRequestException('Prerequisites must belong to the course.');
+    if (prerequisiteLessonIds.length) {
+      const cycles = await this.prisma.$queryRaw<{ id: string }[]>`
+        WITH RECURSIVE dependencies(id) AS (
+          SELECT prerequisite_lesson_id FROM public.learning_lesson_prerequisites WHERE lesson_id=ANY(${prerequisiteLessonIds}::uuid[])
+          UNION SELECT p.prerequisite_lesson_id FROM public.learning_lesson_prerequisites p JOIN dependencies d ON p.lesson_id=d.id
+        ) SELECT id FROM dependencies WHERE id=${lessonId}::uuid LIMIT 1`;
+      if (cycles.length) throw new BadRequestException('Prerequisites cannot create a circular dependency.');
+    }
+    await assertCurriculumMutable(this.prisma, lesson.course_id, 'Changing lesson prerequisites');
+    return this.prisma.$transaction(async tx => { await tx.learning_lesson_prerequisites.deleteMany({ where: { lesson_id: lessonId } }); if (prerequisiteLessonIds.length) await tx.learning_lesson_prerequisites.createMany({ data: prerequisiteLessonIds.map(prerequisite_lesson_id => ({ lesson_id: lessonId, prerequisite_lesson_id, required: true })) }); return { lessonId, prerequisiteLessonIds }; });
+  }
+
+  private async globalCourse(courseId: string) { const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } }); if (!course) throw new NotFoundException('Course was not found.'); return course; }
+
+  private assertSystemAdministrator(user: AuthenticatedUser) {
+    if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException('Course was not found.');
+  }
 
   async courses(user: AuthenticatedUser, page: PaginationDto) {
     const unrestricted = this.scope.isSystemAdministrator(user);
@@ -44,7 +160,10 @@ export class LearningService {
 
   async lessonsForCourse(user: AuthenticatedUser, courseId: string) {
     await this.course(user, courseId);
-    return this.prisma.$queryRaw`SELECT id,course_id,title,content,ordinal,created_at FROM public.learning_lessons WHERE course_id=${courseId}::uuid ORDER BY ordinal`;
+    return this.prisma.$queryRaw`SELECT l.id,l.course_id,l.title,l.content,l.ordinal,l.created_at,
+      COALESCE((SELECT jsonb_agg(p.prerequisite_lesson_id ORDER BY prerequisite_lesson_id)
+        FROM public.learning_lesson_prerequisites p WHERE p.lesson_id=l.id),'[]'::jsonb) AS "prerequisiteLessonIds"
+      FROM public.learning_lessons l WHERE l.course_id=${courseId}::uuid ORDER BY l.ordinal`;
   }
 
   async lesson(user: AuthenticatedUser, lessonId: string) {

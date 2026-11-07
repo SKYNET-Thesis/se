@@ -6,6 +6,7 @@ import { ImportClassroomStudentsDto } from "./dto/import-classroom-students.dto"
 import { ImportSchoolUserRowDto } from "./dto/import-school-users.dto";
 import { classifyImportError, ImportProvisioningError, type ImportErrorCode } from "./import-errors";
 import { StudentProvisioningService } from "./student-provisioning.service";
+import { EnrollmentDeliveryService } from '../learning/enrollment-delivery.service';
 
 export type ClassroomStudentPreviewStatus = "new_student" | "existing_student" | "already_in_class" | "needs_review";
 export interface ClassroomStudentPreviewRow {
@@ -38,6 +39,7 @@ export class ClassroomStudentImportService {
     private readonly prisma: PrismaService,
     private readonly scope: LearningScopeService,
     private readonly studentProvisioning: StudentProvisioningService,
+    private readonly enrollments?: EnrollmentDeliveryService,
   ) {}
 
   async preview(user: AuthenticatedUser, organizationId: string, classroomId: string, dto: ImportClassroomStudentsDto) {
@@ -118,6 +120,9 @@ export class ClassroomStudentImportService {
       }
     }
 
+    if (results.some(item => item.status === 'created_and_added' || item.status === 'existing_added')) {
+      await this.enrollments?.synchronizeClassroom(classroomId);
+    }
     return {
       processed: results.length,
       createdAndAdded: results.filter(item => item.status === "created_and_added").length,

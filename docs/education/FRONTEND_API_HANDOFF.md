@@ -21,6 +21,15 @@ authorized workspace context.
 
 Expected protected-route errors: `401` missing/invalid token, `400` malformed DTO/validated UUID, `403` permission boundary where applicable, and `404` for unavailable or inaccessible scoped resources.
 
+## Course catalog and classroom enrollment lifecycle
+
+- System administrators manage global templates only through `POST /admin/courses`, `PATCH /admin/courses/:courseId`, `POST /admin/courses/:courseId/publish`, and `POST /admin/courses/:courseId/archive`. A course must be global and contain at least one lesson before it can be published. Archived courses are not re-published through this API.
+- School administrators browse assignable templates at `GET /education-admin/organizations/:organizationId/published-courses`, then create an organization-scoped delivery record with `POST /education-admin/organizations/:organizationId/course-offerings`. The server rejects unpublished and organization-owned templates.
+- A classroom is created against that offering through the existing classroom endpoint. `POST /education-admin/organizations/:organizationId/classrooms/:classroomId/archive` soft-archives a classroom and revokes only its active enrollments; historical learning rows remain intact.
+- Learner course-path reads are enrollment-driven. The browser must never fall back to `/courses` to populate **My Learning**; an active enrollment is required.
+- Adding a student to a classroom through `POST /education-admin/organizations/:organizationId/classrooms/:classroomId/members` or the classroom CSV import synchronizes that classroom's active published offering. The operation is idempotent and preserves existing lesson progress.
+- Remove a classroom member through `DELETE /education-admin/organizations/:organizationId/classrooms/:classroomId/members/:studentId`. This atomically changes the membership to `left` and only the matching classroom enrollment to `revoked`; it does not delete attempts, submissions, assessments, feedback, program versions, or experiment evidence. Another active classroom enrollment remains independently valid.
+
 ## Teacher review
 
 Start with `GET /me/classrooms`, then `GET /classrooms/:id/submissions`, `GET /submissions/:id`, and `GET /submissions/:id/assessment`. The detail includes the rubric criteria actually linked to the assignment. Save assessment through `POST /submissions/:id/assessment` (`overallFeedback?`, `scores[]`) and create human feedback through `POST /submissions/:id/feedback` (`content`). The server requires active organization membership, teacher/TA classroom relation and `learning.work.review`; assessment writes also require `learning.assessment.assess`.
