@@ -26,14 +26,18 @@ class AwsIotPublisher implements IotPublisher {
 export class IotCommandService {
   private readonly environment: NodeJS.ProcessEnv;
   private readonly publisher: IotPublisher | null;
+  private readonly now: () => number;
+  private readonly uuid: () => string;
   constructor(
     @Optional() @Inject("IOT_COMMAND_ENV") environment?: NodeJS.ProcessEnv,
     @Optional() @Inject("IOT_COMMAND_PUBLISHER") publisher?: IotPublisher,
-    private readonly now: () => number = () => Date.now(),
-    private readonly uuid: () => string = () => crypto.randomUUID(),
+    @Optional() @Inject("IOT_COMMAND_NOW") now?: () => number,
+    @Optional() @Inject("IOT_COMMAND_UUID") uuid?: () => string,
   ) {
     this.environment = environment ?? process.env;
     this.publisher = publisher ?? (this.environment.VISTA_IOT_ENABLED === "true" ? new AwsIotPublisher(this.environment) : null);
+    this.now = now ?? (() => Date.now());
+    this.uuid = uuid ?? (() => crypto.randomUUID());
   }
   enabled(): boolean { return this.publisher !== null; }
   createRunCommand(robotId: string, sequence: number, payload: Record<string, unknown>): IotRunCommand {

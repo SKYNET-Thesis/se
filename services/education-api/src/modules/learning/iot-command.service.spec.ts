@@ -1,6 +1,27 @@
 import { IotCommandService } from "./iot-command.service";
+import { Test } from "@nestjs/testing";
+import { PrismaService } from "../../common/database/prisma.service";
+import { IotPublishRecoveryService } from "./iot-publish-recovery.service";
 
 describe("IotCommandService", () => {
+  it("constructs through Nest without application-specific clock providers", async () => {
+    const module = await Test.createTestingModule({ providers: [IotCommandService] }).compile();
+
+    expect(module.get(IotCommandService).enabled()).toBe(false);
+  });
+
+  it("constructs the IoT recovery worker through Nest with its Prisma provider", async () => {
+    const module = await Test.createTestingModule({
+      providers: [
+        IotCommandService,
+        IotPublishRecoveryService,
+        { provide: PrismaService, useValue: { $transaction: jest.fn() } },
+      ],
+    }).compile();
+
+    expect(module.get(IotPublishRecoveryService)).toBeInstanceOf(IotPublishRecoveryService);
+  });
+
   it("creates a correlated command envelope before publishing it", async () => {
     const publish = jest.fn();
     const service = new IotCommandService(
