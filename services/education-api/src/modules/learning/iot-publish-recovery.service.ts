@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/database/prisma.service";
 import { IotCommandService, IotPublishDefiniteFailureError, IotRunCommand } from "./iot-command.service";
@@ -8,7 +8,17 @@ type Claimed = { command_id: string; robot_id: string; issued_at: Date; expires_
 /** Reconciles only commands whose database state proves no publish was attempted. */
 @Injectable()
 export class IotPublishRecoveryService {
-  constructor(private readonly prisma: Pick<PrismaService, "$transaction">, private readonly iot: IotCommandService, private readonly now: () => number = () => Date.now(), private readonly owner: () => string = () => crypto.randomUUID()) {}
+  private readonly now: () => number;
+  private readonly owner: () => string;
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly iot: IotCommandService,
+    @Optional() @Inject("IOT_PUBLISH_RECOVERY_NOW") now?: () => number,
+    @Optional() @Inject("IOT_PUBLISH_RECOVERY_OWNER") owner?: () => string,
+  ) {
+    this.now = now ?? (() => Date.now());
+    this.owner = owner ?? (() => crypto.randomUUID());
+  }
   async recoverOnce(limit = 10) {
     const now = this.now();
     const owner = this.owner();
