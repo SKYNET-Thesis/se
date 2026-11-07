@@ -71,6 +71,7 @@ packages/
 !database/*.sql
 !database/**/*.sql
 !services/education-api/prisma/migrations/20261104_curriculum_foundation/migration.sql
+!services/education-api/prisma/migrations/20261106_classroom_enrollment_lifecycle/migration.sql
 
 ########################################
 # ASP.NET Core

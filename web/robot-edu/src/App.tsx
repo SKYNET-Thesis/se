@@ -25,6 +25,7 @@ import { TeacherSubmissions } from './pages/teacher/TeacherSubmissions';
 import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminRobots } from './pages/admin/AdminRobots';
 import { AdminSettings } from './pages/admin/AdminSettings';
+import { AdminCourses } from './pages/admin/AdminCourses';
 import { NotFound } from './pages/NotFound';
 import { Login } from './pages/Login';
 import { LearningLoop } from './pages/LearningLoop';
@@ -84,6 +85,7 @@ export function App() {
                   <Route path="admin/users" element={<RequireRole roles={['admin']}><AdminUsers /></RequireRole>} />
                   <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />
                   <Route path="admin/settings" element={<RequireRole roles={['admin']}><AdminSettings /></RequireRole>} />
+                  <Route path="admin/courses" element={<RequireRole roles={['admin']}><AdminCourses /></RequireRole>} />
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />
                   <Route path="school/users" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="users" /></RequireRole>} />
                   <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />

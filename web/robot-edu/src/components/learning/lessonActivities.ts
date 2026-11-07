@@ -48,6 +48,19 @@ export interface LessonSummaryOrDetail {
   lockReason?: LessonLockReason | null;
   learningItems?: string[];
   estimatedMinutes?: number | null;
+  databaseSections?: Array<{
+    id: string;
+    title: string;
+    ordinal: number;
+    activities: Array<{
+      id: string;
+      title: string;
+      type: string;
+      ordinal: number;
+      required: boolean;
+      objectives?: unknown[];
+    }>;
+  }>;
 }
 
 export const activityTypeLabels: Record<LessonActivityType, string> = {
@@ -98,6 +111,23 @@ const demonstration = (
 });
 
 export function buildLessonActivitySections(lesson: LessonSummaryOrDetail): LessonActivitySection[] {
+  if (lesson.databaseSections && lesson.databaseSections.length > 0) {
+    return lesson.databaseSections.map((sec) => ({
+      title: sec.title,
+      items: (sec.activities ?? []).map((act) => ({
+        id: act.id,
+        type: (act.type as LessonActivityType) || 'reading',
+        title: act.title,
+        description: act.title,
+        durationMinutes: null,
+        status: 'neutral' as const,
+        actionable: true,
+        authoritative: false,
+        action: act.type === 'reading' || act.type === 'demonstration' ? 'reading' : act.type === 'knowledge_check' ? 'knowledge_check' : 'practice',
+      })),
+    }));
+  }
+
   const sections = lesson.content?.conceptSections ?? [];
   const summary = lesson.content?.summary ?? lesson.content?.taskPreview ?? '';
 

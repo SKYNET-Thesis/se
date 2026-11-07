@@ -1,14 +1,18 @@
-import { IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from "class-validator";
+import { IsInt, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from "class-validator";
+
+const nonBlank = { message: "Value cannot be empty or whitespace." };
 
 export class CreateClassroomDto {
   @IsUUID()
   offeringId!: string;
 
   @IsString()
+  @Matches(/\S/, nonBlank)
   @MaxLength(160)
   name!: string;
 
   @IsString()
+  @Matches(/\S/, nonBlank)
   @MaxLength(80)
   code!: string;
 

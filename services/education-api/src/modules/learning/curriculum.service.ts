@@ -3,6 +3,7 @@ import { PrismaService } from '../../common/database/prisma.service';
 import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
 import { ProgressionService } from './progression.service';
 import { activityIdsForLesson } from './activity-progress.service';
+import { assertCourseNotArchived, assertCurriculumMutable } from './course-lifecycle';
 
 const activityTypes = new Set([
   'reading', 'video', 'demonstration', 'guided_practice', 'knowledge_check',
@@ -54,8 +55,9 @@ export class CurriculumService {
   }
 
   async createSection(user: AuthenticatedUser, lessonId: string, input: SectionInput) {
-    await this.authorLesson(user, lessonId);
+    const lesson = await this.authorLesson(user, lessonId);
     validTitle(input.title); validOrdinal(input.ordinal);
+    await assertCurriculumMutable(this.prisma, lesson.course_id, 'Adding lesson sections');
     try {
       return await this.prisma.learning_sections.create({ data: { lesson_id: lessonId, title: input.title.trim(), ordinal: input.ordinal } });
     } catch (error) { throw uniqueConflict(error); }
@@ -65,6 +67,7 @@ export class CurriculumService {
     const section = await this.sectionForAuthor(user, sectionId);
     if (input.title !== undefined) validTitle(input.title);
     if (input.ordinal !== undefined) validOrdinal(input.ordinal);
+    if (input.ordinal !== undefined && input.ordinal !== section.ordinal) await assertCurriculumMutable(this.prisma, section.course_id, 'Reordering sections');
     try {
       return await this.prisma.learning_sections.update({ where: { id: section.id }, data: {
         ...(input.title !== undefined ? { title: input.title.trim() } : {}),
@@ -74,22 +77,27 @@ export class CurriculumService {
   }
 
   async reorderSections(user: AuthenticatedUser, lessonId: string, orderedIds: string[]) {
-    await this.authorLesson(user, lessonId);
+    const lesson = await this.authorLesson(user, lessonId);
     validOrder(orderedIds);
+    await assertCurriculumMutable(this.prisma, lesson.course_id, 'Reordering sections');
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM public.learning_lessons WHERE id=${lessonId}::uuid FOR UPDATE`;
       const existing = await tx.learning_sections.findMany({ where: { lesson_id: lessonId }, select: { id: true } });
       if (!sameIds(existing.map((row) => row.id), orderedIds)) throw new BadRequestException('Reorder must include every section exactly once.');
-      await tx.$executeRaw`SET CONSTRAINTS learning_sections_lesson_id_ordinal_key DEFERRED`;
-      await tx.$executeRaw`UPDATE public.learning_sections s SET ordinal=ordered.ordinal::int,updated_at=now()
-        FROM unnest(${orderedIds}::uuid[]) WITH ORDINALITY AS ordered(id,ordinal)
-        WHERE s.id=ordered.id AND s.lesson_id=${lessonId}::uuid`;
+      // Prisma emits @@unique as a non-deferrable unique index. Move the
+      // complete sibling set above the final range before filling it again.
+      await tx.$executeRaw`UPDATE public.learning_sections SET ordinal=ordinal+${existing.length},updated_at=now()
+        WHERE lesson_id=${lessonId}::uuid`;
+      for (let index = 0; index < orderedIds.length; index += 1) {
+        await tx.learning_sections.update({ where: { id: orderedIds[index] }, data: { ordinal: index + 1, updated_at: new Date() } });
+      }
       return { lessonId, orderedIds };
     });
   }
 
   async setSectionStatus(user: AuthenticatedUser, sectionId: string, status: 'draft' | 'published') {
     const section = await this.sectionForAuthor(user, sectionId);
+    await assertCurriculumMutable(this.prisma, section.course_id, 'Changing section publication status');
     if (status === 'draft' && section.status === 'published') {
       const evidence = await this.prisma.$queryRaw<{ id: string }[]>`
         SELECT p.id FROM public.learning_activity_progress p
@@ -108,6 +116,7 @@ export class CurriculumService {
 
   async createActivity(user: AuthenticatedUser, sectionId: string, input: ActivityInput) {
     const section = await this.sectionForAuthor(user, sectionId);
+    await assertCurriculumMutable(this.prisma, section.course_id, 'Adding section activities');
     validTitle(input.title); validOrdinal(input.ordinal); validType(input.type);
     const contentRef = validContentRef(input.contentRef);
     validTypeRef(input.type, contentRef);
@@ -130,9 +139,9 @@ export class CurriculumService {
     if (input.title !== undefined) validTitle(input.title);
     if (input.type !== undefined) validType(input.type);
     if (input.ordinal !== undefined) validOrdinal(input.ordinal);
-    if (activity.status === 'published' && (input.type !== undefined || input.contentRef !== undefined || input.required !== undefined || input.objectiveIds !== undefined)) {
-      throw new ConflictException('Published activity definitions cannot be changed in place.');
-    }
+    const meaningBearing = input.type !== undefined || input.contentRef !== undefined || input.required !== undefined
+      || input.objectiveIds !== undefined || (input.ordinal !== undefined && input.ordinal !== activity.ordinal);
+    if (meaningBearing) await assertCurriculumMutable(this.prisma, activity.course_id, 'Changing activity definitions');
     const contentRef = input.contentRef === undefined ? undefined : validContentRef(input.contentRef);
     if (contentRef) await this.validateAssignmentRef(contentRef, activity.learning_sections.lesson_id);
     validTypeRef(input.type ?? activity.type, contentRef ?? validContentRef(activity.content_ref));
@@ -156,22 +165,27 @@ export class CurriculumService {
   }
 
   async reorderActivities(user: AuthenticatedUser, sectionId: string, orderedIds: string[]) {
-    await this.sectionForAuthor(user, sectionId);
+    const section = await this.sectionForAuthor(user, sectionId);
     validOrder(orderedIds);
+    await assertCurriculumMutable(this.prisma, section.course_id, 'Reordering activities');
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM public.learning_sections WHERE id=${sectionId}::uuid FOR UPDATE`;
       const existing = await tx.learning_activities.findMany({ where: { section_id: sectionId }, select: { id: true } });
       if (!sameIds(existing.map((row) => row.id), orderedIds)) throw new BadRequestException('Reorder must include every activity exactly once.');
-      await tx.$executeRaw`SET CONSTRAINTS learning_activities_section_id_ordinal_key DEFERRED`;
-      await tx.$executeRaw`UPDATE public.learning_activities a SET ordinal=ordered.ordinal::int,updated_at=now()
-        FROM unnest(${orderedIds}::uuid[]) WITH ORDINALITY AS ordered(id,ordinal)
-        WHERE a.id=ordered.id AND a.section_id=${sectionId}::uuid`;
+      // See section reordering above: these @@unique declarations are indexes,
+      // so each sibling must leave the target range before reassignment.
+      await tx.$executeRaw`UPDATE public.learning_activities SET ordinal=ordinal+${existing.length},updated_at=now()
+        WHERE section_id=${sectionId}::uuid`;
+      for (let index = 0; index < orderedIds.length; index += 1) {
+        await tx.learning_activities.update({ where: { id: orderedIds[index] }, data: { ordinal: index + 1, updated_at: new Date() } });
+      }
       return { sectionId, orderedIds };
     });
   }
 
   async setActivityStatus(user: AuthenticatedUser, activityId: string, status: 'draft' | 'published') {
     const activity = await this.activityForAuthor(user, activityId);
+    await assertCurriculumMutable(this.prisma, activity.course_id, 'Changing activity publication status');
     if (status === 'published') {
       if (activity.type === 'physical_lab') throw new ConflictException('Physical labs require an approved course-specific evidence policy.');
       if (activity.learning_sections.status !== 'published') throw new ConflictException('Publish the section first.');
@@ -230,15 +244,17 @@ export class CurriculumService {
   private async sectionForAuthor(user: AuthenticatedUser, sectionId: string) {
     const section = await this.prisma.learning_sections.findUnique({ where: { id: sectionId } });
     if (!section) throw new NotFoundException('Section was not found.');
-    await this.authorLesson(user, section.lesson_id);
-    return section;
+    const lesson = await this.authorLesson(user, section.lesson_id);
+    await assertCourseNotArchived(this.prisma, lesson.course_id, 'Changing lesson sections');
+    return { ...section, course_id: lesson.course_id };
   }
 
   private async activityForAuthor(user: AuthenticatedUser, activityId: string) {
     const activity = await this.prisma.learning_activities.findUnique({ where: { id: activityId }, include: { learning_sections: true } });
     if (!activity) throw new NotFoundException('Activity was not found.');
-    await this.authorLesson(user, activity.learning_sections.lesson_id);
-    return activity;
+    const lesson = await this.authorLesson(user, activity.learning_sections.lesson_id);
+    await assertCourseNotArchived(this.prisma, lesson.course_id, 'Changing lesson activities');
+    return { ...activity, course_id: lesson.course_id };
   }
 
   private async validObjectiveIds(ids: string[], lessonId: string): Promise<string[]> {
