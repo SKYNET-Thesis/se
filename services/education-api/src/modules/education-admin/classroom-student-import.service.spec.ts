@@ -118,6 +118,18 @@ describe("ClassroomStudentImportService confirm", () => {
     expect(addExisting).toHaveBeenCalledWith({ userId: "user-existing", membershipId: "membership-existing" }, "class-a");
   });
 
+  it('synchronizes enrollment once after importing one or more students', async () => {
+    const synchronizeClassroom = jest.fn().mockResolvedValue([]);
+    const importingService = new ClassroomStudentImportService(
+      { learning_classrooms: { findFirst: findClassroom }, $queryRaw: queryRaw } as never,
+      scope as never,
+      { provision, addExistingStudentToClassroom: addExisting } as never,
+      { synchronizeClassroom } as never,
+    );
+    await importingService.confirm(actor, 'school-a', 'class-a', { rows: [{ firstName: 'New', lastName: 'Student', studentCode: 'NEW-1', gradeLevel: 'Grade 3' }] });
+    expect(synchronizeClassroom).toHaveBeenCalledWith('class-a');
+  });
+
   it("reimport is idempotent and does not provision or add rows already in the classroom", async () => {
     queryRaw.mockResolvedValue([{ code: "member-1", userId: "user-member", membershipId: "membership-member", roleCode: "student", fullName: "Member Student", email: null, gradeLevel: "Grade 5", guardianEmail: null, classroomMemberId: "cm-1" }]);
     const result = await service.confirm(actor, "school-a", "class-a", { rows: [{ firstName: "Member", lastName: "Student", studentCode: "MEMBER-1", gradeLevel: "Grade 5" }] });

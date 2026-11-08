@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { ArrowRightIcon, BellIcon, BookOpenIcon, Clock3Icon, GraduationCapIcon, SearchIcon, SearchXIcon, SparklesIcon, UsersIcon } from "lucide-react";
 import { catalogApi, learnerApi, progressionApi, type ApiAttempt, type ApiCourse, type ApiEnrollment, type CoursePathResponse } from "../lib/api";
 import { useSupabaseSession } from "../contexts/SupabaseSessionContext";
+import { useRole } from "../contexts/RoleContext";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Badge } from "../components/ui/Badge";
 import { ProgressBar } from "../components/ui/ProgressBar";
@@ -12,6 +13,7 @@ interface CourseCard extends ApiCourse { lessonCount: number; access: "enrolled"
 /** The authenticated learner's course home; access is determined by Nest. */
 export function Courses() {
   const { session } = useSupabaseSession();
+  const { role } = useRole();
   const [courses, setCourses] = useState<CourseCard[]>([]);
   const [attempts, setAttempts] = useState<ApiAttempt[]>([]);
   const [query, setQuery] = useState("");
@@ -19,7 +21,7 @@ export function Courses() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || role === 'admin') return;
     let active = true;
     void (async () => {
       const [result, enrollments, ownAttempts, paths] = await Promise.all([
@@ -41,6 +43,10 @@ export function Courses() {
   }, [courses, query]);
   const inProgress = attempts.filter((attempt) => attempt.status === "in_progress").length;
   const name = session?.user.email?.split("@")[0] ?? "Learner";
+
+  if (role === 'admin') {
+    return <Navigate to="/admin/courses" replace />;
+  }
 
   return <main className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-8 md:py-9">
     <header className="grid gap-6 border-b border-line pb-7 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">

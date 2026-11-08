@@ -8,10 +8,19 @@ import { CreateAssignmentDto } from "./dto/create-assignment.dto";
 import { UpdateAssignmentDto } from "./dto/update-assignment.dto";
 import { Body, Patch, Post } from "@nestjs/common";
 import { LearningService } from "./learning.service";
+import { CreateCourseDto, CreateLessonDto, LessonPrerequisitesDto, ReorderLessonsDto, UpdateCourseDto, UpdateLessonDto } from './dto/course-catalog.dto';
 @ApiTags("Learning") @ApiBearerAuth() @UseGuards(SupabaseAuthGuard)
 @Controller()
 export class LearningController {
  constructor(private readonly learning: LearningService) {}
+ @Post('admin/courses') createGlobalCourse(@CurrentUser() u:AuthenticatedUser,@Body() dto:CreateCourseDto){return this.learning.createGlobalCourse(u,dto)}
+ @Patch('admin/courses/:courseId') updateGlobalCourse(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string,@Body() dto:UpdateCourseDto){return this.learning.updateGlobalCourse(u,id,dto)}
+ @Post('admin/courses/:courseId/publish') publishCourse(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string){return this.learning.publishCourse(u,id)}
+ @Post('admin/courses/:courseId/archive') archiveCourse(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string){return this.learning.archiveCourse(u,id)}
+ @Post('admin/courses/:courseId/lessons') createLesson(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string,@Body() dto:CreateLessonDto){return this.learning.createCourseLesson(u,id,dto)}
+ @Patch('admin/lessons/:lessonId') updateLesson(@CurrentUser() u:AuthenticatedUser,@Param('lessonId',ParseUUIDPipe) id:string,@Body() dto:UpdateLessonDto){return this.learning.updateCourseLesson(u,id,dto)}
+ @Post('admin/courses/:courseId/lessons/order') reorderLessons(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string,@Body() dto:ReorderLessonsDto){return this.learning.reorderCourseLessons(u,id,dto.orderedIds)}
+ @Post('admin/lessons/:lessonId/prerequisites') prerequisites(@CurrentUser() u:AuthenticatedUser,@Param('lessonId',ParseUUIDPipe) id:string,@Body() dto:LessonPrerequisitesDto){return this.learning.setLessonPrerequisites(u,id,dto.prerequisiteLessonIds)}
  @Get("courses") courses(@CurrentUser() u:AuthenticatedUser,@Query() q:PaginationDto){return this.learning.courses(u,q)}
  @Get("courses/:courseId") course(@CurrentUser() u:AuthenticatedUser,@Param("courseId") id:string){return this.learning.course(u,id)}
  @Get("courses/:courseId/lessons") lessons(@CurrentUser() u:AuthenticatedUser,@Param("courseId") id:string){return this.learning.lessonsForCourse(u,id)}

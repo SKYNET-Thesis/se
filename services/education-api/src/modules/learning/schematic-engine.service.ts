@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { assertRobotProgramBounds } from "./robot-program-limits";
 
 export interface SchematicObjectConfig {
   objectId: string;
@@ -61,6 +62,7 @@ export interface SchematicArtifact {
 @Injectable()
 export class SchematicEngineService {
   render(robotProgram: unknown, robotProgramVersionId: string, options?: SchematicRenderOptions): SchematicArtifact {
+    assertRobotProgramBounds(robotProgram);
     if (!robotProgram || typeof robotProgram !== "object") throw new BadRequestException("Program version has malformed RobotProgram IR.");
     const value = robotProgram as Record<string, unknown>;
     if (value.kind !== "robot_program" || value.schemaVersion !== 1 || !Array.isArray(value.steps)) throw new BadRequestException("Program version is not canonical RobotProgram IR version 1.");

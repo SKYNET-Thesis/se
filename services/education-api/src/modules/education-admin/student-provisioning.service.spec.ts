@@ -1,40 +1,49 @@
+import { createHash } from "node:crypto";
 import { StudentProvisioningService } from "./student-provisioning.service";
 
 describe("StudentProvisioningService", () => {
   const txQueryRaw = jest.fn();
   const txExecuteRaw = jest.fn();
   const transaction = jest.fn();
-  const invite = jest.fn();
-  const service = new StudentProvisioningService({ $transaction: transaction } as never, { invite } as never);
+  const service = new StudentProvisioningService({ $transaction: transaction } as never);
 
   beforeEach(() => {
-    txQueryRaw.mockReset().mockResolvedValue([{ id: "user-new" }]);
+    txQueryRaw.mockReset().mockImplementation((strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("education_school_user_profiles")) return [];
+      if (query.includes("INSERT INTO public.users")) return [{ id: "user-new" }];
+      if (query.includes("INSERT INTO public.memberships")) return [{ id: "membership-new" }];
+      return [];
+    });
     txExecuteRaw.mockReset().mockResolvedValue(1);
     transaction.mockReset().mockImplementation(async callback => callback({ $queryRaw: txQueryRaw, $executeRaw: txExecuteRaw }));
-    invite.mockReset();
   });
 
-  it("provisions a no-email student and classroom membership in one DB transaction", async () => {
+  it("provisions a student without an auth email and returns a one-time setup code", async () => {
     const result = await service.provision("school-a", { firstName: "Bao", lastName: "Ngoc", studentCode: "S1", gradeLevel: "Grade 3" }, "class-a");
 
-    expect(result).toEqual({ userId: "user-new" });
-    expect(invite).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ userId: "user-new", status: "created", setupCode: expect.any(String) });
     expect(transaction).toHaveBeenCalledTimes(1);
-    expect(txQueryRaw.mock.calls[0]).toContain(null);
+    expect(txQueryRaw.mock.calls[0][0].join(" ")).toContain("SELECT 1 FROM pg_advisory_xact_lock");
     expect(txExecuteRaw.mock.calls.flat().join(" ")).toContain("account_setup_pending");
     expect(txExecuteRaw.mock.calls.flat().join(" ")).toContain("learning_classroom_members");
+    const tokenQuery = txExecuteRaw.mock.calls.find(call => call[0].join(" ").includes("auth_tokens"));
+    expect(tokenQuery).toBeDefined();
+    expect(tokenQuery).not.toContain(result.setupCode);
+    expect(tokenQuery?.[2]).toBe(createHash("sha256").update(result.setupCode as string).digest("hex"));
+    expect(tokenQuery?.[3]).toBeInstanceOf(Date);
   });
 
-  it("uses the existing idempotent Supabase invitation path for an email student", async () => {
-    invite.mockResolvedValue({ id: "00000000-0000-4000-8000-000000000010" });
-    await service.provision("school-a", { firstName: "Minh", lastName: "Khoa", studentCode: "S2", gradeLevel: "Grade 7", email: "MINH@example.com" }, "class-a");
-    expect(invite).toHaveBeenCalledWith("minh@example.com", "Minh Khoa");
-  });
+  it("does not rotate an unexpired setup code on student re-import", async () => {
+    txQueryRaw.mockImplementation((strings: TemplateStringsArray) => strings.join(" ").includes("education_school_user_profiles")
+      ? [{ user_id: "user-existing", auth_user_id: null, account_state: "account_setup_pending", has_live_setup_code: true }]
+      : []);
 
-  it("does not start a DB transaction or create classroom membership when invitation fails", async () => {
-    invite.mockRejectedValue(new Error("provider failure"));
-    await expect(service.provision("school-a", { firstName: "Minh", lastName: "Khoa", studentCode: "S2", gradeLevel: "Grade 7", email: "minh@example.com" }, "class-a")).rejects.toThrow("provider failure");
-    expect(transaction).not.toHaveBeenCalled();
+    await expect(service.provision("school-a", { firstName: "Bao", lastName: "Ngoc", studentCode: "S1", gradeLevel: "Grade 3" })).resolves.toEqual({
+      userId: "user-existing",
+      status: "unchanged",
+      setupCode: undefined,
+    });
     expect(txExecuteRaw).not.toHaveBeenCalled();
   });
 

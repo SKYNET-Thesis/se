@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from runtime import CheckikHttpAdapter, Runtime
+from iot import IotBridge
 
 
 def config():
@@ -148,6 +149,43 @@ class RuntimeContractTests(unittest.TestCase):
         while runtime.get("run-1")["state"] not in {"failed", "succeeded"} and time.time() < deadline:
             time.sleep(0.01)
         self.assertEqual(runtime.get("run-1")["errorCode"], "runtime_execution_timeout")
+
+
+class IotBridgeTests(unittest.TestCase):
+    def test_rejects_expired_or_replayed_commands_without_executing_runtime(self):
+        class FakeRuntime:
+            def __init__(self): self.submissions = []
+            def submit(self, value): self.submissions.append(value); return {"state": "queued"}
+            def status(self): return {"hardwareEnabled": False, "stopped": False}
+        bridge = IotBridge({"thingName": "vista-demo-so101-001", "topicPrefix": "vista/demo/robots/so101-001"}, FakeRuntime(), clock=lambda: 1000)
+        expired = {"schemaVersion": 1, "commandId": "c-1", "robotId": "vista-demo-so101-001", "sequence": 1, "expiresAtMs": 999, "kind": "run", "payload": {}}
+        bridge.handle_command(expired)
+        replay = expired | {"commandId": "c-2", "expiresAtMs": 1001}
+        bridge.handle_command(replay)
+        self.assertEqual([item["status"] for item in bridge.acks], ["rejected", "accepted"])
+        self.assertEqual(len(bridge.runtime.submissions), 1)
+
+    def test_publishes_ack_status_and_fake_telemetry_without_hardware(self):
+        class FakeRuntime:
+            def submit(self, _value): return {"state": "preflight_failed", "errorCode": "hardware_not_commissioned"}
+            def status(self): return {"hardwareEnabled": False, "stopped": False}
+        bridge = IotBridge({"thingName": "vista-demo-so101-001", "topicPrefix": "vista/demo/robots/so101-001", "fakeRobot": True}, FakeRuntime(), clock=lambda: 1000)
+        bridge.handle_command({"schemaVersion": 1, "commandId": "c-1", "robotId": "vista-demo-so101-001", "sequence": 1, "expiresAtMs": 1001, "kind": "run", "payload": {}})
+        published = bridge.drain_publications()
+        self.assertEqual({topic.rsplit("/", 1)[-1] for topic, _ in published}, {"ack", "status", "telemetry"})
+        self.assertFalse(next(value for topic, value in published if topic.endswith("/status"))["hardwareEnabled"])
+
+    def test_deduplicates_redelivery_by_command_id(self):
+        class FakeRuntime:
+            def __init__(self): self.submissions = []
+            def submit(self, value): self.submissions.append(value); return {"state": "queued"}
+            def status(self): return {"hardwareEnabled": False, "stopped": False}
+        bridge = IotBridge({"thingName": "vista-demo-so101-001", "topicPrefix": "vista/demo/robots/so101-001"}, FakeRuntime(), clock=lambda: 1000)
+        command = {"schemaVersion": 1, "commandId": "stable-command", "robotId": "vista-demo-so101-001", "sequence": 1, "expiresAtMs": 1001, "kind": "run", "payload": {}}
+        bridge.handle_command(command)
+        bridge.handle_command(command)
+        self.assertEqual(len(bridge.runtime.submissions), 1)
+        self.assertEqual([item["status"] for item in bridge.acks], ["accepted", "accepted"])
 
 
 if __name__ == "__main__":

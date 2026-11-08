@@ -131,7 +131,7 @@ export function SimulationResult() {
           </>
         )}
         <span className="font-medium text-ink">
-          C1-L{currentOrdinal} {evaluation.lesson?.title ?? 'Practice'} Result
+          {evaluation.lesson?.title ?? 'Practice'} Result
         </span>
       </nav>
 

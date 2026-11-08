@@ -9,10 +9,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import signal
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent))
 from runtime import CheckikHttpAdapter, ContractError, Runtime  # noqa: E402
+from iot import IotBridge, TlsSettings  # noqa: E402
 
 
 def load_config(path: Path) -> dict:
@@ -105,7 +107,23 @@ def main() -> None:
     host = config.get("bindHost", "127.0.0.1")
     port = config.get("port", 8015)
     server = ThreadingHTTPServer((host, port), Handler)
-    server.serve_forever()
+    bridge = None
+    iot = config.get("iot")
+    if isinstance(iot, dict) and iot.get("enabled") is True:
+        required = {name: os.environ.get(name, "") for name in ("VISTA_IOT_ENDPOINT", "VISTA_IOT_CA_PATH", "VISTA_IOT_CERTIFICATE_PATH", "VISTA_IOT_PRIVATE_KEY_PATH")}
+        if not all(required.values()):
+            raise SystemExit("AWS IoT TLS endpoint and certificate paths are required when iot.enabled is true")
+        bridge = IotBridge(iot, Handler.runtime)
+        bridge.connect(TlsSettings(endpoint=required["VISTA_IOT_ENDPOINT"], thing_name=iot["thingName"], ca_path=required["VISTA_IOT_CA_PATH"], certificate_path=required["VISTA_IOT_CERTIFICATE_PATH"], private_key_path=required["VISTA_IOT_PRIVATE_KEY_PATH"]))
+    def shutdown(_signal, _frame):
+        if bridge: bridge.close()
+        server.shutdown()
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+    try:
+        server.serve_forever()
+    finally:
+        if bridge: bridge.close()
 
 
 if __name__ == "__main__":

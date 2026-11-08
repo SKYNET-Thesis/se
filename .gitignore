@@ -13,9 +13,12 @@ obj/
 .packages
 __pycache__/
 *.pyc
+.pytest_cache/
 .venv/
 .idea/
 .vscode/
+.claude/settings.local.json
+.claude/*.local.json
 .expo/
 .expo-export-test/
 .expo-web-test/
@@ -51,6 +54,10 @@ BenchmarkDotNet.Artifacts/
 *.nupkg
 *.snupkg
 packages/
+# Keep source contracts at the repository root visible to Git.
+!/packages/
+/packages/*
+!/packages/contracts/
 
 # Uncomment ONLY if you do not use PackageReference
 # !packages/build/
@@ -61,8 +68,13 @@ packages/
 
 # Generated SQL scripts (optional)
 *.sql
+!services/education-api/prisma/migrations/20261106_question_bank_quiz_attempt/migration.sql
+!services/education-api/prisma/migrations/20261105_question_bank_foundation/migration.sql
 !database/*.sql
 !database/**/*.sql
+!services/education-api/prisma/migrations/20261104_curriculum_foundation/migration.sql
+!services/education-api/prisma/migrations/20261106_classroom_enrollment_lifecycle/migration.sql
+!services/education-api/prisma/migrations/20261106_iot_publish_intent/migration.sql
 
 ########################################
 # ASP.NET Core
@@ -72,4 +84,29 @@ appsettings.Development.json
 
 .tmp-review/ 
 apps/mobile/android/ 
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+!**/*.tfvars.example
+**/*.tfvars.json
+!**/*.tfvars.example.json
+**/backend.hcl
+**/crash.log
+**/*.tfplan
+**/plan.out
+**/tfplan
+# Local cloud credentials and private key material.
+.aws/
+**/aws-credentials*
+**/id_rsa
+**/id_ed25519
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.key
+!**/*.example.pem
+!**/*.example.key
+!**/fixtures/**/*.pem
+!**/fixtures/**/*.key
 VISTA_SEP490_FA26S183_R2_REPORTS_BM01_FIXED/

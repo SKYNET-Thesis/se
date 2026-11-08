@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -102,6 +103,7 @@ model audit_logs {
 model auth_tokens {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   user_id    String    @db.Uuid
+  /// Includes student_setup and password_reset; token values are never stored, only their hashes.
   purpose    String
   token_hash String    @unique
   expires_at DateTime  @db.Timestamptz(6)
@@ -430,31 +432,34 @@ model org_entitlements {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model organizations {
-  id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                      String
-  type                      String
-  segment                   String
-  status                    String                      @default("active")
-  contract_start            DateTime?                   @db.Date
-  contract_end              DateTime?                   @db.Date
-  converted_from_lead_id    String?                     @db.Uuid
-  personal_owner_user_id    String?                     @unique @db.Uuid
-  created_at                DateTime                    @default(now()) @db.Timestamptz(6)
-  updated_at                DateTime                    @default(now()) @db.Timestamptz(6)
-  ai_models                 ai_models[]
-  audit_logs                audit_logs[]
-  dataset_versions          dataset_versions[]
-  demonstration_episodes    demonstration_episodes[]
-  learning_challenges       learning_challenges[]
-  learning_classrooms       learning_classrooms[]
-  learning_course_offerings learning_course_offerings[]
-  learning_courses          learning_courses[]
-  licenses                  licenses[]
-  memberships               memberships[]
-  org_entitlements          org_entitlements[]
-  leads                     leads?                      @relation(fields: [converted_from_lead_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users                     users?                      @relation(fields: [personal_owner_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  robots                    robots[]
+  id                             String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                           String
+  /// Stable, non-secret code used with student_code to resolve a student profile.
+  school_code                    String?                          @unique
+  type                           String
+  segment                        String
+  status                         String                           @default("active")
+  contract_start                 DateTime?                        @db.Date
+  contract_end                   DateTime?                        @db.Date
+  converted_from_lead_id         String?                          @db.Uuid
+  personal_owner_user_id         String?                          @unique @db.Uuid
+  created_at                     DateTime                         @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime                         @default(now()) @db.Timestamptz(6)
+  ai_models                      ai_models[]
+  audit_logs                     audit_logs[]
+  dataset_versions               dataset_versions[]
+  demonstration_episodes         demonstration_episodes[]
+  learning_challenges            learning_challenges[]
+  learning_classrooms            learning_classrooms[]
+  learning_course_offerings      learning_course_offerings[]
+  learning_courses               learning_courses[]
+  learning_questions             learning_questions[]
+  licenses                       licenses[]
+  memberships                    memberships[]
+  org_entitlements               org_entitlements[]
+  leads                          leads?                           @relation(fields: [converted_from_lead_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users                          users?                           @relation(fields: [personal_owner_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  robots                         robots[]
   education_school_user_profiles education_school_user_profiles[]
 }
 
@@ -509,23 +514,23 @@ model readiness_checks {
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model robots {
-  id                    String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  serial_no             String             @unique
-  name                  String
-  model_name            String             @default("SO-101")
-  firmware_version      String?
-  status                String             @default("available")
-  owner_organization_id String?            @db.Uuid
-  notes                 String?
-  created_at            DateTime           @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime           @default(now()) @db.Timestamptz(6)
-  arms                  arms[]
-  control_sessions      control_sessions[]
-  licenses              licenses[]
-  org_entitlements      org_entitlements[]
-  readiness_checks      readiness_checks[]
+  id                                   String                                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serial_no                            String                                 @unique
+  name                                 String
+  model_name                           String                                 @default("SO-101")
+  firmware_version                     String?
+  status                               String                                 @default("available")
+  owner_organization_id                String?                                @db.Uuid
+  notes                                String?
+  created_at                           DateTime                               @default(now()) @db.Timestamptz(6)
+  updated_at                           DateTime                               @default(now()) @db.Timestamptz(6)
+  arms                                 arms[]
+  control_sessions                     control_sessions[]
+  licenses                             licenses[]
+  org_entitlements                     org_entitlements[]
+  readiness_checks                     readiness_checks[]
   learning_classroom_robot_allocations learning_classroom_robot_allocations[]
-  organizations         organizations?     @relation(fields: [owner_organization_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organizations                        organizations?                         @relation(fields: [owner_organization_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model role_permissions {
@@ -663,56 +668,61 @@ model user_system_roles {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model users {
-  id                              String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  auth_user_id                    String?                           @unique @db.Uuid
-  email                           String?
-  password_hash                   String?
-  full_name                       String
-  status                          String                            @default("invited")
-  signup_method                   String
-  email_verified_at               DateTime?                         @db.Timestamptz(6)
-  last_login_at                   DateTime?                         @db.Timestamptz(6)
-  created_at                      DateTime                          @default(now()) @db.Timestamptz(6)
-  updated_at                      DateTime                          @default(now()) @db.Timestamptz(6)
-  ai_models                       ai_models[]
-  api_keys                        api_keys[]
-  app_installations               app_installations[]
-  audit_logs                      audit_logs[]
-  auth_tokens                     auth_tokens[]
-  calibration_profiles            calibration_profiles[]
-  dataset_versions                dataset_versions[]
-  demo_bookings                   demo_bookings[]
-  demonstration_episodes          demonstration_episodes[]
-  evaluation_runs                 evaluation_runs[]
-  learning_assessments            learning_assessments[]
-  learning_assignment_attempts    learning_assignment_attempts[]
-  learning_challenges             learning_challenges[]
-  learning_classroom_assignments  learning_classroom_assignments[]
-  learning_classroom_members      learning_classroom_members[]
-  learning_classrooms             learning_classrooms[]
+  id                                   String                                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  auth_user_id                         String?                                @unique @db.Uuid
+  /// Optional contact or recovery email; student login uses an alias derived from this row's id.
+  email                                String?
+  full_name                            String
+  status                               String                                 @default("invited")
+  signup_method                        String
+  email_verified_at                    DateTime?                              @db.Timestamptz(6)
+  last_login_at                        DateTime?                              @db.Timestamptz(6)
+  created_at                           DateTime                               @default(now()) @db.Timestamptz(6)
+  updated_at                           DateTime                               @default(now()) @db.Timestamptz(6)
+  ai_models                            ai_models[]
+  api_keys                             api_keys[]
+  app_installations                    app_installations[]
+  audit_logs                           audit_logs[]
+  auth_tokens                          auth_tokens[]
+  calibration_profiles                 calibration_profiles[]
+  dataset_versions                     dataset_versions[]
+  demo_bookings                        demo_bookings[]
+  demonstration_episodes               demonstration_episodes[]
+  evaluation_runs                      evaluation_runs[]
+  learning_assessments                 learning_assessments[]
+  learning_assignment_attempts         learning_assignment_attempts[]
+  learning_challenges                  learning_challenges[]
+  learning_classroom_assignments       learning_classroom_assignments[]
+  learning_classroom_members           learning_classroom_members[]
+  learning_classrooms                  learning_classrooms[]
   learning_classroom_robot_allocations learning_classroom_robot_allocations[]
-  learning_competency_progress    learning_competency_progress[]
-  learning_course_offerings       learning_course_offerings[]
-  learning_courses                learning_courses[]
-  learning_enrollments            learning_enrollments[]
-  learning_experiment_comparisons learning_experiment_comparisons[]
-  learning_experiments            learning_experiments[]
-  learning_symbolic_evaluations   learning_symbolic_evaluations[] @relation("learning_symbolic_evaluations_requested_by")
-  learning_feedback               learning_feedback[]
-  learning_lesson_progress        learning_lesson_progress[]
-  learning_program_versions       learning_program_versions[]
-  learning_programs               learning_programs[]
-  learning_reflections            learning_reflections[]
-  learning_submissions            learning_submissions[]
-  learning_vla_interactions       learning_vla_interactions[]
-  memberships                     memberships[]
-  org_entitlements                org_entitlements[]
-  organizations                   organizations?
-  readiness_checks                readiness_checks[]
-  safety_events                   safety_events[]
-  training_runs                   training_runs[]
-  user_system_roles               user_system_roles[]
-  education_school_user_profiles education_school_user_profiles[]
+  learning_competency_progress         learning_competency_progress[]
+  learning_course_offerings            learning_course_offerings[]
+  learning_courses                     learning_courses[]
+  learning_enrollments                 learning_enrollments[]
+  learning_experiment_comparisons      learning_experiment_comparisons[]
+  learning_experiments                 learning_experiments[]
+  learning_symbolic_evaluations        learning_symbolic_evaluations[]        @relation("learning_symbolic_evaluations_requested_by")
+  learning_feedback                    learning_feedback[]
+  learning_activity_progress           learning_activity_progress[]
+  learning_lesson_progress             learning_lesson_progress[]
+  learning_program_versions            learning_program_versions[]
+  learning_programs                    learning_programs[]
+  learning_reflections                 learning_reflections[]
+  learning_submissions                 learning_submissions[]
+  learning_vla_interactions            learning_vla_interactions[]
+  memberships                          memberships[]
+  org_entitlements                     org_entitlements[]
+  organizations                        organizations?
+  readiness_checks                     readiness_checks[]
+  safety_events                        safety_events[]
+  training_runs                        training_runs[]
+  user_system_roles                    user_system_roles[]
+  education_school_user_profiles       education_school_user_profiles[]
+  learning_questions                   learning_questions[]                   @relation("question_creator")
+  learning_question_versions_authored  learning_question_versions[]           @relation("question_version_author")
+  learning_question_versions_reviewed  learning_question_versions[]           @relation("question_version_reviewer")
+  learning_question_versions_published learning_question_versions[]           @relation("question_version_publisher")
 }
 
 model education_school_user_profiles {
@@ -731,6 +741,8 @@ model education_school_user_profiles {
   users           users         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([organization_id, user_id])
+  /// Login identifiers are unique only within their school.
+  @@unique([organization_id, student_code], map: "uq_school_profiles_org_student_code")
   @@index([organization_id, person_type])
 }
 
@@ -772,6 +784,7 @@ model learning_assignment_attempts {
   workspace_snapshot             Json                           @default("{}")
   program_snapshot               Json                           @default("{}")
   result_snapshot                Json                           @default("{}")
+  learning_quiz_attempt_grading  learning_quiz_attempt_grading?
   score                          Decimal?                       @db.Decimal(7, 2)
   started_at                     DateTime                       @default(now()) @db.Timestamptz(6)
   submitted_at                   DateTime?                      @db.Timestamptz(6)
@@ -788,21 +801,22 @@ model learning_assignment_attempts {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model learning_assignments {
-  id                             String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  lesson_id                      String                           @db.Uuid
-  challenge_id                   String?                          @db.Uuid
-  title                          String
-  instructions                   String                           @default("")
-  allowed_blocks                 Json                             @default("[]")
-  constraints                    Json                             @default("{}")
-  due_at                         DateTime?                        @db.Timestamptz(6)
-  created_at                     DateTime                         @default(now()) @db.Timestamptz(6)
-  learning_challenges            learning_challenges?             @relation(fields: [challenge_id], references: [id], onUpdate: NoAction)
-  learning_lessons               learning_lessons                 @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  learning_classroom_assignments learning_classroom_assignments[]
-  learning_programs              learning_programs[]
-  learning_rubric_criteria       learning_rubric_criteria[]
-  learning_submissions           learning_submissions[]
+  id                                    String                                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lesson_id                             String                                  @db.Uuid
+  challenge_id                          String?                                 @db.Uuid
+  title                                 String
+  instructions                          String                                  @default("")
+  allowed_blocks                        Json                                    @default("[]")
+  constraints                           Json                                    @default("{}")
+  due_at                                DateTime?                               @db.Timestamptz(6)
+  created_at                            DateTime                                @default(now()) @db.Timestamptz(6)
+  learning_challenges                   learning_challenges?                    @relation(fields: [challenge_id], references: [id], onUpdate: NoAction)
+  learning_lessons                      learning_lessons                        @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_classroom_assignments        learning_classroom_assignments[]
+  learning_programs                     learning_programs[]
+  learning_rubric_criteria              learning_rubric_criteria[]
+  learning_submissions                  learning_submissions[]
+  learning_assignment_question_versions learning_assignment_question_versions[]
 
   @@index([lesson_id], map: "idx_learning_assignments_lesson")
 }
@@ -910,23 +924,23 @@ model learning_classroom_members {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model learning_classrooms {
-  id                             String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id                String                           @db.Uuid
-  offering_id                    String                           @db.Uuid
-  name                           String
-  code                           String
-  description                    String?
-  capacity                       Int?
-  status                         String                           @default("active")
-  created_by                     String?                          @db.Uuid
-  created_at                     DateTime                         @default(now()) @db.Timestamptz(6)
-  updated_at                     DateTime                         @default(now()) @db.Timestamptz(6)
-  learning_classroom_assignments learning_classroom_assignments[]
-  learning_classroom_members     learning_classroom_members[]
-  users                          users?                           @relation(fields: [created_by], references: [id], onUpdate: NoAction)
-  learning_course_offerings      learning_course_offerings        @relation(fields: [offering_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  organizations                  organizations                    @relation(fields: [organization_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  learning_enrollments           learning_enrollments[]
+  id                                   String                                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id                      String                                 @db.Uuid
+  offering_id                          String                                 @db.Uuid
+  name                                 String
+  code                                 String
+  description                          String?
+  capacity                             Int?
+  status                               String                                 @default("active")
+  created_by                           String?                                @db.Uuid
+  created_at                           DateTime                               @default(now()) @db.Timestamptz(6)
+  updated_at                           DateTime                               @default(now()) @db.Timestamptz(6)
+  learning_classroom_assignments       learning_classroom_assignments[]
+  learning_classroom_members           learning_classroom_members[]
+  users                                users?                                 @relation(fields: [created_by], references: [id], onUpdate: NoAction)
+  learning_course_offerings            learning_course_offerings              @relation(fields: [offering_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organizations                        organizations                          @relation(fields: [organization_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  learning_enrollments                 learning_enrollments[]
   learning_classroom_robot_allocations learning_classroom_robot_allocations[]
 
   @@unique([organization_id, code])
@@ -935,14 +949,14 @@ model learning_classrooms {
 }
 
 model learning_classroom_robot_allocations {
-  id                 String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  classroom_id       String              @unique @db.Uuid
-  robot_id           String              @db.Uuid
-  created_by_user_id String              @db.Uuid
-  created_at         DateTime            @default(now()) @db.Timestamptz(6)
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  classroom_id        String              @unique @db.Uuid
+  robot_id            String              @db.Uuid
+  created_by_user_id  String              @db.Uuid
+  created_at          DateTime            @default(now()) @db.Timestamptz(6)
   learning_classrooms learning_classrooms @relation(fields: [classroom_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  robots             robots              @relation(fields: [robot_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users              users               @relation(fields: [created_by_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  robots              robots              @relation(fields: [robot_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users               users               @relation(fields: [created_by_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([robot_id], map: "idx_classroom_robot_allocations_robot")
 }
@@ -1028,6 +1042,7 @@ model learning_courses {
   organizations             organizations?              @relation(fields: [organization_id], references: [id], onUpdate: NoAction)
   learning_enrollments      learning_enrollments[]
   learning_lessons          learning_lessons[]
+  learning_questions        learning_questions[]
 
   @@index([level_id], map: "idx_learning_courses_level")
 }
@@ -1083,7 +1098,7 @@ model learning_enrollments {
   learning_course_offerings learning_course_offerings? @relation(fields: [offering_id], references: [id], onUpdate: NoAction, map: "learning_enrollments_offering_fkey")
   users                     users                      @relation(fields: [learner_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "learning_enrollments_user_fkey")
 
-  @@unique([course_id, learner_user_id])
+  @@unique([course_id, learner_user_id, classroom_id])
   @@index([classroom_id], map: "idx_learning_enrollments_classroom")
   @@index([offering_id], map: "idx_learning_enrollments_offering")
   @@index([learner_user_id], map: "idx_learning_enrollments_user")
@@ -1228,6 +1243,73 @@ model learning_lesson_progress {
   @@index([learner_user_id], map: "idx_lesson_progress_user")
 }
 
+/// Self-confirmed Reading and Demonstration completion only. Evaluated activities are projected from assessment evidence.
+/// This table has check constraints and row level security configured in its SQL migration.
+model learning_activity_progress {
+  id                     String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learner_user_id        String               @db.Uuid
+  lesson_id              String               @db.Uuid
+  activity_id            String
+  activity_definition_id String?              @db.Uuid
+  status                 String               @default("completed")
+  completion_method      String               @default("self_report")
+  completed_at           DateTime             @default(now()) @db.Timestamptz(6)
+  created_at             DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime             @default(now()) @db.Timestamptz(6)
+  users                  users                @relation(fields: [learner_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_lessons       learning_lessons     @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_activities    learning_activities? @relation(fields: [activity_definition_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([learner_user_id, activity_id])
+  @@index([lesson_id])
+  @@index([learner_user_id])
+  @@index([activity_definition_id])
+}
+
+model learning_sections {
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lesson_id           String                @db.Uuid
+  title               String
+  ordinal             Int
+  status              String                @default("draft")
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime              @default(now()) @db.Timestamptz(6)
+  learning_lessons    learning_lessons      @relation(fields: [lesson_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  learning_activities learning_activities[]
+
+  @@unique([lesson_id, ordinal])
+  @@index([lesson_id, status, ordinal])
+}
+
+model learning_activities {
+  id                           String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  section_id                   String                         @db.Uuid
+  title                        String
+  type                         String
+  ordinal                      Int
+  required                     Boolean                        @default(true)
+  content_ref                  Json                           @default("{}")
+  status                       String                         @default("draft")
+  created_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime                       @default(now()) @db.Timestamptz(6)
+  learning_sections            learning_sections              @relation(fields: [section_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  learning_activity_objectives learning_activity_objectives[]
+  learning_activity_progress   learning_activity_progress[]
+
+  @@unique([section_id, ordinal])
+  @@index([section_id, status, ordinal])
+}
+
+model learning_activity_objectives {
+  activity_id         String              @db.Uuid
+  objective_id        String              @db.Uuid
+  learning_activities learning_activities @relation(fields: [activity_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_objectives learning_objectives @relation(fields: [objective_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@id([activity_id, objective_id])
+  @@index([objective_id])
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model learning_lessons {
@@ -1241,8 +1323,11 @@ model learning_lessons {
   learning_lesson_prerequisites_learning_lesson_prerequisites_lesson_idTolearning_lessons              learning_lesson_prerequisites[] @relation("learning_lesson_prerequisites_lesson_idTolearning_lessons")
   learning_lesson_prerequisites_learning_lesson_prerequisites_prerequisite_lesson_idTolearning_lessons learning_lesson_prerequisites[] @relation("learning_lesson_prerequisites_prerequisite_lesson_idTolearning_lessons")
   learning_lesson_progress                                                                             learning_lesson_progress[]
+  learning_activity_progress                                                                           learning_activity_progress[]
   learning_courses                                                                                     learning_courses                @relation(fields: [course_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   learning_objectives                                                                                  learning_objectives[]
+  learning_sections                                                                                    learning_sections[]
+  learning_questions                                                                                   learning_questions[]
 
   @@unique([course_id, ordinal])
   @@index([course_id], map: "idx_learning_lessons_course")
@@ -1274,33 +1359,121 @@ model learning_objective_competencies {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model learning_objectives {
-  id                              String                            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  lesson_id                       String                            @db.Uuid
-  code                            String
-  description                     String
-  ordinal                         Int                               @default(1)
-  learning_objective_competencies learning_objective_competencies[]
-  learning_lessons                learning_lessons                  @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id                                   String                                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  lesson_id                            String                                 @db.Uuid
+  code                                 String
+  description                          String
+  ordinal                              Int                                    @default(1)
+  learning_objective_competencies      learning_objective_competencies[]
+  learning_lessons                     learning_lessons                       @relation(fields: [lesson_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_activity_objectives         learning_activity_objectives[]
+  learning_question_version_objectives learning_question_version_objectives[]
 
   @@unique([lesson_id, code])
   @@index([lesson_id], map: "idx_learning_objectives_lesson")
 }
 
+/// Question identity is stable; content and answer keys live in immutable published versions.
+model learning_questions {
+  id               String                                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id  String                                  @db.Uuid
+  code             String
+  course_id        String                                  @db.Uuid
+  lesson_id        String                                  @db.Uuid
+  domain           String?
+  created_by       String                                  @db.Uuid
+  created_at       DateTime                                @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime                                @default(now()) @db.Timestamptz(6)
+  organizations    organizations                           @relation(fields: [organization_id], references: [id], onDelete: Restrict)
+  learning_courses learning_courses                        @relation(fields: [course_id], references: [id], onDelete: Restrict)
+  learning_lessons learning_lessons                        @relation(fields: [lesson_id], references: [id], onDelete: Restrict)
+  creator          users                                   @relation("question_creator", fields: [created_by], references: [id], onDelete: Restrict)
+  versions         learning_question_versions[]
+  assignments      learning_assignment_question_versions[]
+
+  @@unique([organization_id, code])
+  @@index([course_id, lesson_id])
+  @@index([organization_id, lesson_id])
+}
+
+model learning_question_versions {
+  id               String                                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  question_id      String                                  @db.Uuid
+  version_number   Int
+  type             String
+  difficulty       String
+  cognitive_level  String
+  stem             String
+  options          Json
+  answer_key       Json
+  explanation      String?
+  source_reference String?
+  status           String                                  @default("draft")
+  authored_by      String                                  @db.Uuid
+  reviewed_by      String?                                 @db.Uuid
+  published_by     String?                                 @db.Uuid
+  created_at       DateTime                                @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime                                @default(now()) @db.Timestamptz(6)
+  question         learning_questions                      @relation(fields: [question_id], references: [id], onDelete: Restrict)
+  author           users                                   @relation("question_version_author", fields: [authored_by], references: [id], onDelete: Restrict)
+  reviewer         users?                                  @relation("question_version_reviewer", fields: [reviewed_by], references: [id], onDelete: Restrict)
+  publisher        users?                                  @relation("question_version_publisher", fields: [published_by], references: [id], onDelete: Restrict)
+  objectives       learning_question_version_objectives[]
+  assignments      learning_assignment_question_versions[]
+
+  @@unique([question_id, version_number])
+  @@index([question_id, status])
+}
+
+model learning_question_version_objectives {
+  question_version_id String                     @db.Uuid
+  objective_id        String                     @db.Uuid
+  version             learning_question_versions @relation(fields: [question_version_id], references: [id], onDelete: Restrict)
+  objective           learning_objectives        @relation(fields: [objective_id], references: [id], onDelete: Restrict)
+
+  @@id([question_version_id, objective_id])
+  @@index([objective_id])
+}
+
+model learning_assignment_question_versions {
+  assignment_id       String                     @db.Uuid
+  question_id         String                     @db.Uuid
+  question_version_id String                     @db.Uuid
+  ordinal             Int
+  points              Decimal                    @db.Decimal(7, 2)
+  assignment          learning_assignments       @relation(fields: [assignment_id], references: [id], onDelete: Restrict)
+  version             learning_question_versions @relation(fields: [question_version_id], references: [id], onDelete: Restrict)
+  question            learning_questions         @relation(fields: [question_id], references: [id], onDelete: Restrict)
+
+  @@id([assignment_id, question_version_id])
+  @@unique([assignment_id, ordinal])
+  @@unique([assignment_id, question_id], map: "learning_assignment_question_identity_key")
+  @@index([question_version_id])
+}
+
+/// Private answer keys for an issued Question Bank quiz. No client role may select this table.
+model learning_quiz_attempt_grading {
+  attempt_id       String                       @id @db.Uuid
+  grading_snapshot Json
+  created_at       DateTime                     @default(now()) @db.Timestamptz(6)
+  attempt          learning_assignment_attempts @relation(fields: [attempt_id], references: [id], onDelete: Restrict)
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model learning_program_versions {
-  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  program_id        String            @db.Uuid
-  version_number    Int
-  workspace_json    Json              @default("{}")
-  robot_program     Json              @default("{}")
-  validation_result Json              @default("{}")
-  change_summary    String?
-  created_by        String?           @db.Uuid
-  created_at        DateTime          @default(now()) @db.Timestamptz(6)
-  users             users?            @relation(fields: [created_by], references: [id], onUpdate: NoAction)
-  learning_programs learning_programs @relation(fields: [program_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  learning_submissions learning_submissions[]
+  id                            String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  program_id                    String                          @db.Uuid
+  version_number                Int
+  workspace_json                Json                            @default("{}")
+  robot_program                 Json                            @default("{}")
+  validation_result             Json                            @default("{}")
+  change_summary                String?
+  created_by                    String?                         @db.Uuid
+  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  users                         users?                          @relation(fields: [created_by], references: [id], onUpdate: NoAction)
+  learning_programs             learning_programs               @relation(fields: [program_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_submissions          learning_submissions[]
   learning_symbolic_evaluations learning_symbolic_evaluations[]
 
   @@unique([program_id, version_number])
@@ -1368,25 +1541,25 @@ model learning_rubric_criteria {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model learning_submissions {
-  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  assignment_id        String                 @db.Uuid
-  learner_user_id      String                 @db.Uuid
-  program_id           String?                @db.Uuid
-  program_version_id   String?                @db.Uuid
-  submitted_workspace  Json?
-  submitted_program    Json?
-  reflection           String?
-  status               String                 @default("draft")
-  submitted_at         DateTime?              @db.Timestamptz(6)
-  created_at           DateTime               @default(now()) @db.Timestamptz(6)
-  learning_assessments learning_assessments?
-  learning_experiments learning_experiments[]
-  learning_feedback    learning_feedback[]
-  learning_reflections learning_reflections[]
-  learning_assignments learning_assignments   @relation(fields: [assignment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users                users                  @relation(fields: [learner_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "learning_submissions_learner_user_fkey")
-  learning_programs    learning_programs?     @relation(fields: [program_id], references: [id], onUpdate: NoAction)
-  learning_program_versions learning_program_versions? @relation(fields: [program_version_id], references: [id], onUpdate: NoAction)
+  id                            String                          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assignment_id                 String                          @db.Uuid
+  learner_user_id               String                          @db.Uuid
+  program_id                    String?                         @db.Uuid
+  program_version_id            String?                         @db.Uuid
+  submitted_workspace           Json?
+  submitted_program             Json?
+  reflection                    String?
+  status                        String                          @default("draft")
+  submitted_at                  DateTime?                       @db.Timestamptz(6)
+  created_at                    DateTime                        @default(now()) @db.Timestamptz(6)
+  learning_assessments          learning_assessments?
+  learning_experiments          learning_experiments[]
+  learning_feedback             learning_feedback[]
+  learning_reflections          learning_reflections[]
+  learning_assignments          learning_assignments            @relation(fields: [assignment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users                         users                           @relation(fields: [learner_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "learning_submissions_learner_user_fkey")
+  learning_programs             learning_programs?              @relation(fields: [program_id], references: [id], onUpdate: NoAction)
+  learning_program_versions     learning_program_versions?      @relation(fields: [program_version_id], references: [id], onUpdate: NoAction)
   learning_symbolic_evaluations learning_symbolic_evaluations[]
 
   @@unique([assignment_id, learner_user_id])
@@ -1399,28 +1572,28 @@ model learning_submissions {
 /// schematic result is compiled against server-loaded challenge conditions.
 /// Cross-table provenance is enforced by the transactional application service.
 model learning_symbolic_evaluations {
-  id                       String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  experiment_id            String                      @db.Uuid
-  submission_id            String                      @db.Uuid
-  program_version_id       String                      @db.Uuid
-  requested_by_user_id     String                      @db.Uuid
-  evaluator_version        String
-  schematic_schema_version Int
-  schematic_engine_version String
-  program_hash             String
-  output_snapshot_hash     String
-  rule_set_schema_version  Int
-  rule_set_hash            String
-  rule_set_snapshot        Json
-  fingerprint              String                      @unique
-  verdict                  String
-  rule_results             Json
-  metrics                  Json
-  created_at               DateTime                    @default(now()) @db.Timestamptz(6)
-  learning_experiments     learning_experiments        @relation(fields: [experiment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  learning_submissions     learning_submissions        @relation(fields: [submission_id], references: [id], onUpdate: NoAction)
-  learning_program_versions learning_program_versions  @relation(fields: [program_version_id], references: [id], onUpdate: NoAction)
-  requested_by             users                       @relation("learning_symbolic_evaluations_requested_by", fields: [requested_by_user_id], references: [id], onUpdate: NoAction)
+  id                        String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  experiment_id             String                    @db.Uuid
+  submission_id             String                    @db.Uuid
+  program_version_id        String                    @db.Uuid
+  requested_by_user_id      String                    @db.Uuid
+  evaluator_version         String
+  schematic_schema_version  Int
+  schematic_engine_version  String
+  program_hash              String
+  output_snapshot_hash      String
+  rule_set_schema_version   Int
+  rule_set_hash             String
+  rule_set_snapshot         Json
+  fingerprint               String                    @unique
+  verdict                   String
+  rule_results              Json
+  metrics                   Json
+  created_at                DateTime                  @default(now()) @db.Timestamptz(6)
+  learning_experiments      learning_experiments      @relation(fields: [experiment_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  learning_submissions      learning_submissions      @relation(fields: [submission_id], references: [id], onUpdate: NoAction)
+  learning_program_versions learning_program_versions @relation(fields: [program_version_id], references: [id], onUpdate: NoAction)
+  requested_by              users                     @relation("learning_symbolic_evaluations_requested_by", fields: [requested_by_user_id], references: [id], onUpdate: NoAction)
 
   @@index([experiment_id], map: "idx_learning_symbolic_evaluations_experiment")
   @@index([requested_by_user_id], map: "idx_learning_symbolic_evaluations_requester")

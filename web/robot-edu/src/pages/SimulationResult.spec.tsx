@@ -190,7 +190,8 @@ describe('SimulationResult — P0.8 Authoritative Evidence & Handoff Screen', ()
 
     expect(container.textContent).toContain('Simulation Passed');
     expect(container.textContent).toContain('You successfully placed the object inside the target zone.');
-    expect(container.textContent).toContain('C1-L4 Pick & Place Result');
+    expect(container.textContent).toContain('Pick & Place Result');
+    expect(container.textContent).not.toMatch(/C1-L[1-5]/);
   });
 
   it('2. displays exact immutable ProgramVersion provenance prominently', async () => {

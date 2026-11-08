@@ -6,6 +6,7 @@
     "build": "tsc -p tsconfig.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "migrate:student-login-aliases": "npm run build && node --env-file=.env dist/scripts/migrate-student-login-aliases.js",
     "seed:demo-identities": "npm run build && node --env-file=.env dist/scripts/seed-demo-identities.js",
     "seed:demo-delivery": "npm run build && node --env-file=.env dist/scripts/seed-demo-delivery.js",
     "seed:demo-school-admin": "npm run build && node --env-file=.env dist/scripts/seed-demo-school-admin.js",
@@ -14,10 +15,13 @@
     "seed:wf01-demo-robot": "npm run build && node --env-file=.env dist/scripts/seed-wf01-demo-robot.js",
     "test": "jest --runInBand",
     "start": "node dist/main.js",
+    "start:iot-feedback-worker": "node dist/scripts/iot-feedback-worker.js",
     "start:dev": "nest start --watch",
     "dev": "nest start --watch"
   },
   "dependencies": {
+    "@aws-sdk/client-iot-data-plane": "^3.1163.0",
+    "@aws-sdk/client-sqs": "^3.1163.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.0",
@@ -31,6 +35,10 @@
     "mqtt": "^5.10.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
+  },
+  "overrides": {
+    "multer": "2.5.0",
+    "js-yaml": "5.5.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",

@@ -3,7 +3,7 @@ export class ApiError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
 }
 
-const baseUrl = (((import.meta as any).env?.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:3001/api/v1").replace(/\/$/, "");
+const baseUrl = (((import.meta as any).env?.VITE_API_BASE_URL as string | undefined) ?? "/api/v1").replace(/\/$/, "");
 
 export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
@@ -66,6 +66,17 @@ export interface CoursePathResponse {
   progressPercent: number;
   currentLessonId: string | null;
   lessons: CoursePathLesson[];
+}
+
+export interface ApiActivityProgress {
+  activityId: string;
+  status: 'completed' | 'not_started';
+  completedAt: string | null;
+}
+
+export interface ApiCourseActivityProgress {
+  courseId: string;
+  activities: ApiActivityProgress[];
 }
 
 export interface LessonObjective {
@@ -143,6 +154,19 @@ export interface LessonDetailResponse {
   activeAttempt: LessonAttemptSummary | null;
   priorAttempt: LessonAttemptSummary | null;
   created_at: string;
+  databaseSections?: Array<{
+    id: string;
+    title: string;
+    ordinal: number;
+    activities: Array<{
+      id: string;
+      title: string;
+      type: string;
+      ordinal: number;
+      required: boolean;
+      objectives?: unknown[];
+    }>;
+  }>;
 }
 
 export interface ApiQualifiedProgramHandoff {
@@ -188,6 +212,23 @@ export async function apiRequest<T>(path: string, accessToken: string, method: "
   return response.json() as Promise<T>;
 }
 
+export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> {
+  if (import.meta.env.PROD && new URL(baseUrl, window.location.origin).protocol !== "https:") {
+    throw new Error("Secure API transport is required for student authentication.");
+  }
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`);
+  }
+  return response.json() as Promise<T>;
+}
+
 export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; }
 export interface ApiRobotResource { id: string; name: string; serialNo: string; modelName: string; status?: string; }
 export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; assignment_count: number; }
@@ -217,11 +258,11 @@ export interface ApiSchoolPerson { id:string; displayName:string; role:'student'
 export interface ApiMemberCandidate { userId:string; displayName:string; organizationRole:'student'|'instructor'; schoolCode:string|null; accountState:'active'|'invited'|'account_setup_pending'; alreadyMember:boolean; }
 export interface ApiPage<T> { items:T[]; page:number; pageSize:number; total:number; }
 export type ApiImportErrorCode='VALIDATION_ERROR'|'DUPLICATE_USER'|'ACCOUNT_INVITE_FAILED'|'ACCOUNT_PROVISIONING_FAILED'|'DATABASE_WRITE_FAILED'|'NOT_AUTHORIZED'|'UNKNOWN_IMPORT_ERROR';
-export interface ApiSchoolImportResult { processed:number; created:number; unchanged:number; failed:number; results:Array<{row:number;status:'created'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name?:string;schoolCode?:string}>; }
+export interface ApiSchoolImportResult { processed:number; created:number; unchanged:number; failed:number; schoolCode?:string; results:Array<{row:number;status:'created'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name?:string;schoolCode?:string;studentCode?:string;setupCode?:string}>; }
 export interface ApiClassroomStudentPreviewRow { row:number;firstName:string;lastName:string;studentCode:string;gradeLevel:string;email:string|null;status:'new_student'|'existing_student'|'already_in_class'|'needs_review';errors:string[];warnings:string[]; }
 export interface ApiClassroomStudentPreview { processed:number;newStudents:number;existingStudents:number;alreadyInClass:number;needsReview:number;rows:ApiClassroomStudentPreviewRow[]; }
 export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string}>; }
-export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
+export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; description?:string|null; capacity?:number|null; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
 export interface ApiOffering { id:string; code:string; title:string; status:string; }
 export interface ApiDeliveryChallenge { id:string; title:string; }
 export interface ApiDeliveryOption { course_id:string; course_title:string; lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; challenges:ApiDeliveryChallenge[]; }
@@ -316,16 +357,14 @@ export interface ApiStudentQuiz {
 
 export const progressionApi = {
   coursePath: (courseId: string, token: string) => apiGet<CoursePathResponse>(`/me/courses/${courseId}/path`, token),
+  activityProgress: (courseId: string, token: string) => apiGet<ApiCourseActivityProgress>(`/me/courses/${courseId}/activity-progress`, token),
+  completeActivity: (activityId: string, token: string) => apiRequest<ApiActivityProgress>(`/me/activities/${activityId}/complete`, token, 'POST'),
   quizzes: (token: string) => apiGet<ApiStudentQuiz[]>("/me/quizzes", token),
   qualifiedL4Version: (courseId: string, token: string) =>
     apiGet<ApiQualifiedProgramHandoff | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
   coursePaths: async (token: string): Promise<CoursePathResponse[]> => {
     const enrollments = await learnerApi.enrollments(token).catch(() => [] as ApiEnrollment[]);
-    let courseIds = enrollments.filter((e) => e.status === "active" && e.course_id).map((e) => e.course_id);
-    if (!courseIds.length) {
-      const coursesRes = await catalogApi.courses(token, 1, 50).catch(() => ({ items: [] as ApiCourse[] }));
-      courseIds = coursesRes.items.map((c) => c.id);
-    }
+    const courseIds = enrollments.filter((e) => e.status === "active" && e.course_id).map((e) => e.course_id);
     if (!courseIds.length) return [];
     const uniqueIds = Array.from(new Set(courseIds));
     const paths = await Promise.all(
@@ -355,7 +394,15 @@ export const identityApi = {
   memberships: (token: string) => apiGet<ApiOrganizationMembership[]>("/me/memberships", token),
   updateProfile: (token: string, fullName: string) => apiRequest<ApiIdentity>("/me/profile", token, "PATCH", { fullName }),
 };
+export interface ApiStudentAuthSession { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; token_type: string; }
+export interface ApiStudentPasswordRecoveryCode { recoveryCode: string; expiresAt: string; }
+export const studentAuthApi = {
+  login: (body: { schoolCode: string; studentCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/login", body),
+  setup: (body: { schoolCode: string; studentCode: string; setupCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/setup", body),
+  recover: (body: { schoolCode: string; studentCode: string; recoveryCode: string; password: string }) => apiPublicPost<{ status: "password_updated" }>("/auth/students/recover", body),
+};
 export const educationAdminApi = {
+  publishedCourses: (organizationId:string,token:string) => apiGet<ApiCourse[]>(`/education-admin/organizations/${organizationId}/published-courses`,token),
   overview: (organizationId:string,token:string) => apiGet<ApiSchoolOverview>(`/education-admin/organizations/${organizationId}/overview`,token),
   people: (organizationId:string,token:string,filters:{page:number;pageSize:number;search?:string;role?:'student'|'instructor'}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);if(filters.role)query.set('role',filters.role);return apiGet<ApiPage<ApiSchoolPerson>>(`/education-admin/organizations/${organizationId}/people?${query}`,token); },
   offerings: (organizationId:string,token:string) => apiGet<ApiOffering[]>(`/education-admin/organizations/${organizationId}/offerings`,token),
@@ -364,19 +411,49 @@ export const educationAdminApi = {
   classroomMembers: (organizationId:string, classroomId:string, token:string) => apiGet<ApiRecord[]>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`, token),
   memberCandidates: (organizationId:string,classroomId:string,token:string,filters:{page:number;pageSize:number;search?:string}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);return apiGet<ApiPage<ApiMemberCandidate>>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/member-candidates?${query}`,token); },
   createClassroom: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms`,token,'POST',body),
+  updateClassroom: (organizationId:string,classroomId:string,token:string,body:{name?:string;code?:string;description?:string;capacity?:number}) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}`,token,'PATCH',body),
+  archiveClassroom: (organizationId:string,classroomId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/archive`,token,'POST'),
+  assignClassroomOffering: (organizationId:string,classroomId:string,offeringId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/offering`,token,'PUT',{offeringId}),
+  createCourseOffering: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/course-offerings`,token,'POST',body),
   importUsers: (organizationId:string,token:string,body:ApiRecord) => apiRequest<ApiSchoolImportResult>(`/education-admin/organizations/${organizationId}/user-imports`,token,'POST',body),
+  issueStudentPasswordRecovery: (organizationId:string,studentId:string,token:string) => apiRequest<ApiStudentPasswordRecoveryCode>(`/education-admin/organizations/${organizationId}/students/${studentId}/password-recovery`,token,'POST'),
   previewClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentPreview>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports/preview`,token,'POST',body),
   confirmClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentImportResult>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports`,token,'POST',body),
   upsertMember: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`,token,'POST',body),
+  revokeMember: (organizationId:string,classroomId:string,studentId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members/${studentId}`,token,'DELETE'),
   eligibleRobots: (classroomId:string,token:string) => apiGet<ApiRobotResource[]>(`/education-admin/classrooms/${classroomId}/eligible-robots`,token),
   allocateRobot: (classroomId:string,token:string,robotId:string) => apiRequest<ApiRecord>(`/education-admin/classrooms/${classroomId}/robot-allocation`,token,'PUT',{robotId}),
 };
 export const catalogApi = {
+  createGlobalCourse: (token:string, body:{title:string;description?:string}) => apiRequest<ApiCourse>('/admin/courses',token,'POST',body),
+  updateGlobalCourse: (courseId:string,token:string,body:{title?:string;description?:string}) => apiRequest<ApiCourse>(`/admin/courses/${courseId}`,token,'PATCH',body),
+  publishGlobalCourse: (courseId:string,token:string) => apiRequest<ApiCourse>(`/admin/courses/${courseId}/publish`,token,'POST'),
+  archiveGlobalCourse: (courseId:string,token:string) => apiRequest<ApiCourse>(`/admin/courses/${courseId}/archive`,token,'POST'),
+  createLesson: (courseId:string,token:string,body:{title:string;content?:Record<string,unknown>}) => apiRequest<ApiRecord>(`/admin/courses/${courseId}/lessons`,token,'POST',body),
+  updateLesson: (lessonId:string,token:string,body:{title?:string;content?:Record<string,unknown>}) => apiRequest<ApiRecord>(`/admin/lessons/${lessonId}`,token,'PATCH',body),
+  reorderLessons: async (courseId:string,token:string,orderedIds:string[]) => {
+    if (!courseId) throw new Error('Course ID is required to reorder lessons.');
+    return apiRequest<ApiRecord>(`/admin/courses/${encodeURIComponent(courseId)}/lessons/order`,token,'POST',{orderedIds});
+  },
+  setLessonPrerequisites: (lessonId:string,token:string,prerequisiteLessonIds:string[]) => apiRequest<ApiRecord>(`/admin/lessons/${lessonId}/prerequisites`,token,'POST',{prerequisiteLessonIds}),
+  authorSections: (lessonId:string,token:string) => apiGet<ApiRecord[]>(`/author/lessons/${lessonId}/sections`,token),
   courses: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiCourse>>(`/courses?page=${page}&pageSize=${pageSize}`, token),
   course: (courseId: string, token: string) => apiGet<ApiCourse>(`/courses/${courseId}`, token),
   lessons: (courseId: string, token: string) => apiGet<ApiRecord[]>(`/courses/${courseId}/lessons`, token),
   lesson: (lessonId: string, token: string) => apiGet<ApiRecord>(`/lessons/${lessonId}`, token),
-  lessonDetail: (lessonId: string, token: string) => apiGet<LessonDetailResponse>(`/lessons/${lessonId}`, token),
+  lessonDetail: async (lessonId: string, token: string) => {
+    const detail = await apiGet<LessonDetailResponse>(`/lessons/${lessonId}`, token);
+    try {
+      const secRes = await apiGet<{ lessonId: string; source: string; sections: LessonDetailResponse['databaseSections'] }>(`/lessons/${lessonId}/sections`, token);
+      if (secRes && secRes.source === 'database' && Array.isArray(secRes.sections) && secRes.sections.length > 0) {
+        detail.databaseSections = secRes.sections;
+      }
+    } catch {
+      // Fallback cleanly to legacy structure if /sections is unavailable
+    }
+    return detail;
+  },
+  lessonSections: (lessonId: string, token: string) => apiGet<{ lessonId: string; source: string; sections: LessonDetailResponse['databaseSections'] }>(`/lessons/${lessonId}/sections`, token),
   levels: (token: string) => apiGet<ApiRecord[]>("/learning-levels", token),
   competencies: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiRecord>>(`/competencies?page=${page}&pageSize=${pageSize}`, token),
   myCompetencies: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiRecord>>(`/me/competencies?page=${page}&pageSize=${pageSize}`, token),
@@ -385,6 +462,17 @@ export const catalogApi = {
   challenge: (id: string, token: string) => apiGet<ApiRecord>(`/challenges/${id}`, token),
   challengeObjects: (id: string, token: string) => apiGet<ApiRecord[]>(`/challenges/${id}/objects`, token),
   challengeConditions: (id: string, token: string) => apiGet<ApiRecord[]>(`/challenges/${id}/conditions`, token),
+};
+export const curriculumApi = {
+  sections: (lessonId:string, token:string) => apiGet<ApiRecord[]>(`/author/lessons/${lessonId}/sections`, token),
+  createSection: (lessonId:string, token:string, body:{title:string;ordinal:number}) => apiRequest<ApiRecord>(`/author/lessons/${lessonId}/sections`,token,'POST',body),
+  updateSection: (sectionId:string, token:string, body:{title?:string;ordinal?:number}) => apiRequest<ApiRecord>(`/author/sections/${sectionId}`,token,'PATCH',body),
+  reorderSections: (lessonId:string, token:string, orderedIds:string[]) => apiRequest<ApiRecord>(`/author/lessons/${lessonId}/sections/order`,token,'PUT',{orderedIds}),
+  createActivity: (sectionId:string, token:string, body:ApiRecord) => apiRequest<ApiRecord>(`/author/sections/${sectionId}/activities`,token,'POST',body),
+  updateActivity: (activityId:string, token:string, body:ApiRecord) => apiRequest<ApiRecord>(`/author/activities/${activityId}`,token,'PATCH',body),
+  reorderActivities: (sectionId:string, token:string, orderedIds:string[]) => apiRequest<ApiRecord>(`/author/sections/${sectionId}/activities/order`,token,'PUT',{orderedIds}),
+  setSectionStatus: (sectionId: string, token: string, status: 'draft' | 'published') => apiRequest<ApiRecord>(`/author/sections/${sectionId}/status`, token, 'POST', { status }),
+  setActivityStatus: (activityId: string, token: string, status: 'draft' | 'published') => apiRequest<ApiRecord>(`/author/activities/${activityId}/status`, token, 'POST', { status }),
 };
 export const classroomApi = {
   mine: learnerApi.classrooms,
@@ -432,6 +520,12 @@ export const modelApi = { trainingRuns: (token: string, page = 1, pageSize = 20)
 export const vlaProvenanceApi = { forExperiment: (id: string, token: string) => apiGet<ApiRecord[]>(`/me/experiments/${id}/vla-interactions`, token), detail: (id: string, token: string) => apiGet<ApiRecord>(`/me/vla-interactions/${id}`, token), summary: (id: string, token: string) => apiGet<ApiRecord>(`/me/vla-interactions/${id}/summary`, token), experiment: (id: string, token: string) => apiGet<ApiRecord>(`/me/vla-interactions/${id}/experiment`, token), steps: (id: string, token: string) => apiGet<ApiRecord[]>(`/me/vla-interactions/${id}/action-steps`, token) };
 export const dashboardApi = { mine: (token: string) => apiGet<ApiRecord>("/me/dashboard", token), learningSummary: (token: string) => apiGet<ApiRecord>("/me/learning-summary", token), recentActivity: (token: string) => apiGet<ApiRecord[]>("/me/recent-activity", token) };
 export const runtimeApi = { health: (token: string) => apiGet<ApiRecord>("/runtime/health", token), status: (token: string) => apiGet<ApiRecord>("/runtime/status", token) };
+export interface DigitalTwinViewerScope { token: string; expiresAt: string; organizationId: string; robotId: string; }
+export interface DigitalTwinRobot { id: string; name: string; modelName: string; status: string; allocationStatus: 'allocated' | 'not_allocated'; viewerAccess: 'authorized' | 'unavailable'; }
+export const digitalTwinApi = {
+  availability: (token: string) => apiGet<DigitalTwinRobot[]>('/robots/digital-twin/availability', token),
+  viewerScope: (robotId: string, token: string) => apiRequest<DigitalTwinViewerScope>(`/robots/${robotId}/digital-twin/viewer-scope`, token, "POST"),
+};
 /** Future Nest-only robot execution boundary. It deliberately does not expose
  * a CHECKIK URL, runtime token, serial port, or canonical program payload. */
 export const robotExecutionApi = {

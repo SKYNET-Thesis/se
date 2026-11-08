@@ -3,6 +3,12 @@
   "port": 8015,
   "hardwareEnabled": true,
   "adapterMode": "fake_follower",
+  "iot": {
+    "enabled": false,
+    "thingName": "vista-demo-so101-001",
+    "topicPrefix": "vista/demo/robots/so101-001",
+    "fakeRobot": true
+  },
   "checkikAdapterUrl": "http://127.0.0.1:8016",
   "profiles": {
     "lesson": {

@@ -56,11 +56,13 @@ export async function provisionCourse1DemoDelivery(prisma: PrismaClient, input: 
       update: { membership_id: input.studentMembershipId, classroom_role: "student", status: "active" },
       create: { classroom_id: classroom.id, user_id: input.studentUserId, membership_id: input.studentMembershipId, classroom_role: "student", status: "active" },
     });
-    const enrollment = await tx.learning_enrollments.upsert({
-      where: { course_id_learner_user_id: { course_id: course.id, learner_user_id: input.studentUserId } },
-      update: { offering_id: offering.id, classroom_id: classroom.id, status: "active", completed_at: null },
-      create: { course_id: course.id, learner_user_id: input.studentUserId, offering_id: offering.id, classroom_id: classroom.id, status: "active" },
-    });
+    const [enrollment] = await tx.$queryRaw<Array<{ id: string }>>`
+      INSERT INTO public.learning_enrollments(course_id, learner_user_id, offering_id, classroom_id, status, enrolled_at)
+      VALUES (${course.id}::uuid, ${input.studentUserId}::uuid, ${offering.id}::uuid, ${classroom.id}::uuid, 'active', now())
+      ON CONFLICT (course_id, learner_user_id, classroom_id)
+      DO UPDATE SET status='active', offering_id=EXCLUDED.offering_id
+      RETURNING id`;
+    if (!enrollment) throw new Error("Course 1 demo enrollment could not be created.");
     for (const assignment of deliveries) {
       await tx.learning_classroom_assignments.upsert({
         where: { classroom_id_assignment_id: { classroom_id: classroom.id, assignment_id: assignment.id } },

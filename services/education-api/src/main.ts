@@ -4,9 +4,18 @@ import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { ApiExceptionFilter } from "./common/filters/api-exception.filter";
 import { AppModule } from "./app.module";
+import { json, urlencoded } from "express";
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  const bodyLimit = Number(process.env.HTTP_BODY_LIMIT_BYTES ?? 1048576);
+  app.use(json({ limit: bodyLimit }));
+  app.use(urlencoded({ extended: true, limit: bodyLimit }));
+  app.enableShutdownHooks();
+
+  if (process.env.TRUST_PROXY) app.getHttpAdapter().getInstance().set("trust proxy", Number(process.env.TRUST_PROXY));
+
+  if (process.env.TRUST_PROXY) app.getHttpAdapter().getInstance().set("trust proxy", Number(process.env.TRUST_PROXY));
 
   app.setGlobalPrefix("api/v1");
   app.enableCors({
