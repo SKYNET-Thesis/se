@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppShell } from './components/layout/AppShell';
 import { AdminProvider } from './contexts/AdminContext';
@@ -36,7 +36,7 @@ import { SchoolManagement } from './pages/school/SchoolManagement';
 import { SupabaseSessionProvider } from './contexts/SupabaseSessionContext';
 import { RequireSession } from './components/auth/RequireSession';
 import { RequireRole } from './components/auth/RequireRole';
-import { RoleHome } from './components/auth/RoleHome';
+import { PublicEntry } from './components/auth/PublicEntry';
 import { AccountSettings } from './pages/AccountSettings';
 import { WebSettings } from './pages/WebSettings';
 import { SchoolImportUsers } from './pages/school/SchoolImportUsers';
@@ -44,10 +44,6 @@ import { SchoolQueryProvider } from './queries/SchoolQueryProvider';
 import { StudentAssignmentDetail } from './pages/StudentAssignmentDetail';
 import { StudentAssignments } from './pages/StudentAssignments';
 import { TeacherSubmissionReview } from './pages/teacher/TeacherSubmissionReview';
-
-// Homepage V2 preview, a public page outside RequireSession. Registered only in development builds, or in a
-// build that sets VITE_HOME_V2_PREVIEW=true; a default production build does not include the route.
-const HomeV2 = import.meta.env.DEV || import.meta.env.VITE_HOME_V2_PREVIEW === 'true' ? React.lazy(() => import('./pages/home-v2/HomeV2')) : null;
 
 export function App() {
   return (
@@ -58,9 +54,9 @@ export function App() {
             <ProgramsProvider>
               <Routes>
                 <Route path="login" element={<Login />} />
-                {HomeV2 && <Route path="home-v2" element={<React.Suspense fallback={null}><HomeV2 /></React.Suspense>} />}
+                <Route index element={<PublicEntry />} />
+                <Route path="home-v2" element={<Navigate to="/" replace />} />
                 <Route element={<RequireSession><AppShell /></RequireSession>}>
-                  <Route index element={<RoleHome />} />
                   <Route path="account" element={<AccountSettings />} />
                   <Route path="settings" element={<WebSettings />} />
                   <Route path="courses" element={<Courses />} />
