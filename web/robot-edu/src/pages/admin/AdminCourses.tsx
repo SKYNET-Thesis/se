@@ -5,6 +5,7 @@ import {
   BookOpenIcon,
   CheckCircle2Icon,
   FileEditIcon,
+  FolderOpenIcon,
   PlusIcon,
   SearchIcon,
   XIcon,
@@ -17,6 +18,7 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { catalogApi, type ApiCourse } from '../../lib/api';
 import { CanonicalCurriculumEditor } from './CanonicalCurriculumEditor';
+import { MediaAssetLibraryModal } from '../../components/authoring/MediaAssetLibraryModal';
 
 const STATUS_TONE: Record<string, BadgeTone> = {
   published: 'ok',
@@ -37,6 +39,7 @@ export function AdminCourses() {
   const [dirty, setDirty] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'published' | 'archived'>('all');
 
@@ -189,6 +192,78 @@ export function AdminCourses() {
           tone="neutral"
           icon={<ArchiveIcon className="h-4 w-4 text-ink-muted" />}
         />
+      </section>
+
+      {/* Coursera-Inspired Resource Hub (Reference 1) */}
+      <section aria-label="Course builder resources" className="mt-6 grid gap-4 md:grid-cols-3">
+        <div className="rounded-xl border border-line bg-surface p-5 shadow-hairline flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-accent">
+              <BookOpenIcon className="h-5 w-5" />
+              <h3 className="font-bold text-sm text-ink">Course Outline</h3>
+            </div>
+            <p className="mt-2 text-xs text-ink-muted leading-relaxed">
+              The course outline is where you organize and structure your course content. Add lessons, quizzes, labs and instructional robotics activities.
+            </p>
+          </div>
+          <div className="mt-4 pt-3 border-t border-line/60">
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={filteredCourses.length === 0}
+              onClick={() => {
+                if (filteredCourses[0]) choose(filteredCourses[0]);
+              }}
+            >
+              Open Course Builder
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-line bg-surface p-5 shadow-hairline flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-blue-500">
+              <FolderOpenIcon className="h-5 w-5" />
+              <div className="flex items-center gap-1.5">
+                <h3 className="font-bold text-sm text-ink">Manage Your Files</h3>
+                <span className="rounded bg-blue-500/10 px-1.5 py-0.2 text-3xs font-bold text-blue-600">BETA</span>
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-ink-muted leading-relaxed">
+              Upload videos, reading documents, URDF models and datasets to use them seamlessly in your courses.
+            </p>
+          </div>
+          <div className="mt-4 pt-3 border-t border-line/60">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setMediaLibraryOpen(true)}
+            >
+              Open File Library
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-line bg-surface p-5 shadow-hairline flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-emerald-500">
+              <FolderOpenIcon className="h-5 w-5" />
+              <h3 className="font-bold text-sm text-ink">Asset Library</h3>
+            </div>
+            <p className="mt-2 text-xs text-ink-muted leading-relaxed">
+              Contains publicly accessible links and common instructional assets for VISTA robotics courses.
+            </p>
+          </div>
+          <div className="mt-4 pt-3 border-t border-line/60">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setMediaLibraryOpen(true)}
+            >
+              Open Asset Library
+            </Button>
+          </div>
+        </div>
       </section>
 
       {/* Search and Filters */}
@@ -479,6 +554,11 @@ export function AdminCourses() {
           </form>
         )}
       </Dialog>
+
+      <MediaAssetLibraryModal
+        open={mediaLibraryOpen}
+        onClose={() => setMediaLibraryOpen(false)}
+      />
     </main>
   );
 }
