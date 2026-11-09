@@ -4,6 +4,9 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { XIcon } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
+let openDialogCount = 0;
+let bodyOverflowBeforeDialogs = '';
+
 interface DialogProps {
   open: boolean;
   onClose: () => void;
@@ -11,7 +14,7 @@ interface DialogProps {
   description?: React.ReactNode;
   children?: React.ReactNode;
   footer?: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'preview';
 }
 
 export function Dialog({ open, onClose, title, description, children, footer, size = 'md' }: DialogProps) {
@@ -21,12 +24,26 @@ export function Dialog({ open, onClose, title, description, children, footer, si
 
   useEffect(() => {
     if (!open) return undefined;
+    if (openDialogCount === 0) bodyOverflowBeforeDialogs = document.body.style.overflow;
+    openDialogCount += 1;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      openDialogCount = Math.max(0, openDialogCount - 1);
+      if (openDialogCount === 0) document.body.style.overflow = bodyOverflowBeforeDialogs;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
     const previous = document.activeElement as HTMLElement | null;
     const focusTimer = window.setTimeout(() => {
       const target = panelRef.current?.querySelector<HTMLElement>('[data-autofocus], input, textarea, select, button:not([data-close])');
       (target ?? panelRef.current)?.focus();
     }, 20);
     const onKey = (e: KeyboardEvent) => {
+      const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]');
+      const topmostDialog = dialogs[dialogs.length - 1];
+      if (topmostDialog && topmostDialog !== panelRef.current) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
         onClose();
@@ -58,7 +75,10 @@ export function Dialog({ open, onClose, title, description, children, footer, si
   return createPortal(
     <AnimatePresence>
       {open &&
-      <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-6">
+      <div className={cn(
+        'fixed inset-0 z-50 flex justify-center',
+        size === 'preview' ? 'items-center p-3 sm:p-6' : 'items-end p-0 sm:items-center sm:p-6'
+      )}>
           <motion.div
           className="absolute inset-0 bg-ink/30"
           initial={{ opacity: 0 }}
@@ -79,7 +99,8 @@ export function Dialog({ open, onClose, title, description, children, footer, si
             size === 'sm' && 'sm:max-w-md',
             size === 'md' && 'sm:max-w-xl',
             size === 'lg' && 'sm:max-w-3xl',
-            size === 'xl' && 'h-[88vh] max-w-[95vw] sm:max-w-[1500px]'
+            size === 'xl' && 'h-[88vh] max-w-[95vw] sm:max-w-[1500px]',
+            size === 'preview' && 'max-h-[85vh] w-[90vw] max-w-[900px]'
           )}
           initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 0.97, y: 8 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
