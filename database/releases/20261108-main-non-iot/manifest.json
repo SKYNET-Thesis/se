@@ -1,0 +1,15 @@
+{
+  "release": "20261108-main-schema",
+  "sourceCommit": "c23f3366ef78d20d17979b712af5d9f16aa27512",
+  "productionBaselineFingerprint": "f210cef96b01b1956ce2bbf459f98ff9",
+  "ledgerTable": "public.vista_schema_migrations",
+  "migrations": [
+    {"version":"20261104_curriculum_foundation","path":"services/education-api/prisma/migrations/20261104_curriculum_foundation/migration.sql","sha256":"57cb9b29751f3392214c54ac0291a696fbdb03f5ab252ab9f9e836822f305359"},
+    {"version":"20261105_question_bank_foundation","path":"services/education-api/prisma/migrations/20261105_question_bank_foundation/migration.sql","sha256":"cfad4d384a5ff551d68c5ac57d7c9b1981c2d2e52a37a2060ee1f936a3516056"},
+    {"version":"20261106_question_bank_quiz_attempt","path":"services/education-api/prisma/migrations/20261106_question_bank_quiz_attempt/migration.sql","sha256":"e9c2c214dc836d32c7031a4e185c77063a1b4e84ca3c6ff86109f0663b13f825"},
+    {"version":"20261106_classroom_enrollment_lifecycle","path":"services/education-api/prisma/migrations/20261106_classroom_enrollment_lifecycle/migration.sql","sha256":"fc776052d91b80d5b5aef35d3bf2e9cadb2b9896e0adbce36a5e66a5b5a3cd7e"},
+    {"version":"20261106_iot_lifecycle_foundation","path":"services/education-api/prisma/migrations/20261106_iot_lifecycle_foundation/migration.sql","sha256":"d5d1ebee0812dfb4388d8deb3188b8c8df9e6815f6a73839b3c8dd88f5883eed"},
+    {"version":"20261106_iot_publish_intent","path":"services/education-api/prisma/migrations/20261106_iot_publish_intent/migration.sql","sha256":"fad0cfbbca5680e9825841a529c9a09b4e0d6457af043b95a5d07f60d7009833"},
+    {"version":"20261108_iot_lifecycle_access_restrictions","path":"services/education-api/prisma/migrations/20261108_iot_lifecycle_access_restrictions/migration.sql","sha256":"4e2ac74232b536d0193be32c61fd5922017644721e893423e553362109b01f98"}
+  ]
+}
