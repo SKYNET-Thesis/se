@@ -53,6 +53,24 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build production image
         run: docker build -t vista-education-api:${{ github.sha }} services/education-api
+  database-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate migration inventory
+        run: |
+          if compgen -G "database/migrations/*.sql" > /dev/null; then
+            python scripts/validate_database_migration_manifest.py --release
+          else
+            python scripts/validate_database_migration_manifest.py
+          fi
+      - name: Reject database migration execution in deploy workflows
+        run: python scripts/check_database_workflow_safety.py .github/workflows
   changes:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
@@ -95,8 +113,8 @@ jobs:
           echo "web=$web" >> "$GITHUB_OUTPUT"
           echo "Production targets: API=$api web=$web"
   deploy-api:
-    if: always() && vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.changes.result == 'success' && needs.changes.outputs.api == 'true' && ((github.event_name == 'workflow_dispatch' && inputs.action == 'rollback') || (needs.api.result == 'success' && needs.web.result == 'success' && needs.docker.result == 'success'))
-    needs: [api, web, docker, changes]
+    if: always() && vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.database-safety.result == 'success' && needs.changes.result == 'success' && needs.changes.outputs.api == 'true' && ((github.event_name == 'workflow_dispatch' && inputs.action == 'rollback') || (needs.api.result == 'success' && needs.web.result == 'success' && needs.docker.result == 'success'))
+    needs: [api, web, docker, changes, database-safety]
     runs-on: ubuntu-latest
     permissions: { contents: read, id-token: write }
     environment: aws-demo
@@ -171,8 +189,8 @@ jobs:
           curl --fail --silent --show-error --retry 6 --retry-delay 5 https://api.skynex.best/api/v1/health >/dev/null
           curl --fail --silent --show-error --retry 6 --retry-delay 5 https://skynex.best/api/v1/health >/dev/null
   deploy-web:
-    if: always() && vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.changes.result == 'success' && needs.changes.outputs.web == 'true' && needs.api.result == 'success' && needs.web.result == 'success' && (needs.deploy-api.result == 'success' || (needs.deploy-api.result == 'skipped' && needs.changes.outputs.api != 'true'))
-    needs: [api, web, changes, deploy-api]
+    if: always() && vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.database-safety.result == 'success' && needs.changes.result == 'success' && needs.changes.outputs.web == 'true' && needs.api.result == 'success' && needs.web.result == 'success' && (needs.deploy-api.result == 'success' || (needs.deploy-api.result == 'skipped' && needs.changes.outputs.api != 'true'))
+    needs: [api, web, changes, deploy-api, database-safety]
     runs-on: ubuntu-latest
     permissions: { contents: read, id-token: write }
     environment: aws-demo

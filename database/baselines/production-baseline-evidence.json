@@ -1,0 +1,65 @@
+{
+  "projectRef": "ovijutkvaaxohauvuxbj",
+  "schema": "public",
+  "capturedAtUtc": "2026-11-09T17:29:50Z",
+  "serverVersion": "17.6",
+  "pgDumpVersion": "18.6",
+  "fileSizeBytes": 225119,
+  "sha256": "5b140ce7b5f9b71e5c013f45ec9298cde48db29ac5e6a979b78aea694c2ef962",
+  "captureIntegrityStatus": "verified",
+  "schemaOnlyHeuristicStatus": "passed",
+  "isolatedRestoreStatus": "verified",
+  "isolatedRestoreServerVersion": "17.11",
+  "isolatedRestoreInventoryPath": "/home/quangduc/vista-production-baseline/isolated-inventory.json",
+  "restoredObjectCountsMatchedDump": true,
+  "restoredPrismaLedgerRows": 0,
+  "restoredSqlLedgerRows": 0,
+  "captureCatalogComparisonStatus": "verified",
+  "catalogComparison": {
+    "reportPath": "/home/quangduc/vista-production-baseline/production-catalog-parity-report.json",
+    "parity": "EXPECTED_ENVIRONMENT_DIFFERENCE",
+    "classificationCounts": {
+      "MATCH": 12,
+      "EXPECTED_ENVIRONMENT_DIFFERENCE": 3,
+      "REAL_SCHEMA_DRIFT": 0,
+      "UNVERIFIED": 0
+    },
+    "missingProductionFields": 0,
+    "productionServerVersion": "17.6",
+    "productionMigrationLedgerRows": {
+      "_prisma_migrations": 14,
+      "vista_schema_migrations": 7
+    },
+    "notes": [
+      "The three expected environment differences are default privileges, installed extensions, and public schema ACL; details are in the verification record and the private external parity report.",
+      "The first live Production SQL runner release has not been validated and requires separate approval."
+    ]
+  },
+  "sqlStatementCounts": {
+    "tables": 88,
+    "types": 1,
+    "views": 0,
+    "materialized_views": 0,
+    "foreign_tables": 0,
+    "columns": 777,
+    "constraints": 475,
+    "indexes": 234,
+    "createIndexStatements": 89,
+    "sequences": 1,
+    "identity_sequences": 1,
+    "explicit_sequence_statements": 0,
+    "functions": 12,
+    "triggers": 19,
+    "rlsEnabled": 46,
+    "rlsForced": 0,
+    "policies": 0,
+    "grantsAndRevokes": 301,
+    "defaultPrivileges": 24,
+    "extensions": 0
+  },
+  "catalogComparisonBlockers": [],
+  "managedSchemaReferences": {
+    "auth": 1
+  },
+  "baselineFileAddedToRepository": false
+}

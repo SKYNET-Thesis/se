@@ -1,0 +1,35 @@
+name: Database Migration Safety
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-migration-safety-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run migration manifest and workflow safety tests
+        run: python -m unittest discover -s tests/database -p 'test_*.py' -v
+      - name: Validate migration inventory
+        run: |
+          if compgen -G "database/migrations/*.sql" > /dev/null; then
+            python scripts/validate_database_migration_manifest.py --release
+          else
+            python scripts/validate_database_migration_manifest.py
+          fi
+      - name: Reject migration execution in workflows
+        run: python scripts/check_database_workflow_safety.py .github/workflows
