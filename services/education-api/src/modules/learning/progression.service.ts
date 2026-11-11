@@ -106,7 +106,7 @@ export class ProgressionService {
       ORDER BY co.title, l.ordinal`;
   }
 
-  async prepareQuestionBankQuiz(db: QueryDb, assignmentId: string, lessonId: string, organizationId: string, passPercent: number | undefined) {
+  async prepareQuestionBankQuiz(db: QueryDb, assignmentId: string, lessonId: string, organizationId: string | null, passPercent: number | undefined) {
     const legacy = await db.$queryRaw<Array<{ legacy: boolean }>>`
       SELECT EXISTS (SELECT 1 FROM public.learning_lessons l JOIN public.learning_lessons first ON first.course_id=l.course_id AND first.ordinal=1
         WHERE l.id=${lessonId}::uuid AND first.content->'courseOverview'->>'label'='Course 1') AS legacy`;

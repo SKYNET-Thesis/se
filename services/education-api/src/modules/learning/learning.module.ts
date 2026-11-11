@@ -32,8 +32,12 @@ import { QuestionBankController } from './question-bank.controller';
 import { QuestionBankService } from './question-bank.service';
 import { DigitalTwinScopeController } from './digital-twin-scope.controller';
 import { DigitalTwinScopeService } from './digital-twin-scope.service';
+import { EnrollmentDeliveryService } from './enrollment-delivery.service';
+import { LearningMediaController } from './learning-media.controller';
+import { LearningMediaService } from './learning-media.service';
+import { LearningMediaStorage } from './learning-media.storage';
 import { IotCommandService } from "./iot-command.service";
 import { IotPublishRecoveryService } from "./iot-publish-recovery.service";
 import { IotPublishRecoveryRunner } from "./iot-publish-recovery.runner";
-@Module({imports:[IdentityModule],controllers:[LearningController,ProgrammingController,AssessmentController,ExperimentController,LearningInsightsController,VrLessonController,DemonstrationLessonController,PhysicalExecutionController,ProgressionController,CurriculumController,QuestionBankController,DigitalTwinScopeController],providers:[LearningService,LearningScopeService,ProgrammingService,AssessmentService,ExperimentService,SchematicEngineService,SymbolicRuleCompilerService,SymbolicRuleEvaluatorService,SymbolicEvaluationPreparationService,SymbolicEvaluationService,LearningInsightsService,VrLessonService,DemonstrationLessonService,RobotRuntimeClient,IotCommandService,IotPublishRecoveryService,IotPublishRecoveryRunner,PhysicalExecutionService,ProgressionService,ActivityProgressService,CurriculumService,QuestionBankService,DigitalTwinScopeService],exports:[LearningScopeService]})
+@Module({imports:[IdentityModule],controllers:[LearningController,ProgrammingController,AssessmentController,ExperimentController,LearningInsightsController,VrLessonController,DemonstrationLessonController,PhysicalExecutionController,ProgressionController,CurriculumController,QuestionBankController,DigitalTwinScopeController,LearningMediaController],providers:[LearningService,LearningScopeService,ProgrammingService,AssessmentService,ExperimentService,SchematicEngineService,SymbolicRuleCompilerService,SymbolicRuleEvaluatorService,SymbolicEvaluationPreparationService,SymbolicEvaluationService,LearningInsightsService,VrLessonService,DemonstrationLessonService,RobotRuntimeClient,IotCommandService,IotPublishRecoveryService,IotPublishRecoveryRunner,PhysicalExecutionService,ProgressionService,ActivityProgressService,CurriculumService,QuestionBankService,DigitalTwinScopeService,EnrollmentDeliveryService,LearningMediaService,LearningMediaStorage],exports:[LearningScopeService,EnrollmentDeliveryService,LearningMediaService]})
 export class LearningModule {}

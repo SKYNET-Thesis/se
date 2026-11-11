@@ -57,7 +57,7 @@ export async function provisionCourse1DemoDelivery(prisma: PrismaClient, input: 
       create: { classroom_id: classroom.id, user_id: input.studentUserId, membership_id: input.studentMembershipId, classroom_role: "student", status: "active" },
     });
     const enrollment = await tx.learning_enrollments.upsert({
-      where: { course_id_learner_user_id: { course_id: course.id, learner_user_id: input.studentUserId } },
+      where: { course_id_learner_user_id_classroom_id: { course_id: course.id, learner_user_id: input.studentUserId, classroom_id: classroom.id } },
       update: { offering_id: offering.id, classroom_id: classroom.id, status: "active", completed_at: null },
       create: { course_id: course.id, learner_user_id: input.studentUserId, offering_id: offering.id, classroom_id: classroom.id, status: "active" },
     });

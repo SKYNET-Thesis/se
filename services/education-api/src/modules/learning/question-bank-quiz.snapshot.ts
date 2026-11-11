@@ -5,7 +5,7 @@ import { SubmitKnowledgeCheckDto } from './dto/submit-knowledge-check.dto';
 export interface IssuedQuestionRow {
   question_version_id: string; question_id: string; ordinal: number; points: number | string;
   status: string; type: string; stem: string; options: unknown; answer_key: unknown;
-  explanation: string | null; objective_count: number | string; organization_id: string; lesson_id: string;
+  explanation: string | null; objective_count: number | string; organization_id: string | null; lesson_id: string;
 }
 export interface PublicQuizQuestion { questionVersionId: string; ordinal: number; type: string; stem: string; options: Array<{ id: string; text: string }>; points: number; }
 export interface PublicQuizSnapshot {
@@ -27,7 +27,7 @@ function checksum(publicSnapshot: PublicQuizSnapshot, answers: PrivateAnswer[]):
   return createHash('sha256').update(canonical({ publicSnapshot, answers })).digest('hex');
 }
 
-export function issueQuestionBankQuiz(rows: IssuedQuestionRow[], assignmentId: string, lessonId: string, organizationId: string, passPercent: number, issuedAt = new Date()): { publicSnapshot: PublicQuizSnapshot; privateSnapshot: PrivateQuizSnapshot } {
+export function issueQuestionBankQuiz(rows: IssuedQuestionRow[], assignmentId: string, lessonId: string, organizationId: string | null, passPercent: number, issuedAt = new Date()): { publicSnapshot: PublicQuizSnapshot; privateSnapshot: PrivateQuizSnapshot } {
   if (!Number.isInteger(passPercent) || passPercent < 1 || passPercent > 100 || rows.length === 0) throw new ConflictException('Quiz assignment configuration is incomplete.');
   const questions: PublicQuizQuestion[] = [];
   const answers: PrivateAnswer[] = [];

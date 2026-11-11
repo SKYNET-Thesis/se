@@ -1,9 +1,9 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../identity/auth/current-user.decorator';
 import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
 import { SupabaseAuthGuard } from '../identity/auth/supabase-auth.guard';
-import { AddAssignmentQuestionDto, CreateQuestionDto, ObjectiveMappingDto, QuestionSearchDto, ReorderAssignmentQuestionsDto, UpdateVersionDto, VersionContentDto } from './dto/question-bank.dto';
+import { AddAssignmentQuestionDto, CreateQuestionDto, CreateQuizAssignmentDto, ObjectiveMappingDto, QuestionSearchDto, ReorderAssignmentQuestionsDto, UpdateQuizAssignmentDto, UpdateVersionDto, VersionContentDto } from './dto/question-bank.dto';
 import { QuestionBankService } from './question-bank.service';
 
 @ApiTags('Question Bank')
@@ -12,6 +12,15 @@ import { QuestionBankService } from './question-bank.service';
 @Controller('author/question-bank')
 export class QuestionBankController {
   constructor(private readonly bank: QuestionBankService) {}
+
+  @Get('quiz-authoring/lessons/:lessonId/questions') quizQuestions(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Query('search') search = '', @Query('type') type?: string, @Query('page', new ParseIntPipe({ optional: true })) page = 1, @Query('pageSize', new ParseIntPipe({ optional: true })) pageSize = 20) {
+    if (page < 1 || pageSize < 1 || pageSize > 100 || search.length > 80 || (type && !['single_choice', 'multiple_choice', 'true_false'].includes(type))) throw new BadRequestException('Question search filters are invalid.');
+    return this.bank.quizAuthoringQuestions(user, lessonId, search, type, page, pageSize);
+  }
+  @Get('quiz-authoring/lessons/:lessonId/assignment') quizAssignment(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string) { return this.bank.quizAuthoringAssignment(user, lessonId); }
+  @Get('quiz-authoring/lessons/:lessonId/preview') quizPreview(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string) { if (user.status !== 'active' || !user.systemPermissions.includes('org.manage')) return this.bank.quizAuthoringAssignment(user, lessonId); return this.bank.quizAuthoringAssignment(user, lessonId, true); }
+  @Post('quiz-authoring/lessons/:lessonId/assignment') createQuizAssignment(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Body() body: CreateQuizAssignmentDto) { return this.bank.createQuizAssignment(user, lessonId, body.title, body.instructions, body.passPercent); }
+  @Patch('quiz-authoring/lessons/:lessonId/assignment/:assignmentId') updateQuizAssignment(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Param('assignmentId', ParseUUIDPipe) assignmentId: string, @Body() body: UpdateQuizAssignmentDto) { return this.bank.updateQuizAssignment(user, lessonId, assignmentId, body.title, body.instructions, body.passPercent); }
 
   @Post('questions') create(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateQuestionDto) { return this.bank.createQuestion(user, body); }
   @Get('questions') list(@CurrentUser() user: AuthenticatedUser, @Query() query: QuestionSearchDto) { return this.bank.list(user, query); }
