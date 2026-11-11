@@ -12,22 +12,25 @@ const lesson = { id: lessonId, course_id: '77777777-7777-4777-8777-777777777777'
 describe('CurriculumService', () => {
   const query = jest.fn();
   const transaction = jest.fn();
+  const executeRaw = jest.fn();
   const sections = { create: jest.fn(), findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn() };
   const activities = { create: jest.fn(), findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn() };
   const objectives = { findMany: jest.fn() };
   const mappings = { createMany: jest.fn(), deleteMany: jest.fn() };
   const coursePath = jest.fn();
+  const assertActivityMediaReady = jest.fn().mockResolvedValue(undefined);
   const service = new CurriculumService({
     $queryRaw: query, $transaction: transaction,
     learning_sections: sections, learning_activities: activities,
     learning_objectives: objectives, learning_activity_objectives: mappings,
-  } as never, { coursePath } as never);
+  } as never, { coursePath } as never, { assertActivityMediaReady } as never);
 
   beforeEach(() => {
-    for (const mock of [query, transaction, coursePath, ...Object.values(sections), ...Object.values(activities), ...Object.values(objectives), ...Object.values(mappings)]) mock.mockReset();
+    for (const mock of [query, transaction, executeRaw, coursePath, assertActivityMediaReady, ...Object.values(sections), ...Object.values(activities), ...Object.values(objectives), ...Object.values(mappings)]) mock.mockReset();
+    assertActivityMediaReady.mockResolvedValue(undefined);
     query.mockResolvedValue([lesson]);
     transaction.mockImplementation(async (work) => work({
-      $queryRaw: query, $executeRaw: jest.fn(),
+      $queryRaw: query, $executeRaw: executeRaw,
       learning_sections: sections, learning_activities: activities,
       learning_activity_objectives: mappings,
     }));
@@ -60,6 +63,7 @@ describe('CurriculumService', () => {
     sections.findMany.mockResolvedValueOnce([{ id: sectionId }, { id: another }]);
     await expect(service.reorderSections(teacher as never, lessonId, [another, sectionId])).resolves.toEqual({ lessonId, orderedIds: [another, sectionId] });
     expect(transaction).toHaveBeenCalledTimes(1);
+    expect(query.mock.calls.map(([sql]) => sql.join('?')).join('\n')).not.toContain('SET CONSTRAINTS');
   });
 
   it('rejects a reordered list that omits a section', async () => {
@@ -75,6 +79,26 @@ describe('CurriculumService', () => {
       contentRef: { kind: 'lesson_content', key: 'summary' }, objectiveIds: [objectiveId],
     })).resolves.toMatchObject({ id: activityId, status: 'draft' });
     expect(mappings.createMany).toHaveBeenCalledWith({ data: [{ activity_id: activityId, objective_id: objectiveId }] });
+  });
+
+  it('persists validated reading content with its canonical activity', async () => {
+    activities.create.mockResolvedValue({ id: activityId, section_id: sectionId, status: 'draft' });
+    const content = { version: 1, blocks: [{ type: 'paragraph', text: 'Keep the work area clear.' }] };
+    await service.createActivity(teacher as never, sectionId, {
+      title: 'Safety reading', type: 'reading', ordinal: 1,
+      contentRef: { kind: 'lesson_content', key: 'summary' }, content,
+    });
+    expect(activities.create).toHaveBeenCalledWith({ data: expect.not.objectContaining({ content }) });
+    expect(executeRaw.mock.calls[0][0].join('?')).toContain('SET content=');
+    expect(executeRaw.mock.calls[0][1]).toBe(JSON.stringify(content));
+  });
+
+  it('rejects unsafe or unsupported activity content before persistence', async () => {
+    await expect(service.createActivity(teacher as never, sectionId, {
+      title: 'Unsafe reading', type: 'reading', ordinal: 1,
+      contentRef: { kind: 'lesson_content', key: 'summary' }, content: { version: 1, html: '<script>bad()</script>' },
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(activities.create).not.toHaveBeenCalled();
   });
 
   it('rejects invalid type, unsafe content references and cross-lesson objectives', async () => {
@@ -101,6 +125,23 @@ describe('CurriculumService', () => {
     await expect(service.reorderActivities(teacher as never, sectionId, [another])).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('moves activity ordinals out of the unique range before assigning their replacement order', async () => {
+    const another = '99999999-9999-4999-8999-999999999999';
+    const execute = jest.fn();
+    transaction.mockImplementationOnce(async (work) => work({
+      $queryRaw: query, $executeRaw: execute,
+      learning_sections: sections, learning_activities: activities,
+      learning_activity_objectives: mappings,
+    }));
+    activities.findMany.mockResolvedValueOnce([{ id: activityId }, { id: another }]);
+
+    await expect(service.reorderActivities(teacher as never, sectionId, [another, activityId]))
+      .resolves.toEqual({ sectionId, orderedIds: [another, activityId] });
+
+    expect(execute.mock.calls.map(([sql]) => sql.join('?')).join('\n')).not.toContain('SET CONSTRAINTS');
+    expect(execute.mock.calls.map(([sql]) => sql.join('?')).join('\n')).toContain('ordinal=ordinal+');
+  });
+
   it('keeps Course 1 on its original activity IDs without creating database rows', async () => {
     query.mockReset().mockResolvedValueOnce([{ ...lesson, ordinal: 1, legacy_course: true }]);
     coursePath.mockResolvedValue({ lessons: [{ id: lessonId, status: 'current' }] });
@@ -118,6 +159,12 @@ describe('CurriculumService', () => {
   });
 
   it('publishes a section and its validated activity without exposing draft content to learners', async () => {
+    query.mockImplementation(async (sql: TemplateStringsArray) => {
+      if (sql.join('').includes('SELECT content FROM public.learning_activities')) {
+        return [{ content: { version: 1, blocks: [{ type: 'text', text: 'Published reading content' }], mediaIds: [] } }];
+      }
+      return [lesson];
+    });
     sections.update.mockResolvedValueOnce({ id: sectionId, status: 'published' });
     await expect(service.setSectionStatus(teacher as never, sectionId, 'published')).resolves.toMatchObject({ status: 'published' });
     activities.findUnique.mockResolvedValueOnce({
@@ -136,6 +183,11 @@ describe('CurriculumService', () => {
       content_ref: { kind: 'lesson_content', key: 'summary' },
       learning_sections: { id: sectionId, lesson_id: lessonId, status: 'published' },
     });
+    query.mockReset()
+      .mockResolvedValueOnce([lesson])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ activeEnrollments: 0, progressRows: 1, attemptRows: 0 }]);
     await expect(service.updateActivity(teacher as never, activityId, { contentRef: { kind: 'lesson_content', key: 'robotConcept' } })).rejects.toBeInstanceOf(ConflictException);
   });
 
@@ -145,10 +197,14 @@ describe('CurriculumService', () => {
       content_ref: { kind: 'assignment', id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
       learning_sections: { id: sectionId, lesson_id: lessonId, status: 'published' },
     });
-    query.mockResolvedValueOnce([lesson]).mockResolvedValueOnce([{ id: 'attempt-1' }]);
+    query.mockResolvedValueOnce([lesson])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ activeEnrollments: 0, progressRows: 0, attemptRows: 0 }])
+      .mockResolvedValueOnce([{ id: 'attempt-1' }]);
     await expect(service.setActivityStatus(teacher as never, activityId, 'draft')).rejects.toBeInstanceOf(ConflictException);
     expect(activities.update).not.toHaveBeenCalled();
-    expect((query.mock.calls[1][0] as TemplateStringsArray).join('?')).toContain('learning_assignment_attempts');
+    expect((query.mock.calls[4][0] as TemplateStringsArray).join('?')).toContain('learning_assignment_attempts');
   });
 
   it('keeps a new-course physical lab in draft until a general physical evidence policy exists', async () => {
@@ -176,5 +232,82 @@ describe('CurriculumService', () => {
     query.mockReset().mockResolvedValueOnce([lesson]);
     coursePath.mockRejectedValueOnce(new NotFoundException());
     await expect(service.lessonSections(learner as never, lessonId)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('rejects curriculum edits once the course is archived', async () => {
+    query.mockReset().mockResolvedValueOnce([lesson]).mockResolvedValueOnce([{ status: 'archived' }]);
+    await expect(service.createSection(teacher as never, lessonId, { title: 'Basics', ordinal: 1 })).rejects.toBeInstanceOf(ConflictException);
+    expect(sections.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects section reordering on a published course with learner delivery', async () => {
+    query.mockReset()
+      .mockResolvedValueOnce([lesson])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ activeEnrollments: 0, progressRows: 1, attemptRows: 0 }]);
+    await expect(service.reorderSections(teacher as never, lessonId, [sectionId])).rejects.toBeInstanceOf(ConflictException);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it('still allows a cosmetic section rename on a published course in delivery', async () => {
+    sections.findUnique.mockResolvedValueOnce({ id: sectionId, lesson_id: lessonId, status: 'draft', ordinal: 1 });
+    query.mockReset()
+      .mockResolvedValueOnce([lesson])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ activeEnrollments: 2, progressRows: 0, attemptRows: 0 }]);
+    sections.update.mockResolvedValueOnce({ id: sectionId, title: 'Renamed' });
+    await expect(service.updateSection(teacher as never, sectionId, { title: 'Renamed' })).resolves.toMatchObject({ title: 'Renamed' });
+  });
+
+  it('rejects activity reordering on a published course with attempts', async () => {
+    query.mockReset()
+      .mockResolvedValueOnce([lesson])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ activeEnrollments: 0, progressRows: 0, attemptRows: 3 }]);
+    await expect(service.reorderActivities(teacher as never, sectionId, [activityId])).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects adding curriculum content after published course delivery begins', async () => {
+    query.mockReset()
+      .mockResolvedValueOnce([lesson])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ activeEnrollments: 1, progressRows: 0, attemptRows: 0 }]);
+
+    await expect(service.createSection(teacher as never, lessonId, { title: 'New material', ordinal: 2 }))
+      .rejects.toBeInstanceOf(ConflictException);
+    expect(sections.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects publishing a section after published course delivery begins', async () => {
+    sections.findUnique.mockResolvedValueOnce({ id: sectionId, lesson_id: lessonId, status: 'draft', ordinal: 1 });
+    query.mockReset()
+      .mockResolvedValueOnce([lesson])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ activeEnrollments: 1, progressRows: 0, attemptRows: 0 }]);
+
+    await expect(service.setSectionStatus(teacher as never, sectionId, 'published'))
+      .rejects.toBeInstanceOf(ConflictException);
+    expect(sections.update).not.toHaveBeenCalled();
+  });
+
+  it('allows changing a published activity before any learner delivery exists', async () => {
+    activities.findUnique.mockResolvedValueOnce({
+      id: activityId, section_id: sectionId, status: 'published', type: 'reading', ordinal: 1,
+      content_ref: { kind: 'lesson_content', key: 'summary' },
+      learning_sections: { id: sectionId, lesson_id: lessonId, status: 'published' },
+    });
+    query.mockReset()
+      .mockResolvedValueOnce([lesson])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ status: 'published' }])
+      .mockResolvedValueOnce([{ activeEnrollments: 0, progressRows: 0, attemptRows: 0 }]);
+    activities.update.mockResolvedValueOnce({ id: activityId, content_ref: { kind: 'lesson_content', key: 'robotConcept' } });
+
+    await expect(service.updateActivity(teacher as never, activityId, {
+      contentRef: { kind: 'lesson_content', key: 'robotConcept' },
+    })).resolves.toMatchObject({ id: activityId });
   });
 });

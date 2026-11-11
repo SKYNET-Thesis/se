@@ -1,12 +1,22 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
+import { Prisma } from "@prisma/client";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { PaginationDto } from "./dto/pagination.dto";
 import { CreateAssignmentDto } from "./dto/create-assignment.dto";
 import { UpdateAssignmentDto } from "./dto/update-assignment.dto";
+import { CreateQuizDeliveryDto } from './dto/create-quiz-delivery.dto';
 import { LearningScopeService } from "./learning-scope.service";
 import { ProgressionService, QualifiedProgramVersionHandoff } from "./progression.service";
 import { normalizeLessonContent } from "./lesson-content.schema";
+import { EnrollmentDeliveryService } from "./enrollment-delivery.service";
+import { assertCurriculumMutable, curriculumDeliverability, deliveryEvidence } from "./course-lifecycle";
+
+const requiredTitle = (value: string, label: string): string => {
+  const title = value.trim();
+  if (!title) throw new BadRequestException(`${label} cannot be empty.`);
+  return title;
+};
 
 @Injectable()
 export class LearningService {
@@ -14,7 +24,122 @@ export class LearningService {
     private readonly prisma: PrismaService,
     private readonly scope: LearningScopeService,
     private readonly progression?: ProgressionService,
+    private readonly enrollmentDelivery?: EnrollmentDeliveryService,
   ) {}
+  private readonly logger = new Logger(LearningService.name);
+
+  async createGlobalCourse(user: AuthenticatedUser, input: { title: string; description?: string }) {
+    this.assertSystemAdministrator(user);
+    return this.prisma.learning_courses.create({ data: {
+      title: requiredTitle(input.title, 'Course title'), description: input.description?.trim(), status: 'draft', created_by: user.vistaUserId,
+    } });
+  }
+
+  async updateGlobalCourse(user: AuthenticatedUser, courseId: string, input: { title?: string; description?: string }) {
+    this.assertSystemAdministrator(user);
+    const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } });
+    if (!course) throw new NotFoundException('Course was not found.');
+    return this.prisma.learning_courses.update({ where: { id: courseId }, data: {
+      ...(input.title === undefined ? {} : { title: requiredTitle(input.title, 'Course title') }),
+      ...(input.description === undefined ? {} : { description: input.description.trim() }),
+    } });
+  }
+
+  async publishCourse(user: AuthenticatedUser, courseId: string) {
+    this.assertSystemAdministrator(user);
+    const course = await this.prisma.learning_courses.findUnique({ where: { id: courseId } });
+    if (!course || course.organization_id !== null) throw new NotFoundException('Course was not found.');
+    if (course.status === 'archived') throw new ConflictException('An archived course cannot be published.');
+    const lessons = await curriculumDeliverability(this.prisma, courseId);
+    if (!lessons.length) throw new ConflictException('A course needs at least one lesson before publishing.');
+    // Course 1 and other legacy courses deliver content through the activity adapter, not
+    // section rows, so requiring sections here would reject valid existing curricula.
+    const undeliverable = lessons.filter((lesson) => !lesson.legacyCourse && lesson.publishedActivities === 0);
+    if (undeliverable.length) {
+      throw new ConflictException(
+        `Every lesson needs at least one published section with a published activity before the course can be published (${undeliverable.length} lesson(s) are not deliverable).`,
+      );
+    }
+    const published = await this.prisma.learning_courses.update({ where: { id: courseId }, data: { status: 'published' } });
+    // Existing classroom members become enrolled once every delivery condition holds (active offering and classroom).
+    // The synchronization is idempotent, so a failure here must not undo or hide a successful publication.
+    try { await this.enrollmentDelivery?.synchronizeCourse(courseId); }
+    catch (error) { this.logger.error({ event: 'publish_enrollment_sync_failed', courseId, error: error instanceof Error ? error.message : String(error) }); }
+    return published;
+  }
+
+  async archiveCourse(user: AuthenticatedUser, courseId: string) {
+    this.assertSystemAdministrator(user);
+    const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } });
+    if (!course) throw new NotFoundException('Course was not found.');
+    const evidence = await deliveryEvidence(this.prisma, courseId);
+    if (evidence.activeEnrollments > 0 || evidence.activeOfferings > 0 || evidence.activeClassrooms > 0) {
+      throw new ConflictException(
+        'This course still has active delivery. Archive classrooms and deactivate offerings before archiving it.',
+      );
+    }
+    return this.prisma.learning_courses.update({ where: { id: courseId }, data: { status: 'archived' } });
+  }
+
+  async createCourseLesson(user: AuthenticatedUser, courseId: string, input: { title: string; content?: Record<string, unknown> }) {
+    this.assertSystemAdministrator(user); const course = await this.globalCourse(courseId);
+    await assertCurriculumMutable(this.prisma, courseId, 'Adding lessons');
+    const ordinal = (await this.prisma.learning_lessons.aggregate({ where: { course_id: courseId }, _max: { ordinal: true } }))._max.ordinal ?? 0;
+    return this.prisma.learning_lessons.create({ data: { course_id: courseId, title: requiredTitle(input.title, 'Lesson title')!, content: (input.content ?? {}) as Prisma.InputJsonValue, ordinal: ordinal + 1 } });
+  }
+
+  async updateCourseLesson(user: AuthenticatedUser, lessonId: string, input: { title?: string; content?: Record<string, unknown> }) {
+    this.assertSystemAdministrator(user); const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.globalCourse(lesson.course_id);
+    if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
+    // Titles are cosmetic; lesson body content is meaning-bearing for enrolled learners.
+    if (input.content !== undefined) await assertCurriculumMutable(this.prisma, lesson.course_id, 'Changing lesson content');
+    return this.prisma.learning_lessons.update({ where: { id: lessonId }, data: { ...(input.title === undefined ? {} : { title: requiredTitle(input.title, 'Lesson title') }), ...(input.content === undefined ? {} : { content: input.content as Prisma.InputJsonValue }) } });
+  }
+
+  async reorderCourseLessons(user: AuthenticatedUser, courseId: string, orderedIds: string[]) {
+    this.assertSystemAdministrator(user); const course = await this.globalCourse(courseId);
+    if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
+    await assertCurriculumMutable(this.prisma, courseId, 'Reordering lessons');
+    const current = await this.prisma.learning_lessons.findMany({ where: { course_id: courseId }, select: { id: true } });
+    if (current.length !== orderedIds.length || !current.every(l => orderedIds.includes(l.id))) throw new BadRequestException('Reorder must include every lesson exactly once.');
+    return this.prisma.$transaction(async tx => {
+      // Prisma creates @@unique as a unique index, not a deferrable constraint.
+      // Lock the course to serialize competing reorders, then move every ordinal
+      // out of the target range before assigning the requested positions.
+      await tx.$queryRaw`SELECT id FROM public.learning_courses WHERE id=${courseId}::uuid FOR UPDATE`;
+      const lessons = await tx.learning_lessons.findMany({ where: { course_id: courseId }, select: { id: true } });
+      if (lessons.length !== orderedIds.length || !lessons.every((lesson) => orderedIds.includes(lesson.id))) {
+        throw new BadRequestException('Reorder must include every lesson exactly once.');
+      }
+      await tx.$executeRaw`UPDATE public.learning_lessons SET ordinal=ordinal+${lessons.length} WHERE course_id=${courseId}::uuid`;
+      for (let i = 0; i < orderedIds.length; i += 1) {
+        await tx.learning_lessons.update({ where: { id: orderedIds[i] }, data: { ordinal: i + 1 } });
+      }
+      return { courseId, orderedIds };
+    });
+  }
+
+  async setLessonPrerequisites(user: AuthenticatedUser, lessonId: string, prerequisiteLessonIds: string[]) {
+    this.assertSystemAdministrator(user); const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.globalCourse(lesson.course_id);
+    if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
+    if (prerequisiteLessonIds.includes(lessonId)) throw new BadRequestException('A lesson cannot require itself.'); const count = await this.prisma.learning_lessons.count({ where: { id: { in: prerequisiteLessonIds }, course_id: lesson.course_id } }); if (count !== prerequisiteLessonIds.length) throw new BadRequestException('Prerequisites must belong to the course.');
+    if (prerequisiteLessonIds.length) {
+      const cycles = await this.prisma.$queryRaw<{ id: string }[]>`
+        WITH RECURSIVE dependencies(id) AS (
+          SELECT prerequisite_lesson_id FROM public.learning_lesson_prerequisites WHERE lesson_id=ANY(${prerequisiteLessonIds}::uuid[])
+          UNION SELECT p.prerequisite_lesson_id FROM public.learning_lesson_prerequisites p JOIN dependencies d ON p.lesson_id=d.id
+        ) SELECT id FROM dependencies WHERE id=${lessonId}::uuid LIMIT 1`;
+      if (cycles.length) throw new BadRequestException('Prerequisites cannot create a circular dependency.');
+    }
+    await assertCurriculumMutable(this.prisma, lesson.course_id, 'Changing lesson prerequisites');
+    return this.prisma.$transaction(async tx => { await tx.learning_lesson_prerequisites.deleteMany({ where: { lesson_id: lessonId } }); if (prerequisiteLessonIds.length) await tx.learning_lesson_prerequisites.createMany({ data: prerequisiteLessonIds.map(prerequisite_lesson_id => ({ lesson_id: lessonId, prerequisite_lesson_id, required: true })) }); return { lessonId, prerequisiteLessonIds }; });
+  }
+
+  private async globalCourse(courseId: string) { const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } }); if (!course) throw new NotFoundException('Course was not found.'); return course; }
+
+  private assertSystemAdministrator(user: AuthenticatedUser) {
+    if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException('Course was not found.');
+  }
 
   async courses(user: AuthenticatedUser, page: PaginationDto) {
     const unrestricted = this.scope.isSystemAdministrator(user);
@@ -44,7 +169,10 @@ export class LearningService {
 
   async lessonsForCourse(user: AuthenticatedUser, courseId: string) {
     await this.course(user, courseId);
-    return this.prisma.$queryRaw`SELECT id,course_id,title,content,ordinal,created_at FROM public.learning_lessons WHERE course_id=${courseId}::uuid ORDER BY ordinal`;
+    return this.prisma.$queryRaw`SELECT l.id,l.course_id,l.title,l.content,l.ordinal,l.created_at,
+      COALESCE((SELECT jsonb_agg(p.prerequisite_lesson_id ORDER BY prerequisite_lesson_id)
+        FROM public.learning_lesson_prerequisites p WHERE p.lesson_id=l.id),'[]'::jsonb) AS "prerequisiteLessonIds"
+      FROM public.learning_lessons l WHERE l.course_id=${courseId}::uuid ORDER BY l.ordinal`;
   }
 
   async lesson(user: AuthenticatedUser, lessonId: string) {
@@ -93,7 +221,13 @@ export class LearningService {
       JOIN public.learning_classroom_members cm ON cm.classroom_id=cl.id AND cm.user_id=${user.vistaUserId}::uuid AND cm.status='active'
       LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id
       WHERE a.lesson_id=${lesson.id}::uuid AND ca.status='published'
-      ORDER BY ca.created_at DESC LIMIT 1`;
+      ORDER BY CASE WHEN EXISTS (
+        SELECT 1 FROM public.learning_activities quiz_activity
+        JOIN public.learning_sections quiz_section ON quiz_section.id=quiz_activity.section_id
+        WHERE quiz_section.lesson_id=a.lesson_id AND quiz_section.status='published'
+          AND quiz_activity.status='published' AND quiz_activity.type='knowledge_check'
+          AND quiz_activity.content_ref->>'kind'='assignment' AND quiz_activity.content_ref->>'id'=a.id::text
+      ) THEN 0 ELSE 1 END,ca.created_at DESC LIMIT 1`;
 
     const assignment = assignments[0] ?? null;
 
@@ -290,6 +424,65 @@ export class LearningService {
       ) template ON true
       WHERE c.id=${classroomId}::uuid ORDER BY l.ordinal`;
   }
+  async publishedQuizzes(user: AuthenticatedUser, classroomId: string) {
+    await this.scope.assertTeacherClassroomAccess(user, classroomId);
+    return this.prisma.$queryRaw<Array<Record<string, unknown>>>`
+      SELECT a.id AS canonical_assignment_id,a.title AS quiz_title,a.instructions,l.id AS lesson_id,l.title AS lesson_title,
+        co.id AS course_id,co.title AS course_title,co.status AS course_status,
+        COALESCE((a.constraints->>'passPercent')::int,80) AS pass_percent,
+        (SELECT COUNT(*)::int FROM public.learning_assignment_question_versions aq WHERE aq.assignment_id=a.id) AS question_count,
+        EXISTS (SELECT 1 FROM public.learning_classroom_assignments ca WHERE ca.classroom_id=c.id AND ca.assignment_id=a.id) AS already_assigned
+      FROM public.learning_classrooms c
+      JOIN public.learning_course_offerings o ON o.id=c.offering_id AND o.status='active'
+      JOIN public.learning_courses co ON co.id=o.course_id AND co.status='published'
+      JOIN public.learning_lessons l ON l.course_id=co.id
+      JOIN public.learning_assignments a ON a.lesson_id=l.id AND a.challenge_id IS NULL AND a.constraints->>'kind'='knowledge_check'
+      WHERE c.id=${classroomId}::uuid AND c.status='active' AND (co.organization_id IS NULL OR co.organization_id=c.organization_id)
+        AND EXISTS (SELECT 1 FROM public.learning_sections s JOIN public.learning_activities act ON act.section_id=s.id
+          WHERE s.lesson_id=l.id AND s.status='published' AND act.status='published' AND act.type='knowledge_check'
+            AND act.content_ref->>'kind'='assignment' AND act.content_ref->>'id'=a.id::text)
+        AND NOT EXISTS (SELECT 1 FROM public.learning_classroom_assignments ca WHERE ca.classroom_id=c.id AND ca.assignment_id=a.id)
+        AND EXISTS (SELECT 1 FROM public.learning_assignment_question_versions aq JOIN public.learning_question_versions v ON v.id=aq.question_version_id WHERE aq.assignment_id=a.id AND v.status='published')
+      ORDER BY co.title,l.ordinal,a.title`;
+  }
+  async createQuizDelivery(user: AuthenticatedUser, classroomId: string, dto: CreateQuizDeliveryDto) {
+    await this.scope.assertTeacherClassroomAccess(user, classroomId);
+    const availableFrom = dto.availableFrom ? new Date(dto.availableFrom) : null;
+    const dueAt = dto.dueAt ? new Date(dto.dueAt) : null;
+    const closeAt = dto.closeAt ? new Date(dto.closeAt) : null;
+    if ((availableFrom && dueAt && dueAt < availableFrom) || (availableFrom && closeAt && closeAt <= availableFrom) || (dueAt && closeAt && closeAt < dueAt)) {
+      throw new BadRequestException('Quiz delivery dates must be ordered: availability, due date, then close date.');
+    }
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const eligible = await tx.$queryRaw<Array<{ id: string; lesson_id: string }>>`
+          SELECT a.id,a.lesson_id FROM public.learning_assignments a
+          JOIN public.learning_lessons l ON l.id=a.lesson_id
+          JOIN public.learning_courses co ON co.id=l.course_id AND co.status='published'
+          JOIN public.learning_course_offerings o ON o.course_id=co.id AND o.status='active'
+          JOIN public.learning_classrooms c ON c.offering_id=o.id AND c.id=${classroomId}::uuid AND c.status='active'
+          WHERE a.id=${dto.canonicalAssignmentId}::uuid AND a.challenge_id IS NULL
+            AND a.constraints->>'kind'='knowledge_check'
+            AND (co.organization_id IS NULL OR co.organization_id=c.organization_id)
+            AND EXISTS (SELECT 1 FROM public.learning_sections s JOIN public.learning_activities act ON act.section_id=s.id
+              WHERE s.lesson_id=l.id AND s.status='published' AND act.status='published' AND act.type='knowledge_check'
+                AND act.content_ref->>'kind'='assignment' AND act.content_ref->>'id'=a.id::text)
+            AND EXISTS (SELECT 1 FROM public.learning_assignment_question_versions aq JOIN public.learning_question_versions v ON v.id=aq.question_version_id WHERE aq.assignment_id=a.id AND v.status='published')
+          FOR UPDATE OF a`;
+        if (!eligible[0]) throw new NotFoundException('Published quiz was not found for this classroom course.');
+        const existing = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM public.learning_classroom_assignments WHERE classroom_id=${classroomId}::uuid AND assignment_id=${dto.canonicalAssignmentId}::uuid`;
+        if (existing.length) throw new ConflictException('This quiz is already assigned to the classroom.');
+        const rows = await tx.$queryRaw<Array<Record<string, unknown>>>
+          `INSERT INTO public.learning_classroom_assignments(classroom_id,assignment_id,status,available_from,due_at,close_at,max_attempts)
+           VALUES(${classroomId}::uuid,${dto.canonicalAssignmentId}::uuid,'draft',${availableFrom},${dueAt},${closeAt},${dto.maxAttempts ?? null})
+           RETURNING id,classroom_id,assignment_id,status,available_from,due_at,close_at,max_attempts,published_by`;
+        return rows[0];
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw new ConflictException('This quiz is already assigned to the classroom.');
+      throw error;
+    }
+  }
   async createAssignment(user:AuthenticatedUser,classroomId:string,dto:CreateAssignmentDto) {
     if (dto.quizPassPercent !== undefined && dto.challengeId !== undefined) throw new BadRequestException('A Question Bank quiz cannot use a robot challenge.');
     await this.scope.assertTeacherClassroomAccess(user,classroomId);
@@ -328,13 +521,15 @@ export class LearningService {
   async publishAssignment(user:AuthenticatedUser,classroomId:string,assignmentId:string){
     await this.scope.assertTeacherClassroomAccess(user,classroomId);
     return this.prisma.$transaction(async(tx)=>{
-      const deliveries=await tx.$queryRaw<{id:string;status:string;constraints:unknown;challenge_id:string|null}[]>`
-        SELECT ca.id,ca.status,a.constraints,a.challenge_id FROM public.learning_classroom_assignments ca
+      const deliveries=await tx.$queryRaw<{id:string;status:string;constraints:unknown;challenge_id:string|null;classroom_status:string}[]>`
+        SELECT ca.id,ca.status,a.constraints,a.challenge_id,c.status AS classroom_status FROM public.learning_classroom_assignments ca
         JOIN public.learning_assignments a ON a.id=ca.assignment_id
+        JOIN public.learning_classrooms c ON c.id=ca.classroom_id
         WHERE ca.classroom_id=${classroomId}::uuid AND ca.assignment_id=${assignmentId}::uuid
-        FOR UPDATE`;
+        FOR UPDATE OF ca`;
       const delivery=deliveries[0];
       if(!delivery) throw new NotFoundException("Assignment was not found.");
+      if(delivery.classroom_status!=='active') throw new ConflictException("Assignments cannot be published to an inactive classroom.");
       if(delivery.status==='closed'||delivery.status==='archived'){
         throw new ConflictException("Assignment cannot be published from its current state.");
       }
@@ -370,10 +565,11 @@ export class LearningService {
     return this.prisma.learning_assignments.update({where:{id:assignmentId},data:{...(dto.title!==undefined?{title:dto.title}:{}),...(dto.instructions!==undefined?{instructions:dto.instructions}:{})}});
   }
   async startAttempt(user:AuthenticatedUser,classroomAssignmentId:string) {
-    const assignment = await this.prisma.$queryRaw<{ classroom_id:string; lesson_id?: string; assignment_id?: string; challenge_id?: string|null; constraints?:unknown; organization_id?:string; max_attempts:number|null }[]>`
-      SELECT ca.classroom_id,a.lesson_id,a.id AS assignment_id,a.challenge_id,a.constraints,classroom.organization_id,ca.max_attempts FROM public.learning_classroom_assignments ca
+    const assignment = await this.prisma.$queryRaw<{ classroom_id:string; lesson_id?: string; assignment_id?: string; challenge_id?: string|null; constraints?:unknown; course_organization_id?:string|null; max_attempts:number|null }[]>`
+      SELECT ca.classroom_id,a.lesson_id,a.id AS assignment_id,a.challenge_id,a.constraints,course.organization_id AS course_organization_id,ca.max_attempts FROM public.learning_classroom_assignments ca
       JOIN public.learning_assignments a ON a.id=ca.assignment_id
       JOIN public.learning_lessons lesson ON lesson.id=a.lesson_id
+      JOIN public.learning_courses course ON course.id=lesson.course_id
       JOIN public.learning_classrooms classroom ON classroom.id=ca.classroom_id AND classroom.status='active'
       JOIN public.learning_course_offerings offering ON offering.id=classroom.offering_id
         AND offering.course_id=lesson.course_id AND offering.status='active'
@@ -407,8 +603,8 @@ export class LearningService {
       }
       const config = assignment[0].constraints as { kind?: string; passPercent?: number } | undefined;
       if (config?.kind === 'knowledge_check' && !assignment[0].challenge_id) {
-        if (!this.progression || !assignment[0].assignment_id || !assignment[0].lesson_id || !assignment[0].organization_id) throw new ConflictException('Quiz assignment configuration is incomplete.');
-        const snapshot = await this.progression.prepareQuestionBankQuiz(tx, assignment[0].assignment_id, assignment[0].lesson_id, assignment[0].organization_id, config.passPercent);
+        if (!this.progression || !assignment[0].assignment_id || !assignment[0].lesson_id || assignment[0].course_organization_id === undefined) throw new ConflictException('Quiz assignment configuration is incomplete.');
+        const snapshot = await this.progression.prepareQuestionBankQuiz(tx, assignment[0].assignment_id, assignment[0].lesson_id, assignment[0].course_organization_id, config.passPercent);
         const created = await tx.$queryRaw<{ id: string; classroom_assignment_id: string; learner_user_id: string; attempt_number: number; status: string; started_at: Date }[]>`INSERT INTO public.learning_assignment_attempts(classroom_assignment_id,learner_user_id,attempt_number,workspace_snapshot)
           VALUES(${classroomAssignmentId}::uuid,${user.vistaUserId}::uuid,${next.n},${JSON.stringify(snapshot.publicSnapshot)}::jsonb)
           RETURNING id,classroom_assignment_id,learner_user_id,attempt_number,status,started_at`;

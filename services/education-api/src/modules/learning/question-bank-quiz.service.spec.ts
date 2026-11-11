@@ -16,7 +16,7 @@ const issued = issueQuestionBankQuiz([row], assignmentId, lessonId, orgId, 80);
 
 describe('Question Bank quiz through existing attempt and progression services', () => {
   it('starts an attempt with immutable public/private snapshots and unchanged retake allocation', async () => {
-    const rootQuery = jest.fn().mockResolvedValue([{ classroom_id: 'class-a', lesson_id: lessonId, assignment_id: assignmentId, challenge_id: null, constraints: { kind: 'knowledge_check', passPercent: 80 }, organization_id: orgId, max_attempts: 3 }]);
+    const rootQuery = jest.fn().mockResolvedValue([{ classroom_id: 'class-a', lesson_id: lessonId, assignment_id: assignmentId, challenge_id: null, constraints: { kind: 'knowledge_check', passPercent: 80 }, organization_id: orgId, course_organization_id: orgId, max_attempts: 3 }]);
     const txQuery = jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ n: 1, existing: 0 }]).mockResolvedValueOnce([{ id: attemptId, status: 'in_progress' }]).mockResolvedValueOnce([]);
     const progression = { assertPrerequisites: jest.fn(), prepareQuestionBankQuiz: jest.fn().mockResolvedValue(issued) };
     const service = new LearningService({ $queryRaw: rootQuery, $transaction: jest.fn(async (work) => work({ $executeRaw: jest.fn(), $queryRaw: txQuery })) } as never,
@@ -30,7 +30,7 @@ describe('Question Bank quiz through existing attempt and progression services',
     expect(txQuery.mock.calls[3].some((value: unknown) => typeof value === 'string' && value.includes(issued.privateSnapshot.checksum))).toBe(true);
   });
   it('returns an open quiz attempt unchanged and allocates the next attempt after evaluation', async () => {
-    const context = { classroom_id: 'class-a', lesson_id: lessonId, assignment_id: assignmentId, challenge_id: null, constraints: { kind: 'knowledge_check', passPercent: 80 }, organization_id: orgId, max_attempts: 3 };
+    const context = { classroom_id: 'class-a', lesson_id: lessonId, assignment_id: assignmentId, challenge_id: null, constraints: { kind: 'knowledge_check', passPercent: 80 }, organization_id: orgId, course_organization_id: orgId, max_attempts: 3 };
     const progression = { assertPrerequisites: jest.fn(), prepareQuestionBankQuiz: jest.fn().mockResolvedValue(issued) };
     const activeQuery = jest.fn().mockResolvedValueOnce([{ id: attemptId, status: 'in_progress', workspace_snapshot: issued.publicSnapshot }]);
     const openService = new LearningService({ $queryRaw: jest.fn().mockResolvedValue([context]), $transaction: jest.fn(async (work) => work({ $executeRaw: jest.fn(), $queryRaw: activeQuery })) } as never,
@@ -45,6 +45,15 @@ describe('Question Bank quiz through existing attempt and progression services',
       { assertStudentClassroomAccess: jest.fn() } as never, progression as never);
     await expect(retakeService.startAttempt(user, deliveryId)).resolves.toMatchObject({ id: retakeId, attempt_number: 2, quiz: issued.publicSnapshot });
   });
+  it('issues a global canonical quiz to an organization classroom using the course scope', async () => {
+    const context = { classroom_id: 'class-a', lesson_id: lessonId, assignment_id: assignmentId, challenge_id: null, constraints: { kind: 'knowledge_check', passPercent: 80 }, organization_id: orgId, course_organization_id: null, max_attempts: 3 };
+    const txQuery = jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ n: 1, existing: 0 }]).mockResolvedValueOnce([{ id: attemptId, status: 'in_progress' }]).mockResolvedValueOnce([]);
+    const progression = { assertPrerequisites: jest.fn(), prepareQuestionBankQuiz: jest.fn().mockResolvedValue(issued) };
+    const service = new LearningService({ $queryRaw: jest.fn().mockResolvedValue([context]), $transaction: jest.fn(async (work) => work({ $executeRaw: jest.fn(), $queryRaw: txQuery })) } as never,
+      { assertStudentClassroomAccess: jest.fn() } as never, progression as never);
+    await expect(service.startAttempt(user, deliveryId)).resolves.toMatchObject({ id: attemptId, quiz: issued.publicSnapshot });
+    expect(progression.prepareQuestionBankQuiz).toHaveBeenCalledWith(expect.anything(), assignmentId, lessonId, null, 80);
+  });
   it('issues only assigned published versions and refuses Course 1', async () => {
     const query = jest.fn().mockResolvedValueOnce([{ legacy: false }]).mockResolvedValueOnce([row]);
     const progression = new ProgressionService({ $queryRaw: query } as never, {} as never);
@@ -54,7 +63,7 @@ describe('Question Bank quiz through existing attempt and progression services',
     await expect(progression.prepareQuestionBankQuiz({ $queryRaw: legacy } as never, assignmentId, lessonId, orgId, 80)).rejects.toThrow('Course 1');
   });
   it('does not publish an empty Question Bank quiz assignment', async () => {
-    const txQuery = jest.fn().mockResolvedValueOnce([{ id: deliveryId, status: 'draft', constraints: { kind: 'knowledge_check', passPercent: 80 }, challenge_id: null }]).mockResolvedValueOnce([{ count: 0, unavailable: 0 }]);
+    const txQuery = jest.fn().mockResolvedValueOnce([{ id: deliveryId, status: 'draft', constraints: { kind: 'knowledge_check', passPercent: 80 }, challenge_id: null, classroom_status: 'active' }]).mockResolvedValueOnce([{ count: 0, unavailable: 0 }]);
     const service = new LearningService({ $transaction: jest.fn(async (work) => work({ $queryRaw: txQuery })) } as never,
       { assertTeacherClassroomAccess: jest.fn() } as never);
     await expect(service.publishAssignment(user, 'class-a', assignmentId)).rejects.toThrow('requires published QuestionVersions');

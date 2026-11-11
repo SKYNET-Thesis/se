@@ -699,6 +699,7 @@ model users {
   learning_competency_progress         learning_competency_progress[]
   learning_course_offerings            learning_course_offerings[]
   learning_courses                     learning_courses[]
+  learning_media_assets                learning_media_assets[]
   learning_enrollments                 learning_enrollments[]
   learning_experiment_comparisons      learning_experiment_comparisons[]
   learning_experiments                 learning_experiments[]
@@ -1043,8 +1044,27 @@ model learning_courses {
   learning_enrollments      learning_enrollments[]
   learning_lessons          learning_lessons[]
   learning_questions        learning_questions[]
+  learning_media_assets    learning_media_assets[]
 
   @@index([level_id], map: "idx_learning_courses_level")
+}
+
+/// This model contains row level security and requires additional setup for migrations.
+model learning_media_assets {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  course_id        String           @db.Uuid
+  object_key       String           @unique
+  original_filename String
+  mime_type        String
+  size_bytes       BigInt
+  status           String           @default("pending")
+  created_by       String?          @db.Uuid
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  learning_courses learning_courses @relation(fields: [course_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  users            users?           @relation(fields: [created_by], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([course_id, created_at(sort: Desc)], map: "learning_media_assets_course_ready_created_idx")
+  @@index([status, created_at], map: "learning_media_assets_status_created_idx")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -1098,7 +1118,7 @@ model learning_enrollments {
   learning_course_offerings learning_course_offerings? @relation(fields: [offering_id], references: [id], onUpdate: NoAction, map: "learning_enrollments_offering_fkey")
   users                     users                      @relation(fields: [learner_user_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "learning_enrollments_user_fkey")
 
-  @@unique([course_id, learner_user_id])
+  @@unique([course_id, learner_user_id, classroom_id])
   @@index([classroom_id], map: "idx_learning_enrollments_classroom")
   @@index([offering_id], map: "idx_learning_enrollments_offering")
   @@index([learner_user_id], map: "idx_learning_enrollments_user")
@@ -1289,6 +1309,7 @@ model learning_activities {
   ordinal                      Int
   required                     Boolean                        @default(true)
   content_ref                  Json                           @default("{}")
+  content                      Json                           @default("{}")
   status                       String                         @default("draft")
   created_at                   DateTime                       @default(now()) @db.Timestamptz(6)
   updated_at                   DateTime                       @default(now()) @db.Timestamptz(6)
@@ -1376,7 +1397,7 @@ model learning_objectives {
 /// Question identity is stable; content and answer keys live in immutable published versions.
 model learning_questions {
   id               String                                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organization_id  String                                  @db.Uuid
+  organization_id  String?                                 @db.Uuid
   code             String
   course_id        String                                  @db.Uuid
   lesson_id        String                                  @db.Uuid
@@ -1384,7 +1405,7 @@ model learning_questions {
   created_by       String                                  @db.Uuid
   created_at       DateTime                                @default(now()) @db.Timestamptz(6)
   updated_at       DateTime                                @default(now()) @db.Timestamptz(6)
-  organizations    organizations                           @relation(fields: [organization_id], references: [id], onDelete: Restrict)
+  organizations    organizations?                          @relation(fields: [organization_id], references: [id], onDelete: Restrict)
   learning_courses learning_courses                        @relation(fields: [course_id], references: [id], onDelete: Restrict)
   learning_lessons learning_lessons                        @relation(fields: [lesson_id], references: [id], onDelete: Restrict)
   creator          users                                   @relation("question_creator", fields: [created_by], references: [id], onDelete: Restrict)

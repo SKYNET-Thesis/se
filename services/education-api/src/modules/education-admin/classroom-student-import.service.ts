@@ -1,3 +1,4 @@
+import { EnrollmentDeliveryService } from "../learning/enrollment-delivery.service";
 import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
@@ -38,6 +39,7 @@ export class ClassroomStudentImportService {
     private readonly prisma: PrismaService,
     private readonly scope: LearningScopeService,
     private readonly studentProvisioning: StudentProvisioningService,
+    private readonly enrollments: EnrollmentDeliveryService,
   ) {}
 
   async preview(user: AuthenticatedUser, organizationId: string, classroomId: string, dto: ImportClassroomStudentsDto) {
@@ -116,6 +118,11 @@ export class ClassroomStudentImportService {
         this.logger.error({ event: "classroom_student_import_failed", row: item.index + 2, organizationId, classroomId, identifier: item.row.studentCode, code: safe.code, error: error instanceof ImportProvisioningError ? error.internalDetail : error instanceof Error ? error.message : String(error) });
         results.push({ ...base, status: "failed", ...safe });
       }
+    }
+
+    // One idempotent synchronization enrolls every newly added student for the classroom's course.
+    if (results.some(item => item.status === "created_and_added" || item.status === "existing_added")) {
+      await this.enrollments.synchronizeIfDeliverable(classroomId);
     }
 
     return {

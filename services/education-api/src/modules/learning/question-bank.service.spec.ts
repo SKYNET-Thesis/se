@@ -25,7 +25,7 @@ describe('QuestionBankService', () => {
       $transaction: jest.fn(async (arg) => typeof arg === 'function' ? arg(db) : Promise.all(arg)),
       learning_lessons: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue({ content: {} }) },
       learning_questions: { findUnique: jest.fn().mockResolvedValue(q), create: jest.fn().mockResolvedValue(q), findMany: jest.fn().mockResolvedValue([q]), count: jest.fn().mockResolvedValue(1) },
-      learning_question_versions: { findUnique: jest.fn().mockResolvedValue(v), findUniqueOrThrow: jest.fn().mockResolvedValue(v), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockImplementation(async ({ data }) => data), findMany: jest.fn().mockResolvedValue([v]), updateMany: jest.fn().mockResolvedValue({ count: 1 }), update: jest.fn().mockImplementation(async ({ data }) => data) },
+      learning_question_versions: { findUnique: jest.fn().mockResolvedValue(v), findUniqueOrThrow: jest.fn().mockResolvedValue(v), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockImplementation(async ({ data }) => data), findMany: jest.fn().mockResolvedValue([v]), count: jest.fn().mockResolvedValue(1), updateMany: jest.fn().mockResolvedValue({ count: 1 }), update: jest.fn().mockImplementation(async ({ data }) => data) },
       learning_objectives: { findMany: jest.fn().mockResolvedValue([{ id: objective }]) },
       learning_question_version_objectives: { count: jest.fn().mockResolvedValue(1), deleteMany: jest.fn(), createMany: jest.fn(), findMany: jest.fn().mockResolvedValue([{ objective_id: objective }]) },
       learning_assignments: { findUnique: jest.fn().mockResolvedValue({ id: assignment, lesson_id: lesson, learning_lessons: { course_id: course, learning_courses: { organization_id: org } } }) },
@@ -40,6 +40,13 @@ describe('QuestionBankService', () => {
     await expect(service.createQuestion(admin, { organizationId: org, courseId: course, lessonId: lesson, code: 'Q-1' })).resolves.toEqual(q);
     expect(db.learning_questions.create).toHaveBeenCalledWith({ data: expect.objectContaining({ organization_id: org, lesson_id: lesson, code: 'Q-1' }) });
   });
+  it('creates a global-catalog question without an organization for a system administrator', async () => {
+    const globalQuestion = { ...q, organization_id: null };
+    db.learning_lessons.findUnique.mockResolvedValue({ course_id: course, learning_courses: { organization_id: null } });
+    db.learning_questions.create.mockResolvedValue(globalQuestion);
+    await expect(service.createQuestion(admin, { courseId: course, lessonId: lesson, code: 'GLOBAL-1' } as never)).resolves.toEqual(globalQuestion);
+    expect(db.learning_questions.create).toHaveBeenCalledWith({ data: expect.objectContaining({ organization_id: null, course_id: course, lesson_id: lesson }) });
+  });
   it('rejects a duplicate organization code', async () => {
     db.learning_lessons.findUnique.mockResolvedValue({ course_id: course, learning_courses: { organization_id: org } });
     db.learning_questions.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('duplicate', { code: 'P2002', clientVersion: '5.22.0' }));
@@ -48,6 +55,37 @@ describe('QuestionBankService', () => {
   it('denies a learner and another organization', async () => {
     await expect(service.get(author, question)).rejects.toBeInstanceOf(NotFoundException);
     expect(db.learning_questions.findUnique).toHaveBeenCalled();
+  });
+  it('creates only one lesson quiz draft and keeps it separate from classroom delivery', async () => {
+    db.$queryRaw.mockResolvedValue([{ organization_id: org, legacy: false }]);
+    db.learning_assignments.findMany = jest.fn().mockResolvedValue([]);
+    db.learning_assignments.create = jest.fn().mockImplementation(async ({ data }) => ({ id: assignment, ...data }));
+    const result = await service.createQuizAssignment(admin, lesson, 'Safety Quiz', 'Instructions', 75);
+    expect(result).toMatchObject({ id: assignment, lesson_id: lesson, constraints: { kind: 'knowledge_check', passPercent: 75 } });
+    expect(db.$queryRaw).toHaveBeenCalled();
+    expect(db.learning_classroom_assignments.findFirst).not.toHaveBeenCalled();
+  });
+  it('allows a system administrator to attach a published question to a global canonical quiz', async () => {
+    db.learning_assignments.findUnique.mockResolvedValue({ id: assignment, lesson_id: lesson, challenge_id: null, constraints: { kind: 'knowledge_check' }, learning_lessons: { course_id: course, learning_courses: { organization_id: null } } });
+    db.learning_question_versions.findUnique.mockResolvedValue({ ...v, status: 'published', question: { ...q, organization_id: null } });
+    db.$queryRaw.mockResolvedValue([]);
+    const result = await service.addToAssignment(admin, assignment, { questionVersionId: version, ordinal: 1, points: 1 });
+    expect(result).toMatchObject({ assignment_id: assignment, question_version_id: version, ordinal: 1 });
+  });
+  it('rejects duplicate lesson quiz drafts', async () => {
+    db.$queryRaw.mockResolvedValue([{ organization_id: org, legacy: false }]);
+    db.learning_assignments.findMany = jest.fn().mockResolvedValue([{ id: assignment }]);
+    await expect(service.createQuizAssignment(admin, lesson, 'Safety Quiz', '', 80)).rejects.toBeInstanceOf(ConflictException);
+  });
+  it('returns only published same-lesson authoring questions without answer keys', async () => {
+    db.$queryRaw.mockResolvedValue([{ course_id: course, organization_id: org }]);
+    db.learning_question_versions.findMany.mockResolvedValue([{ ...v, question: { ...q, code: 'SAFE-1' }, objectives: [{ objective: { id: objective, code: 'LO-1', description: 'Safety' } }] }]);
+    db.learning_question_versions.count.mockResolvedValue(1);
+    const result = await service.quizAuthoringQuestions(admin, lesson, 'safe', 'single_choice', 1, 20);
+    expect(result.items[0]).toMatchObject({ id: version, questionId: question, code: 'SAFE-1', objectives: [{ id: objective, code: 'LO-1' }] });
+    expect(result.items[0]).not.toHaveProperty('answer_key');
+    expect(result.items[0]).not.toHaveProperty('answerKey');
+    expect(db.learning_question_versions.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: 'published', objectives: { some: {} } }), skip: 0, take: 20 }));
   });
   it('creates sequential versions under a row lock', async () => {
     db.learning_question_versions.findFirst.mockResolvedValue({ version_number: 3 });
