@@ -12,22 +12,25 @@ const lesson = { id: lessonId, course_id: '77777777-7777-4777-8777-777777777777'
 describe('CurriculumService', () => {
   const query = jest.fn();
   const transaction = jest.fn();
+  const executeRaw = jest.fn();
   const sections = { create: jest.fn(), findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn() };
   const activities = { create: jest.fn(), findUnique: jest.fn(), update: jest.fn(), findMany: jest.fn() };
   const objectives = { findMany: jest.fn() };
   const mappings = { createMany: jest.fn(), deleteMany: jest.fn() };
   const coursePath = jest.fn();
+  const assertActivityMediaReady = jest.fn().mockResolvedValue(undefined);
   const service = new CurriculumService({
     $queryRaw: query, $transaction: transaction,
     learning_sections: sections, learning_activities: activities,
     learning_objectives: objectives, learning_activity_objectives: mappings,
-  } as never, { coursePath } as never);
+  } as never, { coursePath } as never, { assertActivityMediaReady } as never);
 
   beforeEach(() => {
-    for (const mock of [query, transaction, coursePath, ...Object.values(sections), ...Object.values(activities), ...Object.values(objectives), ...Object.values(mappings)]) mock.mockReset();
+    for (const mock of [query, transaction, executeRaw, coursePath, assertActivityMediaReady, ...Object.values(sections), ...Object.values(activities), ...Object.values(objectives), ...Object.values(mappings)]) mock.mockReset();
+    assertActivityMediaReady.mockResolvedValue(undefined);
     query.mockResolvedValue([lesson]);
     transaction.mockImplementation(async (work) => work({
-      $queryRaw: query, $executeRaw: jest.fn(),
+      $queryRaw: query, $executeRaw: executeRaw,
       learning_sections: sections, learning_activities: activities,
       learning_activity_objectives: mappings,
     }));
@@ -76,6 +79,26 @@ describe('CurriculumService', () => {
       contentRef: { kind: 'lesson_content', key: 'summary' }, objectiveIds: [objectiveId],
     })).resolves.toMatchObject({ id: activityId, status: 'draft' });
     expect(mappings.createMany).toHaveBeenCalledWith({ data: [{ activity_id: activityId, objective_id: objectiveId }] });
+  });
+
+  it('persists validated reading content with its canonical activity', async () => {
+    activities.create.mockResolvedValue({ id: activityId, section_id: sectionId, status: 'draft' });
+    const content = { version: 1, blocks: [{ type: 'paragraph', text: 'Keep the work area clear.' }] };
+    await service.createActivity(teacher as never, sectionId, {
+      title: 'Safety reading', type: 'reading', ordinal: 1,
+      contentRef: { kind: 'lesson_content', key: 'summary' }, content,
+    });
+    expect(activities.create).toHaveBeenCalledWith({ data: expect.not.objectContaining({ content }) });
+    expect(executeRaw.mock.calls[0][0].join('?')).toContain('SET content=');
+    expect(executeRaw.mock.calls[0][1]).toBe(JSON.stringify(content));
+  });
+
+  it('rejects unsafe or unsupported activity content before persistence', async () => {
+    await expect(service.createActivity(teacher as never, sectionId, {
+      title: 'Unsafe reading', type: 'reading', ordinal: 1,
+      contentRef: { kind: 'lesson_content', key: 'summary' }, content: { version: 1, html: '<script>bad()</script>' },
+    })).rejects.toBeInstanceOf(BadRequestException);
+    expect(activities.create).not.toHaveBeenCalled();
   });
 
   it('rejects invalid type, unsafe content references and cross-lesson objectives', async () => {
@@ -136,6 +159,12 @@ describe('CurriculumService', () => {
   });
 
   it('publishes a section and its validated activity without exposing draft content to learners', async () => {
+    query.mockImplementation(async (sql: TemplateStringsArray) => {
+      if (sql.join('').includes('SELECT content FROM public.learning_activities')) {
+        return [{ content: { version: 1, blocks: [{ type: 'text', text: 'Published reading content' }], mediaIds: [] } }];
+      }
+      return [lesson];
+    });
     sections.update.mockResolvedValueOnce({ id: sectionId, status: 'published' });
     await expect(service.setSectionStatus(teacher as never, sectionId, 'published')).resolves.toMatchObject({ status: 'published' });
     activities.findUnique.mockResolvedValueOnce({

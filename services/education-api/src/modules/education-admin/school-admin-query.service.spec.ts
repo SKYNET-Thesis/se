@@ -32,6 +32,13 @@ describe("SchoolAdminQueryService", () => {
     scope.isSystemAdministrator.mockReset().mockReturnValue(false);
   });
 
+  it("lists only active classroom members so removed students disappear from the roster", async () => {
+    queryRaw.mockResolvedValue([]);
+    await service.classroomMembers(actor, "school-a", "class-a");
+    const sql = (queryRaw.mock.calls[0][0] as TemplateStringsArray).join("?");
+    expect(sql).toContain("cm.status='active'");
+  });
+
   it("returns the lightweight organization overview aggregate", async () => {
     queryRaw.mockResolvedValue([{
       studentsCount: 20,

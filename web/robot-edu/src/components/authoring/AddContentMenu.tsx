@@ -18,6 +18,7 @@ import { Button } from '../ui/Button';
 export interface AddContentMenuProps {
   onSelectType: (type: string) => void;
   disabled?: boolean;
+  disabledTypes?: Record<string, string>;
   buttonSize?: 'sm' | 'md';
 }
 
@@ -44,6 +45,13 @@ export const CONTENT_TYPE_REGISTRY: ContentTypeItem[] = [
     label: 'Reading',
     description: 'Text article, documentation, slides or reference materials',
     icon: <FileTextIcon className="h-4 w-4 text-emerald-500" />,
+    supported: true,
+  },
+  {
+    type: 'demonstration',
+    label: 'Demonstration',
+    description: 'Instructional demonstration or step-by-step walkthrough',
+    icon: <VideoIcon className="h-4 w-4 text-blue-500" />,
     supported: true,
   },
   {
@@ -89,6 +97,13 @@ export const CONTENT_TYPE_REGISTRY: ContentTypeItem[] = [
     icon: <BookOpenIcon className="h-4 w-4 text-teal-500" />,
     supported: true,
   },
+  {
+    type: 'result',
+    label: 'Result',
+    description: 'Share a result or follow-up learning resource',
+    icon: <FileTextIcon className="h-4 w-4 text-emerald-500" />,
+    supported: true,
+  },
   // Unsupported Coursera activity types (documented gaps per Phase 4)
   {
     type: 'peer_review',
@@ -125,7 +140,7 @@ export const CONTENT_TYPE_REGISTRY: ContentTypeItem[] = [
   },
 ];
 
-export function AddContentMenu({ onSelectType, disabled = false, buttonSize = 'sm' }: AddContentMenuProps) {
+export function AddContentMenu({ onSelectType, disabled = false, disabledTypes = {}, buttonSize = 'sm' }: AddContentMenuProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -146,7 +161,8 @@ export function AddContentMenu({ onSelectType, disabled = false, buttonSize = 's
         <Button
           size={buttonSize}
           variant="secondary"
-          disabled={disabled}
+          disabled={disabled || Boolean(disabledTypes.video)}
+          title={disabledTypes.video}
           icon={<PlusIcon className="h-3 w-3" />}
           onClick={() => onSelectType('video')}
           aria-label="Quick Add Video"
@@ -186,6 +202,7 @@ export function AddContentMenu({ onSelectType, disabled = false, buttonSize = 's
           <ChevronDownIcon className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
         </button>
       </div>
+      {disabledTypes.knowledge_check && <p className="mt-1 text-2xs text-ink-muted">Quiz unavailable: {disabledTypes.knowledge_check}</p>}
 
       {/* Extended Dropdown Menu (Coursera Reference 2 & 5 style) */}
       {open && (
@@ -211,11 +228,13 @@ export function AddContentMenu({ onSelectType, disabled = false, buttonSize = 's
                   key={item.type}
                   type="button"
                   role="menuitem"
+                  disabled={disabled || Boolean(disabledTypes[item.type])}
+                  title={disabledTypes[item.type]}
                   onClick={() => {
                     onSelectType(item.type);
                     setOpen(false);
                   }}
-                  className="w-full flex items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-accent-soft/40 transition-colors group"
+                  className="w-full flex items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-accent-soft/40 transition-colors group disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   <div className="mt-0.5 shrink-0">{item.icon}</div>
                   <div className="flex-1 min-w-0">
@@ -230,7 +249,7 @@ export function AddContentMenu({ onSelectType, disabled = false, buttonSize = 's
                       )}
                     </div>
                     <p className="text-2xs text-ink-muted truncate mt-0.5">
-                      {item.description}
+                      {disabledTypes[item.type] ?? item.description}
                     </p>
                   </div>
                 </button>

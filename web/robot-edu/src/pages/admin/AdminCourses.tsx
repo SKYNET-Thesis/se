@@ -19,6 +19,7 @@ import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { catalogApi, type ApiCourse } from '../../lib/api';
 import { CanonicalCurriculumEditor } from './CanonicalCurriculumEditor';
 import { MediaAssetLibraryModal } from '../../components/authoring/MediaAssetLibraryModal';
+import { publishNotice } from '../../lib/publishNotice';
 
 const STATUS_TONE: Record<string, BadgeTone> = {
   published: 'ok',
@@ -40,6 +41,12 @@ export function AdminCourses() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
+  // Learning Media is stored per course in private object storage, so the library opens for the selected course only.
+  const openMediaLibrary = () => {
+    if (!selected) { setError('Select a course first to manage its learning media.'); return; }
+    setError(null);
+    setMediaLibraryOpen(true);
+  };
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'published' | 'archived'>('all');
 
@@ -59,7 +66,7 @@ export function AdminCourses() {
       await refresh();
       setSelected(updated);
       setError(null);
-      setNotice('Course published successfully.');
+      setNotice(publishNotice(updated));
     },
     onError: (e) => setError(message(e)),
   });
@@ -237,7 +244,7 @@ export function AdminCourses() {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => setMediaLibraryOpen(true)}
+              onClick={openMediaLibrary}
             >
               Open File Library
             </Button>
@@ -258,7 +265,7 @@ export function AdminCourses() {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => setMediaLibraryOpen(true)}
+              onClick={openMediaLibrary}
             >
               Open Asset Library
             </Button>
@@ -555,10 +562,14 @@ export function AdminCourses() {
         )}
       </Dialog>
 
-      <MediaAssetLibraryModal
-        open={mediaLibraryOpen}
-        onClose={() => setMediaLibraryOpen(false)}
-      />
+      {selected && (
+        <MediaAssetLibraryModal
+          open={mediaLibraryOpen}
+          onClose={() => setMediaLibraryOpen(false)}
+          courseId={selected.id}
+          token={token}
+        />
+      )}
     </main>
   );
 }

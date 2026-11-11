@@ -4,6 +4,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LearningMediaPreviewModal, type LearningMediaPreviewItem } from './LearningMediaPreviewModal';
 import { MediaAssetLibraryModal } from './MediaAssetLibraryModal';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+const mediaApi = vi.hoisted(() => ({ list: vi.fn(), authorUrl: vi.fn(), upload: vi.fn(), createUpload: vi.fn(), completeUpload: vi.fn(), failUpload: vi.fn(), activityUrl: vi.fn() }));
+vi.mock('../../lib/api', () => ({ learningMediaApi: mediaApi }));
 
 const pdf: LearningMediaPreviewItem = {
   name: 'Safety guide.pdf',
@@ -20,11 +24,14 @@ describe('LearningMediaPreviewModal', () => {
 
   beforeEach(() => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    vi.clearAllMocks();
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
     onClose = vi.fn();
   });
+
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
   afterEach(() => {
     act(() => root.unmount());
@@ -141,43 +148,67 @@ describe('LearningMediaPreviewModal', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('opens the reusable preview from the existing instructor asset library', () => {
-    act(() => root.render(<MediaAssetLibraryModal open onClose={onClose} />));
-    act(() => {
-      document.querySelector<HTMLButtonElement>('[aria-label="Preview SO-101 Hardware Safety & E-Stop Protocol Guide"]')?.click();
-    });
-    expect(Array.from(document.querySelectorAll('[role="dialog"]')).some((dialog) => dialog.textContent?.includes('SO-101 Hardware Safety & E-Stop Protocol Guide'))).toBe(true);
-    expect(document.querySelector('iframe[title^="PDF preview"]')).not.toBeNull();
-    expect(document.body.textContent).not.toContain('Asset URI:');
+  it('loads only persisted course assets from the authorized library API', async () => {
+    mediaApi.list.mockResolvedValue([{ id: 'media-1', course_id: 'course-1', original_filename: 'Safety guide.pdf', mime_type: 'application/pdf', size_bytes: 1024, status: 'ready', created_at: '2026-11-10T00:00:00Z' }]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" /></QueryClientProvider>); await new Promise((resolve) => setTimeout(resolve, 60)); });
+    expect(mediaApi.list).toHaveBeenCalled();
+    await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" /></QueryClientProvider>); });
+    expect(mediaApi.list).toHaveBeenCalledWith('course-1', 'session-token', '', '');
+    expect(document.body.textContent).toContain('Safety guide.pdf');
+    expect(document.body.textContent).not.toContain('storage.vista.education');
   });
 
-  it('shows an empty state when an asset search has no results', () => {
-    act(() => root.render(<MediaAssetLibraryModal open onClose={onClose} />));
-    act(() => {
-      const search = document.querySelector<HTMLInputElement>('[aria-label="Search library assets"]');
-      if (!search) throw new Error('Asset search input not found');
-      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-      setValue?.call(search, 'no matching file');
-      search.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    expect(document.body.textContent).toContain('No files match your search.');
+  it('shows the empty state when the authorized course library is empty', async () => {
+    mediaApi.list.mockResolvedValue([]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" /></QueryClientProvider>); await new Promise((resolve) => setTimeout(resolve, 60)); });
+    await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" /></QueryClientProvider>); });
+    expect(document.body.textContent).toContain('No learning media is available in this course yet.');
   });
 
-  it('closes only the topmost preview when Escape is pressed in a nested dialog', async () => {
-    function ControlledLibrary() {
-      const [open, setOpen] = React.useState(true);
-      return <MediaAssetLibraryModal open={open} onClose={() => { onClose(); setOpen(false); }} />;
-    }
-    act(() => root.render(<ControlledLibrary />));
-    act(() => document.querySelector<HTMLButtonElement>('[aria-label="Preview SO-101 Hardware Safety & E-Stop Protocol Guide"]')?.click());
-    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2);
-    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); });
-    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
-    expect(onClose).not.toHaveBeenCalled();
-    expect(document.body.style.overflow).toBe('hidden');
-    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-    expect(onClose).toHaveBeenCalledOnce();
-    expect(document.body.style.overflow).toBe('');
+  it('uploads through the authenticated media API and refreshes persisted course media', async () => {
+    mediaApi.list.mockResolvedValue([]);
+    mediaApi.upload.mockResolvedValue({ id: 'media-2', course_id: 'course-1', original_filename: 'guide.pdf', mime_type: 'application/pdf', size_bytes: 2048, status: 'ready', created_at: '2026-11-10T00:00:00Z' });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" /></QueryClientProvider>); await new Promise((resolve) => setTimeout(resolve, 30)); });
+    const file = new File(['pdf'], 'guide.pdf', { type: 'application/pdf' });
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Upload learning media"]');
+    if (!input) throw new Error('Learning media file input was not rendered.');
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); await new Promise((resolve) => setTimeout(resolve, 30)); });
+    expect(mediaApi.upload).toHaveBeenCalledWith('course-1', 'session-token', file, expect.any(Function));
+  });
+
+  it('shows upload progress and offers retry after a storage failure', async () => {
+    mediaApi.list.mockResolvedValue([]);
+    mediaApi.upload.mockImplementationOnce(async (_course: string, _token: string, _file: File, progress: (value: number) => void) => {
+      progress(42);
+      throw new Error('Storage unavailable');
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" /></QueryClientProvider>); await new Promise((resolve) => setTimeout(resolve, 30)); });
+    const file = new File(['pdf'], 'guide.pdf', { type: 'application/pdf' });
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Upload learning media"]')!;
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); await new Promise((resolve) => setTimeout(resolve, 30)); });
+    expect(document.body.textContent).toContain('Storage unavailable');
+    const retry = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Retry upload');
+    expect(retry).toBeDefined();
+    mediaApi.upload.mockResolvedValueOnce({ id: 'media-4', status: 'ready' });
+    await act(async () => { retry?.click(); await new Promise((resolve) => setTimeout(resolve, 30)); });
+    expect(mediaApi.upload).toHaveBeenLastCalledWith('course-1', 'session-token', file, expect.any(Function));
+  });
+
+  it('reuses an existing persisted media record without creating a duplicate upload', async () => {
+    mediaApi.list.mockResolvedValue([{ id: 'media-3', course_id: 'course-1', original_filename: 'intro.mp4', mime_type: 'video/mp4', size_bytes: 1024, status: 'ready', created_at: '2026-11-10T00:00:00Z' }]);
+    const onSelect = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" selectionMode onSelectAsset={onSelect} initialKind="video" /></QueryClientProvider>); await new Promise((resolve) => setTimeout(resolve, 30)); });
+    await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" selectionMode onSelectAsset={onSelect} initialKind="video" /></QueryClientProvider>); });
+    const useButton = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Use file');
+    await act(async () => { useButton?.click(); });
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'media-3', name: 'intro.mp4', type: 'video' }));
+    expect(mediaApi.upload).not.toHaveBeenCalled();
   });
 });

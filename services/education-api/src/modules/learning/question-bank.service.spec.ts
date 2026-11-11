@@ -25,7 +25,7 @@ describe('QuestionBankService', () => {
       $transaction: jest.fn(async (arg) => typeof arg === 'function' ? arg(db) : Promise.all(arg)),
       learning_lessons: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue({ content: {} }) },
       learning_questions: { findUnique: jest.fn().mockResolvedValue(q), create: jest.fn().mockResolvedValue(q), findMany: jest.fn().mockResolvedValue([q]), count: jest.fn().mockResolvedValue(1) },
-      learning_question_versions: { findUnique: jest.fn().mockResolvedValue(v), findUniqueOrThrow: jest.fn().mockResolvedValue(v), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockImplementation(async ({ data }) => data), findMany: jest.fn().mockResolvedValue([v]), updateMany: jest.fn().mockResolvedValue({ count: 1 }), update: jest.fn().mockImplementation(async ({ data }) => data) },
+      learning_question_versions: { findUnique: jest.fn().mockResolvedValue(v), findUniqueOrThrow: jest.fn().mockResolvedValue(v), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockImplementation(async ({ data }) => data), findMany: jest.fn().mockResolvedValue([v]), count: jest.fn().mockResolvedValue(1), updateMany: jest.fn().mockResolvedValue({ count: 1 }), update: jest.fn().mockImplementation(async ({ data }) => data) },
       learning_objectives: { findMany: jest.fn().mockResolvedValue([{ id: objective }]) },
       learning_question_version_objectives: { count: jest.fn().mockResolvedValue(1), deleteMany: jest.fn(), createMany: jest.fn(), findMany: jest.fn().mockResolvedValue([{ objective_id: objective }]) },
       learning_assignments: { findUnique: jest.fn().mockResolvedValue({ id: assignment, lesson_id: lesson, learning_lessons: { course_id: course, learning_courses: { organization_id: org } } }) },
@@ -40,6 +40,13 @@ describe('QuestionBankService', () => {
     await expect(service.createQuestion(admin, { organizationId: org, courseId: course, lessonId: lesson, code: 'Q-1' })).resolves.toEqual(q);
     expect(db.learning_questions.create).toHaveBeenCalledWith({ data: expect.objectContaining({ organization_id: org, lesson_id: lesson, code: 'Q-1' }) });
   });
+  it('creates a global-catalog question without an organization for a system administrator', async () => {
+    const globalQuestion = { ...q, organization_id: null };
+    db.learning_lessons.findUnique.mockResolvedValue({ course_id: course, learning_courses: { organization_id: null } });
+    db.learning_questions.create.mockResolvedValue(globalQuestion);
+    await expect(service.createQuestion(admin, { courseId: course, lessonId: lesson, code: 'GLOBAL-1' } as never)).resolves.toEqual(globalQuestion);
+    expect(db.learning_questions.create).toHaveBeenCalledWith({ data: expect.objectContaining({ organization_id: null, course_id: course, lesson_id: lesson }) });
+  });
   it('rejects a duplicate organization code', async () => {
     db.learning_lessons.findUnique.mockResolvedValue({ course_id: course, learning_courses: { organization_id: org } });
     db.learning_questions.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError('duplicate', { code: 'P2002', clientVersion: '5.22.0' }));
@@ -48,6 +55,37 @@ describe('QuestionBankService', () => {
   it('denies a learner and another organization', async () => {
     await expect(service.get(author, question)).rejects.toBeInstanceOf(NotFoundException);
     expect(db.learning_questions.findUnique).toHaveBeenCalled();
+  });
+  it('creates only one lesson quiz draft and keeps it separate from classroom delivery', async () => {
+    db.$queryRaw.mockResolvedValue([{ organization_id: org, legacy: false }]);
+    db.learning_assignments.findMany = jest.fn().mockResolvedValue([]);
+    db.learning_assignments.create = jest.fn().mockImplementation(async ({ data }) => ({ id: assignment, ...data }));
+    const result = await service.createQuizAssignment(admin, lesson, 'Safety Quiz', 'Instructions', 75);
+    expect(result).toMatchObject({ id: assignment, lesson_id: lesson, constraints: { kind: 'knowledge_check', passPercent: 75 } });
+    expect(db.$queryRaw).toHaveBeenCalled();
+    expect(db.learning_classroom_assignments.findFirst).not.toHaveBeenCalled();
+  });
+  it('allows a system administrator to attach a published question to a global canonical quiz', async () => {
+    db.learning_assignments.findUnique.mockResolvedValue({ id: assignment, lesson_id: lesson, challenge_id: null, constraints: { kind: 'knowledge_check' }, learning_lessons: { course_id: course, learning_courses: { organization_id: null } } });
+    db.learning_question_versions.findUnique.mockResolvedValue({ ...v, status: 'published', question: { ...q, organization_id: null } });
+    db.$queryRaw.mockResolvedValue([]);
+    const result = await service.addToAssignment(admin, assignment, { questionVersionId: version, ordinal: 1, points: 1 });
+    expect(result).toMatchObject({ assignment_id: assignment, question_version_id: version, ordinal: 1 });
+  });
+  it('rejects duplicate lesson quiz drafts', async () => {
+    db.$queryRaw.mockResolvedValue([{ organization_id: org, legacy: false }]);
+    db.learning_assignments.findMany = jest.fn().mockResolvedValue([{ id: assignment }]);
+    await expect(service.createQuizAssignment(admin, lesson, 'Safety Quiz', '', 80)).rejects.toBeInstanceOf(ConflictException);
+  });
+  it('returns only published same-lesson authoring questions without answer keys', async () => {
+    db.$queryRaw.mockResolvedValue([{ course_id: course, organization_id: org }]);
+    db.learning_question_versions.findMany.mockResolvedValue([{ ...v, question: { ...q, code: 'SAFE-1' }, objectives: [{ objective: { id: objective, code: 'LO-1', description: 'Safety' } }] }]);
+    db.learning_question_versions.count.mockResolvedValue(1);
+    const result = await service.quizAuthoringQuestions(admin, lesson, 'safe', 'single_choice', 1, 20);
+    expect(result.items[0]).toMatchObject({ id: version, questionId: question, code: 'SAFE-1', objectives: [{ id: objective, code: 'LO-1' }] });
+    expect(result.items[0]).not.toHaveProperty('answer_key');
+    expect(result.items[0]).not.toHaveProperty('answerKey');
+    expect(db.learning_question_versions.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: 'published', objectives: { some: {} } }), skip: 0, take: 20 }));
   });
   it('creates sequential versions under a row lock', async () => {
     db.learning_question_versions.findFirst.mockResolvedValue({ version_number: 3 });
@@ -67,7 +105,8 @@ describe('QuestionBankService', () => {
     db.learning_question_versions.create.mockImplementation(async ({ data }: any) => { next = data.version_number; return data; });
     const [first, second] = await Promise.all([service.createVersion(admin, question, content), service.createVersion(admin, question, content)]);
     expect([first.version_number, second.version_number]).toEqual([1, 2]);
-    expect(db.$queryRaw).toHaveBeenCalledTimes(2);
+    // two version-number allocations, each serialized by a FOR UPDATE lock on the question (status checks are separate reads)
+    expect(db.$queryRaw.mock.calls.filter((call: unknown[]) => String((call[0] as TemplateStringsArray).join('?')).includes('FOR UPDATE'))).toHaveLength(2);
   });
   it.each([
     ['invalid type', { type: 'essay' }],
@@ -130,5 +169,47 @@ describe('QuestionBankService', () => {
   it('keeps legacy Course 1 assignment untouched', async () => {
     db.learning_lessons.findFirst.mockResolvedValue({ content: { courseOverview: { label: 'Course 1' } } });
     await expect(service.addToAssignment(admin, assignment, { questionVersionId: version, ordinal: 1, points: 2 })).rejects.toBeInstanceOf(ConflictException);
+  });
+  describe('archived course freeze', () => {
+    /** Course status lookups answer "archived"; the lesson/assignment ownership reads answer normally. */
+    const archiveCourse = () => db.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+      const sql = String(strings.join('?'));
+      if (sql.includes('SELECT status FROM public.learning_courses')) return [{ status: 'archived' }];
+      if (sql.includes('AS legacy')) return [{ organization_id: org, legacy: false, course_id: course }];
+      if (sql.includes('FROM public.learning_assignments a JOIN public.learning_lessons l')) return [{ course_id: course }];
+      return [];
+    });
+    const writes = () => [
+      db.learning_questions.create, db.learning_question_versions.create, db.learning_question_versions.updateMany,
+      db.learning_assignment_question_versions.create, db.learning_assignment_question_versions.deleteMany,
+      db.learning_assignments.create, db.learning_assignments.update, db.learning_question_version_objectives.createMany,
+    ].filter(Boolean);
+
+    it.each([
+      ['create a question', () => service.createQuestion(admin, { organizationId: org, courseId: course, lessonId: lesson, code: 'Q-9' } as never)],
+      ['create a version', () => service.createVersion(admin, question, content as never)],
+      ['edit a draft', () => service.updateDraft(admin, version, { stem: 'Revised' })],
+      ['map objectives', () => service.mapObjectives(admin, version, { objectiveIds: [objective] })],
+      ['submit for review', () => service.submitReview(admin, version)],
+      ['publish a version', () => service.publish(admin, version)],
+      ['archive a version', () => service.archive(admin, version)],
+      ['create the quiz assignment', () => service.createQuizAssignment(admin, lesson, 'Quiz', 'Instructions', 80)],
+      ['reconfigure the quiz', () => service.updateQuizAssignment(admin, lesson, assignment, 'Quiz', 'Instructions', 80)],
+      ['add a quiz question', () => service.addToAssignment(admin, assignment, { questionVersionId: version, ordinal: 1, points: 1 })],
+      ['remove a quiz question', () => service.removeFromAssignment(admin, assignment, version)],
+      ['reorder quiz questions', () => service.reorderAssignment(admin, assignment, { orderedVersionIds: [version] })],
+    ])('rejects %s when the parent course is archived and writes nothing', async (_name, call) => {
+      db.learning_lessons.findUnique.mockResolvedValue({ course_id: course, learning_courses: { organization_id: org } });
+      db.learning_assignments.findUnique.mockResolvedValue({ id: assignment, lesson_id: lesson, constraints: { kind: 'knowledge_check' }, challenge_id: null, learning_lessons: { course_id: course, learning_courses: { organization_id: org } } });
+      archiveCourse();
+      await expect(call()).rejects.toThrow(/archived/);
+      for (const write of writes()) expect(write).not.toHaveBeenCalled();
+    });
+
+    it('keeps reads available for an archived course (history and results stay readable)', async () => {
+      archiveCourse();
+      db.learning_assignment_question_versions.findMany.mockResolvedValue([{ version: { objectives: [] } }]);
+      await expect(service.assignmentQuestions(admin, assignment)).resolves.toMatchObject({ items: [expect.anything()] });
+    });
   });
 });

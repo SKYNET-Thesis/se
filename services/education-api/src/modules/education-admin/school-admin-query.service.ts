@@ -78,7 +78,7 @@ export class SchoolAdminQueryService {
   async classroomMembers(user: AuthenticatedUser, organizationId: string, classroomId: string) {
     this.assertOrganizationPermission(user, organizationId, "education.members.read");
     await this.assertClassroom(organizationId, classroomId);
-    return this.prisma.$queryRaw`SELECT cm.id,cm.user_id,cm.classroom_role,cm.status,cm.joined_at,u.full_name,u.email,r.code AS membership_role FROM public.learning_classroom_members cm JOIN public.users u ON u.id=cm.user_id JOIN public.memberships m ON m.id=cm.membership_id JOIN public.roles r ON r.id=m.role_id WHERE cm.classroom_id=${classroomId}::uuid ORDER BY cm.classroom_role,u.full_name`;
+    return this.prisma.$queryRaw`SELECT cm.id,cm.user_id,cm.classroom_role,cm.status,cm.joined_at,u.full_name,u.email,r.code AS membership_role FROM public.learning_classroom_members cm JOIN public.users u ON u.id=cm.user_id JOIN public.memberships m ON m.id=cm.membership_id JOIN public.roles r ON r.id=m.role_id WHERE cm.classroom_id=${classroomId}::uuid AND cm.status='active' ORDER BY cm.classroom_role,u.full_name`;
   }
 
   async offerings(user: AuthenticatedUser, organizationId: string) {

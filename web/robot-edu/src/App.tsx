@@ -64,9 +64,9 @@ export function App() {
                   <Route path="courses/:courseId/info" element={<CourseInfo />} />
                   <Route path="courses/:courseId/lessons/:lessonId" element={<LessonViewer />} />
                   <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
-                  <Route path="assignments" element={<StudentAssignments />} />
-                  <Route path="my-learning" element={<MyLearning />} />
-                  <Route path="my-learning/:classroomAssignmentId" element={<StudentAssignmentDetail />} />
+                  <Route path="assignments" element={<RequireRole roles={['student']}><StudentAssignments /></RequireRole>} />
+                  <Route path="my-learning" element={<RequireRole roles={['student']}><MyLearning /></RequireRole>} />
+                  <Route path="my-learning/:classroomAssignmentId" element={<RequireRole roles={['student']}><StudentAssignmentDetail /></RequireRole>} />
                   <Route path="learning-loop" element={<LearningLoop />} />
                   <Route path="assignments/:assignmentId" element={<AssignmentDetail />} />
                   <Route path="studio" element={<Studio />} />

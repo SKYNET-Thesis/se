@@ -4,11 +4,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemberCandidatePicker } from './MemberCandidatePicker';
 import { candidateMutationBody, candidatePageCount, candidateSearchChange, useDebouncedValue } from './memberCandidateState';
+import type { ApiMemberCandidate } from '../../lib/api';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const teacher = { userId: 'teacher-1', displayName: 'VISTA Demo Teacher', organizationRole: 'instructor', schoolCode: 'VISTA-TEA-001', accountState: 'active', alreadyMember: false };
-const student = { userId: 'student-1', displayName: 'VISTA Demo Student', organizationRole: 'student', schoolCode: 'VISTA-STU-001', accountState: 'account_setup_pending', alreadyMember: false };
+const teacher: ApiMemberCandidate = { userId: 'teacher-1', displayName: 'VISTA Demo Teacher', organizationRole: 'instructor', schoolCode: 'VISTA-TEA-001', accountState: 'active', alreadyMember: false };
+const student: ApiMemberCandidate = { userId: 'student-1', displayName: 'VISTA Demo Student', organizationRole: 'student', schoolCode: 'VISTA-STU-001', accountState: 'account_setup_pending', alreadyMember: false };
 
 describe('member candidate state', () => {
   it('resets page and selection when search changes', () => {

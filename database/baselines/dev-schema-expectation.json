@@ -1,0 +1,26 @@
+{
+  "counts": {
+    "columns": 787,
+    "constraints": 485,
+    "foreign_tables": 0,
+    "functions": 13,
+    "indexes": 239,
+    "materialized_views": 0,
+    "policies": 0,
+    "rls_enabled": 47,
+    "rls_forced": 0,
+    "sequences": 1,
+    "tables": 89,
+    "triggers": 20,
+    "types": 1,
+    "views": 0
+  },
+  "ledgerVersions": [
+    "20261110_d_activity_content",
+    "20261110_e_learning_media",
+    "20261111_f_global_question_scope",
+    "20261111_g_activity_progress_scope_guard"
+  ],
+  "note": "Schema fingerprint of a fresh PostgreSQL 17 bootstrap (baseline + manifest migrations) for a database owned by user vista_test. Regenerate with --verify-only --write-expectation after a reviewed manifest change.",
+  "schemaFingerprint": "cf6ed59046530d5fa51bf55186b18acf7eff237f0f57b8d7d82402a1f4dc93b9"
+}

@@ -9,7 +9,7 @@ describe('EducationAdminService course offering assignment', () => {
   const service = new EducationAdminService(
     { learning_courses: { findFirst: findCourse }, learning_course_offerings: { create: createOffering } } as never,
     { isSystemAdministrator: jest.fn().mockReturnValue(false) } as never,
-    {} as never, {} as never,
+    {} as never, {} as never, {} as never,
   );
 
   beforeEach(() => { findCourse.mockReset(); createOffering.mockReset(); });

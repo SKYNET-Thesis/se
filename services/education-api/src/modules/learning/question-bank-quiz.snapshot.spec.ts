@@ -20,6 +20,14 @@ describe('Question Bank quiz snapshot and grading', () => {
     expect(issued.privateSnapshot.answers[1].answerKey).toEqual(['a', 'b']);
     expect(issued.publicSnapshot.passPercent).toBe(80);
   });
+  it('issues a canonical global-course quiz with NULL organization scope without exposing grading data', () => {
+    const globalRow = { ...rows[0], organization_id: null };
+    const issued = issueQuestionBankQuiz([globalRow], assignmentId, lessonId, null, 80, new Date('2026-11-05T00:00:00Z'));
+    expect(issued.publicSnapshot).toMatchObject({ kind: 'question_bank_quiz', assignmentId, lessonId, passPercent: 80 });
+    expect(JSON.stringify(issued.publicSnapshot)).not.toContain('answerKey');
+    expect(JSON.stringify(issued.publicSnapshot)).not.toContain('explanation');
+    expect(() => issueQuestionBankQuiz([globalRow], assignmentId, lessonId, orgId, 80)).toThrow(ConflictException);
+  });
   it('grades all three types with exact match and assignment threshold', () => {
     const issued = issueQuestionBankQuiz(rows, assignmentId, lessonId, orgId, 80);
     expect(gradeQuestionBankQuiz(issued.publicSnapshot, issued.privateSnapshot, assignmentId, lessonId, correct)).toMatchObject({ score: 100, passed: true, earnedPoints: 6, possiblePoints: 6 });

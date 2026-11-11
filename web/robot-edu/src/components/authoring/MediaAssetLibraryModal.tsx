@@ -1,255 +1,100 @@
-import { useState } from 'react';
-import {
-  FileTextIcon,
-  VideoIcon,
-  BotIcon,
-  DatabaseIcon,
-  EyeIcon,
-  SearchIcon,
-  UploadCloudIcon,
-} from 'lucide-react';
+import { useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { FileTextIcon, VideoIcon, ImageIcon, EyeIcon, SearchIcon, UploadCloudIcon } from 'lucide-react';
 import { Dialog } from '../ui/Dialog';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { LearningMediaPreviewModal } from './LearningMediaPreviewModal';
+import { learningMediaApi, type ApiLearningMedia } from '../../lib/api';
 
 export interface MediaAsset {
   id: string;
   name: string;
-  type: 'video' | 'document' | 'robot_model' | 'dataset';
+  type: 'video' | 'document' | 'image';
   format: string;
   size: string;
-  duration?: string;
   url: string;
   uploadedAt: string;
   description: string;
 }
 
-export const CANONICAL_MEDIA_ASSETS: MediaAsset[] = [
-  {
-    id: 'asset-1',
-    name: 'SO-101 Tabletop Arm Kinematics Walkthrough',
-    type: 'video',
-    format: 'MP4',
-    size: '84.2 MB',
-    duration: '11:45',
-    url: 'https://storage.vista.education/videos/so101_kinematics_walkthrough.mp4',
-    uploadedAt: '2026-11-01',
-    description: 'Detailed video explanation of 6-DOF joint angles and coordinate frame transforms.',
-  },
-  {
-    id: 'asset-2',
-    name: 'SO-101 Hardware Safety & E-Stop Protocol Guide',
-    type: 'document',
-    format: 'PDF',
-    size: '2.4 MB',
-    url: 'https://storage.vista.education/docs/safety_estop_protocols.pdf',
-    uploadedAt: '2026-10-28',
-    description: 'Standard operating safety guidelines for student physical robot lab operations.',
-  },
-  {
-    id: 'asset-3',
-    name: 'SO-101 Dual-Arm URDF Package & Meshes',
-    type: 'robot_model',
-    format: 'URDF',
-    size: '14.8 MB',
-    url: 'https://storage.vista.education/models/so101_dual_arm.urdf',
-    uploadedAt: '2026-10-15',
-    description: 'Canonical 3D URDF model with collision geometries used in 3D simulation.',
-  },
-  {
-    id: 'asset-4',
-    name: 'Dual-Arm Tabletop Pick-and-Place Demonstration Episode',
-    type: 'dataset',
-    format: 'H5/MP4',
-    size: '128.5 MB',
-    duration: '01:30',
-    url: 'https://storage.vista.education/episodes/demo_pick_place_01.h5',
-    uploadedAt: '2026-11-04',
-    description: 'Recorded teleoperation demonstration trajectory with gripper state transitions.',
-  },
-  {
-    id: 'asset-5',
-    name: 'Symbolic Safety Check Rules Reference Sheet',
-    type: 'document',
-    format: 'PDF',
-    size: '1.1 MB',
-    url: 'https://storage.vista.education/docs/symbolic_evaluation_rules.pdf',
-    uploadedAt: '2026-11-02',
-    description: 'Reference sheet for deterministic simulation evaluation rules.',
-  },
-];
-
 export interface MediaAssetLibraryModalProps {
   open: boolean;
   onClose: () => void;
+  courseId: string;
+  token: string;
   onSelectAsset?: (asset: MediaAsset) => void;
   selectionMode?: boolean;
+  initialKind?: 'video' | 'document' | 'image';
 }
 
-export function MediaAssetLibraryModal({
-  open,
-  onClose,
-  onSelectAsset,
-  selectionMode = false,
-}: MediaAssetLibraryModalProps) {
-  const [filterType, setFilterType] = useState<string>('all');
+const kindOf = (mime: string): MediaAsset['type'] => mime.startsWith('video/') ? 'video' : mime.startsWith('image/') ? 'image' : 'document';
+const assetOf = (row: ApiLearningMedia, url = ''): MediaAsset => ({
+  id: row.id,
+  name: row.original_filename,
+  type: kindOf(row.mime_type),
+  format: row.mime_type.split('/').at(-1)?.toUpperCase() ?? row.mime_type,
+  size: `${(row.size_bytes / (1024 * 1024)).toFixed(row.size_bytes > 1024 * 1024 ? 1 : 2)} MB`,
+  url,
+  uploadedAt: new Date(row.created_at).toLocaleDateString(),
+  description: row.mime_type,
+});
+
+export function MediaAssetLibraryModal({ open, onClose, courseId, token, onSelectAsset, selectionMode = false, initialKind }: MediaAssetLibraryModalProps) {
+  const client = useQueryClient();
+  const [filterType, setFilterType] = useState(initialKind ?? '');
   const [search, setSearch] = useState('');
-  const [previewAsset, setPreviewAsset] = useState<MediaAsset | null>(null);
+  const [previewAsset, setPreviewAsset] = useState<ApiLearningMedia | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [retryFile, setRetryFile] = useState<File | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const mediaQuery = useQuery({ queryKey: ['learning-media', courseId, search, filterType], queryFn: () => learningMediaApi.list(courseId, token, search, filterType), enabled: open && Boolean(courseId && token), staleTime: 20_000 });
+  const previewQuery = useQuery({ queryKey: ['learning-media-author-url', previewAsset?.id], queryFn: () => learningMediaApi.authorUrl(previewAsset!.id, token), enabled: Boolean(previewAsset && token), staleTime: 30_000 });
 
-  const filteredAssets = CANONICAL_MEDIA_ASSETS.filter((item) => {
-    const matchesType = filterType === 'all' || item.type === filterType;
-    const matchesSearch =
-      !search ||
-      item.name.toLowerCase().includes(search.toLowerCase()) ||
-      item.description.toLowerCase().includes(search.toLowerCase());
-    return matchesType && matchesSearch;
-  });
-
-  const getIcon = (type: MediaAsset['type']) => {
-    switch (type) {
-      case 'video':
-        return <VideoIcon className="h-5 w-5 text-blue-500" />;
-      case 'document':
-        return <FileTextIcon className="h-5 w-5 text-emerald-500" />;
-      case 'robot_model':
-        return <BotIcon className="h-5 w-5 text-indigo-500" />;
-      case 'dataset':
-        return <DatabaseIcon className="h-5 w-5 text-purple-500" />;
+  const upload = async (file?: File) => {
+    if (!file) return;
+    setRetryFile(file); setUploading(true); setUploadProgress(0); setError(null);
+    try {
+      await learningMediaApi.upload(courseId, token, file, setUploadProgress);
+      await client.invalidateQueries({ queryKey: ['learning-media', courseId] });
+      setRetryFile(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Learning Media upload failed.');
+    } finally {
+      setUploading(false);
+      setUploadProgress(null);
     }
   };
 
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="Asset & File Library"
-      description="Manage instructional media, video lectures, reading documents and 3D robot models."
-      footer={
-        <div className="flex items-center justify-between w-full">
-          <span className="text-xs text-ink-muted">
-            {filteredAssets.length} asset{filteredAssets.length === 1 ? '' : 's'} available
-          </span>
-          <Button variant="secondary" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-      }
-    >
+  const rows = mediaQuery.data ?? [];
+  const icon = (type: MediaAsset['type']) => type === 'video' ? <VideoIcon className="h-5 w-5 text-blue-600" /> : type === 'image' ? <ImageIcon className="h-5 w-5 text-emerald-600" /> : <FileTextIcon className="h-5 w-5 text-indigo-600" />;
+  const preview = previewAsset && previewQuery.data?.url ? assetOf(previewAsset, previewQuery.data.url) : null;
+
+  return <>
+    <Dialog open={open} onClose={onClose} title="Learning Media Library" description="Course-scoped videos, documents, and images stored in private Learning Media storage." footer={<div className="flex items-center justify-between w-full"><span className="text-xs text-ink-muted">{rows.length} ready file{rows.length === 1 ? '' : 's'}</span><Button variant="secondary" onClick={onClose}>Close</Button></div>}>
       <div className="space-y-4">
-        {/* Search & Type Filters */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-1 items-center gap-2 rounded-md border border-line-strong bg-surface px-3 py-1.5 focus-within:border-accent">
-            <SearchIcon className="h-4 w-4 text-ink-subtle" />
-            <input
-              type="text"
-              placeholder="Search assets by name or keyword..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-transparent text-sm outline-none placeholder:text-ink-subtle text-ink"
-              aria-label="Search library assets"
-            />
-          </div>
-
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-            {['all', 'video', 'document', 'robot_model', 'dataset'].map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setFilterType(t)}
-                className={`rounded-md px-2.5 py-1 text-xs font-semibold capitalize whitespace-nowrap transition-colors ${
-                  filterType === t
-                    ? 'bg-accent text-accent-contrast'
-                    : 'bg-sunken text-ink-muted hover:text-ink'
-                }`}
-              >
-                {t.replace('_', ' ')}
-              </button>
-            ))}
+          <div className="flex flex-1 items-center gap-2 rounded-md border border-line-strong bg-surface px-3 py-1.5"><SearchIcon className="h-4 w-4 text-ink-subtle" /><input placeholder="Search files by name..." value={search} onChange={(event) => setSearch(event.target.value)} className="w-full bg-transparent text-sm outline-none text-ink" aria-label="Search library assets" /></div>
+          <div className="flex flex-wrap gap-1.5">{[['', 'all'], ['video', 'video'], ['document', 'document'], ['image', 'image']].map(([value, label]) => <button key={value || 'all'} type="button" onClick={() => setFilterType(value)} className={`rounded-md px-2.5 py-1 text-xs font-semibold capitalize ${filterType === value ? 'bg-accent text-accent-contrast' : 'bg-sunken text-ink-muted'}`}>{label}</button>)}</div>
+        </div>
+        <div className="flex items-center gap-3 rounded-lg border border-dashed border-line-strong bg-sunken/20 p-4">
+          <UploadCloudIcon className="h-6 w-6 text-ink-subtle" /><span className="flex-1"><span className="block text-xs font-semibold text-ink">Upload learning media</span><span className="mt-0.5 block text-xs text-ink-muted">MP4, WebM, MOV, PDF, DOCX, PPTX, PNG, JPEG, WebP · 250 MB maximum</span></span>
+          <input ref={fileInput} className="sr-only" type="file" accept="video/mp4,video/webm,video/quicktime,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg,image/webp" disabled={uploading || !courseId || !token} onChange={(event) => { void upload(event.target.files?.[0]); event.target.value = ''; }} aria-label="Upload learning media" />
+          <div className="flex items-center gap-2">
+            {uploading && <span role="status" className="text-xs text-ink-muted">Uploading{uploadProgress === null ? '…' : ` ${uploadProgress}%`}</span>}
+            {error && retryFile && <Button type="button" size="sm" variant="secondary" onClick={() => void upload(retryFile)}>Retry upload</Button>}
+            <Button type="button" size="sm" variant="secondary" loading={uploading} disabled={uploading || !courseId || !token} onClick={() => fileInput.current?.click()}>Choose file</Button>
           </div>
         </div>
-
-        {/* Upload Zone Notice (Preserves S3 Architecture) */}
-        <div className="rounded-lg border border-dashed border-line-strong p-4 text-center bg-sunken/20 hover:bg-sunken/40 transition-colors cursor-pointer">
-          <UploadCloudIcon className="mx-auto h-6 w-6 text-ink-subtle mb-1" />
-          <p className="text-xs font-semibold text-ink">Upload new instructional media</p>
-          <p className="text-2xs text-ink-muted mt-0.5">
-            Supported formats: MP4, PDF, DOCX, URDF, H5 (max 250 MB). Assets are stored in canonical VISTA media bucket.
-          </p>
-        </div>
-
-        {/* Assets List */}
+        {error && <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{error}</p>}
+        {mediaQuery.isError && <p role="alert" className="text-sm text-danger">Learning Media library could not be loaded.</p>}
         <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
-          {filteredAssets.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-line p-8 text-center text-sm text-ink-muted" role="status">
-              {search ? 'No files match your search.' : 'No learning media is available yet.'}
-            </p>
-          ) : filteredAssets.map((asset) => (
-            <div
-              key={asset.id}
-              className="flex items-center justify-between rounded-lg border border-line bg-surface p-3.5 hover:border-accent/40 transition-colors"
-            >
-              <div className="flex items-start gap-3 min-w-0 flex-1">
-                <div className="mt-0.5 shrink-0">{getIcon(asset.type)}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h5 className="text-sm font-semibold text-ink truncate">{asset.name}</h5>
-                    <Badge tone="neutral">
-                      {asset.format}
-                    </Badge>
-                  </div>
-                  <p className="text-xs text-ink-muted line-clamp-1 mt-0.5">
-                    {asset.description}
-                  </p>
-                  <div className="flex items-center gap-3 text-2xs text-ink-subtle mt-1">
-                    <span>{asset.size}</span>
-                    {asset.duration && <span>• {asset.duration}</span>}
-                    <span>• {asset.uploadedAt}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 ml-3 shrink-0">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  icon={<EyeIcon className="h-3.5 w-3.5" />}
-                  onClick={() => setPreviewAsset(asset)}
-                  aria-label={`Preview ${asset.name}`}
-                >
-                  Preview
-                </Button>
-                {selectionMode && onSelectAsset && (
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    onClick={() => {
-                      onSelectAsset(asset);
-                      onClose();
-                    }}
-                  >
-                    Select
-                  </Button>
-                )}
-              </div>
-            </div>
-          ))}
+          {mediaQuery.isLoading ? <p role="status" className="p-8 text-center text-sm text-ink-muted">Loading course media…</p> : rows.length === 0 ? <p className="rounded-lg border border-dashed border-line p-8 text-center text-sm text-ink-muted" role="status">{search ? 'No files match your search.' : 'No learning media is available in this course yet.'}</p> : rows.map((row) => { const asset = assetOf(row); return <div key={row.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface p-3.5"><div className="flex min-w-0 flex-1 items-start gap-3"><div className="mt-0.5 shrink-0">{icon(asset.type)}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h5 className="truncate text-sm font-semibold text-ink">{asset.name}</h5><Badge tone="neutral">{asset.format}</Badge></div><p className="mt-1 text-xs text-ink-muted">{asset.size} · {asset.uploadedAt} · Ready</p></div></div><div className="ml-3 flex shrink-0 items-center gap-2"><Button size="sm" variant="ghost" icon={<EyeIcon className="h-3.5 w-3.5" />} onClick={() => setPreviewAsset(row)} aria-label={`Preview ${asset.name}`}>Preview</Button>{selectionMode && <Button size="sm" variant="primary" onClick={() => { onSelectAsset?.(asset); onClose(); }}>Use file</Button>}</div></div>; })}
         </div>
       </div>
-
-      <LearningMediaPreviewModal
-        open={Boolean(previewAsset)}
-        media={previewAsset}
-        onClose={() => setPreviewAsset(null)}
-        onOpenFull={selectionMode && onSelectAsset && previewAsset
-          ? () => {
-              onSelectAsset(previewAsset);
-              setPreviewAsset(null);
-              onClose();
-            }
-          : undefined}
-        openLabel={selectionMode ? 'Use this asset' : 'Open full content'}
-      />
     </Dialog>
-  );
+    <LearningMediaPreviewModal open={Boolean(previewAsset)} media={preview} onClose={() => { setPreviewAsset(null); }} onOpenFull={preview ? () => window.open(preview.url, '_blank', 'noopener,noreferrer') : undefined} openLabel="Open file" />
+  </>;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
@@ -18,10 +18,11 @@ import {
   buildLessonActivities,
   activityTypeLabels,
 } from '../components/learning/lessonActivities';
-import { catalogApi, learnerApi, progressionApi, type LessonDetailResponse } from '../lib/api';
+import { catalogApi, learnerApi, learningMediaApi, progressionApi, type LessonDetailResponse } from '../lib/api';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
 import { Badge } from '../components/ui/Badge';
+import { ActivityContentPreview } from '../components/authoring/ActivityEditorPanel';
 import { createRobotExecutionClient, type PhysicalExecution } from '../lib/robotExecution';
 import { useActivityProgress } from '../components/learning/useActivityProgress';
 
@@ -861,6 +862,18 @@ function PracticeQuiz({
   );
 }
 
+function StudentActivityContent({ activityId, content, token }: { activityId: string; content: Record<string, unknown>; token: string }) {
+  const ids = new Set<string>();
+  if (typeof content.videoMediaId === 'string' && content.videoMediaId) ids.add(content.videoMediaId);
+  if (Array.isArray(content.mediaIds)) content.mediaIds.forEach((id) => { if (typeof id === 'string') ids.add(id); });
+  if (Array.isArray(content.blocks)) content.blocks.forEach((block) => { if (block && typeof block === 'object' && typeof (block as Record<string, unknown>).mediaId === 'string') ids.add((block as Record<string, string>).mediaId); });
+  const mediaIds = [...ids];
+  const queries = useQueries({ queries: mediaIds.map((mediaId) => ({ queryKey: ['activity-media-url', activityId, mediaId], queryFn: () => learningMediaApi.activityUrl(activityId, mediaId, token), enabled: Boolean(activityId && mediaId && token), staleTime: 30_000 })) });
+  const mediaUrls = Object.fromEntries(mediaIds.flatMap((id, index) => queries[index]?.data?.url ? [[id, { url: queries[index].data!.url, filename: queries[index].data!.filename }]] : []));
+  if (queries.some((query) => query.isError)) return <p className="text-sm text-danger" role="alert">Learning media could not be loaded for this activity.</p>;
+  return <ActivityContentPreview content={content} mediaUrls={mediaUrls} />;
+}
+
 export function ActivityReader() {
   const { courseId = '', lessonId = '', activityId = '' } = useParams();
   const navigate = useNavigate();
@@ -1026,7 +1039,8 @@ export function ActivityReader() {
 
         <article className="mx-auto mt-8 max-w-3xl space-y-8 text-[16px] leading-7 text-ink">
           {activity.type === 'reading' && (
-            <>
+            activity.content?.version === 1 && Array.isArray(activity.content.blocks) ?
+              <StudentActivityContent activityId={activity.id} content={activity.content} token={session?.access_token ?? ''} /> : <>
               <p className="text-lg leading-relaxed text-ink-muted">
                 {activity.description}
               </p>
@@ -1094,8 +1108,11 @@ export function ActivityReader() {
             </>
           )}
 
+          {activity.type === 'video' && <StudentActivityContent activityId={activity.id} content={activity.content ?? {}} token={session?.access_token ?? ''} />}
+
           {activity.type === 'demonstration' && (
             <>
+              {activity.content?.version === 1 && typeof activity.content.instructions === 'string' && <ActivityContentPreview content={activity.content} />}
               <p className="text-lg leading-relaxed text-ink-muted">
                 {activity.description}
               </p>
@@ -1408,7 +1425,8 @@ export function ActivityReader() {
           )}
 
           {activity.type === 'physical_lab' && (
-            <>
+            activity.content?.version === 1 && typeof activity.content.instructions === 'string' ?
+              <ActivityContentPreview content={activity.content} /> : <>
               {activity.id.includes('readiness') ? (
                 <RobotReadinessPanel lesson={lesson} courseId={courseId} />
               ) : (

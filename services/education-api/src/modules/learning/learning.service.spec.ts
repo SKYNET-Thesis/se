@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import { COURSE_SYNC_TRANSACTION_OPTIONS } from "./course-sync-transaction";
 import { LearningService } from "./learning.service";
 
 const user = {
@@ -12,14 +13,49 @@ describe("LearningService assignment delivery", () => {
   const executeRaw = jest.fn();
   const transaction = jest.fn();
   const assertStudentClassroomAccess = jest.fn();
+  const assertTeacherClassroomAccess = jest.fn();
   const service = new LearningService(
     { $queryRaw: queryRaw, $transaction: transaction } as never,
-    { assertStudentClassroomAccess, isSystemAdministrator: () => false } as never,
+    { assertStudentClassroomAccess, assertTeacherClassroomAccess, isSystemAdministrator: () => false } as never,
   );
 
   beforeEach(() => {
-    queryRaw.mockReset(); executeRaw.mockReset(); transaction.mockReset(); assertStudentClassroomAccess.mockReset();
+    queryRaw.mockReset(); executeRaw.mockReset(); transaction.mockReset(); assertStudentClassroomAccess.mockReset(); assertTeacherClassroomAccess.mockReset();
     assertStudentClassroomAccess.mockResolvedValue(undefined);
+    assertTeacherClassroomAccess.mockResolvedValue(undefined);
+  });
+
+  it('lists only published canonical quizzes eligible for this classroom course', async () => {
+    queryRaw.mockResolvedValue([]);
+    await service.publishedQuizzes(user as never, 'class-a');
+    expect(assertTeacherClassroomAccess).toHaveBeenCalledWith(user, 'class-a');
+    const sql = (queryRaw.mock.calls[0][0] as TemplateStringsArray).join('?');
+    expect(sql).toContain("act.status='published'");
+    expect(sql).toContain("co.status='published'");
+    expect(sql).toContain('NOT EXISTS');
+    expect(sql).toContain("c.status='active'");
+  });
+
+  it('creates a draft delivery referencing the canonical assignment without cloning it', async () => {
+    const txQuery = jest.fn().mockResolvedValueOnce([{ id: 'canonical-quiz', lesson_id: 'lesson-a' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'delivery-a', status: 'draft', assignment_id: 'canonical-quiz' }]);
+    transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({ $queryRaw: txQuery }));
+    await expect(service.createQuizDelivery(user as never, 'class-a', { canonicalAssignmentId: 'canonical-quiz', maxAttempts: 2 })).resolves.toMatchObject({ id: 'delivery-a', status: 'draft', assignment_id: 'canonical-quiz' });
+    expect(txQuery).toHaveBeenCalledTimes(3);
+    expect((txQuery.mock.calls[2][0] as TemplateStringsArray).join('?')).toContain('INSERT INTO public.learning_classroom_assignments');
+    expect((txQuery.mock.calls[2][0] as TemplateStringsArray).join('?')).not.toContain('INSERT INTO public.learning_assignments');
+    expect((txQuery.mock.calls[0][0] as TemplateStringsArray).join('?')).toContain("c.status='active'");
+  });
+
+  it('rejects a duplicate canonical quiz delivery and does not insert a second row', async () => {
+    const txQuery = jest.fn().mockResolvedValueOnce([{ id: 'canonical-quiz', lesson_id: 'lesson-a' }]).mockResolvedValueOnce([{ id: 'delivery-existing' }]);
+    transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({ $queryRaw: txQuery }));
+    await expect(service.createQuizDelivery(user as never, 'class-a', { canonicalAssignmentId: 'canonical-quiz' })).rejects.toBeInstanceOf(ConflictException);
+    expect(txQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects invalid delivery date ordering', async () => {
+    await expect(service.createQuizDelivery(user as never, 'class-a', { canonicalAssignmentId: 'canonical-quiz', availableFrom: '2026-11-10T10:00:00Z', dueAt: '2026-11-09T10:00:00Z' })).rejects.toBeInstanceOf(BadRequestException);
+    expect(transaction).not.toHaveBeenCalled();
   });
 
   it('includes only published courses in the learner catalogue query', async () => {
@@ -219,7 +255,7 @@ describe("LearningService assignment delivery", () => {
 
   it("publishes a draft and records the authenticated instructor", async () => {
     const txQuery = jest.fn()
-      .mockResolvedValueOnce([{ id: "delivery-1", status: "draft" }])
+      .mockResolvedValueOnce([{ id: "delivery-1", status: "draft", classroom_status: "active" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: "delivery-1", assignment_id: "assignment-1", status: "published", published_by: "user-1" }]);
     const transaction = jest.fn(async (work) => work({ $queryRaw: txQuery }));
@@ -236,7 +272,7 @@ describe("LearningService assignment delivery", () => {
 
   it("returns the authoritative state when publishing an already published assignment", async () => {
     const txQuery = jest.fn()
-      .mockResolvedValueOnce([{ id: "delivery-1", status: "published" }])
+      .mockResolvedValueOnce([{ id: "delivery-1", status: "published", classroom_status: "active" }])
       .mockResolvedValueOnce([{ id: "delivery-1", status: "published" }]);
     const transaction = jest.fn(async (work) => work({ $queryRaw: txQuery }));
     const publishService = new LearningService(
@@ -248,6 +284,17 @@ describe("LearningService assignment delivery", () => {
 
     expect(result).toMatchObject({ status: "published" });
     expect(txQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses to publish an assignment to an archived classroom", async () => {
+    const txQuery = jest.fn().mockResolvedValueOnce([{ id: "delivery-1", status: "draft", classroom_status: "archived" }]);
+    const publishService = new LearningService(
+      { $transaction: jest.fn(async (work) => work({ $queryRaw: txQuery })) } as never,
+      { assertTeacherClassroomAccess: jest.fn().mockResolvedValue(undefined) } as never,
+    );
+    await expect((publishService as unknown as { publishAssignment: Function }).publishAssignment(user, "class-1", "assignment-1"))
+      .rejects.toBeInstanceOf(ConflictException);
+    expect(txQuery).toHaveBeenCalledTimes(1);
   });
 
   it.each(["closed", "archived"])("rejects publishing from %s", async (status) => {
@@ -386,48 +433,102 @@ describe("LearningService assignment delivery", () => {
 describe('LearningService global catalog lifecycle', () => {
   const systemAdmin = { ...user, systemRoleCodes: ['system_admin'] };
 
-  it('publishes only a global course whose lessons are learner-deliverable', async () => {
-    const findUnique = jest.fn().mockResolvedValue({ id: 'course-1', organization_id: null, status: 'draft' });
-    const query = jest.fn().mockResolvedValue([{ id: 'lesson-1', publishedActivities: 2, legacyCourse: false }]);
-    const update = jest.fn().mockResolvedValue({ id: 'course-1', status: 'published' });
-    const service = new LearningService(
-      { learning_courses: { findUnique, update }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
-    );
+  describe('publishCourse', () => {
+    const lessonRows = (rows: Array<{ id: string; publishedActivities: number; legacyCourse: boolean }>) => rows;
+    const setup = (options: { course?: { id: string; status: string; organization_id: string | null } | null; lessons?: ReturnType<typeof lessonRows>; enrollments?: Record<string, unknown> | undefined } = {}) => {
+      const course = options.course === undefined ? { id: 'course-1', status: 'draft', organization_id: null } : options.course;
+      const query = jest.fn()
+        .mockResolvedValueOnce(course ? [course] : [])
+        .mockResolvedValue(options.lessons ?? [{ id: 'lesson-1', publishedActivities: 2, legacyCourse: false }]);
+      const update = jest.fn().mockResolvedValue({ id: 'course-1', status: 'published' });
+      const tx = { $queryRaw: query, learning_courses: { update } };
+      const transaction = jest.fn(async (work: (client: unknown) => unknown) => work(tx));
+      const enrollments = 'enrollments' in options ? options.enrollments : { synchronizeCourseIn: jest.fn().mockResolvedValue({ classrooms: 0, enrolled: 0 }) };
+      const service = new LearningService({ $transaction: transaction } as never, { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never, undefined, enrollments as never);
+      return { service, query, update, transaction, tx, enrollments };
+    };
 
-    await expect((service as unknown as { publishCourse: Function }).publishCourse(systemAdmin, 'course-1'))
-      .resolves.toMatchObject({ status: 'published' });
-    expect(update).toHaveBeenCalledWith({ where: { id: 'course-1' }, data: { status: 'published' } });
+    it('publishes only a global course whose lessons are learner-deliverable, under a course row lock', async () => {
+      const { service, update, query } = setup();
+      await expect(service.publishCourse(systemAdmin as never, 'course-1')).resolves.toMatchObject({ status: 'published' });
+      expect(update).toHaveBeenCalledWith({ where: { id: 'course-1' }, data: { status: 'published' } });
+      expect((query.mock.calls[0][0] as TemplateStringsArray).join('?')).toContain('FOR NO KEY UPDATE');
+    });
+
+    it('refuses an unknown or school-owned course and an archived course without changing anything', async () => {
+      for (const course of [null, { id: 'course-1', status: 'draft', organization_id: 'org-1' }]) {
+        const { service, update } = setup({ course });
+        await expect(service.publishCourse(systemAdmin as never, 'course-1')).rejects.toBeInstanceOf(NotFoundException);
+        expect(update).not.toHaveBeenCalled();
+      }
+      const archived = setup({ course: { id: 'course-1', status: 'archived', organization_id: null } });
+      await expect(archived.service.publishCourse(systemAdmin as never, 'course-1')).rejects.toBeInstanceOf(ConflictException);
+      expect(archived.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to publish a course containing a lesson with no published activity', async () => {
+      const { service, update } = setup({ lessons: [
+        { id: 'lesson-1', publishedActivities: 2, legacyCourse: false },
+        { id: 'lesson-2', publishedActivities: 0, legacyCourse: false },
+      ] });
+      await expect(service.publishCourse(systemAdmin as never, 'course-1')).rejects.toBeInstanceOf(ConflictException);
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('keeps legacy Course 1 publishable because it delivers content through the activity adapter', async () => {
+      const { service } = setup({ lessons: [{ id: 'lesson-1', publishedActivities: 0, legacyCourse: true }] });
+      await expect(service.publishCourse(systemAdmin as never, 'course-1')).resolves.toMatchObject({ status: 'published' });
+    });
+
+    it('enrolls the existing classroom members in the same transaction and reports the synchronization', async () => {
+      const synchronizeCourseIn = jest.fn().mockResolvedValue({ classrooms: 2, enrolled: 5 });
+      const { service, tx, transaction } = setup({ enrollments: { synchronizeCourseIn } });
+      await expect(service.publishCourse(systemAdmin as never, 'course-1')).resolves.toMatchObject({ status: 'published', enrollmentSync: { classrooms: 2, enrolled: 5 } });
+      expect(synchronizeCourseIn).toHaveBeenCalledWith(tx, 'course-1');
+      expect(transaction).toHaveBeenCalledTimes(1);
+      expect(transaction).toHaveBeenCalledWith(expect.any(Function), COURSE_SYNC_TRANSACTION_OPTIONS);
+    });
+
+    it('does not report success when enrollment synchronization fails: the error reaches the caller and the transaction is rolled back', async () => {
+      const synchronizeCourseIn = jest.fn().mockRejectedValue(new Error('classroom 2 of 3 failed'));
+      const { service, update, transaction } = setup({ enrollments: { synchronizeCourseIn } });
+      await expect(service.publishCourse(systemAdmin as never, 'course-1')).rejects.toThrow('classroom 2 of 3 failed');
+      // the status update happened inside the same transaction callback that rejected, so Prisma rolls it back
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses to publish without an enrollment synchronizer instead of silently skipping enrollments', async () => {
+      const { service } = setup({ enrollments: undefined });
+      await expect(service.publishCourse(systemAdmin as never, 'course-1')).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('only a system administrator can publish', async () => {
+      const { transaction } = setup();
+      const denied = new LearningService({ $transaction: transaction } as never, { isSystemAdministrator: jest.fn().mockReturnValue(false) } as never);
+      await expect(denied.publishCourse(user as never, 'course-1')).rejects.toBeInstanceOf(NotFoundException);
+      expect(transaction).not.toHaveBeenCalled();
+    });
   });
 
-  it('refuses to publish a course containing a lesson with no published activity', async () => {
-    const findUnique = jest.fn().mockResolvedValue({ id: 'course-1', organization_id: null, status: 'draft' });
-    const query = jest.fn().mockResolvedValue([
-      { id: 'lesson-1', publishedActivities: 2, legacyCourse: false },
-      { id: 'lesson-2', publishedActivities: 0, legacyCourse: false },
-    ]);
-    const update = jest.fn();
-    const service = new LearningService(
-      { learning_courses: { findUnique, update }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+  describe('syncCourseEnrollments (safe retry)', () => {
+    const build = (course: unknown, enrollments: unknown) => new LearningService(
+      { learning_courses: { findFirst: jest.fn().mockResolvedValue(course) } } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never, undefined, enrollments as never,
     );
 
-    await expect((service as unknown as { publishCourse: Function }).publishCourse(systemAdmin, 'course-1'))
-      .rejects.toBeInstanceOf(ConflictException);
-    expect(update).not.toHaveBeenCalled();
-  });
+    it('re-synchronizes a published global course through the all-or-nothing, idempotent course synchronization', async () => {
+      const synchronizeCourse = jest.fn().mockResolvedValue({ classrooms: 1, enrolled: 3 });
+      await expect(build({ id: 'course-1', status: 'published' }, { synchronizeCourse }).syncCourseEnrollments(systemAdmin as never, 'course-1')).resolves.toEqual({ classrooms: 1, enrolled: 3 });
+      expect(synchronizeCourse).toHaveBeenCalledWith('course-1');
+    });
 
-  it('keeps legacy Course 1 publishable because it delivers content through the activity adapter', async () => {
-    const findUnique = jest.fn().mockResolvedValue({ id: 'course-1', organization_id: null, status: 'draft' });
-    const query = jest.fn().mockResolvedValue([{ id: 'lesson-1', publishedActivities: 0, legacyCourse: true }]);
-    const update = jest.fn().mockResolvedValue({ id: 'course-1', status: 'published' });
-    const service = new LearningService(
-      { learning_courses: { findUnique, update }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
-    );
-
-    await expect((service as unknown as { publishCourse: Function }).publishCourse(systemAdmin, 'course-1'))
-      .resolves.toMatchObject({ status: 'published' });
+    it('refuses a draft course and an unknown course', async () => {
+      const synchronizeCourse = jest.fn();
+      await expect(build({ id: 'course-1', status: 'draft' }, { synchronizeCourse }).syncCourseEnrollments(systemAdmin as never, 'course-1')).rejects.toBeInstanceOf(ConflictException);
+      await expect(build(null, { synchronizeCourse }).syncCourseEnrollments(systemAdmin as never, 'course-1')).rejects.toBeInstanceOf(NotFoundException);
+      expect(synchronizeCourse).not.toHaveBeenCalled();
+    });
   });
 
   it('refuses to archive a course that still has active delivery', async () => {

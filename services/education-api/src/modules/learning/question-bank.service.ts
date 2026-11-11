@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, learning_question_versions } from '@prisma/client';
 import { PrismaService } from '../../common/database/prisma.service';
+import { assertCourseNotArchived } from './course-lifecycle';
 import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
 import { AddAssignmentQuestionDto, CreateQuestionDto, ObjectiveMappingDto, QuestionSearchDto, ReorderAssignmentQuestionsDto, UpdateVersionDto, VersionContentDto } from './dto/question-bank.dto';
 
@@ -11,9 +12,10 @@ type Content = VersionContentDto;
 export class QuestionBankService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async authorOrg(user: AuthenticatedUser, organizationId: string): Promise<void> {
+  private async authorOrg(user: AuthenticatedUser, organizationId: string | null): Promise<void> {
     if (user.status !== 'active') throw new NotFoundException('Question was not found.');
     if (user.systemPermissions.includes('org.manage')) return;
+    if (!organizationId) throw new NotFoundException('Question was not found.');
     const rows = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT m.id FROM public.memberships m
       JOIN public.role_permissions rp ON rp.role_id=m.role_id
@@ -27,6 +29,14 @@ export class QuestionBankService {
     if (user.status !== 'active' || !user.systemPermissions.includes('org.manage')) {
       throw new NotFoundException('Question was not found.');
     }
+  }
+
+  /**
+   * An archived course is frozen: questions, versions and quiz assignments of its lessons stay readable (history,
+   * results) but can no longer be created, edited, reviewed, published, archived or reconfigured.
+   */
+  private async assertCourseWritable(courseId: string, db: Prisma.TransactionClient | PrismaService = this.prisma) {
+    await assertCourseNotArchived(db as never, courseId, 'Changing Question Bank content');
   }
 
   private async question(user: AuthenticatedUser, id: string) {
@@ -44,15 +54,17 @@ export class QuestionBankService {
   }
 
   async createQuestion(user: AuthenticatedUser, input: CreateQuestionDto) {
-    await this.authorOrg(user, input.organizationId);
+    const organizationId = input.organizationId ?? null;
+    await this.authorOrg(user, organizationId);
     const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: input.lessonId }, include: { learning_courses: true } });
-    if (!lesson || lesson.course_id !== input.courseId || lesson.learning_courses.organization_id !== input.organizationId) {
+    if (!lesson || lesson.course_id !== input.courseId || lesson.learning_courses.organization_id !== organizationId) {
       throw new BadRequestException('Lesson, course and organization must match.');
     }
     if (!input.code.trim()) throw new BadRequestException('Question code is required.');
+    await this.assertCourseWritable(input.courseId);
     try {
       return await this.prisma.learning_questions.create({ data: {
-        organization_id: input.organizationId, code: input.code.trim(), course_id: input.courseId,
+        organization_id: organizationId as never, code: input.code.trim(), course_id: input.courseId,
         lesson_id: input.lessonId, domain: input.domain?.trim() || null, created_by: user.vistaUserId,
       } });
     } catch (error) {
@@ -77,6 +89,70 @@ export class QuestionBankService {
     return { items, total, page: query.page, pageSize: query.pageSize };
   }
 
+  async quizAuthoringQuestions(user: AuthenticatedUser, lessonId: string, search: string | undefined, type: string | undefined, page: number, pageSize: number) {
+    const lessons = await this.prisma.$queryRaw<Array<{ course_id: string; organization_id: string }>>`
+      SELECT l.course_id,c.organization_id FROM public.learning_lessons l
+      JOIN public.learning_courses c ON c.id=l.course_id WHERE l.id=${lessonId}::uuid`;
+    if (!lessons[0]) throw new NotFoundException('Lesson was not found.');
+    await this.authorOrg(user, lessons[0].organization_id);
+    const query = (search ?? '').trim();
+    const where: Prisma.learning_questionsWhereInput = {
+      lesson_id: lessonId, course_id: lessons[0].course_id, organization_id: lessons[0].organization_id,
+      versions: { some: { status: 'published', ...(type ? { type } : {}), ...(query ? { OR: [{ stem: { contains: query, mode: 'insensitive' } }, { question: { code: { contains: query, mode: 'insensitive' } } }] } : {}) } },
+    };
+    const [items, total] = await this.prisma.$transaction([
+        this.prisma.learning_question_versions.findMany({
+        where: { status: 'published', question: { is: where }, objectives: { some: {} } }, orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+        skip: (page - 1) * pageSize, take: pageSize, include: { question: true, objectives: { include: { objective: true } } },
+      }),
+      this.prisma.learning_question_versions.count({ where: { status: 'published', question: { is: where }, objectives: { some: {} } } }),
+    ]);
+    return { items: items.map((v) => ({ id: v.id, questionId: v.question_id, code: v.question.code, type: v.type, stem: v.stem, options: v.options, versionNumber: v.version_number, objectives: v.objectives.map((m) => ({ id: m.objective.id, code: m.objective.code, description: m.objective.description })) })), total, page, pageSize };
+  }
+
+  async quizAuthoringAssignment(user: AuthenticatedUser, lessonId: string, includeAnswerKey = false) {
+    const lessons = await this.prisma.$queryRaw<Array<{ course_id: string; organization_id: string }>>`
+      SELECT l.course_id,c.organization_id FROM public.learning_lessons l JOIN public.learning_courses c ON c.id=l.course_id
+      WHERE l.id=${lessonId}::uuid`;
+    if (!lessons[0]) throw new NotFoundException('Lesson was not found.');
+    await this.authorOrg(user, lessons[0].organization_id);
+    const assignments = await this.prisma.learning_assignments.findMany({ where: { lesson_id: lessonId, challenge_id: null, constraints: { path: ['kind'], equals: 'knowledge_check' } }, orderBy: { created_at: 'asc' }, take: 2 });
+    if (assignments.length > 1) throw new ConflictException('This lesson has multiple Question Bank quiz assignments and needs manual reconciliation.');
+    const assignment = assignments[0];
+    if (!assignment) return null;
+    const questionRows = await this.prisma.learning_assignment_question_versions.findMany({ where: { assignment_id: assignment.id }, orderBy: { ordinal: 'asc' }, include: { version: true, question: true } });
+    return { id: assignment.id, title: assignment.title, instructions: assignment.instructions, constraints: assignment.constraints, questions: questionRows.map((item) => ({ versionId: item.question_version_id, questionId: item.question_id, ordinal: item.ordinal, points: item.points, type: item.version.type, stem: item.version.stem, options: item.version.options, code: item.question.code, ...(includeAnswerKey ? { answerKey: item.version.answer_key, explanation: item.version.explanation } : {}) })) };
+  }
+
+  async createQuizAssignment(user: AuthenticatedUser, lessonId: string, title: string, instructions: string, passPercent: number) {
+    const lessons = await this.prisma.$queryRaw<Array<{ organization_id: string; legacy: boolean; course_id: string }>>`
+      SELECT c.organization_id,c.id AS course_id,EXISTS (SELECT 1 FROM public.learning_lessons first WHERE first.course_id=c.id AND first.ordinal=1 AND first.content->'courseOverview'->>'label'='Course 1') AS legacy
+      FROM public.learning_lessons l JOIN public.learning_courses c ON c.id=l.course_id WHERE l.id=${lessonId}::uuid`;
+    if (!lessons[0]) throw new NotFoundException('Lesson was not found.');
+    await this.authorOrg(user, lessons[0].organization_id);
+    if (lessons[0].legacy) throw new ConflictException('Course 1 uses the legacy quiz.');
+    if (!title.trim() || title.length > 200 || !Number.isInteger(passPercent) || passPercent < 1 || passPercent > 100) throw new BadRequestException('Quiz title or passing score is invalid.');
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM public.learning_lessons WHERE id=${lessonId}::uuid FOR UPDATE`;
+      await this.assertCourseWritable(lessons[0].course_id, tx);
+      const existing = await tx.learning_assignments.findMany({ where: { lesson_id: lessonId, challenge_id: null, constraints: { path: ['kind'], equals: 'knowledge_check' } }, take: 1 });
+      if (existing.length) throw new ConflictException('This lesson already has a Question Bank quiz assignment.');
+      return tx.learning_assignments.create({ data: { lesson_id: lessonId, title: title.trim(), instructions: instructions.trim(), constraints: { kind: 'knowledge_check', passPercent } } });
+    });
+  }
+
+  async updateQuizAssignment(user: AuthenticatedUser, lessonId: string, assignmentId: string, title: string, instructions: string, passPercent: number) {
+    const assignment = await this.prisma.learning_assignments.findUnique({ where: { id: assignmentId }, include: { learning_lessons: { include: { learning_courses: true } } } });
+    if (!assignment || assignment.lesson_id !== lessonId || assignment.challenge_id || (assignment.constraints as { kind?: string })?.kind !== 'knowledge_check') throw new NotFoundException('Quiz assignment was not found.');
+    await this.authorOrg(user, assignment.learning_lessons.learning_courses.organization_id!);
+    if (!title.trim() || title.length > 200 || !Number.isInteger(passPercent) || passPercent < 1 || passPercent > 100) throw new BadRequestException('Quiz title or passing score is invalid.');
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM public.learning_assignments WHERE id=${assignmentId}::uuid FOR UPDATE`;
+      await this.assertMutableAssignment(assignmentId, tx);
+      return tx.learning_assignments.update({ where: { id: assignmentId }, data: { title: title.trim(), instructions: instructions.trim(), constraints: { kind: 'knowledge_check', passPercent } } });
+    });
+  }
+
   async get(user: AuthenticatedUser, id: string) {
     return this.question(user, id);
   }
@@ -87,7 +163,8 @@ export class QuestionBankService {
   }
 
   async createVersion(user: AuthenticatedUser, questionId: string, input: VersionContentDto) {
-    await this.question(user, questionId);
+    const question = await this.question(user, questionId);
+    await this.assertCourseWritable(question.course_id);
     this.validateContent(input);
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM public.learning_questions WHERE id=${questionId}::uuid FOR UPDATE`;
@@ -104,6 +181,7 @@ export class QuestionBankService {
 
   async updateDraft(user: AuthenticatedUser, versionId: string, input: UpdateVersionDto) {
     const current = await this.version(user, versionId);
+    await this.assertCourseWritable(current.question.course_id);
     if (current.status !== 'draft') throw new ConflictException('Only draft versions may be edited.');
     const merged: Content = {
       type: input.type ?? current.type, difficulty: input.difficulty ?? current.difficulty,
@@ -126,6 +204,7 @@ export class QuestionBankService {
 
   async mapObjectives(user: AuthenticatedUser, versionId: string, input: ObjectiveMappingDto) {
     const v = await this.version(user, versionId);
+    await this.assertCourseWritable(v.question.course_id);
     if (v.status !== 'draft') throw new ConflictException('Only draft objectives may be edited.');
     const found = await this.prisma.learning_objectives.findMany({ where: { id: { in: input.objectiveIds }, lesson_id: v.question.lesson_id }, select: { id: true } });
     if (found.length !== input.objectiveIds.length) throw new BadRequestException('Learning Outcomes must belong to the question lesson.');
@@ -141,6 +220,7 @@ export class QuestionBankService {
 
   async submitReview(user: AuthenticatedUser, versionId: string) {
     const v = await this.version(user, versionId);
+    await this.assertCourseWritable(v.question.course_id);
     if (v.status !== 'draft') throw new ConflictException('Only a draft may enter review.');
     const changed = await this.prisma.learning_question_versions.updateMany({ where: { id: versionId, status: 'draft' }, data: { status: 'in_review', updated_at: new Date() } });
     if (!changed.count) throw new ConflictException('Version state changed.');
@@ -150,6 +230,7 @@ export class QuestionBankService {
   async publish(user: AuthenticatedUser, versionId: string) {
     this.publisher(user);
     const v = await this.version(user, versionId);
+    await this.assertCourseWritable(v.question.course_id);
     if (v.status !== 'in_review') throw new ConflictException('Only an in-review version may be published.');
     this.validateContent(this.toContent(v), true);
     return this.prisma.$transaction(async (tx) => {
@@ -167,6 +248,7 @@ export class QuestionBankService {
   async archive(user: AuthenticatedUser, versionId: string) {
     this.publisher(user);
     const v = await this.version(user, versionId);
+    await this.assertCourseWritable(v.question.course_id);
     if (v.status !== 'published') throw new ConflictException('Only a published version may be archived.');
     const changed = await this.prisma.learning_question_versions.updateMany({ where: { id: versionId, status: 'published' }, data: { status: 'archived', updated_at: new Date() } });
     if (!changed.count) throw new ConflictException('Version state changed.');
@@ -175,15 +257,23 @@ export class QuestionBankService {
 
   private async assignment(user: AuthenticatedUser, id: string) {
     const a = await this.prisma.learning_assignments.findUnique({ where: { id }, include: { learning_lessons: { include: { learning_courses: true } } } });
-    if (!a || !a.learning_lessons.learning_courses.organization_id) throw new NotFoundException('Assignment was not found.');
+    if (!a) throw new NotFoundException('Assignment was not found.');
     await this.authorOrg(user, a.learning_lessons.learning_courses.organization_id);
     const first = await this.prisma.learning_lessons.findFirst({ where: { course_id: a.learning_lessons.course_id, ordinal: 1 }, select: { content: true } });
     if ((first?.content as Record<string, any> | undefined)?.courseOverview?.label === 'Course 1') throw new ConflictException('Course 1 uses the existing quiz.');
     return a;
   }
 
-  private async assertMutableAssignment(id: string) {
-    const delivered = await this.prisma.learning_classroom_assignments.findFirst({ where: { assignment_id: id, OR: [{ status: { not: 'draft' } }, { learning_assignment_attempts: { some: {} } }] }, select: { id: true } });
+  private async assertMutableAssignment(id: string, db: Prisma.TransactionClient | PrismaService = this.prisma) {
+    const owner = await db.$queryRaw<Array<{ course_id: string }>>`
+      SELECT l.course_id FROM public.learning_assignments a JOIN public.learning_lessons l ON l.id=a.lesson_id WHERE a.id=${id}::uuid`;
+    if (owner[0]) await this.assertCourseWritable(owner[0].course_id, db);
+    const publishedCanonicalQuiz = await db.$queryRaw<Array<{ id: string }>>`
+      SELECT act.id FROM public.learning_activities act
+      WHERE act.type='knowledge_check' AND act.status='published' AND act.content_ref->>'kind'='assignment'
+        AND act.content_ref->>'id'=${id} LIMIT 1`;
+    if (publishedCanonicalQuiz.length) throw new ConflictException('Unpublish the canonical quiz before changing its Question Bank configuration.');
+    const delivered = await db.learning_classroom_assignments.findFirst({ where: { assignment_id: id, OR: [{ status: { not: 'draft' } }, { learning_assignment_attempts: { some: {} } }] }, select: { id: true } });
     if (delivered) throw new ConflictException('Delivered assignment questions are pinned.');
   }
 

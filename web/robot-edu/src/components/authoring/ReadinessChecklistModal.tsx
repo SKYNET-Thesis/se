@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertTriangleIcon,
   CheckCircle2Icon,
@@ -33,6 +33,8 @@ export function ReadinessChecklistModal({
   isPublishing = false,
 }: ReadinessChecklistModalProps) {
   const [step, setStep] = useState<1 | 2>(1);
+  // Re-opening the checklist (for example to retry after a failed publish) always starts from the checklist step.
+  useEffect(() => { if (open) setStep(1); }, [open]);
 
   // Validation rules (Authoritative backend rules)
   const checks = [
