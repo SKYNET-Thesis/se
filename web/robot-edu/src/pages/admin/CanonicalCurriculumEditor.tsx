@@ -2,12 +2,14 @@ import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Reorder } from 'framer-motion';
 import {
+  BookOpenIcon,
   CheckCircle2Icon,
   ChevronRightIcon,
   EyeIcon,
   FolderOpenIcon,
   GripVerticalIcon,
   InfoIcon,
+  LayersIcon,
   RocketIcon,
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
@@ -15,11 +17,12 @@ import { Badge } from '../../components/ui/Badge';
 import { Dialog } from '../../components/ui/Dialog';
 import { catalogApi, curriculumApi, type ApiCourse, type ApiRecord } from '../../lib/api';
 import { AddContentMenu } from '../../components/authoring/AddContentMenu';
-import { QuizQuestionEditor, type QuizQuestion } from '../../components/authoring/QuizQuestionEditor';
-import { ActivityContentEditor } from '../../components/authoring/ActivityContentEditor';
+import { ActivityEditorPanel, type ActivityEditorDraft } from '../../components/authoring/ActivityEditorPanel';
+import { CourseContentEditor, type CurriculumSnapshot } from '../../components/authoring/CourseContentEditor';
 import { MediaAssetLibraryModal } from '../../components/authoring/MediaAssetLibraryModal';
 import { LearnerPreviewModal } from '../../components/authoring/LearnerPreviewModal';
 import { ReadinessChecklistModal } from '../../components/authoring/ReadinessChecklistModal';
+import { publishNotice } from '../../lib/publishNotice';
 
 export type ContentRef =
   | { kind: 'lesson_content'; key: string }
@@ -50,11 +53,12 @@ export type Activity = ApiRecord & {
   required: boolean;
   status?: 'draft' | 'published';
   content_ref?: ContentRef;
+  content?: Record<string, unknown>;
 };
 
 type LessonDraft = { title: string; summary: string; prerequisiteLessonIds: string[] };
 type SectionDraft = { title: string };
-type ActivityDraft = { title: string; type: string; required: boolean; contentRef: ContentRef };
+type ActivityDraft = { title: string; type: string; required: boolean; contentRef: ContentRef; content?: Record<string, unknown> };
 
 export interface CurriculumEditorDragRef {
   reorderLessons: (newOrder: Lesson[]) => void;
@@ -85,49 +89,58 @@ const errorMessage = (e: unknown) => (e instanceof Error ? e.message : 'Could no
 const defaultRef = (type: string): ContentRef =>
   assignmentTypes.has(type) ? { kind: 'assignment', id: '' } : { kind: 'lesson_content', key: 'summary' };
 
-const initialSampleQuestions: QuizQuestion[] = [
-  {
-    id: 'q-safety-1',
-    variation: 'VARIATION 1',
-    prompt: 'What safety state does the follower arm transition to when the deadman clutch is released?',
-    type: 'single_choice',
-    options: [
-      { id: 'opt-1', text: 'Follower holds its safe pose immediately (Hold state)', feedback: 'You got it right! Releasing clutch triggers immediate safe hold.' },
-      { id: 'opt-2', text: 'Follower continues executing the trajectory', feedback: 'Incorrect. Follower motion is immediately suspended.' },
-      { id: 'opt-3', text: 'Follower powers off motors and collapses', feedback: 'Incorrect. The arm maintains holding torque in Hold state.' },
-    ],
-    correctOptionIds: ['opt-1'],
-    points: 1,
-    explanation: 'VISTA safety boundary requires deadman clutch release to trigger safe Hold.',
-  },
-  {
-    id: 'q-safety-2',
-    variation: 'VARIATION 1',
-    prompt: 'Which coordinate frame is used as the global reference for SO-101 tabletop manipulation?',
-    type: 'single_choice',
-    options: [
-      { id: 'opt-a', text: 'Tabletop base coordinate frame', feedback: 'Correct! All trajectory commands are defined relative to the tabletop base frame.' },
-      { id: 'opt-b', text: 'End-effector gripper frame only', feedback: 'Incorrect. Gripper is the TCP, not global reference.' },
-      { id: 'opt-c', text: 'Leader arm input frame', feedback: 'Incorrect. Leader and follower operate in independent kinematic frames.' },
-    ],
-    correctOptionIds: ['opt-a'],
-    points: 1,
-    explanation: 'Tabletop base coordinate frame is the canonical origin for forward kinematics.',
-  },
-];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const defaultActivityContent = (type: string): Record<string, unknown> =>
+  type === 'reading' ? { version: 1, blocks: [], mediaIds: [] }
+    : type === 'video' ? { version: 1, videoMediaId: '', description: '' }
+    : ['demonstration', 'guided_practice', 'simulation', 'challenge', 'physical_lab', 'result', 'reflection'].includes(type)
+      ? { version: 1, instructions: '', learningOutcome: '', estimatedMinutes: 15 }
+      : {};
 
 export function CanonicalCurriculumEditor({
   course,
   token,
   onDirtyChange,
+  isArchived: isArchivedProp = false,
   dragRef,
+  initialViewMode = 'content',
 }: {
   course: ApiCourse;
   token: string;
   onDirtyChange?: (dirty: boolean) => void;
+  isArchived?: boolean;
   dragRef?: React.MutableRefObject<CurriculumEditorDragRef | null>;
+  initialViewMode?: 'content' | 'structure';
 }) {
   const qc = useQueryClient();
+  // The default view is chosen only by `initialViewMode` ('content'); testing hooks such as dragRef never change behavior.
+  const [viewMode, setViewMode] = useState<'content' | 'structure'>(initialViewMode);
+  const [isContentDirty, setIsContentDirty] = useState(false);
+  // Curriculum currently open in the Content Editor, handed over when Preview/Publish is requested from that view.
+  const [contentSnapshot, setContentSnapshot] = useState<CurriculumSnapshot | null>(null);
+  const [pendingViewMode, setPendingViewMode] = useState<'content' | 'structure' | null>(null);
+
+  const handleViewModeChange = (mode: 'content' | 'structure') => {
+    if (mode === viewMode) return;
+    if (viewMode === 'content' && isContentDirty) {
+      setPendingViewMode(mode);
+    } else {
+      setViewMode(mode);
+    }
+  };
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isContentDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isContentDirty]);
+
   const [lessonId, setLessonId] = useState<string>();
   const [sectionId, setSectionId] = useState<string>();
   const [activeActivityId, setActiveActivityId] = useState<string>();
@@ -138,15 +151,16 @@ export function CanonicalCurriculumEditor({
   const [editId, setEditId] = useState<{ kind: 'lesson' | 'section' | 'activity'; id: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Failure of the lesson/section/activity dialog that is currently open; shown inside the dialog, draft kept.
+  const [dialogError, setDialogError] = useState<string | null>(null);
 
   // Authoring Studio Modals
   const [learnerPreviewOpen, setLearnerPreviewOpen] = useState(false);
   const [readinessChecklistOpen, setReadinessChecklistOpen] = useState(false);
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
 
-  // Inline Quiz state
-  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>(initialSampleQuestions);
-  const [quizPassPercent, setQuizPassPercent] = useState<number>(80);
+  // Draft of the activity open in the content workspace (reading blocks, video/media, canonical quiz)
+  const [workspaceDraft, setWorkspaceDraft] = useState<ActivityEditorDraft | null>(null);
 
   // Transient reorder state updated during drag
   const [reorderedLessons, setReorderedLessons] = useState<Lesson[] | null>(null);
@@ -163,7 +177,7 @@ export function CanonicalCurriculumEditor({
   const activityBaselineRef = useRef<Activity[] | null>(null);
   const activityCurrentRef = useRef<Activity[] | null>(null);
 
-  const isArchived = course.status === 'archived';
+  const isArchived = isArchivedProp || course.status === 'archived';
 
   const lessons = useQuery({
     queryKey: ['curriculum', course.id, 'lessons'],
@@ -216,6 +230,15 @@ export function CanonicalCurriculumEditor({
     setError(errorMessage(e));
     setNotice(null);
   };
+  // A failed save keeps the dialog open with everything the user typed.
+  const failDialog = (e: unknown) => setDialogError(errorMessage(e));
+  const closeDialogAfterSuccess = () => {
+    setDialogError(null);
+    setLessonDraft(null);
+    setSectionDraft(null);
+    setActivityDraft(null);
+    setEditId(null);
+  };
 
   const done = (text: string, invalidate: () => Promise<unknown>) => async () => {
     await invalidate();
@@ -225,12 +248,13 @@ export function CanonicalCurriculumEditor({
 
   const publishCourseMutation = useMutation({
     mutationFn: () => catalogApi.publishGlobalCourse(course.id, token),
-    onSuccess: () => {
+    onSuccess: (published) => {
       qc.invalidateQueries({ queryKey: ['admin', 'courses'] });
-      setNotice('Course published successfully to institutional catalog.');
+      setError(null);
+      setNotice(publishNotice(published));
       setReadinessChecklistOpen(false);
     },
-    onError: fail,
+    onError: (e) => { setReadinessChecklistOpen(false); fail(e); },
   });
 
   const addLesson = useMutation({
@@ -244,8 +268,8 @@ export function CanonicalCurriculumEditor({
       }
       return created;
     },
-    onSuccess: done('Lesson created.', invalidateLessons),
-    onError: fail,
+    onSuccess: async () => { await done('Lesson created.', invalidateLessons)(); closeDialogAfterSuccess(); },
+    onError: failDialog,
   });
 
   const saveLesson = useMutation({
@@ -254,8 +278,8 @@ export function CanonicalCurriculumEditor({
         catalogApi.updateLesson(id, token, { title: x.title, content: { summary: x.summary } }),
         catalogApi.setLessonPrerequisites(id, token, x.prerequisiteLessonIds),
       ]),
-    onSuccess: done('Lesson saved.', invalidateLessons),
-    onError: fail,
+    onSuccess: async () => { await done('Lesson saved.', invalidateLessons)(); closeDialogAfterSuccess(); },
+    onError: failDialog,
   });
 
   const addSection = useMutation({
@@ -264,15 +288,15 @@ export function CanonicalCurriculumEditor({
         title: x.title,
         ordinal: (sectionList.length ?? 0) + 1,
       }),
-    onSuccess: done('Section created.', invalidateSections),
-    onError: fail,
+    onSuccess: async () => { await done('Section created.', invalidateSections)(); closeDialogAfterSuccess(); },
+    onError: failDialog,
   });
 
   const saveSection = useMutation({
     mutationFn: ({ id, x }: { id: string; x: SectionDraft }) =>
       curriculumApi.updateSection(id, token, { title: x.title }),
-    onSuccess: done('Section saved.', invalidateSections),
-    onError: fail,
+    onSuccess: async () => { await done('Section saved.', invalidateSections)(); closeDialogAfterSuccess(); },
+    onError: failDialog,
   });
 
   const addActivity = useMutation({
@@ -283,9 +307,10 @@ export function CanonicalCurriculumEditor({
         ordinal: (activityList.length ?? 0) + 1,
         required: x.required,
         contentRef: x.contentRef,
+        ...(Object.keys(x.content ?? {}).length ? { content: x.content } : {}),
       }),
-    onSuccess: done('Activity created.', invalidateSections),
-    onError: fail,
+    onSuccess: async () => { await done('Activity created.', invalidateSections)(); closeDialogAfterSuccess(); },
+    onError: failDialog,
   });
 
   const saveActivity = useMutation({
@@ -295,9 +320,10 @@ export function CanonicalCurriculumEditor({
         type: x.type,
         required: x.required,
         contentRef: x.contentRef,
+        ...(Object.keys(x.content ?? {}).length ? { content: x.content } : {}),
       }),
-    onSuccess: done('Activity saved.', invalidateSections),
-    onError: fail,
+    onSuccess: async () => { setWorkspaceDraft(null); await done('Activity saved.', invalidateSections)(); closeDialogAfterSuccess(); },
+    onError: (e) => { if (activityDraft) failDialog(e); else fail(e); },
   });
 
   const toggleSectionStatus = useMutation({
@@ -531,6 +557,7 @@ export function CanonicalCurriculumEditor({
   };
 
   const cancel = () => {
+    setDialogError(null);
     setLessonDraft(null);
     setSectionDraft(null);
     setActivityDraft(null);
@@ -538,31 +565,56 @@ export function CanonicalCurriculumEditor({
   };
 
   const submitLesson = () => {
+    if (addLesson.isPending || saveLesson.isPending) return; // no double submit
     if (!lessonDraft?.title.trim()) return;
+    setDialogError(null);
     const x = { ...lessonDraft, title: lessonDraft.title.trim() };
     if (editId?.kind === 'lesson') saveLesson.mutate({ id: editId.id, x });
     else addLesson.mutate(x);
-    cancel();
   };
 
   const submitSection = () => {
+    if (addSection.isPending || saveSection.isPending) return;
     if (!sectionDraft?.title.trim()) return;
+    setDialogError(null);
     const x = { ...sectionDraft, title: sectionDraft.title.trim() };
     if (editId?.kind === 'section') saveSection.mutate({ id: editId.id, x });
     else addSection.mutate(x);
-    cancel();
   };
 
   const submitActivity = () => {
+    if (addActivity.isPending || saveActivity.isPending) return;
     if (!activityDraft?.title.trim()) return;
+    setDialogError(null);
     let contentRef = activityDraft.contentRef;
+    // The backend accepts only an assignment UUID or `none`; an empty assignment id means "not linked yet".
     if (contentRef?.kind === 'assignment' && !contentRef.id?.trim()) {
       contentRef = { kind: 'none' };
     }
     const x = { ...activityDraft, title: activityDraft.title.trim(), contentRef };
     if (editId?.kind === 'activity') saveActivity.mutate({ id: editId.id, x });
     else addActivity.mutate(x);
-    cancel();
+  };
+
+  // Preview / readiness data: the Content Editor's curriculum in that view, the selected lesson's tree in Structure view.
+  const modalLessons = viewMode === 'content' && contentSnapshot ? contentSnapshot.lessons : lessonList;
+  const modalSections = viewMode === 'content' && contentSnapshot ? contentSnapshot.sections : sectionList;
+  const modalLessonId = viewMode === 'content' && contentSnapshot ? contentSnapshot.selectedLessonId : lessonId;
+
+  const openPreview = (snapshot?: CurriculumSnapshot) => {
+    if (snapshot) setContentSnapshot(snapshot);
+    setLearnerPreviewOpen(true);
+  };
+  /** One publish flow for both views. Publishing never uses stale content: unsaved edits block it. */
+  const openPublish = (snapshot?: CurriculumSnapshot) => {
+    if (isContentDirty) {
+      setNotice(null);
+      setError('You have unsaved changes in the Content Editor. Save or discard them before publishing, so the published course matches what you see.');
+      return;
+    }
+    if (snapshot) setContentSnapshot(snapshot);
+    setError(null);
+    setReadinessChecklistOpen(true);
   };
 
   const isTreeLoading = lessons.isLoading || (Boolean(lessonId) && sections.isLoading);
@@ -597,16 +649,17 @@ export function CanonicalCurriculumEditor({
             size="sm"
             variant="ghost"
             icon={<FolderOpenIcon className="h-4 w-4" />}
+            title="Manage course media files & uploads"
             onClick={() => setMediaLibraryOpen(true)}
           >
-            Asset Library
+            Course Media Library
           </Button>
 
           <Button
             size="sm"
             variant="secondary"
             icon={<EyeIcon className="h-4 w-4" />}
-            onClick={() => setLearnerPreviewOpen(true)}
+            onClick={() => openPreview()}
           >
             View as Learner
           </Button>
@@ -625,7 +678,9 @@ export function CanonicalCurriculumEditor({
               size="sm"
               variant="primary"
               icon={<RocketIcon className="h-4 w-4" />}
-              onClick={() => setReadinessChecklistOpen(true)}
+              disabled={isContentDirty}
+              title={isContentDirty ? 'Save or discard your unsaved changes before publishing.' : undefined}
+              onClick={() => openPublish()}
             >
               Review &amp; Publish
             </Button>
@@ -633,6 +688,64 @@ export function CanonicalCurriculumEditor({
         </div>
       </div>
 
+      {/* Failures and confirmations are visible in both views */}
+      {error && (
+        <div role="alert" className="rounded-lg border border-danger/20 bg-danger-soft p-3 text-sm text-danger">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div role="status" className="rounded-lg border border-accent/20 bg-accent-soft p-3 text-sm text-ink">
+          {notice}
+        </div>
+      )}
+
+      {/* Dual-View Switch Tabs */}
+      <div className="flex items-center gap-2 border-b border-line" role="tablist" aria-label="Curriculum View Mode">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewMode === 'content'}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
+            viewMode === 'content'
+              ? 'border-accent text-accent-ink bg-sunken/40 rounded-t-lg'
+              : 'border-transparent text-ink-muted hover:text-ink hover:bg-sunken/20'
+          }`}
+          onClick={() => handleViewModeChange('content')}
+        >
+          <BookOpenIcon className="h-4 w-4" />
+          Content Editor
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={viewMode === 'structure'}
+          className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 transition-colors ${
+            viewMode === 'structure'
+              ? 'border-accent text-accent-ink bg-sunken/40 rounded-t-lg'
+              : 'border-transparent text-ink-muted hover:text-ink hover:bg-sunken/20'
+          }`}
+          onClick={() => handleViewModeChange('structure')}
+        >
+          <LayersIcon className="h-4 w-4" />
+          Curriculum Structure
+        </button>
+      </div>
+
+      {viewMode === 'content' ? (
+        <CourseContentEditor
+          course={course}
+          token={token}
+          onDirtyChange={(dirty) => {
+            setIsContentDirty(dirty);
+            onDirtyChange?.(dirty);
+          }}
+          isArchived={isArchived}
+          onOpenPreview={openPreview}
+          onOpenPublish={openPublish}
+        />
+      ) : (
+        <div className="space-y-6">
       {/* Selected Hierarchy Breadcrumbs */}
       <div className="flex items-center gap-1.5 text-xs text-ink-subtle bg-sunken/30 rounded-lg p-2.5">
         <span className="font-semibold text-ink">{course.title}</span>
@@ -693,16 +806,6 @@ export function CanonicalCurriculumEditor({
         </div>
       )}
 
-      {error && (
-        <div role="alert" className="rounded-lg border border-danger/20 bg-danger-soft p-3 text-sm text-danger">
-          {error}
-        </div>
-      )}
-      {notice && (
-        <div role="status" className="rounded-lg border border-accent/20 bg-accent-soft p-3 text-sm text-ink">
-          {notice}
-        </div>
-      )}
 
       {/* 3-Column Hierarchy Panes */}
       <div className="grid gap-4 lg:grid-cols-3">
@@ -863,6 +966,7 @@ export function CanonicalCurriculumEditor({
                     type: selectedType,
                     required: true,
                     contentRef: defaultRef(selectedType),
+                    content: defaultActivityContent(selectedType),
                   });
                 }}
               />
@@ -914,6 +1018,7 @@ export function CanonicalCurriculumEditor({
                     }}
                     onSelect={() => {
                       setActiveActivityId(x.id);
+                      setWorkspaceDraft(null);
                     }}
                     onEdit={() => {
                       setActiveActivityId(x.id);
@@ -959,42 +1064,35 @@ export function CanonicalCurriculumEditor({
             </Button>
           </div>
 
-          {activeActivity.type === 'knowledge_check' ? (
-            /* Quiz Question Editor (Coursera Reference 6) */
-            <QuizQuestionEditor
-              quizTitle={activeActivity.title}
-              instructions="Answer each question. Passing score evaluates knowledge on robotics fundamentals."
-              passPercent={quizPassPercent}
-              isGraded={false}
-              questions={quizQuestions}
-              disabled={isArchived}
-              onChangePassPercent={setQuizPassPercent}
-              onChangeQuestions={setQuizQuestions}
-            />
-          ) : (
-            /* Rich Activity Editor for Video, Reading, Labs */
-            <ActivityContentEditor
-              activity={{
-                ...activeActivity,
-                content_ref: activeActivity.content_ref,
-              }}
-              disabled={isArchived}
-              isLoading={saveActivity.isPending}
-              onSave={(patch) => {
-                const payload: Partial<ActivityDraft> = {};
-                if (patch.title !== undefined) payload.title = patch.title;
-                if (patch.type !== undefined && patch.type !== activeActivity.type) payload.type = patch.type;
-                if (patch.required !== undefined && patch.required !== activeActivity.required) payload.required = patch.required;
-                if (patch.contentRef !== undefined && JSON.stringify(patch.contentRef) !== JSON.stringify(activeActivity.content_ref)) {
-                  payload.contentRef = patch.contentRef;
-                }
-                saveActivity.mutate({
-                  id: activeActivity.id,
-                  x: payload,
-                });
-              }}
-            />
-          )}
+          <ActivityEditorPanel
+            courseId={course.id}
+            lessonId={lessonId}
+            token={token}
+            activity={activeActivity}
+            draft={workspaceDraft}
+            onChange={setWorkspaceDraft}
+            onEdit={() => setWorkspaceDraft({
+              title: activeActivity.title,
+              type: activeActivity.type,
+              required: activeActivity.required,
+              contentRef: activeActivity.content_ref ?? defaultRef(activeActivity.type),
+              content: activeActivity.content ?? defaultActivityContent(activeActivity.type),
+            })}
+            onSave={() => {
+              if (!workspaceDraft?.title.trim()) return;
+              if (assignmentTypes.has(workspaceDraft.type) && workspaceDraft.type !== 'knowledge_check'
+                && (workspaceDraft.contentRef.kind !== 'assignment' || !UUID.test(workspaceDraft.contentRef.id))) {
+                setError('This activity type requires an existing assignment UUID.');
+                return;
+              }
+              setError(null);
+              saveActivity.mutate({ id: activeActivity.id, x: { ...workspaceDraft, title: workspaceDraft.title.trim() } });
+            }}
+            onCancel={() => setWorkspaceDraft(null)}
+            saving={saveActivity.isPending}
+            disabled={isArchived}
+            error={error}
+          />
         </section>
       )}
 
@@ -1007,6 +1105,7 @@ export function CanonicalCurriculumEditor({
         onClose={cancel}
         onSave={submitLesson}
         loading={addLesson.isPending || saveLesson.isPending}
+        error={dialogError}
       />
       <SectionDialog
         draft={sectionDraft}
@@ -1015,6 +1114,7 @@ export function CanonicalCurriculumEditor({
         onClose={cancel}
         onSave={submitSection}
         loading={addSection.isPending || saveSection.isPending}
+        error={dialogError}
       />
       <ActivityDialog
         draft={activityDraft}
@@ -1023,31 +1123,77 @@ export function CanonicalCurriculumEditor({
         onClose={cancel}
         onSave={submitActivity}
         loading={addActivity.isPending || saveActivity.isPending}
+        error={dialogError}
       />
+        </div>
+      )}
+
+      {/* Navigation Guard Modal for View Switching */}
+      <Dialog
+        open={pendingViewMode !== null}
+        onClose={() => setPendingViewMode(null)}
+        title="Unsaved Changes in Content Editor"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-ink-muted">
+            You have unsaved changes in the Course Content Editor. If you switch views now, your edits will not be saved.
+          </p>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setPendingViewMode(null)}
+            >
+              Stay in Content Editor
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              className="bg-danger hover:bg-danger/90 text-white"
+              onClick={() => {
+                setIsContentDirty(false);
+                onDirtyChange?.(false);
+                if (pendingViewMode) {
+                  setViewMode(pendingViewMode);
+                  setPendingViewMode(null);
+                }
+              }}
+            >
+              Discard Changes
+            </Button>
+          </div>
+        </div>
+      </Dialog>
 
       {/* Global Modals */}
       <LearnerPreviewModal
         open={learnerPreviewOpen}
         onClose={() => setLearnerPreviewOpen(false)}
         course={course}
-        lessons={lessonList}
-        sections={sectionList}
-        selectedLessonId={lessonId}
+        lessons={modalLessons}
+        sections={modalSections}
+        selectedLessonId={modalLessonId}
       />
 
       <ReadinessChecklistModal
         open={readinessChecklistOpen}
         onClose={() => setReadinessChecklistOpen(false)}
         course={course}
-        lessons={lessonList}
-        sections={sectionList}
-        onPublish={() => publishCourseMutation.mutate()}
+        lessons={modalLessons}
+        sections={modalSections}
+        onPublish={() => {
+          // the checklist may have been opened before an edit: re-check at the moment of publishing
+          if (isContentDirty) { setReadinessChecklistOpen(false); openPublish(); return; }
+          publishCourseMutation.mutate();
+        }}
         isPublishing={publishCourseMutation.isPending}
       />
 
       <MediaAssetLibraryModal
         open={mediaLibraryOpen}
         onClose={() => setMediaLibraryOpen(false)}
+        courseId={course.id}
+        token={token}
       />
     </section>
   );
@@ -1192,6 +1338,7 @@ function LessonDialog({
   onClose,
   onSave,
   loading,
+  error,
 }: {
   draft: LessonDraft | null;
   lessons: Lesson[];
@@ -1200,6 +1347,7 @@ function LessonDialog({
   onClose: () => void;
   onSave: () => void;
   loading: boolean;
+  error?: string | null;
 }) {
   return (
     <Dialog
@@ -1209,10 +1357,10 @@ function LessonDialog({
       description="Configure lesson title, summary, and prerequisite constraints."
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={loading}>
             Cancel
           </Button>
-          <Button onClick={onSave} loading={loading}>
+          <Button onClick={onSave} loading={loading} disabled={loading}>
             Save
           </Button>
         </>
@@ -1220,6 +1368,7 @@ function LessonDialog({
     >
       {draft && (
         <div className="space-y-4">
+          {error && <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{error}</p>}
           <label className="block text-sm font-medium text-ink">
             Lesson title
             <input
@@ -1286,6 +1435,7 @@ function SectionDialog({
   onClose,
   onSave,
   loading,
+  error,
 }: {
   draft: SectionDraft | null;
   editing: boolean;
@@ -1293,6 +1443,7 @@ function SectionDialog({
   onClose: () => void;
   onSave: () => void;
   loading: boolean;
+  error?: string | null;
 }) {
   return (
     <Dialog
@@ -1302,16 +1453,18 @@ function SectionDialog({
       description="Sections organize activities within a lesson."
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={loading}>
             Cancel
           </Button>
-          <Button onClick={onSave} loading={loading}>
+          <Button onClick={onSave} loading={loading} disabled={loading}>
             Save
           </Button>
         </>
       }
     >
       {draft && (
+        <div className="space-y-3">
+        {error && <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{error}</p>}
         <label className="block text-sm font-medium text-ink">
           Section title
           <input
@@ -1323,6 +1476,7 @@ function SectionDialog({
             placeholder="e.g. Conceptual Foundation"
           />
         </label>
+        </div>
       )}
     </Dialog>
   );
@@ -1335,6 +1489,7 @@ function ActivityDialog({
   onClose,
   onSave,
   loading,
+  error,
 }: {
   draft: ActivityDraft | null;
   editing: boolean;
@@ -1342,6 +1497,7 @@ function ActivityDialog({
   onClose: () => void;
   onSave: () => void;
   loading: boolean;
+  error?: string | null;
 }) {
   const ref = draft?.contentRef;
   return (
@@ -1352,10 +1508,10 @@ function ActivityDialog({
       description="Activities are discrete learning steps (reading, practice, lab, quiz)."
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={loading}>
             Cancel
           </Button>
-          <Button onClick={onSave} loading={loading}>
+          <Button onClick={onSave} loading={loading} disabled={loading}>
             Save
           </Button>
         </>
@@ -1363,6 +1519,7 @@ function ActivityDialog({
     >
       {draft && (
         <div className="space-y-4">
+          {error && <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{error}</p>}
           <label className="block text-sm font-medium text-ink">
             Activity title
             <input

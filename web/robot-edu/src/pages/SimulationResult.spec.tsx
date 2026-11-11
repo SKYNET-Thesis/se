@@ -35,15 +35,15 @@ vi.mock('../lib/api', async (importOriginal) => {
 });
 
 const c1CoursePathFixture: CoursePathResponse = {
-  course: { id: 'course-1', title: 'Robotics Fundamentals', status: 'published' },
+  course: { id: 'course-1', title: 'Robotics Fundamentals', status: 'published', description: null, label: null, level: null, recommendedGrades: null, learningOutcome: null, competencies: [] },
   progressPercent: 80,
   currentLessonId: 'lesson-5',
   lessons: [
-    { id: 'lesson-1', ordinal: 1, title: 'Meet Your Robot', status: 'completed', progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T10:00:00Z' },
-    { id: 'lesson-2', ordinal: 2, title: 'Move the Robot', status: 'completed', progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T10:30:00Z' },
-    { id: 'lesson-3', ordinal: 3, title: 'Grab & Release', status: 'completed', progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T11:00:00Z' },
-    { id: 'lesson-4', ordinal: 4, title: 'Pick & Place', status: 'completed', progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T11:30:00Z' },
-    { id: 'lesson-5', ordinal: 5, title: 'Physical Robot Lab', status: 'in_progress', progressPercent: 0, prerequisite: [], lockReason: null, completedAt: null },
+    { id: 'lesson-1', code: null, ordinal: 1, title: 'Meet Your Robot', status: 'completed', progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T10:00:00Z', summary: null, learningItems: [], estimatedMinutes: null },
+    { id: 'lesson-2', code: null, ordinal: 2, title: 'Move the Robot', status: 'completed', progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T10:30:00Z', summary: null, learningItems: [], estimatedMinutes: null },
+    { id: 'lesson-3', code: null, ordinal: 3, title: 'Grab & Release', status: 'completed', progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T11:00:00Z', summary: null, learningItems: [], estimatedMinutes: null },
+    { id: 'lesson-4', code: null, ordinal: 4, title: 'Pick & Place', status: 'completed', progressPercent: 100, prerequisite: [], lockReason: null, completedAt: '2026-10-31T11:30:00Z', summary: null, learningItems: [], estimatedMinutes: null },
+    { id: 'lesson-5', code: null, ordinal: 5, title: 'Physical Robot Lab', status: 'in_progress', progressPercent: 0, prerequisite: [], lockReason: null, completedAt: null, summary: null, learningItems: [], estimatedMinutes: null },
   ],
 };
 

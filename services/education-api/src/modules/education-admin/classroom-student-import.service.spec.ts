@@ -15,10 +15,12 @@ describe("ClassroomStudentImportService preview", () => {
   const provision = jest.fn();
   const addExisting = jest.fn();
   const scope = { isSystemAdministrator: jest.fn().mockReturnValue(false) };
+  const synchronizeIfDeliverable = jest.fn().mockResolvedValue([]);
   const service = new ClassroomStudentImportService(
     { learning_classrooms: { findFirst: findClassroom }, $queryRaw: queryRaw, $transaction: transaction } as never,
     scope as never,
     { provision, addExistingStudentToClassroom: addExisting, invite } as never,
+    { synchronizeIfDeliverable } as never,
   );
 
   beforeEach(() => {
@@ -46,6 +48,7 @@ describe("ClassroomStudentImportService preview", () => {
     expect(invite).not.toHaveBeenCalled();
     expect(provision).not.toHaveBeenCalled();
     expect(addExisting).not.toHaveBeenCalled();
+    expect(synchronizeIfDeliverable).not.toHaveBeenCalled();
   });
 
   it("marks duplicate and invalid rows for review without resolving them", async () => {
@@ -86,13 +89,16 @@ describe("ClassroomStudentImportService confirm", () => {
   const provision = jest.fn();
   const addExisting = jest.fn();
   const scope = { isSystemAdministrator: jest.fn().mockReturnValue(false) };
+  const synchronizeIfDeliverable = jest.fn().mockResolvedValue([]);
   const service = new ClassroomStudentImportService(
     { learning_classrooms: { findFirst: findClassroom }, $queryRaw: queryRaw } as never,
     scope as never,
     { provision, addExistingStudentToClassroom: addExisting } as never,
+    { synchronizeIfDeliverable } as never,
   );
 
   beforeEach(() => {
+    synchronizeIfDeliverable.mockClear();
     findClassroom.mockReset().mockResolvedValue({ id: "class-a", organization_id: "school-a" });
     queryRaw.mockReset().mockResolvedValue([]);
     provision.mockReset().mockResolvedValue({ userId: "user-new" });
@@ -116,18 +122,20 @@ describe("ClassroomStudentImportService confirm", () => {
     expect(result.results.map(item => item.status)).toEqual(["created_and_added", "existing_added", "unchanged"]);
     expect(provision).toHaveBeenCalledWith("school-a", rows[0], "class-a");
     expect(addExisting).toHaveBeenCalledWith({ userId: "user-existing", membershipId: "membership-existing" }, "class-a");
+    expect(synchronizeIfDeliverable).toHaveBeenCalledTimes(1);
+    expect(synchronizeIfDeliverable).toHaveBeenCalledWith("class-a");
   });
 
   it('synchronizes enrollment once after importing one or more students', async () => {
-    const synchronizeClassroom = jest.fn().mockResolvedValue([]);
+    const synchronizeIfDeliverable = jest.fn().mockResolvedValue([]);
     const importingService = new ClassroomStudentImportService(
       { learning_classrooms: { findFirst: findClassroom }, $queryRaw: queryRaw } as never,
       scope as never,
       { provision, addExistingStudentToClassroom: addExisting } as never,
-      { synchronizeClassroom } as never,
+      { synchronizeIfDeliverable } as never,
     );
     await importingService.confirm(actor, 'school-a', 'class-a', { rows: [{ firstName: 'New', lastName: 'Student', studentCode: 'NEW-1', gradeLevel: 'Grade 3' }] });
-    expect(synchronizeClassroom).toHaveBeenCalledWith('class-a');
+    expect(synchronizeIfDeliverable).toHaveBeenCalledWith('class-a');
   });
 
   it("reimport is idempotent and does not provision or add rows already in the classroom", async () => {
@@ -136,6 +144,8 @@ describe("ClassroomStudentImportService confirm", () => {
     expect(result).toMatchObject({ unchanged: 1, createdAndAdded: 0, existingAdded: 0, failed: 0 });
     expect(provision).not.toHaveBeenCalled();
     expect(addExisting).not.toHaveBeenCalled();
+    // synchronization is idempotent and heals enrollments missed by an earlier partial import
+    expect(synchronizeIfDeliverable).toHaveBeenCalledWith("class-a");
   });
 
   it("returns a safe row failure and does not add membership when provisioning fails", async () => {

@@ -2,7 +2,7 @@ import { Type } from 'class-transformer';
 import { ArrayMinSize, ArrayUnique, IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 
 export class CreateQuestionDto {
-  @IsUUID() organizationId!: string;
+  @IsOptional() @IsUUID() organizationId?: string;
   @IsString() @MaxLength(80) code!: string;
   @IsUUID() courseId!: string;
   @IsUUID() lessonId!: string;
@@ -59,3 +59,11 @@ export class AddAssignmentQuestionDto {
 export class ReorderAssignmentQuestionsDto {
   @IsArray() @ArrayUnique() @IsUUID('all', { each: true }) orderedVersionIds!: string[];
 }
+
+export class CreateQuizAssignmentDto {
+  @IsString() @MaxLength(200) title!: string;
+  @IsString() @MaxLength(10000) instructions!: string;
+  @Type(() => Number) @IsInt() @Min(1) @Max(100) passPercent!: number;
+}
+
+export class UpdateQuizAssignmentDto extends CreateQuizAssignmentDto {}

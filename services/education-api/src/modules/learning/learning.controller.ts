@@ -5,6 +5,7 @@ import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface
 import { SupabaseAuthGuard } from "../identity/auth/supabase-auth.guard";
 import { PaginationDto } from "./dto/pagination.dto";
 import { CreateAssignmentDto } from "./dto/create-assignment.dto";
+import { CreateQuizDeliveryDto } from './dto/create-quiz-delivery.dto';
 import { UpdateAssignmentDto } from "./dto/update-assignment.dto";
 import { Body, Patch, Post } from "@nestjs/common";
 import { LearningService } from "./learning.service";
@@ -16,6 +17,7 @@ export class LearningController {
  @Post('admin/courses') createGlobalCourse(@CurrentUser() u:AuthenticatedUser,@Body() dto:CreateCourseDto){return this.learning.createGlobalCourse(u,dto)}
  @Patch('admin/courses/:courseId') updateGlobalCourse(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string,@Body() dto:UpdateCourseDto){return this.learning.updateGlobalCourse(u,id,dto)}
  @Post('admin/courses/:courseId/publish') publishCourse(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string){return this.learning.publishCourse(u,id)}
+ @Post('admin/courses/:courseId/enrollments/sync') syncCourseEnrollments(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string){return this.learning.syncCourseEnrollments(u,id)}
  @Post('admin/courses/:courseId/archive') archiveCourse(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string){return this.learning.archiveCourse(u,id)}
  @Post('admin/courses/:courseId/lessons') createLesson(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string,@Body() dto:CreateLessonDto){return this.learning.createCourseLesson(u,id,dto)}
  @Patch('admin/lessons/:lessonId') updateLesson(@CurrentUser() u:AuthenticatedUser,@Param('lessonId',ParseUUIDPipe) id:string,@Body() dto:UpdateLessonDto){return this.learning.updateCourseLesson(u,id,dto)}
@@ -32,6 +34,8 @@ export class LearningController {
  @Get("classrooms/:classroomId") classroom(@CurrentUser() u:AuthenticatedUser,@Param("classroomId") id:string){return this.learning.classroom(u,id)}
  @Get("classrooms/:classroomId/assignments") assignments(@CurrentUser() u:AuthenticatedUser,@Param("classroomId") id:string){return this.learning.assignments(u,id)}
  @Get("classrooms/:classroomId/delivery-options") deliveryOptions(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) id:string){return this.learning.deliveryOptions(u,id)}
+ @Get("classrooms/:classroomId/published-quizzes") publishedQuizzes(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) id:string){return this.learning.publishedQuizzes(u,id)}
+ @Post("classrooms/:classroomId/quiz-deliveries") createQuizDelivery(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) id:string,@Body() dto:CreateQuizDeliveryDto){return this.learning.createQuizDelivery(u,id,dto)}
  @Get("classroom-assignments/:classroomAssignmentId") assignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomAssignmentId",ParseUUIDPipe) id:string){return this.learning.assignment(u,id)}
  @Post("classrooms/:classroomId/assignments") createAssignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) id:string,@Body() dto:CreateAssignmentDto){return this.learning.createAssignment(u,id,dto)}
  @Post("classrooms/:classroomId/assignments/:assignmentId/publish") publishAssignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) classroomId:string,@Param("assignmentId",ParseUUIDPipe) assignmentId:string){return this.learning.publishAssignment(u,classroomId,assignmentId)}

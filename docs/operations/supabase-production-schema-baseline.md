@@ -119,7 +119,7 @@ table data, or row samples.
 
 ## 3. Verify artifact integrity and restore isolation
 
-Repeat the static check without copying the dump into this repository:
+Repeat the static check (the path below is the external original; the checked-in copy has the same hash):
 
 ```sh
 python scripts/verify_schema_baseline.py \
@@ -132,7 +132,10 @@ The prepared restore script requires a loopback host and a database named
 `vista_baseline_test_<suffix>`. Supply a disposable PostgreSQL 17 server,
 `VISTA_BASELINE_TEST_DATABASE_URL`, and an inventory output path outside the
 repository; pass `--confirm-isolated-restore` to proceed. It refuses a
-non-empty `public` schema. The baseline file remains outside Git.
+non-empty `public` schema. A byte-identical schema-only copy of the baseline is also checked in under
+`database/baselines/` and is used only by the local development bootstrap
+(`scripts/bootstrap_dev_database.py`; see `database/README.md`). The inventories and parity reports remain
+outside Git.
 
 1. Recompute SHA-256 after transfer and compare it with the capture record.
 2. Review the SQL for data-copy commands/rows, credentials, and ACLs to managed

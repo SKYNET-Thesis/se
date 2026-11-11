@@ -1,2 +1,6 @@
-import { IsUUID } from 'class-validator';
-export class AssignClassroomOfferingDto { @IsUUID() offeringId!: string; }
+import { IsUUID } from "class-validator";
+
+export class AssignClassroomOfferingDto {
+  @IsUUID()
+  offeringId!: string;
+}

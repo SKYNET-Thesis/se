@@ -61,5 +61,7 @@
   "managedSchemaReferences": {
     "auth": 1
   },
-  "baselineFileAddedToRepository": false
+  "baselineFileAddedToRepository": true,
+  "baselineRepositoryPath": "database/baselines/production-public-schema-20261109T172950Z.sql",
+  "baselineRepositoryNote": "Byte-identical schema-only dump (no table data, credentials or secrets per the integrity scan). Used only as the historical baseline of the development bootstrap; Production release approval is unaffected."
 }

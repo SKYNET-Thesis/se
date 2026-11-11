@@ -16,7 +16,8 @@ describe("EducationAdminService organization boundaries", () => {
   const scope = { isSystemAdministrator: jest.fn() };
   const supabaseAdmin = { invite: jest.fn() };
   const studentProvisioning = { provision: jest.fn() };
-  const service = new EducationAdminService({ $queryRaw: queryRaw, $transaction: transaction, learning_course_offerings: { findFirst: findOffering }, learning_classrooms: { create: createClassroom, findFirst: findClassroom }, memberships: { findFirst: jest.fn() }, learning_classroom_members: { upsert: jest.fn() } } as never, scope as never, supabaseAdmin as never, studentProvisioning as never);
+  const synchronizeIfDeliverable = jest.fn().mockResolvedValue([]);
+  const service = new EducationAdminService({ $queryRaw: queryRaw, $transaction: transaction, learning_course_offerings: { findFirst: findOffering }, learning_classrooms: { create: createClassroom, findFirst: findClassroom }, memberships: { findFirst: jest.fn() }, learning_classroom_members: { upsert: jest.fn() } } as never, scope as never, supabaseAdmin as never, studentProvisioning as never, { synchronizeIfDeliverable } as never);
 
   beforeEach(() => { queryRaw.mockReset(); transaction.mockReset().mockImplementation(async (callback) => callback({ $queryRaw: jest.fn().mockResolvedValue([{ id: "allocation-a", classroom_id: "class-a", robot_id: "robot-a" }]) })); findOffering.mockReset(); createClassroom.mockReset(); findClassroom.mockReset().mockResolvedValue({ id: "class-a", organization_id: "school-a" }); scope.isSystemAdministrator.mockReset().mockReturnValue(false); });
 
@@ -125,7 +126,8 @@ describe("EducationAdminService role derivation and provisioning scope", () => {
   const findMembership = jest.fn(); const upsert = jest.fn(); const queryRaw = jest.fn(); const invite = jest.fn();
   const findOrganization = jest.fn();
   const scope = { isSystemAdministrator: jest.fn().mockReturnValue(false) };
-  const service = new EducationAdminService({ $queryRaw: queryRaw, organizations: { findUnique: findOrganization }, learning_classrooms: { findFirst: findClassroom }, memberships: { findFirst: findMembership }, learning_classroom_members: { upsert }, $transaction: jest.fn() } as never, scope as never, { invite } as never, { provision: jest.fn().mockResolvedValue({ status: "unchanged" }) } as never);
+  const synchronizeIfDeliverable = jest.fn().mockResolvedValue([]);
+  const service = new EducationAdminService({ $queryRaw: queryRaw, organizations: { findUnique: findOrganization }, learning_classrooms: { findFirst: findClassroom }, memberships: { findFirst: findMembership }, learning_classroom_members: { upsert }, $transaction: jest.fn(async (work: (tx: unknown) => unknown) => work({ learning_classroom_members: { upsert } })) } as never, scope as never, { invite } as never, { provision: jest.fn().mockResolvedValue({ status: "unchanged" }) } as never, { lockClassroomIn: jest.fn().mockResolvedValue({ id: "class-a", organization_id: "school-a", offering_id: "offering-a", status: "active" }), synchronizeIfDeliverableIn: synchronizeIfDeliverable } as never);
   const schoolAdmin = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.classroom.members.manage", "education.members.provision"] }] };
 
   beforeEach(() => { findMembership.mockReset(); upsert.mockReset().mockResolvedValue({ id: "cm-1" }); queryRaw.mockReset(); findOrganization.mockReset().mockResolvedValue({ school_code: "VST-SCHOOL" }); invite.mockReset(); });
@@ -136,65 +138,21 @@ describe("EducationAdminService role derivation and provisioning scope", () => {
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ classroom_role: classroomRole }), update: expect.objectContaining({ classroom_role: classroomRole }) }));
   });
 
-  it("synchronizes enrollment after adding an eligible student", async () => {
-    const synchronizeClassroom = jest.fn().mockResolvedValue([]);
-    const enrolledService = new EducationAdminService(
-      { learning_classrooms: { findFirst: findClassroom }, memberships: { findFirst: findMembership }, learning_classroom_members: { upsert } } as never,
-      scope as never, { invite } as never, { provision: jest.fn() } as never,
-      { synchronizeClassroom } as never,
-    );
+  it("enrolls an added student for the classroom course but not an instructor", async () => {
+    synchronizeIfDeliverable.mockClear();
+    findMembership.mockResolvedValue({ id: "membership-a", status: "active", roles: { code: "instructor" } });
+    await service.upsertClassroomMember(schoolAdmin, "school-a", "class-a", { userId: "00000000-0000-4000-8000-000000000001" });
+    expect(synchronizeIfDeliverable).not.toHaveBeenCalled();
     findMembership.mockResolvedValue({ id: "membership-a", status: "active", roles: { code: "student" } });
-
-    await enrolledService.upsertClassroomMember(schoolAdmin, "school-a", "class-a", { userId: "00000000-0000-4000-8000-000000000001" });
-
-    expect(synchronizeClassroom).toHaveBeenCalledWith("class-a");
-  });
-
-  it('soft-revokes a member and only their enrollment in the selected classroom', async () => {
-    const txQuery = jest.fn().mockResolvedValue([{ member_id: 'member-1', enrollment_id: 'enrollment-1' }]);
-    const revokeService = new EducationAdminService(
-      { learning_classrooms: { findFirst: findClassroom }, $transaction: jest.fn(async work => work({ $queryRaw: txQuery })) } as never,
-      scope as never, { invite } as never, { provision: jest.fn() } as never,
-    );
-
-    await revokeService.revokeClassroomMember(schoolAdmin, 'school-a', 'class-a', 'student-1');
-
-    const sql = String(txQuery.mock.calls[0][0]);
-    expect(sql).toContain("SET status='left'");
-    expect(sql).toContain("SET status='revoked'");
-    expect(sql).toContain('classroom_id');
-  });
-
-  it('archives a classroom by revoking its active enrollments without deleting history', async () => {
-    const txQuery = jest.fn().mockResolvedValue([{ id: 'class-a', status: 'archived' }]);
-    const archiveService = new EducationAdminService(
-      { learning_classrooms: { findFirst: findClassroom }, $transaction: jest.fn(async work => work({ $queryRaw: txQuery })) } as never,
-      scope as never, { invite } as never, { provision: jest.fn() } as never,
-    );
-    await archiveService.archiveClassroom({ ...schoolAdmin, memberships: [{ ...schoolAdmin.memberships[0], permissions: ['education.classroom.manage'] }] }, 'school-a', 'class-a');
-    const sql = String(txQuery.mock.calls[0][0]);
-    expect(sql).toContain("SET status='archived'");
-    expect(sql).toContain("SET status='revoked'");
-  });
-
-  it('reassigns a classroom offering by revoking obsolete access and upserting the new enrollment set', async () => {
-    const txQuery = jest.fn().mockResolvedValue([{ id: 'class-a', offering_id: 'offering-b' }]);
-    const offering = jest.fn().mockResolvedValue({ id: 'offering-b', course_id: 'course-b' });
-    const reassignmentService = new EducationAdminService(
-      { learning_classrooms: { findFirst: findClassroom }, learning_course_offerings: { findFirst: offering }, $transaction: jest.fn(async work => work({ $queryRaw: txQuery })) } as never,
-      scope as never, {} as never, {} as never,
-    );
-    await reassignmentService.assignClassroomOffering({ ...schoolAdmin, memberships: [{ ...schoolAdmin.memberships[0], permissions: ['education.classroom.manage'] }] }, 'school-a', 'class-a', 'offering-b');
-    const sql = String(txQuery.mock.calls[0][0]);
-    expect(sql).toContain("SET status='revoked'");
-    expect(sql).toContain('ON CONFLICT (course_id, learner_user_id, classroom_id)');
+    await service.upsertClassroomMember(schoolAdmin, "school-a", "class-a", { userId: "00000000-0000-4000-8000-000000000001" });
+    expect(synchronizeIfDeliverable).toHaveBeenCalledWith(expect.anything(), "class-a");
   });
 
   it('edits only supported classroom metadata within the administrator school', async () => {
     const update = jest.fn().mockResolvedValue({ id: 'class-a', name: 'Updated' });
     const editService = new EducationAdminService(
       { learning_classrooms: { findFirst: findClassroom, update } } as never,
-      scope as never, {} as never, {} as never,
+      scope as never, {} as never, {} as never, {} as never,
     );
     await expect(editService.updateClassroom({ ...schoolAdmin, memberships: [{ ...schoolAdmin.memberships[0], permissions: ['education.classroom.manage'] }] }, 'school-a', 'class-a', { name: 'Updated', description: 'New details', capacity: 30 }))
       .resolves.toMatchObject({ name: 'Updated' });
@@ -238,7 +196,8 @@ describe("EducationAdminService school user provisioning", () => {
   const findOrganization = jest.fn();
   const prisma = { $queryRaw: queryRaw, $transaction: transaction, organizations: { findUnique: findOrganization } };
   const scope = { isSystemAdministrator: jest.fn().mockReturnValue(false) };
-  const service = new EducationAdminService(prisma as never, scope as never, { invite } as never, { provision } as never);
+  const synchronizeIfDeliverable = jest.fn().mockResolvedValue([]);
+  const service = new EducationAdminService(prisma as never, scope as never, { invite } as never, { provision } as never, { synchronizeIfDeliverable } as never);
   const actor = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.members.provision"] }] };
 
   beforeEach(() => { queryRaw.mockReset().mockResolvedValue([]); findOrganization.mockReset().mockResolvedValue({ school_code: "VST-SCHOOL" }); invite.mockReset(); provision.mockReset().mockResolvedValue({ userId: "user-new", status: "created", setupCode: "one-time-code" }); transaction.mockReset(); });

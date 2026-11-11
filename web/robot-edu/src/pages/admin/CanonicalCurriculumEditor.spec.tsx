@@ -5,6 +5,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CanonicalCurriculumEditor, type CurriculumEditorDragRef } from './CanonicalCurriculumEditor';
 
+vi.mock('../../components/authoring/QuizAuthoringPanel', () => ({
+  QuizAuthoringPanel: ({ lessonId }: { lessonId: string }) => <div data-testid="quiz-authoring-panel">Question Bank quiz for {lessonId}</div>,
+}));
+
 const api = vi.hoisted(() => ({
   lessons: vi.fn(),
   updateLesson: vi.fn(),
@@ -91,6 +95,10 @@ describe('CanonicalCurriculumEditor', () => {
         </QueryClientProvider>,
       );
     });
+    await tick();
+    // The default view is the Content Editor; these tests exercise Curriculum Structure, so they select it explicitly.
+    const structureTab = Array.from(document.querySelectorAll('[role="tab"]')).find((tab) => tab.textContent?.includes('Curriculum Structure')) as HTMLElement;
+    await act(async () => { structureTab.click(); });
     await tick();
   });
 
@@ -378,5 +386,122 @@ describe('CanonicalCurriculumEditor', () => {
     const introIndex = buttons.indexOf('Intro');
     const motionIndex = buttons.indexOf('Motion');
     expect(introIndex).toBeLessThan(motionIndex);
+  });
+  describe('activity content workspace', () => {
+    const openSection = async () => {
+      button('Intro').click(); await tick(); await tick();
+      button('Read').click(); await tick(); await tick();
+    };
+    const selectActivity = async (title: string) => {
+      const row = Array.from(document.querySelectorAll('[role="button"], button')).find((el) => el.textContent?.includes(title) && !/Publish|Unpublish|Edit|Up|Down/.test(el.getAttribute('aria-label') ?? '')) as HTMLElement;
+      if (!row) throw new Error(`Activity ${title} not found`);
+      await act(async () => { row.click(); });
+      await tick();
+    };
+
+    it('authors a knowledge check through the canonical Question Bank panel, not sample questions', async () => {
+      api.sections.mockResolvedValue([{ ...sectionA, learning_activities: [
+        { id: 'activity-q', title: 'Safety quiz', type: 'knowledge_check', ordinal: 1, required: true, status: 'draft', content_ref: { kind: 'none' } },
+      ] }, sectionB]);
+      await act(async () => { root.render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <CanonicalCurriculumEditor course={{ ...course, id: 'course-2' }} token="token" dragRef={dragRef} />
+        </QueryClientProvider>); });
+      await tick();
+      await openSection();
+      await selectActivity('Safety quiz');
+      button('Edit Activity').click(); await tick();
+      expect(document.querySelector('[data-testid="quiz-authoring-panel"]')?.textContent).toContain('lesson-a');
+      expect(document.body.textContent).not.toContain('deadman clutch');
+    });
+
+    it('persists reading content with the activity instead of dropping it', async () => {
+      await openSection();
+      await selectActivity('Overview');
+      button('Edit Activity').click(); await tick();
+      button('Add paragraph').click(); await tick();
+      const text = document.querySelector('textarea[aria-label="Paragraph"], textarea') as HTMLTextAreaElement | null;
+      if (text) {
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+        await act(async () => { setter?.call(text, 'Wear safety glasses.'); text.dispatchEvent(new Event('input', { bubbles: true })); });
+      }
+      button('Save Draft').click(); await tick();
+      expect(api.updateActivity).toHaveBeenCalledWith('activity-a', 'token', expect.objectContaining({
+        content: expect.objectContaining({ version: 1, blocks: expect.any(Array) }),
+      }));
+    });
+  });
+  describe('metadata dialogs keep the draft until the API succeeds', () => {
+    const openSectionDialog = async () => {
+      button('Intro').click(); await tick();
+      button('Add section').click(); await tick();
+      await change('Section title', 'Draft section');
+    };
+    // the dialog leaves the DOM after its exit animation
+    const dialogGone = () => vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull(), { timeout: 3000 });
+    const saveButtons = () => Array.from(document.querySelectorAll('button')).filter((b) => b.textContent === 'Save' && !b.hasAttribute('disabled'));
+
+    it('a failed save keeps the dialog open with the typed title and shows the API error inside it', async () => {
+      api.createSection.mockRejectedValueOnce(new Error('Ordinal is already in use.'));
+      await openSectionDialog();
+      button('Save').click(); await tick(); await tick();
+      const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+      expect(dialog).not.toBeNull();
+      expect(dialog.querySelector('[role="alert"]')?.textContent).toContain('Ordinal is already in use.');
+      expect((input('Section title') as HTMLInputElement).value).toBe('Draft section');
+      // retry succeeds and only then the dialog closes
+      api.createSection.mockResolvedValueOnce({ id: 'section-new' });
+      button('Save').click(); await tick(); await tick();
+      expect(api.createSection).toHaveBeenCalledTimes(2);
+      await dialogGone();
+    });
+
+    it('keeps the lesson and activity dialogs open with their drafts when saving fails', async () => {
+      api.createLesson.mockRejectedValueOnce(new Error('Lesson service unavailable'));
+      button('Add lesson').click(); await tick();
+      await change('Lesson title', 'Draft lesson');
+      button('Save').click(); await tick(); await tick();
+      expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain('Lesson service unavailable');
+      expect((input('Lesson title') as HTMLInputElement).value).toBe('Draft lesson');
+      button('Cancel').click(); await tick();
+      await dialogGone();
+
+      api.createActivity.mockRejectedValueOnce(new Error('Activity rejected'));
+      button('Intro').click(); await tick();
+      button('Read').click(); await tick();
+      button('Add activity').click(); await tick();
+      await change('Activity title', 'Draft activity');
+      button('Save').click(); await tick(); await tick();
+      expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain('Activity rejected');
+      expect((input('Activity title') as HTMLInputElement).value).toBe('Draft activity');
+    });
+
+    it('does not submit twice while the first request is still running', async () => {
+      let release: (value: unknown) => void = () => undefined;
+      api.createSection.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+      await openSectionDialog();
+      button('Save').click(); await tick();
+      for (const extra of saveButtons()) await act(async () => { extra.click(); });
+      await act(async () => { (document.querySelector('[aria-label="Section title"]') as HTMLInputElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+      expect(api.createSection).toHaveBeenCalledTimes(1);
+      await act(async () => { release({ id: 'section-new' }); });
+      await tick();
+      await dialogGone();
+    });
+  });
+
+  describe('default view', () => {
+    it('is the Content Editor regardless of the drag-and-drop testing hook', async () => {
+      const host = document.createElement('div'); document.body.appendChild(host);
+      const second = createRoot(host);
+      await act(async () => { second.render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <CanonicalCurriculumEditor course={{ ...course, id: 'course-view' }} token="token" dragRef={{ current: null }} />
+        </QueryClientProvider>); });
+      await tick();
+      expect(host.querySelector('[data-testid="course-content-editor"]')).not.toBeNull();
+      expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain('Content Editor');
+      act(() => second.unmount()); host.remove();
+    });
   });
 });

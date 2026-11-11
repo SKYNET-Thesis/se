@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadAccessContext } from './accessContext';
 
 describe('access context loading', () => {
+  it('resolves System Admin only from the backend system role', async () => {
+    const roles = vi.fn().mockResolvedValue({ systemRoleCodes: ['system_admin'], memberships: [] });
+    await expect(loadAccessContext('token', { roles })).resolves.toMatchObject({ role: 'admin' });
+  });
+
   it('uses only the authoritative roles endpoint and reuses its memberships', async () => {
     const roles = vi.fn().mockResolvedValue({
       systemRoleCodes: [],

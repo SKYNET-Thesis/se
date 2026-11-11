@@ -8,9 +8,13 @@ Production catalog comparison has 12 `MATCH`, 3
 classifications, with no missing Production catalog fields. This result does
 not validate a live SQL runner release.
 
-The dump remains outside the repository at
-`/home/quangduc/vista-production-baseline/production-public-schema-20261109T172950Z.sql`.
-It has mode `0600`; this implementation did not copy or modify it.
+The original dump is retained outside the repository at
+`/home/quangduc/vista-production-baseline/production-public-schema-20261109T172950Z.sql`
+(mode `0600`). A byte-identical copy (same SHA-256) is checked in at
+`database/baselines/production-public-schema-20261109T172950Z.sql` as the historical baseline of the
+development bootstrap (`scripts/bootstrap_dev_database.py`, see `database/README.md`). The integrity scan below
+found no table data, credentials or secrets, which is what permits the copy. The detailed parity report and
+inventories stay outside Git.
 
 ## Integrity results
 
@@ -104,8 +108,8 @@ VISTA public-object drift:
    `PUBLIC USAGE` is preserved as a real ACL difference and is not claimed to
    be equivalent to the isolated ACL.
 
-The baseline fingerprint is pinned in the intentionally empty new-stream
-manifest. The parity result satisfies the local baseline comparison gate, but
+The baseline fingerprint is pinned in the new-stream manifest, which selects
+migrations D, E, and F as a release candidate. The parity result satisfies the local baseline comparison gate, but
 does not authorize or validate a Production migration release. The first
 Production SQL-runner deployment remains untested and requires a separate
 release review and explicit approval.

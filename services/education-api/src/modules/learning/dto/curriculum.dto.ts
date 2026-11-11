@@ -20,6 +20,7 @@ export class CreateActivityDto {
   @IsInt() @Min(1) ordinal!: number;
   @IsOptional() @IsBoolean() required?: boolean;
   @IsObject() contentRef!: Record<string, unknown>;
+  @IsOptional() @IsObject() content?: Record<string, unknown>;
   @IsOptional() @IsArray() @ArrayUnique() @IsUUID('all', { each: true }) objectiveIds?: string[];
 }
 
@@ -29,6 +30,7 @@ export class UpdateActivityDto {
   @IsOptional() @IsInt() @Min(1) ordinal?: number;
   @IsOptional() @IsBoolean() required?: boolean;
   @IsOptional() @IsObject() contentRef?: Record<string, unknown>;
+  @IsOptional() @IsObject() content?: Record<string, unknown>;
   @IsOptional() @IsArray() @ArrayUnique() @IsUUID('all', { each: true }) objectiveIds?: string[];
 }
 

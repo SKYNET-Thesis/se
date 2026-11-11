@@ -52,13 +52,11 @@ export function ActivityContentEditor({
   const [assignmentId, setAssignmentId] = useState(
     activity.content_ref?.kind === 'assignment' ? activity.content_ref.id : ''
   );
-  
+
   // Rich media states
-  const [videoDuration, setVideoDuration] = useState('08:30');
-  const [videoUrl, setVideoUrl] = useState('https://storage.vista.education/videos/so101_demo.mp4');
-  const [readingText, setReadingText] = useState(
-    '# Robotics Foundation\n\nIn this section, we review the Cartesian coordinate frame of the SO-101 tabletop arm, forward kinematics, and safe angular limits.'
-  );
+  const [videoDuration, setVideoDuration] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [readingText, setReadingText] = useState('');
   const [selectedBlocks, setSelectedBlocks] = useState<string[]>([
     'arm.select',
     'home',
@@ -86,7 +84,6 @@ export function ActivityContentEditor({
   const onSelectMedia = (asset: MediaAsset) => {
     if (asset.type === 'video') {
       setVideoUrl(asset.url);
-      if (asset.duration) setVideoDuration(asset.duration);
     } else if (asset.type === 'document') {
       setReadingText(
         `# ${asset.name}\n\nReference Material: ${asset.description}\n\nResource Link: ${asset.url}`
@@ -144,9 +141,11 @@ export function ActivityContentEditor({
               <FilmIcon className="h-16 w-16 text-blue-400 mb-3 opacity-80" />
               <h5 className="font-semibold text-lg">{title}</h5>
               <p className="text-xs text-zinc-400 mt-1">Duration: {videoDuration}</p>
-              <span className="mt-4 rounded-full bg-blue-600/80 px-4 py-1.5 text-xs font-semibold">
-                Simulated Video Player
-              </span>
+              {videoUrl ? (
+                <video className="mt-4 w-full max-w-3xl rounded-lg" controls src={videoUrl} />
+              ) : (
+                <span className="mt-4 text-sm text-zinc-300">Select a course media asset to preview this video.</span>
+              )}
             </div>
           ) : activity.type === 'reading' ? (
             <div className="prose prose-sm max-w-none rounded-lg border border-line bg-surface p-6 space-y-3">
@@ -233,7 +232,7 @@ export function ActivityContentEditor({
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold uppercase tracking-wider text-ink-subtle">
-                    Video Stream URL or S3 Path
+                    Selected private media URL
                   </label>
                   <input
                     type="text"
@@ -241,7 +240,7 @@ export function ActivityContentEditor({
                     disabled={disabled}
                     onChange={(e) => setVideoUrl(e.target.value)}
                     className="h-10 w-full rounded-md border border-line-strong bg-surface px-3 text-sm text-ink outline-none focus:border-accent"
-                    placeholder="https://storage.vista.education/videos/..."
+                    placeholder="Select a video from the course media library"
                   />
                 </div>
 
@@ -401,6 +400,8 @@ export function ActivityContentEditor({
       <MediaAssetLibraryModal
         open={libraryOpen}
         onClose={() => setLibraryOpen(false)}
+        courseId=""
+        token=""
         selectionMode={true}
         onSelectAsset={onSelectMedia}
       />

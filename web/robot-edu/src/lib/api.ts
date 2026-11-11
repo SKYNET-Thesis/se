@@ -17,7 +17,8 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export interface ApiCourse { id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
+export interface ApiEnrollmentSync { classrooms: number; enrolled: number }
+export interface ApiCourse { enrollmentSync?: ApiEnrollmentSync; id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
 export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
 
 export type LessonProgressStatus = "completed" | "current" | "available" | "locked" | "in_progress";
@@ -164,7 +165,9 @@ export interface LessonDetailResponse {
       type: string;
       ordinal: number;
       required: boolean;
+      content_ref?: { kind: 'lesson_content'; key: string } | { kind: 'assignment'; id: string } | { kind: 'none' };
       objectives?: unknown[];
+      content?: Record<string, unknown>;
     }>;
   }>;
 }
@@ -191,7 +194,8 @@ export interface ApiQualifiedProgramHandoff {
 
 export interface KnowledgeCheckAnswerInput {
   questionId: string;
-  optionId: string;
+  optionId?: string;
+  optionIds?: string[];
 }
 
 export interface SubmitKnowledgeCheckDto {
@@ -202,6 +206,7 @@ export interface KnowledgeCheckSubmissionResult {
   attemptId: string;
   passed: boolean;
   score: number;
+  passPercent: number;
   completedLessonId: string | null;
   newlyUnlockedLessonIds: string[];
 }
@@ -268,7 +273,8 @@ export interface ApiDeliveryChallenge { id:string; title:string; }
 export interface ApiDeliveryOption { course_id:string; course_title:string; lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; challenges:ApiDeliveryChallenge[]; }
 export interface ApiEnrollment { id: string; course_id: string; classroom_id: string | null; status: string; enrolled_at?: string; completed_at?: string | null; }
 export interface ApiClassroomAssignment { id: string; classroom_id: string; assignment_id: string; lesson_id: string; lesson_title?:string; challenge_id: string | null; challenge_title?:string|null; title: string; instructions: string | null; allowed_blocks?: unknown; constraints?: unknown; status: string; available_from?:string|null; due_at?:string|null; close_at?:string|null; max_attempts?:number|null; published_by?:string|null; }
-export interface ApiAttempt { id: string; classroom_assignment_id: string; attempt_number?: number; program_id?: string | null; status: string; started_at?: string; submitted_at?: string | null; }
+export interface ApiPublishedQuiz { canonical_assignment_id: string; quiz_title: string; instructions: string; lesson_id: string; lesson_title: string; course_id: string; course_title: string; course_status: string; pass_percent: number; question_count: number; already_assigned: boolean; }
+export interface ApiAttempt { id: string; classroom_assignment_id: string; attempt_number?: number; program_id?: string | null; status: string; started_at?: string; submitted_at?: string | null; workspace_snapshot?: unknown; result_snapshot?: unknown; quiz?: unknown; }
 export interface ApiProgram { id: string; title: string; workspace_json: Record<string, unknown>; robot_program: Record<string, unknown>; }
 export interface ApiProgramVersion { id: string; version_number: number; robot_program: Record<string, unknown>; }
 export interface ApiSubmission { id: string; program_version_id: string; status: string; assignment_id?:string; program_id?:string; submitted_at?:string|null; }
@@ -413,6 +419,7 @@ export const educationAdminApi = {
   createClassroom: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms`,token,'POST',body),
   updateClassroom: (organizationId:string,classroomId:string,token:string,body:{name?:string;code?:string;description?:string;capacity?:number}) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}`,token,'PATCH',body),
   archiveClassroom: (organizationId:string,classroomId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/archive`,token,'POST'),
+  reactivateClassroom: (organizationId:string,classroomId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/reactivate`,token,'POST'),
   assignClassroomOffering: (organizationId:string,classroomId:string,offeringId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/offering`,token,'PUT',{offeringId}),
   createCourseOffering: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/course-offerings`,token,'POST',body),
   importUsers: (organizationId:string,token:string,body:ApiRecord) => apiRequest<ApiSchoolImportResult>(`/education-admin/organizations/${organizationId}/user-imports`,token,'POST',body),
@@ -428,6 +435,8 @@ export const catalogApi = {
   createGlobalCourse: (token:string, body:{title:string;description?:string}) => apiRequest<ApiCourse>('/admin/courses',token,'POST',body),
   updateGlobalCourse: (courseId:string,token:string,body:{title?:string;description?:string}) => apiRequest<ApiCourse>(`/admin/courses/${courseId}`,token,'PATCH',body),
   publishGlobalCourse: (courseId:string,token:string) => apiRequest<ApiCourse>(`/admin/courses/${courseId}/publish`,token,'POST'),
+  /** Idempotent, all-or-nothing retry that enrolls the members of every active classroom of a published course. */
+  syncCourseEnrollments: (courseId:string,token:string) => apiRequest<ApiEnrollmentSync>(`/admin/courses/${courseId}/enrollments/sync`,token,'POST'),
   archiveGlobalCourse: (courseId:string,token:string) => apiRequest<ApiCourse>(`/admin/courses/${courseId}/archive`,token,'POST'),
   createLesson: (courseId:string,token:string,body:{title:string;content?:Record<string,unknown>}) => apiRequest<ApiRecord>(`/admin/courses/${courseId}/lessons`,token,'POST',body),
   updateLesson: (lessonId:string,token:string,body:{title?:string;content?:Record<string,unknown>}) => apiRequest<ApiRecord>(`/admin/lessons/${lessonId}`,token,'PATCH',body),
@@ -474,6 +483,54 @@ export const curriculumApi = {
   setSectionStatus: (sectionId: string, token: string, status: 'draft' | 'published') => apiRequest<ApiRecord>(`/author/sections/${sectionId}/status`, token, 'POST', { status }),
   setActivityStatus: (activityId: string, token: string, status: 'draft' | 'published') => apiRequest<ApiRecord>(`/author/activities/${activityId}/status`, token, 'POST', { status }),
 };
+
+export type ApiLearningMedia = { id: string; course_id: string; original_filename: string; mime_type: string; size_bytes: number; status: 'pending' | 'ready' | 'failed'; created_at: string };
+export const learningMediaApi = {
+  list: (courseId: string, token: string, search = '', kind = '') => apiGet<ApiLearningMedia[]>(`/admin/courses/${courseId}/media?search=${encodeURIComponent(search)}&kind=${encodeURIComponent(kind)}`, token),
+  createUpload: (courseId: string, token: string, file: File) => apiRequest<{ media: ApiLearningMedia; upload: { url: string; fields: Record<string, string> } }>(`/admin/courses/${courseId}/media/uploads`, token, 'POST', { filename: file.name, contentType: file.type, sizeBytes: file.size }),
+  completeUpload: (mediaId: string, token: string) => apiRequest<ApiLearningMedia>(`/admin/media/${mediaId}/complete`, token, 'POST'),
+  failUpload: (mediaId: string, token: string) => apiRequest<{ id: string; status: string }>(`/admin/media/${mediaId}/fail`, token, 'POST'),
+  upload: async (courseId: string, token: string, file: File, onProgress?: (percent: number) => void) => {
+    const signed = await learningMediaApi.createUpload(courseId, token, file);
+    const form = new FormData();
+    Object.entries(signed.upload.fields).forEach(([key, value]) => form.append(key, value));
+    form.append('file', file);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('POST', signed.upload.url);
+        request.upload.onprogress = (event) => {
+          if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
+        };
+        request.onload = () => request.status >= 200 && request.status < 300
+          ? resolve()
+          : reject(new Error(`Learning Media upload failed (${request.status}).`));
+        request.onerror = () => reject(new Error('Learning Media upload failed because the storage request could not be reached.'));
+        request.onabort = () => reject(new Error('Learning Media upload was cancelled.'));
+        request.send(form);
+      });
+      return await learningMediaApi.completeUpload(signed.media.id, token);
+    } catch (error) {
+      try { await learningMediaApi.failUpload(signed.media.id, token); } catch { /* pending objects remain inaccessible and expire through storage lifecycle cleanup */ }
+      throw error;
+    }
+  },
+  authorUrl: (mediaId: string, token: string) => apiGet<{ url: string; filename: string; mimeType: string; expiresIn: number }>(`/admin/media/${mediaId}/url`, token),
+  activityUrl: (activityId: string, mediaId: string, token: string) => apiGet<{ url: string; filename: string; mimeType: string; expiresIn: number }>(`/activities/${activityId}/media/${mediaId}/url`, token),
+};
+type QuizAuthoringQuestion = { id: string; questionId: string; code: string; type: string; stem: string; options: Array<{ id: string; text: string }>; versionNumber: number; objectives: Array<{ id: string; code: string; description: string }> };
+type QuizAuthoringSelected = { versionId: string; questionId: string; ordinal: number; points: number; type: string; stem: string; options: Array<{ id: string; text: string }>; code: string; answerKey?: string[]; explanation?: string | null };
+type QuizAuthoringAssignment = { id: string; title: string; instructions: string; constraints: { kind: string; passPercent: number }; questions: QuizAuthoringSelected[] };
+export const quizAuthoringApi = {
+  questions: (lessonId: string, token: string, search = '', type = '', page = 1, pageSize = 20) => apiGet<{ items: QuizAuthoringQuestion[]; total: number; page: number; pageSize: number }>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/questions?search=${encodeURIComponent(search)}&type=${encodeURIComponent(type)}&page=${page}&pageSize=${pageSize}`, token),
+  assignment: (lessonId: string, token: string) => apiGet<QuizAuthoringAssignment | null>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment`, token),
+  preview: (lessonId: string, token: string) => apiGet<QuizAuthoringAssignment | null>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/preview`, token),
+  createAssignment: (lessonId: string, token: string, body: { title: string; instructions: string; passPercent: number }) => apiRequest<{ id: string }>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment`, token, 'POST', body),
+  updateAssignment: (lessonId: string, assignmentId: string, token: string, body: { title: string; instructions: string; passPercent: number }) => apiRequest<ApiRecord>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment/${assignmentId}`, token, 'PATCH', body),
+  addQuestion: (assignmentId: string, token: string, body: { questionVersionId: string; ordinal: number; points: number }) => apiRequest<ApiRecord>(`/author/question-bank/assignments/${assignmentId}/questions`, token, 'POST', body),
+  removeQuestion: (assignmentId: string, versionId: string, token: string) => apiRequest<ApiRecord>(`/author/question-bank/assignments/${assignmentId}/questions/${versionId}`, token, 'DELETE'),
+  reorderQuestions: (assignmentId: string, token: string, orderedVersionIds: string[]) => apiRequest<ApiRecord>(`/author/question-bank/assignments/${assignmentId}/questions/order`, token, 'PUT', { orderedVersionIds }),
+};
 export const classroomApi = {
   mine: learnerApi.classrooms,
   detail: (id: string, token: string) => apiGet<ApiClassroom>(`/classrooms/${id}`, token),
@@ -499,6 +556,8 @@ export const assignmentApi = {
   challengeAssignments: (id: string, token: string) => apiGet<ApiRecord[]>(`/challenges/${id}/assignments`, token),
   create: (classroomId: string, token: string, body: ApiRecord) => apiRequest<ApiRecord>(`/classrooms/${classroomId}/assignments`, token, "POST", body),
   deliveryOptions: (classroomId:string,token:string) => apiGet<ApiDeliveryOption[]>(`/classrooms/${classroomId}/delivery-options`,token),
+  publishedQuizzes: (classroomId:string,token:string) => apiGet<ApiPublishedQuiz[]>(`/classrooms/${classroomId}/published-quizzes`,token),
+  createQuizDelivery: (classroomId:string,token:string,body:{canonicalAssignmentId:string;availableFrom?:string;dueAt?:string;closeAt?:string;maxAttempts?:number}) => apiRequest<ApiClassroomAssignment>(`/classrooms/${classroomId}/quiz-deliveries`,token,'POST',body),
   update: (classroomId: string, assignmentId: string, token: string, body: ApiRecord) => apiRequest<ApiRecord>(`/classrooms/${classroomId}/assignments/${assignmentId}`, token, "PATCH", body),
   publish: (classroomId:string,assignmentId:string,token:string) => apiRequest<ApiClassroomAssignment>(`/classrooms/${classroomId}/assignments/${assignmentId}/publish`,token,"POST"),
 };

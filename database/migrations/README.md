@@ -1,9 +1,10 @@
 # Production SQL migration stream
 
-This directory is the source inventory for future SQL releases owned by the
-SQL release runner. `manifest.json` is currently intentionally empty: no new
-baseline migration has been fabricated and no previously applied migration is
-selected for replay.
+This directory is the source inventory for SQL releases owned by the SQL
+release runner. The active manifest selects migrations D, E, F, and G against the
+verified 2026-11-09 Production baseline. Migrations A–C are excluded because
+their schema is already represented in that baseline and their historical
+Production versions must not be replayed.
 
 Each future immutable release manifest entry must contain:
 
@@ -25,11 +26,21 @@ least one migration and is rejected if it includes any of the seven November
 2026 versions already applied in Production. Untracked and ignored SQL files
 are rejected so release inventory cannot silently omit local migration code.
 
-The current manifest has no entries, so there are no pending SQL-runner
-migrations. Do not place the lost legacy Prisma SQL here. Do not edit
-historical migration files. Do not execute SQL from this directory against Production without a
-separately approved release gate and the production baseline prerequisites in
+The active inventory is a release candidate; it does not mean these migrations
+have been applied to Production or approved for release. Do not place the lost
+legacy Prisma SQL here. Do not edit historical migration files. Do not execute
+SQL from this directory against Production without a separately approved
+release gate and the production baseline prerequisites in
 [`../../docs/operations/supabase-production-schema-baseline.md`](../../docs/operations/supabase-production-schema-baseline.md).
+
+## Relationship to the development bootstrap
+
+The historical baseline is checked in at
+[`../baselines/production-public-schema-20261109T172950Z.sql`](../baselines/production-public-schema-20261109T172950Z.sql),
+outside this directory on purpose: this directory contains only release migrations and the validator scans it
+for SQL files that are not in the manifest. `scripts/bootstrap_dev_database.py` restores the baseline into an
+empty local `vista_test_*` PostgreSQL 17 database and then applies the manifest through the runner. A/B/C are
+not replayed; they are part of the baseline. See [`../README.md`](../README.md).
 
 See [`../../docs/operations/production-migration-ownership.md`](../../docs/operations/production-migration-ownership.md)
 for migration ownership and release approval policy.

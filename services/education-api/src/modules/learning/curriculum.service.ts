@@ -4,6 +4,8 @@ import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface
 import { ProgressionService } from './progression.service';
 import { activityIdsForLesson } from './activity-progress.service';
 import { assertCourseNotArchived, assertCurriculumMutable } from './course-lifecycle';
+import { validateActivityContent } from './activity-content.schema';
+import { LearningMediaService } from './learning-media.service';
 
 const activityTypes = new Set([
   'reading', 'video', 'demonstration', 'guided_practice', 'knowledge_check',
@@ -13,15 +15,15 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 type ContentRef = { kind: 'lesson_content'; key: string } | { kind: 'assignment'; id: string } | { kind: 'none' };
 type SectionInput = { title: string; ordinal: number };
-type ActivityInput = { title: string; type: string; ordinal: number; required?: boolean; contentRef: unknown; objectiveIds?: string[] };
+type ActivityInput = { title: string; type: string; ordinal: number; required?: boolean; contentRef: unknown; content?: unknown; objectiveIds?: string[] };
 type ActivityPatch = Partial<ActivityInput>;
 type LessonRow = { id: string; course_id: string; ordinal: number; legacy_course: boolean };
 type SectionRow = { id: string; title: string; ordinal: number };
-type ActivityRow = { id: string; section_id: string; title: string; type: string; ordinal: number; required: boolean; objectives: unknown };
+type ActivityRow = { id: string; section_id: string; title: string; type: string; ordinal: number; required: boolean; content_ref: unknown; objectives: unknown; content: unknown };
 
 @Injectable()
 export class CurriculumService {
-  constructor(private readonly prisma: PrismaService, private readonly progression: ProgressionService) {}
+  constructor(private readonly prisma: PrismaService, private readonly progression: ProgressionService, private readonly media?: LearningMediaService) {}
 
   async lessonSections(user: AuthenticatedUser, lessonId: string) {
     const lesson = await this.lessonRow(lessonId);
@@ -36,7 +38,7 @@ export class CurriculumService {
       SELECT id,title,ordinal FROM public.learning_sections
       WHERE lesson_id=${lessonId}::uuid AND status='published' ORDER BY ordinal`;
     const activities = await this.prisma.$queryRaw<ActivityRow[]>`
-      SELECT a.id,a.section_id,a.title,a.type,a.ordinal,a.required,
+      SELECT a.id,a.section_id,a.title,a.type,a.ordinal,a.required,a.content_ref,a.content,
         COALESCE((SELECT jsonb_agg(jsonb_build_object('code',o.code,'description',o.description) ORDER BY o.ordinal)
           FROM public.learning_activity_objectives ao JOIN public.learning_objectives o ON o.id=ao.objective_id
           WHERE ao.activity_id=a.id),'[]'::jsonb) AS objectives
@@ -51,7 +53,12 @@ export class CurriculumService {
 
   async authorSections(user: AuthenticatedUser, lessonId: string) {
     await this.authorLesson(user, lessonId);
-    return this.prisma.learning_sections.findMany({ where: { lesson_id: lessonId }, orderBy: { ordinal: 'asc' }, include: { learning_activities: { orderBy: { ordinal: 'asc' }, include: { learning_activity_objectives: true } } } });
+    const sections = await this.prisma.learning_sections.findMany({ where: { lesson_id: lessonId }, orderBy: { ordinal: 'asc' }, include: { learning_activities: { orderBy: { ordinal: 'asc' }, include: { learning_activity_objectives: true } } } });
+    const authoredContent = await this.prisma.$queryRaw<{ id: string; content: unknown }[]>`
+      SELECT a.id,a.content FROM public.learning_activities a
+      JOIN public.learning_sections s ON s.id=a.section_id WHERE s.lesson_id=${lessonId}::uuid`;
+    const contentById = new Map(authoredContent.map((item) => [item.id, item.content]));
+    return sections.map((item) => ({ ...item, learning_activities: item.learning_activities.map((activity) => ({ ...activity, content: contentById.get(activity.id) ?? {} })) }));
   }
 
   async createSection(user: AuthenticatedUser, lessonId: string, input: SectionInput) {
@@ -120,6 +127,7 @@ export class CurriculumService {
     validTitle(input.title); validOrdinal(input.ordinal); validType(input.type);
     const contentRef = validContentRef(input.contentRef);
     validTypeRef(input.type, contentRef);
+    const content = input.content === undefined ? {} : (validateActivityContent(input.type, input.content) ?? {});
     await this.validateAssignmentRef(contentRef, section.lesson_id);
     const objectiveIds = await this.validObjectiveIds(input.objectiveIds ?? [], section.lesson_id);
     try {
@@ -128,8 +136,9 @@ export class CurriculumService {
           section_id: sectionId, title: input.title.trim(), type: input.type, ordinal: input.ordinal,
           required: input.required ?? true, content_ref: contentRef,
         } });
+        await tx.$executeRaw`UPDATE public.learning_activities SET content=${JSON.stringify(content)}::jsonb WHERE id=${activity.id}::uuid`;
         if (objectiveIds.length) await tx.learning_activity_objectives.createMany({ data: objectiveIds.map((objective_id) => ({ activity_id: activity.id, objective_id })) });
-        return activity;
+        return { ...activity, content };
       });
     } catch (error) { throw uniqueConflict(error); }
   }
@@ -140,9 +149,10 @@ export class CurriculumService {
     if (input.type !== undefined) validType(input.type);
     if (input.ordinal !== undefined) validOrdinal(input.ordinal);
     const meaningBearing = input.type !== undefined || input.contentRef !== undefined || input.required !== undefined
-      || input.objectiveIds !== undefined || (input.ordinal !== undefined && input.ordinal !== activity.ordinal);
+      || input.content !== undefined || input.objectiveIds !== undefined || (input.ordinal !== undefined && input.ordinal !== activity.ordinal);
     if (meaningBearing) await assertCurriculumMutable(this.prisma, activity.course_id, 'Changing activity definitions');
     const contentRef = input.contentRef === undefined ? undefined : validContentRef(input.contentRef);
+    const content = input.content === undefined ? undefined : validateActivityContent(input.type ?? activity.type, input.content);
     if (contentRef) await this.validateAssignmentRef(contentRef, activity.learning_sections.lesson_id);
     validTypeRef(input.type ?? activity.type, contentRef ?? validContentRef(activity.content_ref));
     const objectiveIds = input.objectiveIds === undefined ? undefined : await this.validObjectiveIds(input.objectiveIds, activity.learning_sections.lesson_id);
@@ -153,13 +163,15 @@ export class CurriculumService {
           ...(input.type !== undefined ? { type: input.type } : {}),
           ...(input.ordinal !== undefined ? { ordinal: input.ordinal } : {}),
           ...(input.required !== undefined ? { required: input.required } : {}),
-          ...(contentRef ? { content_ref: contentRef } : {}), updated_at: new Date(),
+          ...(contentRef ? { content_ref: contentRef } : {}),
+          updated_at: new Date(),
         } });
+        if (content !== undefined) await tx.$executeRaw`UPDATE public.learning_activities SET content=${JSON.stringify(content)}::jsonb,updated_at=now() WHERE id=${activityId}::uuid`;
         if (objectiveIds) {
           await tx.learning_activity_objectives.deleteMany({ where: { activity_id: activityId } });
           if (objectiveIds.length) await tx.learning_activity_objectives.createMany({ data: objectiveIds.map((objective_id) => ({ activity_id: activityId, objective_id })) });
         }
-        return updated;
+        return content === undefined ? updated : { ...updated, content };
       });
     } catch (error) { throw uniqueConflict(error); }
   }
@@ -188,19 +200,39 @@ export class CurriculumService {
     await assertCurriculumMutable(this.prisma, activity.course_id, 'Changing activity publication status');
     if (status === 'published') {
       if (activity.type === 'physical_lab') throw new ConflictException('Physical labs require an approved course-specific evidence policy.');
+      if (activity.type === 'video' || activity.type === 'reading') {
+        if (!this.media) throw new ConflictException('Learning Media publishing is not configured.');
+        const contentRows = await this.prisma.$queryRaw<Array<{ content: unknown }>>`SELECT content FROM public.learning_activities WHERE id=${activityId}::uuid`;
+        const content = contentRows[0]?.content;
+        if (activity.type === 'reading') {
+          const reading = content as { blocks?: unknown[]; mediaIds?: unknown[] } | null;
+          if (!(reading?.blocks?.length) && !(reading?.mediaIds?.length)) throw new ConflictException('Reading activity needs text or at least one attachment before publishing.');
+        }
+        await this.media.assertActivityMediaReady(activity.course_id, activity.type, content);
+      }
       if (activity.learning_sections.status !== 'published') throw new ConflictException('Publish the section first.');
       const ref = validContentRef(activity.content_ref);
       if (ref.kind === 'none') throw new ConflictException('Published activity requires a content reference.');
       validTypeRef(activity.type, ref);
       await this.validateAssignmentRef(ref, activity.learning_sections.lesson_id);
+      if (activity.type === 'knowledge_check' && ref.kind === 'assignment') {
+        const quiz = await this.prisma.$queryRaw<Array<{ question_count: number; quiz: boolean }>>`
+          SELECT (SELECT COUNT(*)::int FROM public.learning_assignment_question_versions q WHERE q.assignment_id=a.id) AS question_count,
+            a.constraints->>'kind'='knowledge_check' AS quiz
+          FROM public.learning_assignments a WHERE a.id=${ref.id}::uuid AND a.lesson_id=${activity.learning_sections.lesson_id}::uuid`;
+        if (!quiz[0]?.quiz || quiz[0].question_count < 1) throw new ConflictException('Canonical quiz needs at least one Question Bank question before it can be published.');
+      }
     } else if (activity.status === 'published') {
       const evidence = await this.prisma.$queryRaw<{ id: string }[]>`
         SELECT id FROM public.learning_activity_progress WHERE activity_definition_id=${activityId}::uuid
         UNION ALL
+        SELECT ca.id FROM public.learning_classroom_assignments ca
+        JOIN public.learning_activities a ON a.content_ref->>'kind'='assignment' AND a.content_ref->>'id'=ca.assignment_id::text
+        WHERE a.id=${activityId}::uuid AND ca.status='published'
+        UNION ALL
         SELECT att.id FROM public.learning_assignment_attempts att
         JOIN public.learning_classroom_assignments ca ON ca.id=att.classroom_assignment_id
-        JOIN public.learning_activities a ON a.content_ref->>'kind'='assignment'
-          AND a.content_ref->>'id'=ca.assignment_id::text
+        JOIN public.learning_activities a ON a.content_ref->>'kind'='assignment' AND a.content_ref->>'id'=ca.assignment_id::text
         WHERE a.id=${activityId}::uuid LIMIT 1`;
       if (evidence.length) throw new ConflictException('An activity with learner progress cannot be unpublished.');
     }

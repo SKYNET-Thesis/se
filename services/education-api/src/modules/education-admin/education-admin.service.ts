@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { LearningScopeService } from "../learning/learning-scope.service";
@@ -16,7 +17,7 @@ import { UpdateClassroomDto } from "./dto/update-classroom.dto";
 @Injectable()
 export class EducationAdminService {
   private readonly logger = new Logger(EducationAdminService.name);
-  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly supabaseAdmin: SupabaseAdminService, private readonly studentProvisioning: StudentProvisioningService, private readonly enrollments?: EnrollmentDeliveryService) {}
+  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly supabaseAdmin: SupabaseAdminService, private readonly studentProvisioning: StudentProvisioningService, private readonly enrollments: EnrollmentDeliveryService) {}
 
   async organizations(user: AuthenticatedUser) {
     if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Organizations were not found.");
@@ -69,7 +70,7 @@ export class EducationAdminService {
     await this.assertOrganizationPermission(user, organizationId, "education.members.read");
     const classroom = await this.prisma.learning_classrooms.findFirst({ where: { id: classroomId, organization_id: organizationId }, select: { id: true } });
     if (!classroom) throw new NotFoundException("Classroom was not found.");
-    return this.prisma.$queryRaw`SELECT cm.id,cm.user_id,cm.classroom_role,cm.status,cm.joined_at,u.full_name,u.email,r.code AS membership_role FROM public.learning_classroom_members cm JOIN public.users u ON u.id=cm.user_id JOIN public.memberships m ON m.id=cm.membership_id JOIN public.roles r ON r.id=m.role_id WHERE cm.classroom_id=${classroomId}::uuid ORDER BY cm.classroom_role,u.full_name`;
+    return this.prisma.$queryRaw`SELECT cm.id,cm.user_id,cm.classroom_role,cm.status,cm.joined_at,u.full_name,u.email,r.code AS membership_role FROM public.learning_classroom_members cm JOIN public.users u ON u.id=cm.user_id JOIN public.memberships m ON m.id=cm.membership_id JOIN public.roles r ON r.id=m.role_id WHERE cm.classroom_id=${classroomId}::uuid AND cm.status='active' ORDER BY cm.classroom_role,u.full_name`;
   }
 
   async createClassroom(user: AuthenticatedUser, organizationId: string, dto: CreateClassroomDto) {
@@ -126,84 +127,90 @@ export class EducationAdminService {
     }
   }
 
-  async archiveClassroom(user: AuthenticatedUser, organizationId: string, classroomId: string) {
-    await this.assertOrganizationPermission(user, organizationId, 'education.classroom.manage');
-    const classroom = await this.prisma.learning_classrooms.findFirst({ where: { id: classroomId, organization_id: organizationId }, select: { id: true } });
-    if (!classroom) throw new NotFoundException('Classroom was not found.');
-    return this.prisma.$transaction((tx) => tx.$queryRaw`
-      WITH archived AS (
-        UPDATE public.learning_classrooms SET status='archived', updated_at=now()
-        WHERE id=${classroomId}::uuid AND status <> 'archived'
-        RETURNING id
-      ), revoked AS (
-        UPDATE public.learning_enrollments e SET status='revoked'
-        FROM archived a WHERE e.classroom_id=a.id AND e.status='active'
-        RETURNING e.id
-      ) SELECT ${classroomId}::uuid AS id, 'archived'::text AS status`);
-  }
-
-  async assignClassroomOffering(user: AuthenticatedUser, organizationId: string, classroomId: string, offeringId: string) {
-    await this.assertOrganizationPermission(user, organizationId, 'education.classroom.manage');
-    const classroom = await this.prisma.learning_classrooms.findFirst({ where: { id: classroomId, organization_id: organizationId }, select: { id: true } });
-    if (!classroom) throw new NotFoundException('Classroom was not found.');
-    const offering = await this.prisma.learning_course_offerings.findFirst({ where: { id: offeringId, organization_id: organizationId, status: 'active', learning_courses: { is: { organization_id: null, status: 'published' } } }, select: { id: true, course_id: true } });
-    if (!offering) throw new NotFoundException('Published course offering was not found.');
-    return this.prisma.$transaction((tx) => tx.$queryRaw`
-      WITH changed AS (
-        UPDATE public.learning_classrooms SET offering_id=${offering.id}::uuid, updated_at=now()
-        WHERE id=${classroomId}::uuid RETURNING id
-      ), revoked AS (
-        UPDATE public.learning_enrollments e SET status='revoked'
-        FROM changed c WHERE e.classroom_id=c.id AND e.status='active'
-      ), active_students AS (
-        SELECT cm.user_id FROM public.learning_classroom_members cm JOIN public.memberships m ON m.id=cm.membership_id
-        WHERE cm.classroom_id=${classroomId}::uuid AND cm.classroom_role='student' AND cm.status='active' AND m.status='active'
-      ), enrolled AS (
-        INSERT INTO public.learning_enrollments(course_id,learner_user_id,offering_id,classroom_id,status,enrolled_at)
-        SELECT ${offering.course_id}::uuid,s.user_id,${offering.id}::uuid,${classroomId}::uuid,'active',now() FROM active_students s
-        ON CONFLICT (course_id, learner_user_id, classroom_id) DO UPDATE SET status='active',offering_id=EXCLUDED.offering_id
-        RETURNING learner_user_id
-      ), initialized AS (
-        INSERT INTO public.learning_lesson_progress(learner_user_id,lesson_id,status,progress_percent)
-        SELECT e.learner_user_id,l.id,'not_started',0 FROM enrolled e JOIN public.learning_lessons l ON l.course_id=${offering.course_id}::uuid
-        ON CONFLICT (learner_user_id,lesson_id) DO NOTHING
-      ) SELECT ${classroomId}::uuid AS id,${offering.id}::uuid AS offering_id`);
-  }
-
   async upsertClassroomMember(user: AuthenticatedUser, organizationId: string, classroomId: string, dto: UpsertClassroomMemberDto) {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.members.manage");
-    const classroom = await this.prisma.learning_classrooms.findFirst({ where: { id: classroomId, organization_id: organizationId }, select: { id: true } });
-    if (!classroom) throw new NotFoundException("Classroom was not found.");
     const membership = await this.prisma.memberships.findFirst({ where: { user_id: dto.userId, organization_id: organizationId }, select: { id: true, status: true, roles: { select: { code: true } } } });
     if (!membership || membership.status !== "active") throw new NotFoundException("An active organization membership was not found.");
     const classroomRole = membership.roles.code === "student" ? "student" : membership.roles.code === "instructor" ? "teacher" : null;
     if (!classroomRole) throw new ConflictException("This organization role is not eligible for classroom membership.");
-    const member = await this.prisma.learning_classroom_members.upsert({
-      where: { classroom_id_user_id: { classroom_id: classroom.id, user_id: dto.userId } },
-      update: { membership_id: membership.id, classroom_role: classroomRole, status: "active", left_at: null },
-      create: { classroom_id: classroom.id, user_id: dto.userId, membership_id: membership.id, classroom_role: classroomRole, status: "active", joined_at: new Date() },
+    // Membership and enrollment change together under the classroom lock: a synchronization failure must not
+    // leave a half-added student, and a concurrent archive/removal cannot be overtaken by this enrollment.
+    return this.prisma.$transaction(async (tx) => {
+      const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
+      const member = await tx.learning_classroom_members.upsert({
+        where: { classroom_id_user_id: { classroom_id: classroom.id, user_id: dto.userId } },
+        update: { membership_id: membership.id, classroom_role: classroomRole, status: "active", left_at: null },
+        create: { classroom_id: classroom.id, user_id: dto.userId, membership_id: membership.id, classroom_role: classroomRole, status: "active", joined_at: new Date() },
+      });
+      // Course access is enrollment-scoped. A classroom whose course is not deliverable yet simply enrolls nobody.
+      if (classroomRole === "student") await this.enrollments.synchronizeIfDeliverableIn(tx, classroom.id);
+      return member;
     });
-    if (classroomRole === "student") await this.enrollments?.synchronizeClassroom(classroom.id);
-    return member;
   }
 
-  async revokeClassroomMember(user: AuthenticatedUser, organizationId: string, classroomId: string, studentId: string) {
-    await this.assertOrganizationPermission(user, organizationId, 'education.classroom.members.manage');
-    const classroom = await this.prisma.learning_classrooms.findFirst({ where: { id: classroomId, organization_id: organizationId }, select: { id: true } });
-    if (!classroom) throw new NotFoundException('Classroom was not found.');
-    return this.prisma.$transaction((tx) => tx.$queryRaw`
-      WITH departed AS (
-        UPDATE public.learning_classroom_members
-        SET status='left', left_at=now()
-        WHERE classroom_id=${classroomId}::uuid AND user_id=${studentId}::uuid AND status='active'
-        RETURNING id, user_id
-      ), revoked AS (
-        UPDATE public.learning_enrollments e
-        SET status='revoked'
-        FROM departed d
-        WHERE e.classroom_id=${classroomId}::uuid AND e.learner_user_id=d.user_id AND e.status='active'
-        RETURNING e.id
-      ) SELECT (SELECT id FROM departed LIMIT 1) AS member_id, (SELECT id FROM revoked LIMIT 1) AS enrollment_id`);
+  /**
+   * Locks the classroom (see EnrollmentDeliveryService.lockClassroomIn) and reads it under the lock. Lookups are always
+   * scoped to the organization in the URL, so another school's ids are indistinguishable from missing ones.
+   */
+  private async lockedClassroom(tx: Prisma.TransactionClient, organizationId: string, classroomId: string) {
+    const classroom = await this.enrollments.lockClassroomIn(tx, classroomId);
+    if (!classroom || classroom.organization_id !== organizationId) throw new NotFoundException("Classroom was not found.");
+    return classroom;
+  }
+
+  async changeClassroomOffering(user: AuthenticatedUser, organizationId: string, classroomId: string, offeringId: string) {
+    await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
+    return this.prisma.$transaction(async (tx) => {
+      const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
+      if (classroom.status === "archived") throw new ConflictException("Reactivate the classroom before changing its course offering.");
+      const offering = await tx.learning_course_offerings.findFirst({
+        where: { id: offeringId, organization_id: organizationId, status: "active", learning_courses: { is: { organization_id: null, status: "published" } } },
+        select: { id: true },
+      });
+      if (!offering) throw new NotFoundException("An active offering for a published global course was not found.");
+      if (classroom.offering_id !== offeringId) {
+        await tx.learning_classrooms.update({ where: { id: classroom.id }, data: { offering_id: offeringId, updated_at: new Date() } });
+        // Access granted through the previous offering ends; progress and attempts stay in place.
+        await this.enrollments.releaseIn(tx, classroom.id);
+      }
+      await this.enrollments.synchronizeIfDeliverableIn(tx, classroom.id);
+      return { id: classroom.id, offeringId, status: classroom.status };
+    });
+  }
+
+  async archiveClassroom(user: AuthenticatedUser, organizationId: string, classroomId: string) {
+    await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
+    return this.prisma.$transaction(async (tx) => {
+      const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
+      if (classroom.status !== "archived") await tx.learning_classrooms.update({ where: { id: classroom.id }, data: { status: "archived", updated_at: new Date() } });
+      // Membership, progress, attempts and results are retained; only new learning access ends.
+      const released = await this.enrollments.releaseIn(tx, classroom.id);
+      return { id: classroom.id, status: "archived", releasedEnrollments: released.length };
+    });
+  }
+
+  async reactivateClassroom(user: AuthenticatedUser, organizationId: string, classroomId: string) {
+    await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
+    return this.prisma.$transaction(async (tx) => {
+      const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
+      if (!["archived", "completed", "active"].includes(classroom.status)) throw new ConflictException("Only archived or completed classrooms can be reactivated.");
+      if (classroom.status !== "active") await tx.learning_classrooms.update({ where: { id: classroom.id }, data: { status: "active", updated_at: new Date() } });
+      const restored = await this.enrollments.synchronizeIfDeliverableIn(tx, classroom.id);
+      return { id: classroom.id, status: "active", restoredEnrollments: restored?.length ?? 0 };
+    });
+  }
+
+  async removeClassroomStudent(user: AuthenticatedUser, organizationId: string, classroomId: string, studentId: string) {
+    await this.assertOrganizationPermission(user, organizationId, "education.classroom.members.manage");
+    return this.prisma.$transaction(async (tx) => {
+      const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
+      const member = await tx.learning_classroom_members.findFirst({ where: { classroom_id: classroom.id, user_id: studentId, classroom_role: "student", status: "active" }, select: { id: true } });
+      if (!member) throw new NotFoundException("Classroom student was not found.");
+      await tx.learning_classroom_members.update({ where: { id: member.id }, data: { status: "removed", left_at: new Date() } });
+      // Only this classroom's enrollment is released; other classrooms of the same course keep their own rows.
+      const released = await this.enrollments.releaseIn(tx, classroom.id, studentId);
+      return { removed: true, enrollment: released[0] ?? null };
+    });
   }
 
   async importUsers(user: AuthenticatedUser, organizationId: string, dto: ImportSchoolUsersDto) {
