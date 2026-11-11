@@ -33,6 +33,10 @@ class BootstrapWorkflowSafetyTests(unittest.TestCase):
         ):
             self.assertIn(required, self.text)
 
+    def test_skip_detection_uses_the_result_object_not_output_text(self):
+        self.assertIn("scripts/run_database_safety_tests.py", self.text)
+        self.assertNotRegex(self.text, r"grep[^\n]*skipped")
+
     def test_has_read_only_permissions(self):
         self.assertRegex(self.text, r"(?m)^permissions:\n  contents: read$")
 

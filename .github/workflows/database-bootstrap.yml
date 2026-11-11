@@ -97,9 +97,7 @@ jobs:
         env:
           VISTA_RUNNER_TEST_DATABASE_URL: ${{ env.SECOND_DB_URL }}?sslmode=disable
           VISTA_BOOTSTRAP_VERIFY_DATABASE_URL: ${{ env.MAIN_DB_URL }}
-        run: |
-          python -m unittest discover -s tests/database -p 'test_*.py' -v 2>&1 | tee "$RUNNER_TEMP/unittest.log"
-          if grep -q "skipped" "$RUNNER_TEMP/unittest.log"; then echo "A database safety test was skipped"; exit 1; fi
+        run: python scripts/run_database_safety_tests.py
       - name: Install backend dependencies
         working-directory: services/education-api
         run: npm ci
