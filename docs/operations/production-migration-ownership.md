@@ -22,8 +22,10 @@ unvalidated and requires its own approval.
   execute SQL migrations.
 - The seven November 2026 SQL migrations already recorded in the SQL ledger
   remain historical. They must not be selected or replayed by a new release.
-- The current SQL release manifest is intentionally empty; there are no new
-  SQL migrations pending release. The Production parity report and Supabase
+- The current SQL release manifest selects Course Builder migrations D and E
+  plus global Question Bank scope migration F as a release candidate. These
+  entries have not been applied to Production or approved for release. The
+  Production parity report and Supabase
   environment inventory are retained outside the repository with restricted
   permissions. Their classifications and evidence are summarized in the
   [2026-11-09 verification record](production-schema-baseline-20261109-verification.md).

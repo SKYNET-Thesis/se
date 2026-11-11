@@ -104,8 +104,8 @@ VISTA public-object drift:
    `PUBLIC USAGE` is preserved as a real ACL difference and is not claimed to
    be equivalent to the isolated ACL.
 
-The baseline fingerprint is pinned in the intentionally empty new-stream
-manifest. The parity result satisfies the local baseline comparison gate, but
+The baseline fingerprint is pinned in the new-stream manifest, which selects
+migrations D, E, and F as a release candidate. The parity result satisfies the local baseline comparison gate, but
 does not authorize or validate a Production migration release. The first
 Production SQL-runner deployment remains untested and requires a separate
 release review and explicit approval.
