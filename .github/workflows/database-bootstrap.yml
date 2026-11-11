@@ -1,0 +1,138 @@
+name: Database Bootstrap
+
+# Builds a throw-away PostgreSQL 17 service container from the repository alone (verified baseline + release
+# migrations), verifies ledger/checksums/schema fingerprint, then runs Prisma checks, the backend build and the
+# PostgreSQL integration suites against it. The database exists only for this job on the runner loopback
+# interface; no secrets, Supabase credentials or Production endpoints are used.
+
+on:
+  pull_request:
+    paths:
+      - "database/**"
+      - "scripts/**"
+      - "tests/database/**"
+      - "services/education-api/**"
+      - ".github/workflows/database-bootstrap.yml"
+  push:
+    branches: [main, "feat/**"]
+    paths:
+      - "database/**"
+      - "scripts/**"
+      - "tests/database/**"
+      - "services/education-api/**"
+      - ".github/workflows/database-bootstrap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-bootstrap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fresh-bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: vista_test
+          POSTGRES_PASSWORD: ci-disposable-local-only
+          POSTGRES_DB: vista_test_course_builder
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U vista_test -d vista_test_course_builder"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PGPASSWORD: ci-disposable-local-only
+      VISTA_DATABASE_PROJECT_REF: vista-course-builder-test
+      MAIN_DB_URL: postgresql://vista_test:ci-disposable-local-only@127.0.0.1:55432/vista_test_course_builder
+      SECOND_DB_URL: postgresql://vista_test:ci-disposable-local-only@127.0.0.1:55432/vista_baseline_test_second
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/education-api/package-lock.json
+      - name: Install PostgreSQL 17 client (the baseline header needs a current psql)
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          /usr/lib/postgresql/17/bin/psql --version
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Validate migration manifest, baseline integrity and workflow safety
+        run: |
+          python scripts/validate_database_migration_manifest.py --release
+          python scripts/check_database_workflow_safety.py .github/workflows
+      - name: Bootstrap the first empty database
+        run: |
+          VISTA_DEV_DATABASE_URL="$MAIN_DB_URL" python scripts/bootstrap_dev_database.py --confirm-local-bootstrap | tee "$RUNNER_TEMP/bootstrap-1.json"
+      - name: Bootstrap a second empty database and compare (reproducibility)
+        run: |
+          psql -h 127.0.0.1 -p 55432 -U vista_test -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE vista_baseline_test_second"
+          VISTA_DEV_DATABASE_URL="$SECOND_DB_URL" python scripts/bootstrap_dev_database.py --confirm-local-bootstrap | tee "$RUNNER_TEMP/bootstrap-2.json"
+          python - <<'PY'
+          import json, os, sys
+          tmp = os.environ["RUNNER_TEMP"]
+          a, b = (json.load(open(f"{tmp}/bootstrap-{n}.json")) for n in (1, 2))
+          for key in ("schema_fingerprint", "final_counts", "ledger", "baseline_sha256"):
+              if a[key] != b[key]:
+                  sys.exit(f"Reproducibility failure: {key} differs between fresh bootstraps")
+          print("Both fresh bootstraps are identical:", a["schema_fingerprint"])
+          PY
+      - name: Verify both databases (ledger, checksums, required objects, pinned fingerprint)
+        run: |
+          VISTA_DEV_DATABASE_URL="$MAIN_DB_URL" python scripts/bootstrap_dev_database.py --verify-only
+          VISTA_DEV_DATABASE_URL="$SECOND_DB_URL" python scripts/bootstrap_dev_database.py --verify-only
+      - name: Database safety tests (runner rollback and verification run against the real databases; none skipped)
+        env:
+          VISTA_RUNNER_TEST_DATABASE_URL: ${{ env.SECOND_DB_URL }}?sslmode=disable
+          VISTA_BOOTSTRAP_VERIFY_DATABASE_URL: ${{ env.MAIN_DB_URL }}
+        run: |
+          python -m unittest discover -s tests/database -p 'test_*.py' -v 2>&1 | tee "$RUNNER_TEMP/unittest.log"
+          if grep -q "skipped" "$RUNNER_TEMP/unittest.log"; then echo "A database safety test was skipped"; exit 1; fi
+      - name: Install backend dependencies
+        working-directory: services/education-api
+        run: npm ci
+      - name: Prisma validate and generate (client generation only)
+        working-directory: services/education-api
+        env:
+          DATABASE_URL: ${{ env.MAIN_DB_URL }}?schema=public
+          DIRECT_URL: ${{ env.MAIN_DB_URL }}?schema=public
+        run: |
+          npx prisma validate --schema prisma/schema.prisma
+          npx prisma generate --schema prisma/schema.prisma
+      - name: Backend build
+        working-directory: services/education-api
+        run: npm run build
+      - name: PostgreSQL integration tests (real database; none skipped)
+        working-directory: services/education-api
+        env:
+          DATABASE_URL: ${{ env.MAIN_DB_URL }}?schema=public
+          DIRECT_URL: ${{ env.MAIN_DB_URL }}?schema=public
+          RUN_POSTGRES_INTEGRATION: "1"
+        run: |
+          npx jest --runInBand --testPathPatterns 'db\.spec' --json --outputFile="$RUNNER_TEMP/db-tests.json"
+          python - <<'PY'
+          import json, os, sys
+          d = json.load(open(os.environ["RUNNER_TEMP"] + "/db-tests.json"))
+          print("passed", d["numPassedTests"], "failed", d["numFailedTests"], "skipped", d["numPendingTests"])
+          if d["numFailedTests"] or d["numPendingTests"] or d["numPassedTests"] < 60 or d["numTotalTestSuites"] < 8:
+              sys.exit("PostgreSQL integration tests failed, were skipped, or too few ran")
+          PY
+      - name: Full backend test suite against the bootstrapped database
+        working-directory: services/education-api
+        env:
+          DATABASE_URL: ${{ env.MAIN_DB_URL }}?schema=public
+          DIRECT_URL: ${{ env.MAIN_DB_URL }}?schema=public
+          RUN_POSTGRES_INTEGRATION: "1"
+        run: npx jest --runInBand

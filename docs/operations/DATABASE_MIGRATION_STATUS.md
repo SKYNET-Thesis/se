@@ -66,6 +66,48 @@ Disposable-database evidence (isolated PostgreSQL 17, baseline + D + E + F appli
 SQL runner): global and school-scoped Question Bank integration, enrollment concurrency and publish/sync
 failure-retry suites pass. This is not a release validation.
 
+## Development bootstrap (2026-11-11)
+
+A new development database is built from the repository alone: the verified baseline
+(`database/baselines/production-public-schema-20261109T172950Z.sql`, SHA-256 `5b140ce7…`) is restored into an
+empty loopback `vista_test_*` PostgreSQL 17 database, then the manifest migrations (D/E/F/G) are applied through
+`scripts/sql_migration_runner.py`, then the result is verified (ledger, required objects, idempotent re-run).
+Command: `python3 scripts/bootstrap_dev_database.py --confirm-local-bootstrap`; guide in `database/README.md`.
+
+Root cause of the earlier blocker: the only checked-in schema, `database/vista_database_schema.sql` (Review 2,
+77 tables), predates the Course Builder and enrollment lifecycle work, and the manifest deliberately starts at D
+because A/B/C are inside the Production baseline. No checked-in artifact therefore described the schema that D/E/F
+and the backend assume (`learning_activity_progress`, classroom-member / lesson-progress / enrollment unique
+constraints, enrollment `revoked` status, ...). The baseline was kept outside Git, so it could not be used.
+
+Finding and decision: migration A's source declares `check_learning_activity_progress_scope()` and a trigger on
+`learning_activity_progress`; neither exists in the verified Production baseline (all other objects declared by
+A/B/C are present). Impact assessment: the only backend writer (`activity-progress.service.ts`) derives `lesson_id` from
+the activity's own section in the same statement, so no current code path can store a mismatched row, and no backend
+test depended on the guard; the missing guard is a loss of defence-in-depth for direct SQL and future code, not an
+active integrity defect. Forward fix: new migration `20261111_g_activity_progress_scope_guard` recreates the
+function and trigger exactly as A defined them (migration A is not edited). It validates only future writes, never
+scans or rewrites existing rows, and is covered by `activity-progress-scope.db.spec.ts`. G is registered in the manifest
+as the fourth release candidate; it is **not applied to Production and needs release approval**. Until it is released,
+development databases are intentionally one migration ahead of Production, like D/E/F.
+
+Not a release validation: the first live Production runner execution is still unapproved and unvalidated.
+
+CI: `.github/workflows/database-bootstrap.yml` runs the fresh bootstrap, schema/ledger verification, Prisma, backend build
+and PostgreSQL integration suites on every relevant push/PR against a disposable PostgreSQL 17 service container.
+
+### Outstanding before any Production release (none of this blocks development)
+
+1. Explicit release approval naming the target and scope; second database reviewer; recovery plan (policy:
+   `production-migration-ownership.md`).
+2. Re-check that Production still matches the 2026-11-09 baseline (read-only catalog parity) immediately before release.
+3. First live execution of the SQL runner against Production has never been validated; do a reviewed dry-run first.
+4. D/E/F/G are unreleased; G specifically changes Production behaviour (adds a guard trigger) and needs its own review.
+5. The runtime-role/privilege part of the earlier draft (`migration-drafts/20261111_global_quiz_runtime_role.sql`) is a
+   separate gate and is not part of D–G.
+6. Backend deployment must be sequenced after D/E/F are applied (the API uses `learning_activities.content`,
+   `learning_media_assets`, and global-scope questions).
+
 ## Safe test procedure
 
 Use an isolated disposable PostgreSQL 16 instance with independent credentials.

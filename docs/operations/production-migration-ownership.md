@@ -51,6 +51,9 @@ unvalidated and requires its own approval.
    post-catalog verification, passing CI safety checks, and a release record
    that identifies the application compatibility window and recovery plan.
 
+A passing `Database Bootstrap` CI job proves only that a disposable database can be rebuilt from the repository and
+that the schema fingerprint is stable. It does not replace steps 4–5 or any Production approval.
+
 ## Release and approval
 
 - API build/deploy and database schema release are separate operations. API
