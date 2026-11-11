@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
+import { Dialog } from '../ui/Dialog';
 import {
   catalogApi,
   curriculumApi,
@@ -22,6 +23,7 @@ import { ReadingDocumentEditor } from './ReadingDocumentEditor';
 import { VideoLessonEditor } from './VideoLessonEditor';
 import { QuizAuthoringPanel } from './QuizAuthoringPanel';
 import { MediaAssetLibraryModal } from './MediaAssetLibraryModal';
+import { CurriculumItemEditor } from './CurriculumItemEditor';
 
 /** What Preview and the readiness checklist need to know about the curriculum currently open in the editor. */
 export interface CurriculumSnapshot {
@@ -37,8 +39,15 @@ export interface CourseContentEditorProps {
   /** Preview and Publish are owned by the parent so there is exactly one publish flow; the buttons render only when provided. */
   onOpenPreview?: (snapshot: CurriculumSnapshot) => void;
   onOpenPublish?: (snapshot: CurriculumSnapshot) => void;
+  /** Reports the curriculum currently open so a host that owns Preview/Publish always has an up-to-date snapshot. */
+  onSnapshotChange?: (snapshot: CurriculumSnapshot) => void;
   isArchived?: boolean;
 }
+
+type NamePrompt =
+  | { kind: 'module' }
+  | { kind: 'lesson'; lessonId: string }
+  | { kind: 'activity'; sectionId: string; type: string };
 
 /** Activity types whose content reference must be an assignment UUID (or none while the activity is still being set up). */
 const EVALUATED_TYPES = new Set(['knowledge_check', 'guided_practice', 'simulation', 'challenge', 'physical_lab']);
@@ -59,6 +68,7 @@ export function CourseContentEditor({
   onDirtyChange,
   onOpenPreview,
   onOpenPublish,
+  onSnapshotChange,
   isArchived = false,
 }: CourseContentEditorProps) {
   const qc = useQueryClient();
@@ -80,6 +90,14 @@ export function CourseContentEditor({
     activityId?: string;
   } | null>(null);
 
+  // Module / Lesson information editors keep their own draft; this flag feeds the shared unsaved-changes guard.
+  const [isInfoDirty, setIsInfoDirty] = useState(false);
+  // Naming dialog for Add Module / Add Lesson / Add Activity (replaces window.prompt)
+  const [namePrompt, setNamePrompt] = useState<NamePrompt | null>(null);
+  const [nameValue, setNameValue] = useState('');
+  const initialSelectionDone = useRef(false);
+  const hasUnsavedChanges = isActivityDirty || isInfoDirty;
+
   // Responsive Outline Toggle (Tablet & Mobile)
   const [outlineVisible, setOutlineVisible] = useState(true);
 
@@ -97,13 +115,6 @@ export function CourseContentEditor({
   });
 
   const lessons = lessonsQuery.data ?? [];
-
-  // Automatically select the first lesson if none selected
-  useEffect(() => {
-    if (lessons.length > 0 && !selectedLessonId) {
-      setSelectedLessonId(lessons[0].id);
-    }
-  }, [lessons, selectedLessonId]);
 
   // Query Sections for ALL lessons to build full Course Outline tree
   const sectionsQueries = useQueries({
@@ -146,23 +157,24 @@ export function CourseContentEditor({
     return null;
   }, [activeSections, lessons, sectionsByLesson, selectedActivityId]);
 
-  // Select first activity automatically on load if available
+  // Open the first activity once, when the whole outline has loaded. Later selections (a Module or Lesson row,
+  // for instance) must never be overridden by this, so it runs a single time per course.
+  const outlineLoaded = lessonsQuery.isSuccess && sectionsQueries.every((q) => !q.isLoading);
   useEffect(() => {
-    if (!selectedActivityId && lessons.length > 0) {
-      for (const l of lessons) {
-        const secs = sectionsByLesson[l.id] ?? [];
-        for (const s of secs) {
-          const acts = s.learning_activities ?? [];
-          if (acts.length > 0) {
-            setSelectedLessonId(l.id);
-            setSelectedSectionId(s.id);
-            setSelectedActivityId(acts[0].id);
-            return;
-          }
+    if (initialSelectionDone.current || !outlineLoaded) return;
+    initialSelectionDone.current = true;
+    for (const l of lessons) {
+      for (const s of sectionsByLesson[l.id] ?? []) {
+        const acts = s.learning_activities ?? [];
+        if (acts.length > 0) {
+          setSelectedLessonId(l.id);
+          setSelectedSectionId(s.id);
+          setSelectedActivityId(acts[0].id);
+          return;
         }
       }
     }
-  }, [lessons, sectionsByLesson, selectedActivityId]);
+  }, [outlineLoaded, lessons, sectionsByLesson]);
 
   // Initialize draft when active activity changes, protecting unsaved edits
   useEffect(() => {
@@ -199,20 +211,20 @@ export function CourseContentEditor({
 
   // Notify parent on dirty change
   useEffect(() => {
-    onDirtyChange?.(isActivityDirty);
-  }, [isActivityDirty, onDirtyChange]);
+    onDirtyChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onDirtyChange]);
 
   // Window beforeunload guard to prevent losing unsaved draft
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isActivityDirty) {
+      if (hasUnsavedChanges) {
         e.preventDefault();
         e.returnValue = '';
       }
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [isActivityDirty]);
+  }, [hasUnsavedChanges]);
 
   // Invalidate queries helper
   const invalidateLessons = () =>
@@ -253,7 +265,7 @@ export function CourseContentEditor({
 
   // Navigation Guard Handler
   const requestNavigation = (lessonId: string, sectionId?: string, activityId?: string) => {
-    if (isActivityDirty) {
+    if (hasUnsavedChanges) {
       setPendingNavigation({ lessonId, sectionId, activityId });
     } else {
       setSelectedLessonId(lessonId);
@@ -265,6 +277,7 @@ export function CourseContentEditor({
   const handleDiscardAndNavigate = () => {
     if (pendingNavigation) {
       setIsActivityDirty(false);
+      setIsInfoDirty(false);
       setSelectedLessonId(pendingNavigation.lessonId);
       setSelectedSectionId(pendingNavigation.sectionId);
       setSelectedActivityId(pendingNavigation.activityId);
@@ -306,6 +319,8 @@ export function CourseContentEditor({
       setActionError(null);
       await invalidateLessons();
       setSelectedLessonId((created as Lesson).id);
+      setSelectedSectionId(undefined);
+      setSelectedActivityId(undefined);
     },
     onError: (error) => setActionError(apiErrorMessage(error)),
   });
@@ -316,9 +331,12 @@ export function CourseContentEditor({
         title,
         ordinal: nextOrdinal(sectionsByLesson[lessonId]),
       }),
-    onSuccess: async (_, { lessonId }) => {
+    onSuccess: async (created, { lessonId }) => {
       setActionError(null);
       await invalidateSections(lessonId);
+      setSelectedLessonId(lessonId);
+      setSelectedSectionId((created as Section).id);
+      setSelectedActivityId(undefined);
     },
     onError: (error) => setActionError(apiErrorMessage(error)),
   });
@@ -342,9 +360,12 @@ export function CourseContentEditor({
             : {},
       });
     },
-    onSuccess: async (created) => {
+    onSuccess: async (created, { sectionId }) => {
       setActionError(null);
-      await invalidateSections(selectedLessonId);
+      const owner = lessons.find((l) => (sectionsByLesson[l.id] ?? []).some((sec) => sec.id === sectionId));
+      await invalidateSections(owner?.id);
+      if (owner) setSelectedLessonId(owner.id);
+      setSelectedSectionId(sectionId);
       setSelectedActivityId((created as Activity).id);
     },
     onError: (error) => setActionError(apiErrorMessage(error)),
@@ -390,7 +411,8 @@ export function CourseContentEditor({
 
   const handleMoveActivity = async (sectionId: string, index: number, direction: -1 | 1) => {
     if (isArchived) return;
-    const sec = activeSections.find((s) => s.id === sectionId);
+    const ownerLesson = lessons.find((l) => (sectionsByLesson[l.id] ?? []).some((sec) => sec.id === sectionId));
+    const sec = (ownerLesson ? sectionsByLesson[ownerLesson.id] ?? [] : []).find((s) => s.id === sectionId);
     const acts = sec?.learning_activities ?? [];
     const target = index + direction;
     if (target < 0 || target >= acts.length) return;
@@ -402,13 +424,40 @@ export function CourseContentEditor({
         token,
         reordered.map((a) => a.id),
       );
-      await invalidateSections(selectedLessonId);
+      await invalidateSections(ownerLesson?.id);
     } catch {
       // Revert handled by cache
     }
   };
 
   const snapshot: CurriculumSnapshot = { lessons, sections: activeSections, selectedLessonId };
+  const snapshotKey = JSON.stringify([lessons, activeSections, selectedLessonId]);
+  useEffect(() => {
+    onSnapshotChange?.(snapshot);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshotKey]);
+
+  const submitName = () => {
+    const title = nameValue.trim();
+    if (!title || !namePrompt) return;
+    if (addLessonMutation.isPending || addSectionMutation.isPending || addActivityMutation.isPending) return; // no double submit
+    if (namePrompt.kind === 'module') addLessonMutation.mutate(title);
+    else if (namePrompt.kind === 'lesson') addSectionMutation.mutate({ lessonId: namePrompt.lessonId, title });
+    else addActivityMutation.mutate({ sectionId: namePrompt.sectionId, type: namePrompt.type, title });
+    setNamePrompt(null);
+  };
+  const openNamePrompt = (prompt: NamePrompt, initial = '') => {
+    setNameValue(initial);
+    setNamePrompt(prompt);
+  };
+  const defaultActivityTitle = (type: string) =>
+    type === 'reading' ? 'New Reading' : type === 'video' ? 'New Video Lesson' : type === 'knowledge_check' ? 'Knowledge Check' : 'Practice Assignment';
+  const namePromptCopy =
+    namePrompt?.kind === 'module'
+      ? { title: 'Add module', label: 'Module title' }
+      : namePrompt?.kind === 'lesson'
+      ? { title: 'Add lesson', label: 'Lesson title' }
+      : { title: 'Add activity', label: 'Activity title' };
 
   return (
     <div className="space-y-4" data-testid="course-content-editor">
@@ -488,8 +537,8 @@ export function CourseContentEditor({
         {/* Left Panel: Course Outline */}
         <div
           className={`${
-            outlineVisible ? 'block' : 'hidden lg:block'
-          } lg:sticky lg:top-20 max-h-[calc(100vh-140px)]`}
+            outlineVisible ? 'flex' : 'hidden lg:flex'
+          } flex-col lg:sticky lg:top-2 lg:max-h-[calc(100dvh-8rem)] lg:min-h-[420px]`}
         >
           <CourseOutlinePanel
             courseTitle={course.title}
@@ -500,28 +549,10 @@ export function CourseContentEditor({
             selectedSectionId={selectedSectionId}
             onSelectActivity={(lId, sId, aId) => requestNavigation(lId, sId, aId)}
             onSelectLesson={(lId) => requestNavigation(lId)}
-            onAddLesson={() => {
-              const title = window.prompt('Enter Module Title:');
-              if (title?.trim()) addLessonMutation.mutate(title.trim());
-            }}
-            onAddSection={(lId) => {
-              const title = window.prompt('Enter Lesson Title:');
-              if (title?.trim()) addSectionMutation.mutate({ lessonId: lId, title: title.trim() });
-            }}
-            onAddActivity={(sId, type) => {
-              const defaultTitle =
-                type === 'reading'
-                  ? 'New Reading'
-                  : type === 'video'
-                  ? 'New Video Lesson'
-                  : type === 'knowledge_check'
-                  ? 'Knowledge Check'
-                  : 'Practice Assignment';
-              const title = window.prompt('Enter Activity Title:', defaultTitle);
-              if (title?.trim()) {
-                addActivityMutation.mutate({ sectionId: sId, type, title: title.trim() });
-              }
-            }}
+            onSelectSection={(lId, sId) => requestNavigation(lId, sId)}
+            onAddLesson={() => openNamePrompt({ kind: 'module' })}
+            onAddSection={(lId) => openNamePrompt({ kind: 'lesson', lessonId: lId })}
+            onAddActivity={(sId, type) => openNamePrompt({ kind: 'activity', sectionId: sId, type }, defaultActivityTitle(type))}
             onMoveLesson={handleMoveLesson}
             onMoveSection={handleMoveSection}
             onMoveActivity={handleMoveActivity}
@@ -782,13 +813,48 @@ export function CourseContentEditor({
                 </div>
               )}
             </div>
+          ) : activeSection && activeLesson ? (
+            <CurriculumItemEditor
+              key={`lesson-${activeSection.id}`}
+              kind="lesson"
+              id={activeSection.id}
+              title={activeSection.title}
+              status={activeSection.status}
+              activityCount={(activeSection.learning_activities ?? []).length}
+              token={token}
+              disabled={isArchived}
+              onDirtyChange={setIsInfoDirty}
+              onSaved={() => invalidateSections(activeLesson.id)}
+              onAddActivity={(type) => openNamePrompt({ kind: 'activity', sectionId: activeSection.id, type }, defaultActivityTitle(type))}
+            />
+          ) : activeLesson ? (
+            <CurriculumItemEditor
+              key={`module-${activeLesson.id}`}
+              kind="module"
+              id={activeLesson.id}
+              title={activeLesson.title}
+              content={activeLesson.content}
+              lessonCount={activeSections.length}
+              token={token}
+              disabled={isArchived}
+              onDirtyChange={setIsInfoDirty}
+              onSaved={invalidateLessons}
+              onAddLesson={() => openNamePrompt({ kind: 'lesson', lessonId: activeLesson.id })}
+            />
           ) : (
             <div className="rounded-xl border border-dashed border-line bg-surface p-12 text-center space-y-3">
               <LayersIcon className="h-10 w-10 text-ink-subtle mx-auto" />
-              <h3 className="text-base font-bold text-ink">Select an Activity from the Course Outline</h3>
+              <h3 className="text-base font-bold text-ink">
+                {lessons.length === 0 ? 'Start building your course' : 'Select an item from the Course Outline'}
+              </h3>
               <p className="text-xs text-ink-muted max-w-md mx-auto">
-                Choose a Reading, Video, or Quiz activity from the left panel to begin editing its content, or add a new activity to an existing module.
+                {lessons.length === 0
+                  ? 'Add your first module, then add lessons and activities such as readings, videos and quizzes.'
+                  : 'Choose a module, lesson or activity on the left to edit it, or add new content to the outline.'}
               </p>
+              <Button size="sm" variant="primary" disabled={isArchived} onClick={() => openNamePrompt({ kind: 'module' })}>
+                Add module
+              </Button>
             </div>
           )}
         </main>
@@ -805,7 +871,7 @@ export function CourseContentEditor({
             <p className="text-sm text-ink-muted leading-relaxed">
               You have unsaved changes in{' '}
               <strong className="text-ink font-semibold">
-                {activityDraft?.title || 'current activity'}
+                {isActivityDirty ? activityDraft?.title || 'current activity' : 'the module or lesson details'}
               </strong>
               . What would you like to do before navigating to another learning item?
             </p>
@@ -821,18 +887,53 @@ export function CourseContentEditor({
               >
                 Discard Changes
               </Button>
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={handleSaveAndNavigate}
-                loading={saveActivityMutation.isPending}
-              >
-                Save &amp; Continue
-              </Button>
+              {isActivityDirty && (
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={handleSaveAndNavigate}
+                  loading={saveActivityMutation.isPending}
+                >
+                  Save &amp; Continue
+                </Button>
+              )}
             </div>
           </div>
         </div>
       )}
+
+      {/* Naming dialog for new modules, lessons and activities */}
+      <Dialog
+        open={namePrompt !== null}
+        onClose={() => setNamePrompt(null)}
+        title={namePromptCopy.title}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setNamePrompt(null)}>Cancel</Button>
+            <Button type="submit" form="curriculum-name-form" disabled={!nameValue.trim()}>Add</Button>
+          </>
+        }
+      >
+        <form
+          id="curriculum-name-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            submitName();
+          }}
+        >
+          <label className="block text-sm font-medium text-ink">
+            {namePromptCopy.label}
+            <input
+              value={nameValue}
+              onChange={(e) => setNameValue(e.target.value)}
+              maxLength={240}
+              data-autofocus
+              className="mt-1.5 h-10 w-full rounded-md border border-line-strong bg-surface px-3 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
+            />
+          </label>
+        </form>
+      </Dialog>
 
       {/* Global Modals */}
       <MediaAssetLibraryModal

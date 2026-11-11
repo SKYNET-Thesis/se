@@ -49,6 +49,7 @@ export default {
         out: 'cubic-bezier(0.23, 1, 0.32, 1)',
       },
       fontSize: {
+        '3xs': ['10px', '14px'],
         '2xs': ['11px', '16px'],
       },
     },
