@@ -2,22 +2,26 @@ import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Reorder } from 'framer-motion';
 import {
-  AlertCircleIcon,
-  BookOpenIcon,
   CheckCircle2Icon,
   ChevronRightIcon,
+  EyeIcon,
+  FolderOpenIcon,
   GripVerticalIcon,
   InfoIcon,
-  LayersIcon,
-  LockIcon,
-  SparklesIcon,
+  RocketIcon,
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Badge } from '../../components/ui/Badge';
 import { Dialog } from '../../components/ui/Dialog';
 import { catalogApi, curriculumApi, type ApiCourse, type ApiRecord } from '../../lib/api';
+import { AddContentMenu } from '../../components/authoring/AddContentMenu';
+import { QuizQuestionEditor, type QuizQuestion } from '../../components/authoring/QuizQuestionEditor';
+import { ActivityContentEditor } from '../../components/authoring/ActivityContentEditor';
+import { MediaAssetLibraryModal } from '../../components/authoring/MediaAssetLibraryModal';
+import { LearnerPreviewModal } from '../../components/authoring/LearnerPreviewModal';
+import { ReadinessChecklistModal } from '../../components/authoring/ReadinessChecklistModal';
 
-type ContentRef =
+export type ContentRef =
   | { kind: 'lesson_content'; key: string }
   | { kind: 'assignment'; id: string }
   | { kind: 'none' };
@@ -81,6 +85,37 @@ const errorMessage = (e: unknown) => (e instanceof Error ? e.message : 'Could no
 const defaultRef = (type: string): ContentRef =>
   assignmentTypes.has(type) ? { kind: 'assignment', id: '' } : { kind: 'lesson_content', key: 'summary' };
 
+const initialSampleQuestions: QuizQuestion[] = [
+  {
+    id: 'q-safety-1',
+    variation: 'VARIATION 1',
+    prompt: 'What safety state does the follower arm transition to when the deadman clutch is released?',
+    type: 'single_choice',
+    options: [
+      { id: 'opt-1', text: 'Follower holds its safe pose immediately (Hold state)', feedback: 'You got it right! Releasing clutch triggers immediate safe hold.' },
+      { id: 'opt-2', text: 'Follower continues executing the trajectory', feedback: 'Incorrect. Follower motion is immediately suspended.' },
+      { id: 'opt-3', text: 'Follower powers off motors and collapses', feedback: 'Incorrect. The arm maintains holding torque in Hold state.' },
+    ],
+    correctOptionIds: ['opt-1'],
+    points: 1,
+    explanation: 'VISTA safety boundary requires deadman clutch release to trigger safe Hold.',
+  },
+  {
+    id: 'q-safety-2',
+    variation: 'VARIATION 1',
+    prompt: 'Which coordinate frame is used as the global reference for SO-101 tabletop manipulation?',
+    type: 'single_choice',
+    options: [
+      { id: 'opt-a', text: 'Tabletop base coordinate frame', feedback: 'Correct! All trajectory commands are defined relative to the tabletop base frame.' },
+      { id: 'opt-b', text: 'End-effector gripper frame only', feedback: 'Incorrect. Gripper is the TCP, not global reference.' },
+      { id: 'opt-c', text: 'Leader arm input frame', feedback: 'Incorrect. Leader and follower operate in independent kinematic frames.' },
+    ],
+    correctOptionIds: ['opt-a'],
+    points: 1,
+    explanation: 'Tabletop base coordinate frame is the canonical origin for forward kinematics.',
+  },
+];
+
 export function CanonicalCurriculumEditor({
   course,
   token,
@@ -95,12 +130,23 @@ export function CanonicalCurriculumEditor({
   const qc = useQueryClient();
   const [lessonId, setLessonId] = useState<string>();
   const [sectionId, setSectionId] = useState<string>();
+  const [activeActivityId, setActiveActivityId] = useState<string>();
+
   const [lessonDraft, setLessonDraft] = useState<LessonDraft | null>(null);
   const [sectionDraft, setSectionDraft] = useState<SectionDraft | null>(null);
   const [activityDraft, setActivityDraft] = useState<ActivityDraft | null>(null);
   const [editId, setEditId] = useState<{ kind: 'lesson' | 'section' | 'activity'; id: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Authoring Studio Modals
+  const [learnerPreviewOpen, setLearnerPreviewOpen] = useState(false);
+  const [readinessChecklistOpen, setReadinessChecklistOpen] = useState(false);
+  const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
+
+  // Inline Quiz state
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>(initialSampleQuestions);
+  const [quizPassPercent, setQuizPassPercent] = useState<number>(80);
 
   // Transient reorder state updated during drag
   const [reorderedLessons, setReorderedLessons] = useState<Lesson[] | null>(null);
@@ -137,6 +183,7 @@ export function CanonicalCurriculumEditor({
   const section = sectionList.find((x) => x.id === sectionId);
 
   const activityList = reorderedActivities ?? section?.learning_activities ?? [];
+  const activeActivity = activityList.find((x) => x.id === activeActivityId);
 
   const dirty = Boolean(lessonDraft || sectionDraft || activityDraft);
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
@@ -144,6 +191,7 @@ export function CanonicalCurriculumEditor({
   useEffect(() => {
     setLessonId(undefined);
     setSectionId(undefined);
+    setActiveActivityId(undefined);
     setLessonDraft(null);
     setSectionDraft(null);
     setActivityDraft(null);
@@ -174,6 +222,16 @@ export function CanonicalCurriculumEditor({
     setError(null);
     setNotice(text);
   };
+
+  const publishCourseMutation = useMutation({
+    mutationFn: () => catalogApi.publishGlobalCourse(course.id, token),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'courses'] });
+      setNotice('Course published successfully to institutional catalog.');
+      setReadinessChecklistOpen(false);
+    },
+    onError: fail,
+  });
 
   const addLesson = useMutation({
     mutationFn: async (x: LessonDraft) => {
@@ -231,7 +289,7 @@ export function CanonicalCurriculumEditor({
   });
 
   const saveActivity = useMutation({
-    mutationFn: ({ id, x }: { id: string; x: ActivityDraft }) =>
+    mutationFn: ({ id, x }: { id: string; x: Partial<ActivityDraft> }) =>
       curriculumApi.updateActivity(id, token, {
         title: x.title,
         type: x.type,
@@ -260,7 +318,7 @@ export function CanonicalCurriculumEditor({
     onError: fail,
   });
 
-  // --- Lessons Reorder Handlers (Intermediate Drag vs. Drag End) ---
+  // --- Lessons Reorder Handlers ---
   const handleLessonDragStart = () => {
     lessonBaselineRef.current = lessonList;
     lessonCurrentRef.current = lessonList;
@@ -305,7 +363,7 @@ export function CanonicalCurriculumEditor({
     }
   };
 
-  // --- Sections Reorder Handlers (Intermediate Drag vs. Drag End) ---
+  // --- Sections Reorder Handlers ---
   const handleSectionDragStart = () => {
     sectionBaselineRef.current = sectionList;
     sectionCurrentRef.current = sectionList;
@@ -350,7 +408,7 @@ export function CanonicalCurriculumEditor({
     }
   };
 
-  // --- Activities Reorder Handlers (Intermediate Drag vs. Drag End) ---
+  // --- Activities Reorder Handlers ---
   const handleActivityDragStart = () => {
     activityBaselineRef.current = activityList;
     activityCurrentRef.current = activityList;
@@ -398,7 +456,7 @@ export function CanonicalCurriculumEditor({
     }
   };
 
-  // Expose dragRef for testing intermediate and drag-end contracts
+  // Expose dragRef for testing
   useEffect(() => {
     if (dragRef) {
       dragRef.current = {
@@ -412,7 +470,6 @@ export function CanonicalCurriculumEditor({
     }
   });
 
-  // Keyboard reordering (dispatches single API request, updates cache, rolls back on error)
   const moveLesson = async (i: number, d: number) => {
     if (isArchived) return;
     const prev = lessonList;
@@ -498,7 +555,11 @@ export function CanonicalCurriculumEditor({
 
   const submitActivity = () => {
     if (!activityDraft?.title.trim()) return;
-    const x = { ...activityDraft, title: activityDraft.title.trim() };
+    let contentRef = activityDraft.contentRef;
+    if (contentRef?.kind === 'assignment' && !contentRef.id?.trim()) {
+      contentRef = { kind: 'none' };
+    }
+    const x = { ...activityDraft, title: activityDraft.title.trim(), contentRef };
     if (editId?.kind === 'activity') saveActivity.mutate({ id: editId.id, x });
     else addActivity.mutate(x);
     cancel();
@@ -508,47 +569,101 @@ export function CanonicalCurriculumEditor({
 
   return (
     <section
-      className="rounded-xl border border-line bg-surface p-5 sm:p-6 shadow-hairline"
+      className="rounded-xl border border-line bg-surface p-5 sm:p-6 shadow-hairline space-y-6"
       aria-label="Canonical curriculum editor"
     >
-      {/* Editor Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+      {/* Studio Header (Coursera Reference 3) */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-xl font-semibold text-ink">{course.title} curriculum</h2>
-            <Badge tone={course.status === 'published' ? 'ok' : course.status === 'draft' ? 'warn' : 'neutral'} dot>
+          <div className="flex items-center gap-2.5">
+            <h2 className="text-xl font-bold text-ink tracking-tight">
+              {course.title} curriculum
+            </h2>
+            <Badge
+              tone={course.status === 'published' ? 'ok' : course.status === 'draft' ? 'warn' : 'neutral'}
+              dot
+            >
               {course.status}
             </Badge>
           </div>
-          <p className="mt-1 text-sm text-ink-muted">
-            Manage curriculum: Canonical course → lesson → section → activity authoring.
+          <p className="mt-1 text-xs text-ink-muted">
+            Manage curriculum: Canonical course → lesson → section → activity authoring studio.
           </p>
         </div>
 
-        {/* Selected Hierarchy Breadcrumb */}
-        <div className="flex items-center gap-1.5 text-xs text-ink-subtle">
-          <span className="font-medium text-ink">{course.title}</span>
-          {lesson && (
-            <>
-              <ChevronRightIcon className="h-3.5 w-3.5" />
-              <span className="font-medium text-accent-ink">{lesson.title}</span>
-            </>
-          )}
-          {section && (
-            <>
-              <ChevronRightIcon className="h-3.5 w-3.5" />
-              <span className="font-medium text-ink">{section.title}</span>
-            </>
+        {/* Studio Action Buttons (Coursera Reference 1, 3, 7) */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={<FolderOpenIcon className="h-4 w-4" />}
+            onClick={() => setMediaLibraryOpen(true)}
+          >
+            Asset Library
+          </Button>
+
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<EyeIcon className="h-4 w-4" />}
+            onClick={() => setLearnerPreviewOpen(true)}
+          >
+            View as Learner
+          </Button>
+
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<CheckCircle2Icon className="h-4 w-4 text-ok" />}
+            onClick={() => setReadinessChecklistOpen(true)}
+          >
+            Readiness Checklist
+          </Button>
+
+          {course.status === 'draft' && (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<RocketIcon className="h-4 w-4" />}
+              onClick={() => setReadinessChecklistOpen(true)}
+            >
+              Review &amp; Publish
+            </Button>
           )}
         </div>
       </div>
 
+      {/* Selected Hierarchy Breadcrumbs */}
+      <div className="flex items-center gap-1.5 text-xs text-ink-subtle bg-sunken/30 rounded-lg p-2.5">
+        <span className="font-semibold text-ink">{course.title}</span>
+        {lesson && (
+          <>
+            <ChevronRightIcon className="h-3.5 w-3.5" />
+            <span className="font-medium text-accent-ink">{lesson.title}</span>
+          </>
+        )}
+        {section && (
+          <>
+            <ChevronRightIcon className="h-3.5 w-3.5" />
+            <span className="font-medium text-ink">{section.title}</span>
+          </>
+        )}
+        {activeActivity && (
+          <>
+            <ChevronRightIcon className="h-3.5 w-3.5" />
+            <span className="font-medium text-accent-ink">
+              {activeActivity.title} ({activeActivity.type.replace('_', ' ')})
+            </span>
+          </>
+        )}
+      </div>
+
       {/* Lifecycle Rules Info Callout */}
-      <div className="mt-4 rounded-lg border border-line bg-sunken/40 p-3.5 text-xs text-ink-muted">
+      <div className="rounded-lg border border-line bg-sunken/40 p-3.5 text-xs text-ink-muted">
         <div className="flex items-start gap-2.5">
           <InfoIcon className="h-4 w-4 text-accent shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <p className="font-medium text-ink">Curriculum Authoring & Publication Lifecycle:</p>
+            <p className="font-medium text-ink">Curriculum Authoring &amp; Publication Lifecycle:</p>
             <ul className="list-disc pl-4 space-y-0.5 text-ink-subtle">
               <li>
                 <strong>Independent publication:</strong> Publishing a course does not automatically publish nested sections or activities. Each section and activity manages its own publishing status.
@@ -572,25 +687,25 @@ export function CanonicalCurriculumEditor({
       </div>
 
       {isTreeLoading && (
-        <div className="mt-4 flex items-center gap-2 text-sm text-ink-muted">
+        <div className="flex items-center gap-2 text-sm text-ink-muted">
           <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
           <span>Loading curriculum…</span>
         </div>
       )}
 
       {error && (
-        <div role="alert" className="mt-4 rounded-lg border border-danger/20 bg-danger-soft p-3 text-sm text-danger">
+        <div role="alert" className="rounded-lg border border-danger/20 bg-danger-soft p-3 text-sm text-danger">
           {error}
         </div>
       )}
       {notice && (
-        <div role="status" className="mt-4 rounded-lg border border-accent/20 bg-accent-soft p-3 text-sm text-ink">
+        <div role="status" className="rounded-lg border border-accent/20 bg-accent-soft p-3 text-sm text-ink">
           {notice}
         </div>
       )}
 
       {/* 3-Column Hierarchy Panes */}
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-3">
         {/* Pane 1: Lessons */}
         <Pane
           title="Lessons"
@@ -629,6 +744,7 @@ export function CanonicalCurriculumEditor({
                     onSelect={() => {
                       setLessonId(x.id);
                       setSectionId(undefined);
+                      setActiveActivityId(undefined);
                       setReorderedSections(null);
                       setReorderedActivities(null);
                     }}
@@ -690,7 +806,6 @@ export function CanonicalCurriculumEditor({
                       <Badge
                         tone={x.status === 'published' ? 'ok' : 'neutral'}
                         dot
-                        size="sm"
                       >
                         {x.status ?? 'draft'}
                       </Badge>
@@ -706,6 +821,7 @@ export function CanonicalCurriculumEditor({
                     }}
                     onSelect={() => {
                       setSectionId(x.id);
+                      setActiveActivityId(undefined);
                       setReorderedActivities(null);
                     }}
                     onEdit={() => {
@@ -732,6 +848,27 @@ export function CanonicalCurriculumEditor({
             setActivityDraft({ title: '', type: 'reading', required: true, contentRef: defaultRef('reading') });
           }}
         >
+          {/* Quick Add Content Menu (Coursera Reference 2, 3, 4, 5) */}
+          {section && (
+            <div className="mb-3 border-b border-line pb-2.5">
+              <span className="block text-2xs font-semibold uppercase tracking-wider text-ink-subtle mb-1.5">
+                Quick Add Content
+              </span>
+              <AddContentMenu
+                disabled={isArchived}
+                onSelectType={(selectedType) => {
+                  setEditId(null);
+                  setActivityDraft({
+                    title: `New ${selectedType.replace('_', ' ')}`,
+                    type: selectedType,
+                    required: true,
+                    contentRef: defaultRef(selectedType),
+                  });
+                }}
+              />
+            </div>
+          )}
+
           {!section ? (
             <p className="py-8 text-center text-xs text-ink-muted">Select a section to view its activities.</p>
           ) : activityList.length === 0 ? (
@@ -755,13 +892,13 @@ export function CanonicalCurriculumEditor({
                   whileDrag={{ scale: 1.01, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 20 }}
                 >
                   <Row
+                    active={activeActivityId === x.id}
                     label={`${x.title} · ${x.type}`}
                     disabled={isArchived}
                     badge={
                       <Badge
                         tone={x.status === 'published' ? 'ok' : 'neutral'}
                         dot
-                        size="sm"
                       >
                         {x.status ?? 'draft'}
                       </Badge>
@@ -776,15 +913,10 @@ export function CanonicalCurriculumEditor({
                       loading: toggleActivityStatus.isPending,
                     }}
                     onSelect={() => {
-                      setEditId({ kind: 'activity', id: x.id });
-                      setActivityDraft({
-                        title: x.title,
-                        type: x.type,
-                        required: x.required,
-                        contentRef: x.content_ref ?? defaultRef(x.type),
-                      });
+                      setActiveActivityId(x.id);
                     }}
                     onEdit={() => {
+                      setActiveActivityId(x.id);
                       setEditId({ kind: 'activity', id: x.id });
                       setActivityDraft({
                         title: x.title,
@@ -802,6 +934,69 @@ export function CanonicalCurriculumEditor({
           )}
         </Pane>
       </div>
+
+      {/* Center Studio Content Editor Area */}
+      {activeActivity && (
+        <section
+          className="rounded-xl border border-line bg-surface p-5 sm:p-6 shadow-hairline space-y-4"
+          aria-label="Active activity editor workspace"
+        >
+          <div className="flex items-center justify-between border-b border-line pb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-accent-ink">
+                Authoring Studio
+              </span>
+              <h3 className="text-lg font-bold text-ink">
+                Content Editor: {activeActivity.title}
+              </h3>
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setActiveActivityId(undefined)}
+            >
+              Close Editor
+            </Button>
+          </div>
+
+          {activeActivity.type === 'knowledge_check' ? (
+            /* Quiz Question Editor (Coursera Reference 6) */
+            <QuizQuestionEditor
+              quizTitle={activeActivity.title}
+              instructions="Answer each question. Passing score evaluates knowledge on robotics fundamentals."
+              passPercent={quizPassPercent}
+              isGraded={false}
+              questions={quizQuestions}
+              disabled={isArchived}
+              onChangePassPercent={setQuizPassPercent}
+              onChangeQuestions={setQuizQuestions}
+            />
+          ) : (
+            /* Rich Activity Editor for Video, Reading, Labs */
+            <ActivityContentEditor
+              activity={{
+                ...activeActivity,
+                content_ref: activeActivity.content_ref,
+              }}
+              disabled={isArchived}
+              isLoading={saveActivity.isPending}
+              onSave={(patch) => {
+                const payload: Partial<ActivityDraft> = {};
+                if (patch.title !== undefined) payload.title = patch.title;
+                if (patch.type !== undefined && patch.type !== activeActivity.type) payload.type = patch.type;
+                if (patch.required !== undefined && patch.required !== activeActivity.required) payload.required = patch.required;
+                if (patch.contentRef !== undefined && JSON.stringify(patch.contentRef) !== JSON.stringify(activeActivity.content_ref)) {
+                  payload.contentRef = patch.contentRef;
+                }
+                saveActivity.mutate({
+                  id: activeActivity.id,
+                  x: payload,
+                });
+              }}
+            />
+          )}
+        </section>
+      )}
 
       {/* Dialogs */}
       <LessonDialog
@@ -828,6 +1023,31 @@ export function CanonicalCurriculumEditor({
         onClose={cancel}
         onSave={submitActivity}
         loading={addActivity.isPending || saveActivity.isPending}
+      />
+
+      {/* Global Modals */}
+      <LearnerPreviewModal
+        open={learnerPreviewOpen}
+        onClose={() => setLearnerPreviewOpen(false)}
+        course={course}
+        lessons={lessonList}
+        sections={sectionList}
+        selectedLessonId={lessonId}
+      />
+
+      <ReadinessChecklistModal
+        open={readinessChecklistOpen}
+        onClose={() => setReadinessChecklistOpen(false)}
+        course={course}
+        lessons={lessonList}
+        sections={sectionList}
+        onPublish={() => publishCourseMutation.mutate()}
+        isPublishing={publishCourseMutation.isPending}
+      />
+
+      <MediaAssetLibraryModal
+        open={mediaLibraryOpen}
+        onClose={() => setMediaLibraryOpen(false)}
       />
     </section>
   );
