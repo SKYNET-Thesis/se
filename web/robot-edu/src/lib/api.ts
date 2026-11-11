@@ -17,7 +17,8 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export interface ApiCourse { id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
+export interface ApiEnrollmentSync { classrooms: number; enrolled: number }
+export interface ApiCourse { enrollmentSync?: ApiEnrollmentSync; id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
 export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
 
 export type LessonProgressStatus = "completed" | "current" | "available" | "locked" | "in_progress";
@@ -434,6 +435,8 @@ export const catalogApi = {
   createGlobalCourse: (token:string, body:{title:string;description?:string}) => apiRequest<ApiCourse>('/admin/courses',token,'POST',body),
   updateGlobalCourse: (courseId:string,token:string,body:{title?:string;description?:string}) => apiRequest<ApiCourse>(`/admin/courses/${courseId}`,token,'PATCH',body),
   publishGlobalCourse: (courseId:string,token:string) => apiRequest<ApiCourse>(`/admin/courses/${courseId}/publish`,token,'POST'),
+  /** Idempotent, all-or-nothing retry that enrolls the members of every active classroom of a published course. */
+  syncCourseEnrollments: (courseId:string,token:string) => apiRequest<ApiEnrollmentSync>(`/admin/courses/${courseId}/enrollments/sync`,token,'POST'),
   archiveGlobalCourse: (courseId:string,token:string) => apiRequest<ApiCourse>(`/admin/courses/${courseId}/archive`,token,'POST'),
   createLesson: (courseId:string,token:string,body:{title:string;content?:Record<string,unknown>}) => apiRequest<ApiRecord>(`/admin/courses/${courseId}/lessons`,token,'POST',body),
   updateLesson: (lessonId:string,token:string,body:{title?:string;content?:Record<string,unknown>}) => apiRequest<ApiRecord>(`/admin/lessons/${lessonId}`,token,'PATCH',body),

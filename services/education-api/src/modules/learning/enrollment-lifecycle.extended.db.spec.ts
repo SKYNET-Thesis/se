@@ -232,7 +232,7 @@ describeDb('real PostgreSQL classroom enrollment lifecycle (extended)', () => {
   it('12 a failed lifecycle transaction rolls back every change', async () => {
     const x = await world(); const s = await student(x); await join(x, s); await enrollments.synchronizeClassroom(x.room.id);
     const failing = new EducationAdminService(db as never, { isSystemAdministrator: () => false } as never, {} as never, {} as never, {
-      releaseIn: async () => { throw new Error('forced failure'); }, synchronizeIfDeliverableIn: async () => null,
+      lockClassroomIn: (tx: never, id: string) => enrollments.lockClassroomIn(tx, id), releaseIn: async () => { throw new Error('forced failure'); }, synchronizeIfDeliverableIn: async () => null,
     } as never);
     await expect(failing.archiveClassroom(schoolAdmin(x.org.id), x.org.id, x.room.id)).rejects.toThrow('forced failure');
     expect((await db.learning_classrooms.findUniqueOrThrow({ where: { id: x.room.id } })).status).toBe('active');

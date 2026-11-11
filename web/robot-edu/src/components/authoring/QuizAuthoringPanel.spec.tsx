@@ -16,11 +16,11 @@ const assignment = { id: 'as-1', title: 'Safety quiz', instructions: 'Read caref
 describe('QuizAuthoringPanel', () => {
   let root: Root | undefined;
   afterEach(() => { root?.unmount(); root = undefined; vi.clearAllMocks(); document.body.innerHTML = ''; });
-  const render = async () => {
+  const render = async (extra: { readOnly?: boolean } = {}) => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
     await act(async () => {
-      root?.render(createElement(QueryClientProvider, { client }, createElement(QuizAuthoringPanel, { lessonId: 'lesson-1', token: 'token', title: assignment.title, instructions: assignment.instructions, assignmentId: assignment.id, onChange: vi.fn() })));
+      root?.render(createElement(QueryClientProvider, { client }, createElement(QuizAuthoringPanel, { lessonId: 'lesson-1', token: 'token', title: assignment.title, instructions: assignment.instructions, assignmentId: assignment.id, onChange: vi.fn(), ...extra })));
       await api.assignment.mock.results[0]?.value;
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -70,5 +70,24 @@ describe('QuizAuthoringPanel', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(api.updateAssignment).not.toHaveBeenCalled();
     expect(host.textContent).toContain('Passing score must be a whole number from 1 to 100.');
+  });
+  it('is read-only for an archived course: nothing can be created, added, reordered, removed or edited, and the state is explained', async () => {
+    const selected = [1, 2].map((n) => ({ versionId: `v-${n}`, questionId: `q-${n}`, ordinal: n, points: 1, type: 'single_choice', stem: `Question ${n}`, options: [{ id: 'a', text: 'A' }], code: `Q${n}` }));
+    api.assignment.mockResolvedValue({ ...assignment, questions: selected });
+    api.questions.mockResolvedValue({ items: [{ id: 'v-9', questionId: 'q-9', code: 'NEW', type: 'single_choice', stem: 'Another question', options: [], versionNumber: 1, objectives: [] }], total: 1, page: 1, pageSize: 20 });
+    const host = await render({ readOnly: true });
+    await vi.waitFor(() => expect(host.textContent).toContain('Draft assignment linked'));
+    expect(host.querySelector('[role="status"]')?.textContent).toContain('archived');
+    for (const field of host.querySelectorAll('input[aria-label="Passing score"], input:not([aria-label]), textarea')) expect((field as HTMLInputElement).disabled).toBe(true);
+    await act(async () => { ([...host.querySelectorAll('button')].find((el) => el.textContent === 'Questions') as HTMLButtonElement).click(); });
+    await vi.waitFor(() => expect(host.textContent).toContain('Another question'));
+    const buttons = [...host.querySelectorAll('button')];
+    for (const label of ['Add', '↑', '↓', 'Remove']) for (const b of buttons.filter((el) => el.textContent === label)) expect((b as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => { buttons.filter((el) => el.textContent === 'Add').forEach((b) => (b as HTMLButtonElement).click()); buttons.filter((el) => el.textContent === 'Remove').forEach((b) => (b as HTMLButtonElement).click()); });
+    expect(api.addQuestion).not.toHaveBeenCalled();
+    expect(api.removeQuestion).not.toHaveBeenCalled();
+    expect(api.reorderQuestions).not.toHaveBeenCalled();
+    expect(api.updateAssignment).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Question 1'); // the persisted quiz stays visible
   });
 });

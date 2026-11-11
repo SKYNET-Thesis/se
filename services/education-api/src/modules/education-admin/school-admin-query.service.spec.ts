@@ -103,6 +103,15 @@ describe("SchoolAdminQueryService", () => {
     expect(sql.indexOf("NOT EXISTS")).toBeLessThan(sql.indexOf("LIMIT"));
   });
 
+  it('exposes only published global templates for school offering creation', async () => {
+    queryRaw.mockResolvedValue([{ id: 'course-1', title: 'Robotics', description: null }]);
+    await expect((service as unknown as { publishedGlobalCourses: Function }).publishedGlobalCourses(actor, 'school-a'))
+      .resolves.toEqual([{ id: 'course-1', title: 'Robotics', description: null }]);
+    const sql = queryRaw.mock.calls[0].flat().join(' ');
+    expect(sql).toContain("status='published'");
+    expect(sql).toContain('organization_id IS NULL');
+  });
+
   it("denies cross-organization reads before querying", async () => {
     await expect(service.overview(actor, "school-b")).rejects.toBeInstanceOf(NotFoundException);
     await expect(service.people(actor, "school-b", { page: 1, pageSize: 20 })).rejects.toBeInstanceOf(NotFoundException);

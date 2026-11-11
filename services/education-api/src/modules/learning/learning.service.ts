@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { Prisma } from "@prisma/client";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
@@ -10,6 +10,7 @@ import { LearningScopeService } from "./learning-scope.service";
 import { ProgressionService, QualifiedProgramVersionHandoff } from "./progression.service";
 import { normalizeLessonContent } from "./lesson-content.schema";
 import { EnrollmentDeliveryService } from "./enrollment-delivery.service";
+import { runCourseSyncTransaction } from "./course-sync-transaction";
 import { assertCurriculumMutable, curriculumDeliverability, deliveryEvidence } from "./course-lifecycle";
 
 const requiredTitle = (value: string, label: string): string => {
@@ -26,7 +27,6 @@ export class LearningService {
     private readonly progression?: ProgressionService,
     private readonly enrollmentDelivery?: EnrollmentDeliveryService,
   ) {}
-  private readonly logger = new Logger(LearningService.name);
 
   async createGlobalCourse(user: AuthenticatedUser, input: { title: string; description?: string }) {
     this.assertSystemAdministrator(user);
@@ -45,27 +45,47 @@ export class LearningService {
     } });
   }
 
+  /**
+   * Publishing and enrolling the existing classroom members are one all-or-nothing transaction: the course row is
+   * locked (FOR NO KEY UPDATE: a FOR UPDATE lock would block the foreign-key checks of concurrent single-classroom
+   * enrollments, which wait for classroom locks this transaction also needs), deliverability is re-checked under the lock, the status changes and every active classroom of an active
+   * offering is synchronized (ascending id, see EnrollmentDeliveryService). If any step fails the course stays in its
+   * previous state and the caller gets the error, so learner access can never be half-synchronized. Publishing again
+   * is idempotent and is the safe retry.
+   */
   async publishCourse(user: AuthenticatedUser, courseId: string) {
     this.assertSystemAdministrator(user);
-    const course = await this.prisma.learning_courses.findUnique({ where: { id: courseId } });
-    if (!course || course.organization_id !== null) throw new NotFoundException('Course was not found.');
-    if (course.status === 'archived') throw new ConflictException('An archived course cannot be published.');
-    const lessons = await curriculumDeliverability(this.prisma, courseId);
-    if (!lessons.length) throw new ConflictException('A course needs at least one lesson before publishing.');
-    // Course 1 and other legacy courses deliver content through the activity adapter, not
-    // section rows, so requiring sections here would reject valid existing curricula.
-    const undeliverable = lessons.filter((lesson) => !lesson.legacyCourse && lesson.publishedActivities === 0);
-    if (undeliverable.length) {
-      throw new ConflictException(
-        `Every lesson needs at least one published section with a published activity before the course can be published (${undeliverable.length} lesson(s) are not deliverable).`,
-      );
-    }
-    const published = await this.prisma.learning_courses.update({ where: { id: courseId }, data: { status: 'published' } });
-    // Existing classroom members become enrolled once every delivery condition holds (active offering and classroom).
-    // The synchronization is idempotent, so a failure here must not undo or hide a successful publication.
-    try { await this.enrollmentDelivery?.synchronizeCourse(courseId); }
-    catch (error) { this.logger.error({ event: 'publish_enrollment_sync_failed', courseId, error: error instanceof Error ? error.message : String(error) }); }
-    return published;
+    return runCourseSyncTransaction(this.prisma, async (tx) => {
+      const courses = await tx.$queryRaw<Array<{ id: string; status: string; organization_id: string | null }>>`
+        SELECT id, status, organization_id FROM public.learning_courses WHERE id=${courseId}::uuid FOR NO KEY UPDATE`;
+      const course = courses[0];
+      if (!course || course.organization_id !== null) throw new NotFoundException('Course was not found.');
+      if (course.status === 'archived') throw new ConflictException('An archived course cannot be published.');
+      const lessons = await curriculumDeliverability(tx, courseId);
+      if (!lessons.length) throw new ConflictException('A course needs at least one lesson before publishing.');
+      // Course 1 and other legacy courses deliver content through the activity adapter, not
+      // section rows, so requiring sections here would reject valid existing curricula.
+      const undeliverable = lessons.filter((lesson) => !lesson.legacyCourse && lesson.publishedActivities === 0);
+      if (undeliverable.length) {
+        throw new ConflictException(
+          `Every lesson needs at least one published section with a published activity before the course can be published (${undeliverable.length} lesson(s) are not deliverable).`,
+        );
+      }
+      const published = await tx.learning_courses.update({ where: { id: courseId }, data: { status: 'published' } });
+      if (!this.enrollmentDelivery) throw new ConflictException('Enrollment synchronization is not configured.');
+      const enrollmentSync = await this.enrollmentDelivery.synchronizeCourseIn(tx, courseId);
+      return { ...published, enrollmentSync };
+    });
+  }
+
+  /** Idempotent, all-or-nothing re-synchronization of a published course's classroom enrollments. */
+  async syncCourseEnrollments(user: AuthenticatedUser, courseId: string) {
+    this.assertSystemAdministrator(user);
+    const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null }, select: { id: true, status: true } });
+    if (!course) throw new NotFoundException('Course was not found.');
+    if (course.status !== 'published') throw new ConflictException('Only a published course can synchronize classroom enrollments.');
+    if (!this.enrollmentDelivery) throw new ConflictException('Enrollment synchronization is not configured.');
+    return this.enrollmentDelivery.synchronizeCourse(courseId);
   }
 
   async archiveCourse(user: AuthenticatedUser, courseId: string) {

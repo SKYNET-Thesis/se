@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminCourses } from './AdminCourses';
 
@@ -49,7 +48,6 @@ const mockCourses = [
 ];
 
 const tick = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-function LocationProbe() { const location = useLocation(); return <output data-testid="route-path">{location.pathname}</output>; }
 
 describe('AdminCourses', () => {
   let root: Root;
@@ -68,7 +66,7 @@ describe('AdminCourses', () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-          <MemoryRouter><AdminCourses /><LocationProbe /></MemoryRouter>
+          <AdminCourses />
         </QueryClientProvider>,
       );
     });
@@ -88,12 +86,6 @@ describe('AdminCourses', () => {
       b.textContent?.toLowerCase().includes('create course'),
     );
     expect(createBtn).toBeDefined();
-  });
-
-  it('navigates to the dedicated new-course route from Create Course', async () => {
-    const create = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes('Create Course'));
-    await act(async () => { create?.click(); });
-    expect(container.querySelector('[data-testid="route-path"]')?.textContent).toBe('/admin/courses/new');
   });
 
   it('renders summary statistics cards derived from API data', () => {
@@ -149,12 +141,20 @@ describe('AdminCourses', () => {
     expect(container.textContent).not.toContain('Legacy Controls');
   });
 
-  it('keeps the catalogue separate from the Course Builder and links existing courses to edit routes', () => {
-    expect(container.textContent).not.toContain('Start a course');
-    expect(container.textContent).not.toContain('Canonical Curriculum');
-    const edit = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Edit Course');
-    expect(edit).toBeDefined();
-    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Manage curriculum')).toBe(false);
+  it('provides Manage Curriculum button and opens curriculum editor', async () => {
+    const manageBtns = Array.from(container.querySelectorAll('button')).filter(
+      (b) => b.textContent === 'Manage curriculum',
+    );
+    expect(manageBtns.length).toBe(3);
+
+    // Click manage curriculum for the first course
+    manageBtns[0].click();
+    await tick();
+
+    // Canonical curriculum editor is mounted
+    expect(container.textContent).toContain('Robotics Fundamentals curriculum');
+    expect(container.textContent).toContain('Manage curriculum');
+    expect(container.textContent).toContain('Canonical Curriculum');
   });
 
   it('does NOT contain student-specific elements', () => {

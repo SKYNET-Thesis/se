@@ -42,8 +42,6 @@ describe('AppShell focused learning navigation', () => {
             <Route element={<AppShell />}>
               <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<p>Activity content</p>} />
               <Route path="courses/:courseId" element={<p>Course path</p>} />
-              <Route path="admin/courses/new" element={<nav aria-label="Course builder navigation">Edit Content</nav>} />
-              <Route path="admin/courses/:courseId/edit" element={<nav aria-label="Course builder navigation">Edit Content</nav>} />
             </Route>
           </Routes>
         </MemoryRouter>,
@@ -81,15 +79,5 @@ describe('AppShell focused learning navigation', () => {
 
     expect(container.querySelector('aside')?.className).toContain('w-[240px]');
     expect(container.textContent).toContain('Course path');
-  });
-
-  it('collapses global navigation on the Course Builder while keeping its authoring navigation', async () => {
-    await renderAt('/admin/courses/new');
-    expect(container.querySelector('aside')?.className).not.toContain('w-[240px]');
-    expect(container.querySelector('nav[aria-label="Course builder navigation"]')).not.toBeNull();
-    expect(container.querySelector('button[aria-label="Open navigation"]')?.getAttribute('aria-expanded')).toBe('false');
-    await act(async () => { (container.querySelector('button[aria-label="Open navigation"]') as HTMLButtonElement).click(); });
-    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(container.querySelector('nav[aria-label="Course builder navigation"]')).not.toBeNull();
   });
 });

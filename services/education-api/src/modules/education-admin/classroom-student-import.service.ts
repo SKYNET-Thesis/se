@@ -121,7 +121,7 @@ export class ClassroomStudentImportService {
     }
 
     // One idempotent synchronization enrolls every newly added student for the classroom's course.
-    if (results.some(item => item.status === "created_and_added" || item.status === "existing_added")) {
+    if (results.some(item => item.status !== "failed")) {
       await this.enrollments.synchronizeIfDeliverable(classroomId);
     }
 

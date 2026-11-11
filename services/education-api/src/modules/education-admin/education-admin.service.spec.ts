@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { ConflictException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { EducationAdminService } from "./education-admin.service";
 
 const baseUser = {
@@ -56,9 +56,27 @@ describe("EducationAdminService organization boundaries", () => {
     createClassroom.mockResolvedValue({ id: "class-a", organization_id: "school-a" });
     const user = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.classroom.manage"] }] };
     await expect(service.createClassroom(user, "school-a", { offeringId: "offering-a", name: "Class A", code: "A" })).resolves.toMatchObject({ id: "class-a" });
-    expect(findOffering).toHaveBeenCalledWith({ where: { id: "offering-a", organization_id: "school-a" }, select: { id: true } });
+    expect(findOffering).toHaveBeenCalledWith({
+      where: { id: "offering-a", organization_id: "school-a", status: "active", learning_courses: { is: { organization_id: null, status: "published" } } },
+      select: { id: true },
+    });
     await expect(service.createClassroom(user, "school-b", { offeringId: "offering-a", name: "Class B", code: "B" })).rejects.toBeInstanceOf(NotFoundException);
     expect(createClassroom).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a classroom built on an inactive or unpublished offering", async () => {
+    findOffering.mockResolvedValue(null);
+    const user = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.classroom.manage"] }] };
+    await expect(service.createClassroom(user, "school-a", { offeringId: "offering-a", name: "Class A", code: "A" })).rejects.toBeInstanceOf(NotFoundException);
+    expect(createClassroom).not.toHaveBeenCalled();
+  });
+
+  it("rejects a whitespace-only classroom name or code", async () => {
+    findOffering.mockResolvedValue({ id: "offering-a" });
+    createClassroom.mockResolvedValue({ id: "class-a", organization_id: "school-a" });
+    const user = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.classroom.manage"] }] };
+    await expect(service.createClassroom(user, "school-a", { offeringId: "offering-a", name: "   ", code: "A" })).rejects.toBeInstanceOf(BadRequestException);
+    expect(createClassroom).not.toHaveBeenCalled();
   });
 
   it("rejects allocation before mutating when the school administrator lacks the allocation permission", async () => {
@@ -109,7 +127,7 @@ describe("EducationAdminService role derivation and provisioning scope", () => {
   const findOrganization = jest.fn();
   const scope = { isSystemAdministrator: jest.fn().mockReturnValue(false) };
   const synchronizeIfDeliverable = jest.fn().mockResolvedValue([]);
-  const service = new EducationAdminService({ $queryRaw: queryRaw, organizations: { findUnique: findOrganization }, learning_classrooms: { findFirst: findClassroom }, memberships: { findFirst: findMembership }, learning_classroom_members: { upsert }, $transaction: jest.fn() } as never, scope as never, { invite } as never, { provision: jest.fn().mockResolvedValue({ status: "unchanged" }) } as never, { synchronizeIfDeliverable } as never);
+  const service = new EducationAdminService({ $queryRaw: queryRaw, organizations: { findUnique: findOrganization }, learning_classrooms: { findFirst: findClassroom }, memberships: { findFirst: findMembership }, learning_classroom_members: { upsert }, $transaction: jest.fn(async (work: (tx: unknown) => unknown) => work({ learning_classroom_members: { upsert } })) } as never, scope as never, { invite } as never, { provision: jest.fn().mockResolvedValue({ status: "unchanged" }) } as never, { lockClassroomIn: jest.fn().mockResolvedValue({ id: "class-a", organization_id: "school-a", offering_id: "offering-a", status: "active" }), synchronizeIfDeliverableIn: synchronizeIfDeliverable } as never);
   const schoolAdmin = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.classroom.members.manage", "education.members.provision"] }] };
 
   beforeEach(() => { findMembership.mockReset(); upsert.mockReset().mockResolvedValue({ id: "cm-1" }); queryRaw.mockReset(); findOrganization.mockReset().mockResolvedValue({ school_code: "VST-SCHOOL" }); invite.mockReset(); });
@@ -127,7 +145,18 @@ describe("EducationAdminService role derivation and provisioning scope", () => {
     expect(synchronizeIfDeliverable).not.toHaveBeenCalled();
     findMembership.mockResolvedValue({ id: "membership-a", status: "active", roles: { code: "student" } });
     await service.upsertClassroomMember(schoolAdmin, "school-a", "class-a", { userId: "00000000-0000-4000-8000-000000000001" });
-    expect(synchronizeIfDeliverable).toHaveBeenCalledWith("class-a");
+    expect(synchronizeIfDeliverable).toHaveBeenCalledWith(expect.anything(), "class-a");
+  });
+
+  it('edits only supported classroom metadata within the administrator school', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 'class-a', name: 'Updated' });
+    const editService = new EducationAdminService(
+      { learning_classrooms: { findFirst: findClassroom, update } } as never,
+      scope as never, {} as never, {} as never, {} as never,
+    );
+    await expect(editService.updateClassroom({ ...schoolAdmin, memberships: [{ ...schoolAdmin.memberships[0], permissions: ['education.classroom.manage'] }] }, 'school-a', 'class-a', { name: 'Updated', description: 'New details', capacity: 30 }))
+      .resolves.toMatchObject({ name: 'Updated' });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'class-a' }, data: expect.objectContaining({ name: 'Updated', description: 'New details', capacity: 30 }) }));
   });
 
   it("rejects an unsupported organization role", async () => {

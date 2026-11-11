@@ -17,6 +17,7 @@ export class LearningController {
  @Post('admin/courses') createGlobalCourse(@CurrentUser() u:AuthenticatedUser,@Body() dto:CreateCourseDto){return this.learning.createGlobalCourse(u,dto)}
  @Patch('admin/courses/:courseId') updateGlobalCourse(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string,@Body() dto:UpdateCourseDto){return this.learning.updateGlobalCourse(u,id,dto)}
  @Post('admin/courses/:courseId/publish') publishCourse(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string){return this.learning.publishCourse(u,id)}
+ @Post('admin/courses/:courseId/enrollments/sync') syncCourseEnrollments(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string){return this.learning.syncCourseEnrollments(u,id)}
  @Post('admin/courses/:courseId/archive') archiveCourse(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string){return this.learning.archiveCourse(u,id)}
  @Post('admin/courses/:courseId/lessons') createLesson(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string,@Body() dto:CreateLessonDto){return this.learning.createCourseLesson(u,id,dto)}
  @Patch('admin/lessons/:lessonId') updateLesson(@CurrentUser() u:AuthenticatedUser,@Param('lessonId',ParseUUIDPipe) id:string,@Body() dto:UpdateLessonDto){return this.learning.updateCourseLesson(u,id,dto)}

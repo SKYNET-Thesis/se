@@ -5,6 +5,7 @@ const ORG_A = "00000000-0000-4000-8000-0000000000a1";
 const ORG_B = "00000000-0000-4000-8000-0000000000b1";
 const ROOM = "00000000-0000-4000-8000-0000000000c1";
 const OFFERING = "00000000-0000-4000-8000-0000000000d1";
+const NEW_OFFERING = "00000000-0000-4000-8000-0000000000d2";
 const STUDENT = "00000000-0000-4000-8000-0000000000e1";
 
 const actor = (organizationId: string, permissions: string[]) => ({
@@ -15,21 +16,24 @@ const schoolAdmin = actor(ORG_A, ["education.classroom.manage", "education.class
 const instructor = actor(ORG_A, ["education.classroom.read"]);
 
 describe("EducationAdminService classroom lifecycle", () => {
-  const tx = { learning_classrooms: { update: jest.fn() }, learning_classroom_members: { update: jest.fn() } };
-  const findClassroom = jest.fn();
-  const findMember = jest.fn();
-  const queryRaw = jest.fn();
+  const tx = {
+    learning_classrooms: { update: jest.fn() },
+    learning_classroom_members: { update: jest.fn(), findFirst: jest.fn() },
+    learning_course_offerings: { findFirst: jest.fn() },
+  };
+  const findMember = tx.learning_classroom_members.findFirst;
+  const findOffering = tx.learning_course_offerings.findFirst;
+  const lockClassroomIn = jest.fn();
   const releaseIn = jest.fn();
   const synchronizeIfDeliverableIn = jest.fn();
-  const prisma = {
-    learning_classrooms: { findFirst: findClassroom }, learning_classroom_members: { findFirst: findMember },
-    $queryRaw: queryRaw, $transaction: jest.fn(async (work: (client: typeof tx) => unknown) => work(tx)),
-  };
-  const service = new EducationAdminService(prisma as never, { isSystemAdministrator: jest.fn().mockReturnValue(false) } as never, {} as never, {} as never, { releaseIn, synchronizeIfDeliverableIn } as never);
+  const transaction = jest.fn(async (work: (client: typeof tx) => unknown) => work(tx));
+  const service = new EducationAdminService({ $transaction: transaction } as never, { isSystemAdministrator: jest.fn().mockReturnValue(false) } as never, {} as never, {} as never, { lockClassroomIn, releaseIn, synchronizeIfDeliverableIn } as never);
+  const locked = (status = "active", offeringId = OFFERING, organizationId = ORG_A) => lockClassroomIn.mockResolvedValue({ id: ROOM, organization_id: organizationId, offering_id: offeringId, status });
 
   beforeEach(() => {
-    [tx.learning_classrooms.update, tx.learning_classroom_members.update, findClassroom, findMember, queryRaw, releaseIn, synchronizeIfDeliverableIn].forEach((mock) => mock.mockReset());
-    findClassroom.mockResolvedValue({ id: ROOM, status: "active", offering_id: OFFERING });
+    [tx.learning_classrooms.update, tx.learning_classroom_members.update, findMember, findOffering, lockClassroomIn, releaseIn, synchronizeIfDeliverableIn, transaction].forEach((mock) => mock.mockClear());
+    [findMember, findOffering, lockClassroomIn].forEach((mock) => mock.mockReset());
+    locked();
     releaseIn.mockResolvedValue([]);
     synchronizeIfDeliverableIn.mockResolvedValue([]);
   });
@@ -40,9 +44,10 @@ describe("EducationAdminService classroom lifecycle", () => {
       ["reactivate", () => service.reactivateClassroom(schoolAdmin as never, ORG_B, ROOM)],
       ["change offering", () => service.changeClassroomOffering(schoolAdmin as never, ORG_B, ROOM, OFFERING)],
       ["remove student", () => service.removeClassroomStudent(schoolAdmin as never, ORG_B, ROOM, STUDENT)],
-    ])("denies %s for an administrator of another organization before touching any data", async (_name, call) => {
+    ])("denies %s for an administrator of another organization before opening a transaction", async (_name, call) => {
       await expect(call()).rejects.toBeInstanceOf(NotFoundException);
-      expect(findClassroom).not.toHaveBeenCalled();
+      expect(transaction).not.toHaveBeenCalled();
+      expect(lockClassroomIn).not.toHaveBeenCalled();
       expect(tx.learning_classrooms.update).not.toHaveBeenCalled();
       expect(releaseIn).not.toHaveBeenCalled();
     });
@@ -53,14 +58,22 @@ describe("EducationAdminService classroom lifecycle", () => {
       ["remove student", () => service.removeClassroomStudent(instructor as never, ORG_A, ROOM, STUDENT)],
     ])("denies %s without the management permission", async (_name, call) => {
       await expect(call()).rejects.toBeInstanceOf(NotFoundException);
+      expect(transaction).not.toHaveBeenCalled();
       expect(releaseIn).not.toHaveBeenCalled();
     });
 
-    it("scopes the classroom lookup to the URL organization so a foreign classroom id is not found", async () => {
-      findClassroom.mockResolvedValue(null);
+    it("locks the classroom first and treats a classroom of another organization as not found", async () => {
+      locked("active", OFFERING, ORG_B);
       await expect(service.archiveClassroom(schoolAdmin as never, ORG_A, ROOM)).rejects.toBeInstanceOf(NotFoundException);
-      expect(findClassroom).toHaveBeenCalledWith(expect.objectContaining({ where: { id: ROOM, organization_id: ORG_A } }));
+      expect(lockClassroomIn).toHaveBeenCalledWith(tx, ROOM);
       expect(tx.learning_classrooms.update).not.toHaveBeenCalled();
+      expect(releaseIn).not.toHaveBeenCalled();
+    });
+
+    it("treats a missing classroom as not found", async () => {
+      lockClassroomIn.mockResolvedValue(null);
+      await expect(service.removeClassroomStudent(schoolAdmin as never, ORG_A, ROOM, STUDENT)).rejects.toBeInstanceOf(NotFoundException);
+      expect(findMember).not.toHaveBeenCalled();
     });
   });
 
@@ -74,15 +87,24 @@ describe("EducationAdminService classroom lifecycle", () => {
     });
 
     it("is idempotent for an already archived classroom", async () => {
-      findClassroom.mockResolvedValue({ id: ROOM, status: "archived", offering_id: OFFERING });
+      locked("archived");
       await service.archiveClassroom(schoolAdmin as never, ORG_A, ROOM);
       expect(tx.learning_classrooms.update).not.toHaveBeenCalled();
+    });
+
+    it("reads the status under the lock, so a concurrent change is never overwritten with a stale value", async () => {
+      const order: string[] = [];
+      lockClassroomIn.mockImplementation(async () => { order.push("lock"); return { id: ROOM, organization_id: ORG_A, offering_id: OFFERING, status: "active" }; });
+      tx.learning_classrooms.update.mockImplementation(async () => { order.push("update"); });
+      releaseIn.mockImplementation(async () => { order.push("release"); return []; });
+      await service.archiveClassroom(schoolAdmin as never, ORG_A, ROOM);
+      expect(order).toEqual(["lock", "update", "release"]);
     });
   });
 
   describe("reactivate", () => {
     it("restores the classroom and re-synchronizes eligible students without duplicating enrollments", async () => {
-      findClassroom.mockResolvedValue({ id: ROOM, status: "archived", offering_id: OFFERING });
+      locked("archived");
       synchronizeIfDeliverableIn.mockResolvedValue([{ id: "e1" }, { id: "e2" }]);
       await expect(service.reactivateClassroom(schoolAdmin as never, ORG_A, ROOM)).resolves.toEqual({ id: ROOM, status: "active", restoredEnrollments: 2 });
       expect(tx.learning_classrooms.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "active" }) }));
@@ -90,47 +112,48 @@ describe("EducationAdminService classroom lifecycle", () => {
     });
 
     it("reports zero restored enrollments when the course is not deliverable", async () => {
-      findClassroom.mockResolvedValue({ id: ROOM, status: "archived", offering_id: OFFERING });
+      locked("archived");
       synchronizeIfDeliverableIn.mockResolvedValue(null);
       await expect(service.reactivateClassroom(schoolAdmin as never, ORG_A, ROOM)).resolves.toMatchObject({ restoredEnrollments: 0 });
     });
 
     it("rejects a draft classroom", async () => {
-      findClassroom.mockResolvedValue({ id: ROOM, status: "draft", offering_id: OFFERING });
+      locked("draft");
       await expect(service.reactivateClassroom(schoolAdmin as never, ORG_A, ROOM)).rejects.toBeInstanceOf(ConflictException);
     });
   });
 
   describe("change offering", () => {
-    const NEW_OFFERING = "00000000-0000-4000-8000-0000000000d2";
-
-    it("rejects an offering that is unpublished or belongs to another organization", async () => {
-      queryRaw.mockResolvedValue([]);
+    it("rejects an offering that is inactive, draft-course based, school-owned or from another organization", async () => {
+      findOffering.mockResolvedValue(null);
       await expect(service.changeClassroomOffering(schoolAdmin as never, ORG_A, ROOM, NEW_OFFERING)).rejects.toBeInstanceOf(NotFoundException);
-      const sql = String((queryRaw.mock.calls[0][0] as TemplateStringsArray).join("?"));
-      expect(sql).toContain("c.status='published'");
-      expect(sql).toContain("o.organization_id=");
+      const where = findOffering.mock.calls[0][0].where;
+      expect(where).toMatchObject({ id: NEW_OFFERING, organization_id: ORG_A, status: "active" });
+      expect(where.learning_courses).toEqual({ is: { organization_id: null, status: "published" } });
       expect(tx.learning_classrooms.update).not.toHaveBeenCalled();
+      expect(releaseIn).not.toHaveBeenCalled();
     });
 
     it("rejects changing the offering of an archived classroom", async () => {
-      findClassroom.mockResolvedValue({ id: ROOM, status: "archived", offering_id: OFFERING });
+      locked("archived");
       await expect(service.changeClassroomOffering(schoolAdmin as never, ORG_A, ROOM, NEW_OFFERING)).rejects.toBeInstanceOf(ConflictException);
+      expect(findOffering).not.toHaveBeenCalled();
     });
 
     it("moves the classroom, releases access from the previous offering, then enrolls for the new one in one transaction", async () => {
-      queryRaw.mockResolvedValue([{ id: NEW_OFFERING }]);
+      findOffering.mockResolvedValue({ id: NEW_OFFERING });
       const order: string[] = [];
+      lockClassroomIn.mockImplementation(async () => { order.push("lock"); return { id: ROOM, organization_id: ORG_A, offering_id: OFFERING, status: "active" }; });
       tx.learning_classrooms.update.mockImplementation(async () => { order.push("update"); });
       releaseIn.mockImplementation(async () => { order.push("release"); return []; });
       synchronizeIfDeliverableIn.mockImplementation(async () => { order.push("sync"); return []; });
       await expect(service.changeClassroomOffering(schoolAdmin as never, ORG_A, ROOM, NEW_OFFERING)).resolves.toMatchObject({ id: ROOM, offeringId: NEW_OFFERING });
-      expect(order).toEqual(["update", "release", "sync"]);
-      expect(prisma.$transaction).toHaveBeenCalled();
+      expect(order).toEqual(["lock", "update", "release", "sync"]);
+      expect(transaction).toHaveBeenCalledTimes(1);
     });
 
     it("does not release anyone when the offering is unchanged (idempotent)", async () => {
-      queryRaw.mockResolvedValue([{ id: OFFERING }]);
+      findOffering.mockResolvedValue({ id: OFFERING });
       await service.changeClassroomOffering(schoolAdmin as never, ORG_A, ROOM, OFFERING);
       expect(tx.learning_classrooms.update).not.toHaveBeenCalled();
       expect(releaseIn).not.toHaveBeenCalled();
@@ -146,7 +169,7 @@ describe("EducationAdminService classroom lifecycle", () => {
       expect(releaseIn).not.toHaveBeenCalled();
     });
 
-    it("marks the membership removed and releases only this student's classroom-derived access", async () => {
+    it("marks the membership removed (never 'left') and releases only this student's classroom-derived access", async () => {
       findMember.mockResolvedValue({ id: "member-1" });
       releaseIn.mockResolvedValue([{ id: "e1", status: "revoked" }]);
       await expect(service.removeClassroomStudent(schoolAdmin as never, ORG_A, ROOM, STUDENT)).resolves.toEqual({ removed: true, enrollment: { id: "e1", status: "revoked" } });

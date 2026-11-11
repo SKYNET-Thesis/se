@@ -1,35 +1,81 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RequireRole } from './RequireRole';
+import type { Role } from '../../types/user';
 
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+let currentRole: Role | null = 'student';
 
-const useRole = vi.hoisted(() => vi.fn());
-vi.mock('../../contexts/RoleContext', () => ({ useRole }));
+vi.mock('../../contexts/RoleContext', () => ({
+  useRole: () => ({ role: currentRole, loading: false, error: null }),
+}));
 
-describe('RequireRole administrative course route protection', () => {
+describe('RequireRole authorization boundary', () => {
   let root: Root;
   let container: HTMLDivElement;
-  beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); });
-  afterEach(() => { act(() => root.unmount()); container.remove(); });
 
-  async function renderRoute() {
-    await act(async () => root.render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/admin/courses']}><Routes><Route path="/admin/courses" element={<RequireRole roles={['admin']}><h1>Admin course management</h1></RequireRole>} /><Route path="/" element={<h1>Student workspace</h1>} /></Routes></MemoryRouter>));
-  }
-
-  it('allows the backend-resolved System Admin role', async () => {
-    useRole.mockReturnValue({ role: 'admin', loading: false, error: null });
-    await renderRoute();
-    expect(container.textContent).toContain('Admin course management');
+  beforeEach(() => {
+    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
   });
 
-  it('does not render the administrative route for a student', async () => {
-    useRole.mockReturnValue({ role: 'student', loading: false, error: null });
-    await renderRoute();
-    expect(container.textContent).not.toContain('Admin course management');
-    expect(container.textContent).toContain('Student workspace');
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it('allows admin access to admin-only routes', async () => {
+    currentRole = 'admin';
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/admin/courses']}>
+          <Routes>
+            <Route
+              path="/admin/courses"
+              element={
+                <RequireRole roles={['admin']}>
+                  <div>Admin Courses Content</div>
+                </RequireRole>
+              }
+            />
+            <Route path="/" element={<div>Home Redirect</div>} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain('Admin Courses Content');
+  });
+
+  it('denies non-admin roles (student, teacher, school_admin) and redirects them to root', async () => {
+    for (const unauthorizedRole of ['student', 'teacher', 'school_admin', 'teaching_assistant'] as Role[]) {
+      currentRole = unauthorizedRole;
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/admin/courses']}>
+            <Routes>
+              <Route
+                path="/admin/courses"
+                element={
+                  <RequireRole roles={['admin']}>
+                    <div>Admin Courses Content</div>
+                  </RequireRole>
+                }
+              />
+              <Route path="/" element={<div>Home Redirect</div>} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain('Home Redirect');
+      expect(container.textContent).not.toContain('Admin Courses Content');
+    }
   });
 });

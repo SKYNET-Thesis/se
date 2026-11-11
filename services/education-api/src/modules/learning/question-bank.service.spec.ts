@@ -105,7 +105,8 @@ describe('QuestionBankService', () => {
     db.learning_question_versions.create.mockImplementation(async ({ data }: any) => { next = data.version_number; return data; });
     const [first, second] = await Promise.all([service.createVersion(admin, question, content), service.createVersion(admin, question, content)]);
     expect([first.version_number, second.version_number]).toEqual([1, 2]);
-    expect(db.$queryRaw).toHaveBeenCalledTimes(2);
+    // two version-number allocations, each serialized by a FOR UPDATE lock on the question (status checks are separate reads)
+    expect(db.$queryRaw.mock.calls.filter((call: unknown[]) => String((call[0] as TemplateStringsArray).join('?')).includes('FOR UPDATE'))).toHaveLength(2);
   });
   it.each([
     ['invalid type', { type: 'essay' }],
@@ -168,5 +169,47 @@ describe('QuestionBankService', () => {
   it('keeps legacy Course 1 assignment untouched', async () => {
     db.learning_lessons.findFirst.mockResolvedValue({ content: { courseOverview: { label: 'Course 1' } } });
     await expect(service.addToAssignment(admin, assignment, { questionVersionId: version, ordinal: 1, points: 2 })).rejects.toBeInstanceOf(ConflictException);
+  });
+  describe('archived course freeze', () => {
+    /** Course status lookups answer "archived"; the lesson/assignment ownership reads answer normally. */
+    const archiveCourse = () => db.$queryRaw.mockImplementation(async (strings: TemplateStringsArray) => {
+      const sql = String(strings.join('?'));
+      if (sql.includes('SELECT status FROM public.learning_courses')) return [{ status: 'archived' }];
+      if (sql.includes('AS legacy')) return [{ organization_id: org, legacy: false, course_id: course }];
+      if (sql.includes('FROM public.learning_assignments a JOIN public.learning_lessons l')) return [{ course_id: course }];
+      return [];
+    });
+    const writes = () => [
+      db.learning_questions.create, db.learning_question_versions.create, db.learning_question_versions.updateMany,
+      db.learning_assignment_question_versions.create, db.learning_assignment_question_versions.deleteMany,
+      db.learning_assignments.create, db.learning_assignments.update, db.learning_question_version_objectives.createMany,
+    ].filter(Boolean);
+
+    it.each([
+      ['create a question', () => service.createQuestion(admin, { organizationId: org, courseId: course, lessonId: lesson, code: 'Q-9' } as never)],
+      ['create a version', () => service.createVersion(admin, question, content as never)],
+      ['edit a draft', () => service.updateDraft(admin, version, { stem: 'Revised' })],
+      ['map objectives', () => service.mapObjectives(admin, version, { objectiveIds: [objective] })],
+      ['submit for review', () => service.submitReview(admin, version)],
+      ['publish a version', () => service.publish(admin, version)],
+      ['archive a version', () => service.archive(admin, version)],
+      ['create the quiz assignment', () => service.createQuizAssignment(admin, lesson, 'Quiz', 'Instructions', 80)],
+      ['reconfigure the quiz', () => service.updateQuizAssignment(admin, lesson, assignment, 'Quiz', 'Instructions', 80)],
+      ['add a quiz question', () => service.addToAssignment(admin, assignment, { questionVersionId: version, ordinal: 1, points: 1 })],
+      ['remove a quiz question', () => service.removeFromAssignment(admin, assignment, version)],
+      ['reorder quiz questions', () => service.reorderAssignment(admin, assignment, { orderedVersionIds: [version] })],
+    ])('rejects %s when the parent course is archived and writes nothing', async (_name, call) => {
+      db.learning_lessons.findUnique.mockResolvedValue({ course_id: course, learning_courses: { organization_id: org } });
+      db.learning_assignments.findUnique.mockResolvedValue({ id: assignment, lesson_id: lesson, constraints: { kind: 'knowledge_check' }, challenge_id: null, learning_lessons: { course_id: course, learning_courses: { organization_id: org } } });
+      archiveCourse();
+      await expect(call()).rejects.toThrow(/archived/);
+      for (const write of writes()) expect(write).not.toHaveBeenCalled();
+    });
+
+    it('keeps reads available for an archived course (history and results stay readable)', async () => {
+      archiveCourse();
+      db.learning_assignment_question_versions.findMany.mockResolvedValue([{ version: { objectives: [] } }]);
+      await expect(service.assignmentQuestions(admin, assignment)).resolves.toMatchObject({ items: [expect.anything()] });
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { learningMediaApi, progressionApi, studentAuthApi } from './api';
+import { catalogApi, educationAdminApi, learningMediaApi, progressionApi, studentAuthApi } from './api';
 
 describe('progressionApi.coursePaths', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -23,6 +23,14 @@ describe('progressionApi.coursePaths', () => {
     expect(result[0].course.id).toBe('course-1');
     expect(fetchMock.mock.calls[0][0]).toContain('/me/enrollments');
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/courses?page='))).toBe(false);
+  });
+
+  it('does not fall back to the global catalog when the learner has no active enrollment', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([]), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(progressionApi.coursePaths('token')).resolves.toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -109,5 +117,86 @@ describe('learningMediaApi.upload', () => {
 
     await expect(learningMediaApi.upload('course-1', 'token', new File(['pdf'], 'a.pdf', { type: 'application/pdf' }))).rejects.toThrow('Learning Media upload failed (403).');
     expect(String(fetchMock.mock.calls[1][0])).toContain('/admin/media/media-2/fail');
+  });
+});
+
+describe('educationAdminApi classroom administration', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('sends a scoped PATCH request for safe classroom metadata updates', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'class-1', name: 'Updated classroom' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await educationAdminApi.updateClassroom('school-1', 'class-1', 'token', { name: 'Updated classroom', capacity: 30 });
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/education-admin/organizations/school-1/classrooms/class-1');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'PATCH', body: JSON.stringify({ name: 'Updated classroom', capacity: 30 }) });
+  });
+});
+
+describe('catalog lesson authoring contract', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('creates a lesson through the system-admin course endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'lesson-1' }), { status: 201, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await catalogApi.createLesson('course-1', 'token', { title: 'Introduction', content: { summary: 'Start here' } });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/admin/courses/course-1/lessons');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' });
+  });
+
+  it('posts lesson ordering with a valid courseId and guards against missing courseId', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ courseId: 'course-1', orderedIds: ['l-1', 'l-2'] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await catalogApi.reorderLessons('course-1', 'token', ['l-1', 'l-2']);
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/admin/courses/course-1/lessons/order');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ orderedIds: ['l-1', 'l-2'] }),
+    });
+
+    await expect(catalogApi.reorderLessons('', 'token', ['l-1'])).rejects.toThrow('Course ID is required to reorder lessons');
+  });
+});
+
+describe('curriculum authoring status contract', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('updates section status via POST /author/sections/:sectionId/status', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'sec-1', status: 'published' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { curriculumApi } = await import('./api');
+    await curriculumApi.setSectionStatus('sec-1', 'token', 'published');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/author/sections/sec-1/status');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ status: 'published' }),
+    });
+  });
+
+  it('updates activity status via POST /author/activities/:activityId/status', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'act-1', status: 'published' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { curriculumApi } = await import('./api');
+    await curriculumApi.setActivityStatus('act-1', 'token', 'published');
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/author/activities/act-1/status');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ status: 'published' }),
+    });
+  });
+});
+
+describe('course enrollment synchronization contract', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('retries enrollment synchronization through the admin course endpoint and returns the summary', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ classrooms: 2, enrolled: 5 }), { status: 201, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(catalogApi.syncCourseEnrollments('course-1', 'token')).resolves.toEqual({ classrooms: 2, enrolled: 5 });
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/admin/courses/course-1/enrollments/sync');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' });
   });
 });

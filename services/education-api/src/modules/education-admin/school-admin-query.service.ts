@@ -86,6 +86,15 @@ export class SchoolAdminQueryService {
     return this.prisma.$queryRaw`SELECT o.id,o.code,COALESCE(o.title,c.title) AS title,o.status FROM public.learning_course_offerings o JOIN public.learning_courses c ON c.id=o.course_id WHERE o.organization_id=${organizationId}::uuid ORDER BY o.created_at DESC`;
   }
 
+  async publishedGlobalCourses(user: AuthenticatedUser, organizationId: string) {
+    this.assertOrganizationPermission(user, organizationId, 'education.classroom.read');
+    return this.prisma.$queryRaw`
+      SELECT id,title,description,created_at,updated_at
+      FROM public.learning_courses
+      WHERE organization_id IS NULL AND status='published'
+      ORDER BY title`;
+  }
+
   async memberCandidates(user: AuthenticatedUser, organizationId: string, classroomId: string, query: MemberCandidateQueryDto) {
     this.assertOrganizationPermission(user, organizationId, "education.classroom.members.manage");
     await this.assertClassroom(organizationId, classroomId);

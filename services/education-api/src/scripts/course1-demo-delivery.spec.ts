@@ -36,7 +36,10 @@ describe("Course 1 demo delivery integration", () => {
         }),
       },
       learning_classroom_members: { upsert: jest.fn(async ({ where }) => { state.members.add(JSON.stringify(where)); return {}; }) },
-      learning_enrollments: { upsert: jest.fn(async ({ where }) => { state.enrollments.add(JSON.stringify(where)); return { id: "enrollment-1" }; }) },
+      $queryRaw: jest.fn(async () => {
+        state.enrollments.add("course-1:student-1:classroom-1");
+        return [{ id: "enrollment-1" }];
+      }),
       learning_classroom_assignments: { upsert: jest.fn(async ({ where }) => { state.deliveries.add(JSON.stringify(where)); return {}; }) },
     };
     const prisma = { $transaction: jest.fn(async (work) => work(tx)) };
@@ -55,7 +58,7 @@ describe("Course 1 demo delivery integration", () => {
 
     expect(tx.learning_course_offerings.upsert).toHaveBeenCalledTimes(2);
     expect(tx.learning_classrooms.upsert).toHaveBeenCalledTimes(2);
-    expect(tx.learning_enrollments.upsert).toHaveBeenCalledTimes(2);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
     expect(tx.learning_classroom_assignments.upsert).toHaveBeenCalledTimes(10);
     expect(tx.learning_classroom_members.upsert).toHaveBeenCalledTimes(4);
     expect(second).toEqual(first);
@@ -78,7 +81,7 @@ describe("Course 1 demo delivery integration", () => {
       learning_course_offerings: { upsert: jest.fn() },
       learning_classrooms: { upsert: jest.fn() },
       learning_classroom_members: { upsert: jest.fn() },
-      learning_enrollments: { upsert: jest.fn() },
+      $queryRaw: jest.fn(),
       learning_classroom_assignments: { upsert: classroomAssignmentUpsert },
     };
     const prisma = { $transaction: jest.fn(async (work) => work(tx)) };
