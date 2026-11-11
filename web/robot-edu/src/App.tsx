@@ -26,6 +26,7 @@ import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminRobots } from './pages/admin/AdminRobots';
 import { AdminSettings } from './pages/admin/AdminSettings';
 import { AdminCourses } from './pages/admin/AdminCourses';
+import { CourseBuilder } from './pages/admin/CourseBuilder';
 import { NotFound } from './pages/NotFound';
 import { Login } from './pages/Login';
 import { LearningLoop } from './pages/LearningLoop';
@@ -56,6 +57,8 @@ export function App() {
                 <Route path="login" element={<Login />} />
                 <Route index element={<PublicEntry />} />
                 <Route path="home-v2" element={<Navigate to="/" replace />} />
+                {/* Full-page workspace: deliberately outside AppShell so the editor owns the whole viewport. */}
+                <Route path="admin/courses/:courseId" element={<RequireSession><RequireRole roles={['admin']}><CourseBuilder /></RequireRole></RequireSession>} />
                 <Route element={<RequireSession><AppShell /></RequireSession>}>
                   <Route path="account" element={<AccountSettings />} />
                   <Route path="settings" element={<WebSettings />} />

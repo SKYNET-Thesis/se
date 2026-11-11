@@ -60,6 +60,12 @@ type LessonDraft = { title: string; summary: string; prerequisiteLessonIds: stri
 type SectionDraft = { title: string };
 type ActivityDraft = { title: string; type: string; required: boolean; contentRef: ContentRef; content?: Record<string, unknown> };
 
+/** Imperative handle for a host (the Course Builder header) that triggers the editor's single Preview / Publish flow. */
+export interface CurriculumEditorActions {
+  openPreview: () => void;
+  openPublish: () => void;
+}
+
 export interface CurriculumEditorDragRef {
   reorderLessons: (newOrder: Lesson[]) => void;
   endLessonDrag: () => Promise<void>;
@@ -105,6 +111,8 @@ export function CanonicalCurriculumEditor({
   isArchived: isArchivedProp = false,
   dragRef,
   initialViewMode = 'content',
+  embedded = false,
+  actionsRef,
 }: {
   course: ApiCourse;
   token: string;
@@ -112,6 +120,9 @@ export function CanonicalCurriculumEditor({
   isArchived?: boolean;
   dragRef?: React.MutableRefObject<CurriculumEditorDragRef | null>;
   initialViewMode?: 'content' | 'structure';
+  /** Inside the Course Builder workspace: no card chrome or title/action header (the workspace header owns those). */
+  embedded?: boolean;
+  actionsRef?: React.MutableRefObject<CurriculumEditorActions | null>;
 }) {
   const qc = useQueryClient();
   // The default view is chosen only by `initialViewMode` ('content'); testing hooks such as dragRef never change behavior.
@@ -617,15 +628,17 @@ export function CanonicalCurriculumEditor({
     setReadinessChecklistOpen(true);
   };
 
+  if (actionsRef) actionsRef.current = { openPreview: () => openPreview(), openPublish: () => openPublish() };
+
   const isTreeLoading = lessons.isLoading || (Boolean(lessonId) && sections.isLoading);
 
   return (
     <section
-      className="rounded-xl border border-line bg-surface p-5 sm:p-6 shadow-hairline space-y-6"
+      className={embedded ? 'space-y-4' : 'rounded-xl border border-line bg-surface p-5 sm:p-6 shadow-hairline space-y-6'}
       aria-label="Canonical curriculum editor"
     >
       {/* Studio Header (Coursera Reference 3) */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-4">
+      {!embedded && <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line pb-4">
         <div>
           <div className="flex items-center gap-2.5">
             <h2 className="text-xl font-bold text-ink tracking-tight">
@@ -686,7 +699,7 @@ export function CanonicalCurriculumEditor({
             </Button>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* Failures and confirmations are visible in both views */}
       {error && (
@@ -714,7 +727,7 @@ export function CanonicalCurriculumEditor({
           onClick={() => handleViewModeChange('content')}
         >
           <BookOpenIcon className="h-4 w-4" />
-          Content Editor
+          {embedded ? 'Outline & Editor' : 'Content Editor'}
         </button>
         <button
           type="button"
@@ -728,7 +741,7 @@ export function CanonicalCurriculumEditor({
           onClick={() => handleViewModeChange('structure')}
         >
           <LayersIcon className="h-4 w-4" />
-          Curriculum Structure
+          {embedded ? 'Structure & Publishing' : 'Curriculum Structure'}
         </button>
       </div>
 
@@ -741,8 +754,9 @@ export function CanonicalCurriculumEditor({
             onDirtyChange?.(dirty);
           }}
           isArchived={isArchived}
-          onOpenPreview={openPreview}
-          onOpenPublish={openPublish}
+          onOpenPreview={embedded ? undefined : openPreview}
+          onOpenPublish={embedded ? undefined : openPublish}
+          onSnapshotChange={setContentSnapshot}
         />
       ) : (
         <div className="space-y-6">
