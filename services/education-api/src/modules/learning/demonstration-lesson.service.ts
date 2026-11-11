@@ -70,7 +70,7 @@ export class DemonstrationLessonService {
   }
 
   async create(user: AuthenticatedUser, attemptId: string) {
-    await this.own(user, attemptId);
+    await this.own(user, attemptId, true);
     let session = [...this.sessions.values()].find(
       (candidate) => candidate.userId === user.vistaUserId && candidate.attemptId === attemptId,
     );
@@ -232,7 +232,9 @@ export class DemonstrationLessonService {
     return rows[0];
   }
 
-  private async own(user: AuthenticatedUser, attemptId: string) {
+  private async own(user: AuthenticatedUser, attemptId: string, write = false) {
+    // New demonstration work needs an active enrollment; reading an existing session does not.
+    if (write) await this.learning.assertAttemptWritable(user, attemptId);
     if (await this.learning.assignmentTitleForAttempt(user, attemptId) !== "Teach by Demonstration") {
       throw new NotFoundException("C3 demonstration practice was not found.");
     }
@@ -243,7 +245,7 @@ export class DemonstrationLessonService {
     if (!session || session.userId !== user.vistaUserId) {
       throw new NotFoundException("Demonstration session was not found.");
     }
-    await this.own(user, session.attemptId);
+    await this.own(user, session.attemptId, true);
     return session;
   }
 

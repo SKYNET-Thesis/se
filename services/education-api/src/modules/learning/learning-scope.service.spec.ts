@@ -53,4 +53,35 @@ describe("LearningScopeService", () => {
     queryRaw.mockResolvedValue([]);
     await expect(service.assertStudentClassroomAccess(teacher, "class-a")).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  describe("assertStudentClassroomAccess enrollment enforcement", () => {
+    const student = { ...user, memberships:[{ id:"member-1", organizationId:"org-1", roleCode:"student", status:"active", permissions:["learning.work.write"] }] };
+    const sql = () => (queryRaw.mock.calls[0][0] as TemplateStringsArray).join("?");
+    const flag = () => queryRaw.mock.calls[0][1];
+
+    it("requires an active classroom, active offering and active enrollment for write paths", async () => {
+      queryRaw.mockResolvedValue([{ classroom_id:"class-a" }]);
+      await service.assertStudentClassroomAccess(student, "class-a", { requireActiveEnrollment:true });
+      expect(sql()).toContain("c.status='active'");
+      expect(sql()).toContain("o.status='active'");
+      expect(sql()).toContain("e.status='active'");
+      expect(sql()).toContain("e.classroom_id=c.id");
+      expect(sql()).toContain("e.offering_id=o.id AND e.course_id=o.course_id");
+      expect(queryRaw.mock.calls[0].slice(1)).toContain(true);
+    });
+    it("denies a student whose enrollment was revoked even while the membership stays active", async () => {
+      queryRaw.mockResolvedValue([]);
+      await expect(service.assertStudentClassroomAccess(student, "class-a", { requireActiveEnrollment:true })).rejects.toBeInstanceOf(NotFoundException);
+    });
+    it("keeps history reads membership-only so revocation never hides preserved evidence", async () => {
+      queryRaw.mockResolvedValue([{ classroom_id:"class-a" }]);
+      await service.assertStudentClassroomAccess(student, "class-a");
+      expect(queryRaw.mock.calls[0].slice(1)).toContain(false);
+      expect(flag()).toBeDefined();
+    });
+    it("does not weaken the system administrator bypass", async () => {
+      await expect(service.assertStudentClassroomAccess({ ...student, systemPermissions:["org.manage"] }, "x", { requireActiveEnrollment:true })).resolves.toBeUndefined();
+      expect(queryRaw).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -31,7 +31,7 @@ export class ProgrammingService {
         WHERE a.id=${attemptId}::uuid AND a.learner_user_id=${user.vistaUserId}::uuid FOR UPDATE`;
       const attempt = attempts[0];
       if (!attempt) throw new NotFoundException("Attempt was not found.");
-      await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id);
+      await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id, { requireActiveEnrollment: true });
       if (attempt.program_id) throw new ConflictException("This attempt already has a program.");
       if (this.hasLearningPreview(dto.robotProgram)) await this.validateRobotProgram(dto.robotProgram, await this.assignmentAllowsLearningPreview(attempt.assignment_id));
       await this.validateCurriculumProgram(attempt.assignment_id, dto.robotProgram);
@@ -48,7 +48,7 @@ export class ProgrammingService {
   }
 
   async updateProgram(user: AuthenticatedUser, programId: string, dto: UpdateProgramDto) {
-    const current = await this.ownProgram(user, programId);
+    const current = await this.ownProgram(user, programId, true);
     if (dto.robotProgram) { this.validateRobotProgram(dto.robotProgram); if (this.hasLearningPreview(dto.robotProgram)) await this.validateRobotProgram(dto.robotProgram, await this.assignmentAllowsLearningPreview(current.assignment_id)); await this.validateCurriculumProgram(current.assignment_id, dto.robotProgram); }
     const workspace = dto.workspaceJson === undefined ? current.workspace_json : dto.workspaceJson;
     const robot = dto.robotProgram === undefined ? current.robot_program : dto.robotProgram;
@@ -78,7 +78,7 @@ export class ProgrammingService {
         WHERE p.id=${programId}::uuid AND p.owner_user_id=${user.vistaUserId}::uuid FOR UPDATE`;
       const program = programs[0];
       if (!program) throw new NotFoundException("Program was not found.");
-      await this.assertProgramHasOwnScopedAttempt(user, programId);
+      await this.assertProgramHasOwnScopedAttempt(user, programId, true);
       this.validateRobotProgram(program.robot_program as Record<string, unknown>);
       if (this.hasLearningPreview(program.robot_program as Record<string, unknown>)) await this.validateRobotProgram(program.robot_program as Record<string, unknown>, await this.assignmentAllowsLearningPreview(program.assignment_id));
       await this.validateCurriculumProgram(program.assignment_id, program.robot_program as Record<string, unknown>);
@@ -115,7 +115,7 @@ export class ProgrammingService {
         WHERE a.id=${attemptId}::uuid AND a.learner_user_id=${user.vistaUserId}::uuid FOR UPDATE`;
       const attempt = attempts[0];
       if (!attempt?.program_id) throw new NotFoundException("Attempt program was not found.");
-      await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id);
+      await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id, { requireActiveEnrollment: true });
       const versions = await tx.$queryRaw<{ id: string; workspace_json: unknown; robot_program: unknown }[]>`
         SELECT id,workspace_json,robot_program FROM public.learning_program_versions
         WHERE id=${dto.programVersionId}::uuid AND program_id=${attempt.program_id}::uuid`;
@@ -152,24 +152,24 @@ export class ProgrammingService {
     return attempt;
   }
 
-  private async ownProgram(user: AuthenticatedUser, programId: string): Promise<ProgramRow> {
+  private async ownProgram(user: AuthenticatedUser, programId: string, requireActiveEnrollment = false): Promise<ProgramRow> {
     const programs = await this.prisma.$queryRaw<ProgramRow[]>`
       SELECT p.id,p.owner_user_id,p.assignment_id,p.title,p.schema_version,p.workspace_json,p.robot_program,p.validation_result
       FROM public.learning_programs p WHERE p.id=${programId}::uuid AND p.owner_user_id=${user.vistaUserId}::uuid`;
     const program = programs[0];
     if (!program) throw new NotFoundException("Program was not found.");
-    await this.assertProgramHasOwnScopedAttempt(user, programId);
+    await this.assertProgramHasOwnScopedAttempt(user, programId, requireActiveEnrollment);
     return program;
   }
 
-  private async assertProgramHasOwnScopedAttempt(user: AuthenticatedUser, programId: string): Promise<void> {
+  private async assertProgramHasOwnScopedAttempt(user: AuthenticatedUser, programId: string, requireActiveEnrollment = false): Promise<void> {
     const attempts = await this.prisma.$queryRaw<AttemptProgramRow[]>`
       SELECT a.id AS attempt_id,ca.classroom_id,ca.assignment_id,a.program_id
       FROM public.learning_assignment_attempts a
       JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id
       WHERE a.program_id=${programId}::uuid AND a.learner_user_id=${user.vistaUserId}::uuid LIMIT 1`;
     if (!attempts[0]) throw new NotFoundException("Program was not found.");
-    await this.scope.assertStudentClassroomAccess(user, attempts[0].classroom_id);
+    await this.scope.assertStudentClassroomAccess(user, attempts[0].classroom_id, { requireActiveEnrollment });
   }
 
   private async assignmentAllowsLearningPreview(assignmentId: string | null): Promise<boolean> {

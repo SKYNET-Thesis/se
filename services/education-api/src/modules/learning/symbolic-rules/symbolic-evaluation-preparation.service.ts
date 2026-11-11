@@ -51,7 +51,7 @@ export class SymbolicEvaluationPreparationService {
       WHERE e.id=${experimentId}::uuid AND e.learner_user_id=${user.vistaUserId}::uuid`;
     const row = rows[0];
     if (!row) throw new NotFoundException("Experiment was not found.");
-    await this.scope.assertStudentClassroomAccess(user, row.classroom_id);
+    await this.scope.assertStudentClassroomAccess(user, row.classroom_id, { requireActiveEnrollment: true });
     if (row.status !== "succeeded" || row.execution_mode !== "schematic") throw new BadRequestException("Only a completed schematic experiment can be evaluated.");
     if (!row.challenge_id) throw new BadRequestException("The experiment assignment has no challenge.");
     const input = asRecord(row.input_snapshot, "Experiment input provenance is invalid.");

@@ -621,6 +621,12 @@ export class LearningService {
   }
   async myAttempts(user:AuthenticatedUser){return this.prisma.$queryRaw`SELECT id,classroom_assignment_id,attempt_number,status,score,(result_snapshot->>'passed')::boolean AS passed,started_at,submitted_at FROM public.learning_assignment_attempts WHERE learner_user_id=${user.vistaUserId}::uuid ORDER BY started_at DESC`;}
   async myAttempt(user:AuthenticatedUser,id:string){const r=await this.prisma.$queryRaw<Record<string,unknown>[]>`SELECT id,classroom_assignment_id,attempt_number,status,workspace_snapshot,program_snapshot,result_snapshot,started_at,submitted_at FROM public.learning_assignment_attempts WHERE id=${id}::uuid AND learner_user_id=${user.vistaUserId}::uuid`;if(!r[0])throw new NotFoundException("Attempt was not found.");return r[0];}
+  /**
+   * Write guard for attempt-bound student actions that have no classroom query of their own (VR and demonstration
+   * sessions): the caller must own the attempt AND hold an active enrollment in its active classroom/offering.
+   * Reading the attempt stays on `myAttempt`, so revocation never hides preserved history.
+   */
+  async assertAttemptWritable(user:AuthenticatedUser,id:string){const r=await this.prisma.$queryRaw<{classroom_id:string}[]>`SELECT ca.classroom_id FROM public.learning_assignment_attempts a JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id WHERE a.id=${id}::uuid AND a.learner_user_id=${user.vistaUserId}::uuid`;if(!r[0])throw new NotFoundException("Attempt was not found.");await this.scope.assertStudentClassroomAccess(user,r[0].classroom_id,{requireActiveEnrollment:true});}
   async assignmentTitleForAttempt(user:AuthenticatedUser,id:string){await this.myAttempt(user,id);const r=await this.prisma.$queryRaw<{title:string}[]>`SELECT a.title FROM public.learning_assignment_attempts at JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id JOIN public.learning_assignments a ON a.id=ca.assignment_id WHERE at.id=${id}::uuid AND at.learner_user_id=${user.vistaUserId}::uuid`;return r[0]?.title??null;}
 }
 export interface CourseRow { id:string; title:string; description:string|null; status:string; created_at:Date; updated_at:Date; }
