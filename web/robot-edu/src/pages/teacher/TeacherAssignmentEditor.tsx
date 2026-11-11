@@ -7,6 +7,7 @@ import { Field, inputClasses } from '../../components/ui/Field';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { assignmentApi, instructorApi } from '../../lib/api';
 import { createDraftBody, createUpdateBody, deliveryCourseTitle, draftForDeliveryOption, teacherLearningInvalidations, teacherLearningKeys } from '../../queries/teacherLearningQueries';
+import { ClassroomQuizDeliveryPanel } from '../../components/assignments/ClassroomQuizDeliveryPanel';
 
 export function TeacherAssignmentEditor() {
   const { classroomId: routeClassroomId, assignmentId } = useParams();
@@ -59,5 +60,6 @@ export function TeacherAssignmentEditor() {
       <Field label="Title" className="sm:col-span-2">{(props) => <input {...props} required maxLength={200} className={inputClasses} value={title} onChange={(event) => setTitle(event.target.value)} />}</Field>
       <Field label="Instructions" className="sm:col-span-2">{(props) => <textarea {...props} rows={6} className={inputClasses} value={instructions} onChange={(event) => setInstructions(event.target.value)} />}</Field>
     </section><div className="flex items-center justify-between gap-3 border-t border-line pt-5"><p className="text-xs text-ink-muted">Publishing is a separate action from the Assignments page.</p><div className="flex gap-2"><Button type="button" variant="ghost" onClick={() => navigate('/teacher/assignments')}>Cancel</Button><Button type="submit" variant="primary" disabled={save.isPending || !classroomId || !lessonId || !title.trim() || missingEditAssignment}>{save.isPending ? 'Saving…' : editing ? 'Save changes' : 'Create draft'}</Button></div></div></form>
+    {!editing && classroomId && <ClassroomQuizDeliveryPanel key={classroomId} classroomId={classroomId} token={token} />}
   </main>;
 }

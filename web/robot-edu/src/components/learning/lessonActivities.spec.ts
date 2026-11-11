@@ -33,4 +33,33 @@ describe('lesson activity model', () => {
     expect(physical).toMatchObject({ status: 'unavailable', actionable: false });
     expect(physical?.description).toContain('runtime is authorized and ready');
   });
+
+  it('uses the published database curriculum instead of generating legacy activity placeholders', () => {
+    const activities = buildLessonActivities(lesson({
+      databaseSections: [{
+        id: 'section-1', title: 'Workspace Safety', ordinal: 1,
+        activities: [{
+          id: 'activity-1', title: 'Clear the work area', type: 'reading', ordinal: 1, required: true,
+          content: { version: 1, blocks: [{ type: 'paragraph', text: 'Remove loose objects from the work area.' }] },
+        }],
+      }],
+    }));
+    expect(activities).toHaveLength(1);
+    expect(activities[0]).toMatchObject({
+      id: 'activity-1', title: 'Clear the work area',
+      content: { version: 1, blocks: [{ type: 'paragraph', text: 'Remove loose objects from the work area.' }] },
+    });
+  });
+
+  it('only routes a database knowledge check to the learner assignment linked by its content reference', () => {
+    const linked = buildLessonActivities(lesson({
+      databaseSections: [{ id: 'section-1', title: 'Assessment', ordinal: 1, activities: [{ id: 'quiz-1', title: 'Quiz', type: 'knowledge_check', ordinal: 1, required: true, content_ref: { kind: 'assignment', id: 'assignment-1' } }] }],
+    }));
+    expect(linked[0]).toMatchObject({ actionable: true, action: 'knowledge_check' });
+
+    const unlinked = buildLessonActivities(lesson({
+      databaseSections: [{ id: 'section-1', title: 'Assessment', ordinal: 1, activities: [{ id: 'quiz-2', title: 'Quiz', type: 'knowledge_check', ordinal: 1, required: true, content_ref: { kind: 'assignment', id: 'different-assignment' } }] }],
+    }));
+    expect(unlinked[0]).toMatchObject({ actionable: false, status: 'unavailable' });
+  });
 });

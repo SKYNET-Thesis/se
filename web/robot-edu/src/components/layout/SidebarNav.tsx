@@ -7,9 +7,10 @@ import { cn } from '../../utils/cn';
 interface SidebarNavProps {
   collapsed?: boolean;
   onNavigate?: () => void;
+  canNavigate?: () => boolean;
 }
 
-export function SidebarNav({ collapsed = false, onNavigate }: SidebarNavProps) {
+export function SidebarNav({ collapsed = false, onNavigate, canNavigate }: SidebarNavProps) {
   const { role, loading } = useRole();
   if (loading || !role) return <p className="px-2.5 text-sm text-ink-muted">Loading workspace…</p>;
   const sections = navigationByRole[role];
@@ -25,7 +26,14 @@ export function SidebarNav({ collapsed = false, onNavigate }: SidebarNavProps) {
                 <NavLink
               to={item.to}
               end={item.end}
-              onClick={onNavigate}
+              onClick={(event) => {
+                if (canNavigate && !canNavigate()) {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  return;
+                }
+                onNavigate?.();
+              }}
               title={collapsed ? item.label : undefined}
               aria-label={collapsed ? item.label : undefined}
               className={({ isActive }) =>

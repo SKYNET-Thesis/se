@@ -10,13 +10,13 @@ describe('classroom student import view model', () => {
   });
 
   it('maps preview classifications to school-facing metrics', () => {
-    expect(classroomPreviewSummary({ processed: 4, newStudents: 1, existingStudents: 1, alreadyInClass: 1, needsReview: 1, rows: [] })).toEqual([
+    expect(classroomPreviewSummary({ processed: 4, newStudents: 1, existingStudents: 1, alreadyInClass: 1, needsReview: 1 })).toEqual([
       ['Records', 4], ['New students', 1], ['Existing students', 1], ['Already in classroom', 1], ['Needs review', 1],
     ]);
   });
 
   it('maps persisted result states without claiming failed rows succeeded', () => {
-    expect(classroomImportResultSummary({ processed: 4, createdAndAdded: 1, existingAdded: 1, unchanged: 1, failed: 1, results: [] })).toEqual([
+    expect(classroomImportResultSummary({ processed: 4, createdAndAdded: 1, existingAdded: 1, unchanged: 1, failed: 1 })).toEqual([
       ['Processed', 4], ['Created and added', 1], ['Existing added', 1], ['Already in classroom', 1], ['Failed', 1],
     ]);
   });

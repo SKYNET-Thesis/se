@@ -25,6 +25,8 @@ import { TeacherSubmissions } from './pages/teacher/TeacherSubmissions';
 import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminRobots } from './pages/admin/AdminRobots';
 import { AdminSettings } from './pages/admin/AdminSettings';
+import { AdminCourses } from './pages/admin/AdminCourses';
+import { CourseBuilderPage } from './pages/admin/CourseBuilderPage';
 import { NotFound } from './pages/NotFound';
 import { Login } from './pages/Login';
 import { LearningLoop } from './pages/LearningLoop';
@@ -62,9 +64,9 @@ export function App() {
                   <Route path="courses/:courseId/info" element={<CourseInfo />} />
                   <Route path="courses/:courseId/lessons/:lessonId" element={<LessonViewer />} />
                   <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
-                  <Route path="assignments" element={<StudentAssignments />} />
-                  <Route path="my-learning" element={<MyLearning />} />
-                  <Route path="my-learning/:classroomAssignmentId" element={<StudentAssignmentDetail />} />
+                  <Route path="assignments" element={<RequireRole roles={['student']}><StudentAssignments /></RequireRole>} />
+                  <Route path="my-learning" element={<RequireRole roles={['student']}><MyLearning /></RequireRole>} />
+                  <Route path="my-learning/:classroomAssignmentId" element={<RequireRole roles={['student']}><StudentAssignmentDetail /></RequireRole>} />
                   <Route path="learning-loop" element={<LearningLoop />} />
                   <Route path="assignments/:assignmentId" element={<AssignmentDetail />} />
                   <Route path="studio" element={<Studio />} />
@@ -84,6 +86,9 @@ export function App() {
                   <Route path="admin/users" element={<RequireRole roles={['admin']}><AdminUsers /></RequireRole>} />
                   <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />
                   <Route path="admin/settings" element={<RequireRole roles={['admin']}><AdminSettings /></RequireRole>} />
+                  <Route path="admin/courses/new" element={<RequireRole roles={['admin']}><CourseBuilderPage /></RequireRole>} />
+                  <Route path="admin/courses/:courseId/edit" element={<RequireRole roles={['admin']}><CourseBuilderPage /></RequireRole>} />
+                  <Route path="admin/courses" element={<RequireRole roles={['admin']}><AdminCourses /></RequireRole>} />
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />
                   <Route path="school/users" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="users" /></RequireRole>} />
                   <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />

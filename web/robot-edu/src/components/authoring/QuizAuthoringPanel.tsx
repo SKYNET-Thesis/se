@@ -1,0 +1,51 @@
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button } from '../ui/Button';
+import { quizAuthoringApi } from '../../lib/api';
+
+type Props = { lessonId: string; token: string; title: string; instructions: string; assignmentId?: string; onChange: (patch: { title?: string; instructions?: string; contentRef?: { kind: 'assignment'; id: string } }) => void; };
+const input = 'mt-1 w-full rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink';
+
+export function QuizAuthoringPanel({ lessonId, token, title, instructions, assignmentId, onChange }: Props) {
+  const qc = useQueryClient();
+  // The author preview mirrors the persisted quiz, so refresh it together with the assignment.
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ['quiz-authoring-assignment', lessonId] }), qc.invalidateQueries({ queryKey: ['quiz-authoring-preview', lessonId] })]);
+  const [tab, setTab] = useState<'info' | 'questions' | 'preview'>('info');
+  const [search, setSearch] = useState('');
+  const [questionType, setQuestionType] = useState('');
+  const [page, setPage] = useState(1);
+  const [passPercent, setPassPercent] = useState(80);
+  const assignmentQuery = useQuery({ queryKey: ['quiz-authoring-assignment', lessonId], queryFn: () => quizAuthoringApi.assignment(lessonId, token) });
+  const questionsQuery = useQuery({ queryKey: ['quiz-authoring-questions', lessonId, search, questionType, page], queryFn: () => quizAuthoringApi.questions(lessonId, token, search, questionType, page), enabled: tab === 'questions' });
+  const assignment = assignmentQuery.data;
+  const selected = assignment?.questions ?? [];
+  const assignmentIdForMutation = assignment?.id;
+  const create = useMutation({ mutationFn: () => quizAuthoringApi.createAssignment(lessonId, token, { title: title.trim(), instructions: instructions.trim(), passPercent: 80 }), onSuccess: async (result) => { onChange({ contentRef: { kind: 'assignment', id: result.id } }); await refresh(); } });
+  const update = useMutation({ mutationFn: () => { if (!assignmentIdForMutation) throw new Error('Create the quiz draft first.'); if (!Number.isInteger(passPercent) || passPercent < 1 || passPercent > 100) throw new Error('Passing score must be a whole number from 1 to 100.'); return quizAuthoringApi.updateAssignment(lessonId, assignmentIdForMutation, token, { title: title.trim(), instructions: instructions.trim(), passPercent }); }, onSuccess: refresh });
+  const add = useMutation({ mutationFn: (questionVersionId: string) => { if (!assignmentIdForMutation) throw new Error('Create the quiz draft first.'); return quizAuthoringApi.addQuestion(assignmentIdForMutation, token, { questionVersionId, ordinal: Math.max(0, ...selected.map((item) => item.ordinal)) + 1, points: 1 }); }, onSuccess: refresh });
+  const remove = useMutation({ mutationFn: (versionId: string) => { if (!assignmentIdForMutation) throw new Error('Create the quiz draft first.'); return quizAuthoringApi.removeQuestion(assignmentIdForMutation, versionId, token); }, onSuccess: refresh });
+  const reorder = useMutation({ mutationFn: (ids: string[]) => { if (!assignmentIdForMutation) throw new Error('Create the quiz draft first.'); return quizAuthoringApi.reorderQuestions(assignmentIdForMutation, token, ids); }, onSuccess: refresh });
+  const preview = useQuery({ queryKey: ['quiz-authoring-preview', lessonId], queryFn: () => quizAuthoringApi.preview(lessonId, token), enabled: tab === 'preview' && !!assignment });
+  const selectedIds = new Set(selected.map((q) => q.versionId));
+  const busy = create.isPending || add.isPending || remove.isPending || reorder.isPending;
+
+  useEffect(() => { if (assignment) setPassPercent(assignment.constraints.passPercent); }, [assignment]);
+
+  useEffect(() => { if (assignmentIdForMutation && assignmentId !== assignmentIdForMutation) onChange({ contentRef: { kind: 'assignment', id: assignmentIdForMutation } }); }, [assignmentIdForMutation, assignmentId, onChange]);
+
+  return <div className="space-y-4">
+    <div className="flex gap-2 border-b border-line">{([['info', 'Quiz information'], ['questions', 'Questions'], ['preview', 'Preview']] as const).map(([id, label]) => <button key={id} type="button" onClick={() => setTab(id)} className={`px-3 py-2 text-sm ${tab === id ? 'border-b-2 border-accent font-semibold text-accent-ink' : 'text-ink-muted'}`}>{label}</button>)}</div>
+    {tab === 'info' && <div className="space-y-3"><label className="block text-sm font-medium">Quiz title<input className={input} value={title} onChange={(e) => onChange({ title: e.target.value })} onBlur={() => assignment && title.trim() !== assignment.title && update.mutate()} maxLength={200} /></label><label className="block text-sm font-medium">Instructions<textarea className={input} rows={3} value={instructions} onChange={(e) => onChange({ instructions: e.target.value })} onBlur={() => assignment && instructions !== assignment.instructions && update.mutate()} maxLength={10000} /></label><label className="block text-sm font-medium">Passing score (%)<input className={input} type="number" min={1} max={100} value={passPercent} onChange={(e) => setPassPercent(Number(e.target.value))} onBlur={() => assignment && passPercent !== assignment.constraints.passPercent && update.mutate()} aria-label="Passing score" /></label>{!assignment && <Button variant="primary" disabled={busy || !title.trim()} loading={create.isPending} onClick={() => create.mutate()}>Create quiz draft</Button>}{assignment && <p className="text-sm text-ink-muted">Draft assignment linked · {selected.length} questions · {assignment.constraints.passPercent}% passing score</p>}</div>}
+    {tab === 'questions' && <div className="space-y-3"><div className="grid gap-2 sm:grid-cols-[1fr_13rem]"><label className="block text-sm">Search Question Bank<input className={input} value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} placeholder="Search question text or code" /></label><label className="block text-sm">Question type<select className={input} value={questionType} onChange={(e) => { setQuestionType(e.target.value); setPage(1); }}><option value="">All supported types</option><option value="single_choice">Single choice</option><option value="multiple_choice">Multiple choice</option><option value="true_false">True / false</option></select></label></div>{questionsQuery.isLoading ? <p>Loading questions…</p> : questionsQuery.error ? <p role="alert">Could not load Question Bank.</p> : <div className="space-y-2">{questionsQuery.data?.items.map((q) => <article key={q.id} className="rounded-md border border-line p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-xs text-ink-muted">{q.code} · {q.type.split('_').join(' ')} · v{q.versionNumber}</p><p className="font-medium">{q.stem}</p><p className="mt-1 text-xs text-ink-muted">{q.objectives.map((o) => o.code).join(', ')}</p></div><Button size="sm" disabled={!assignment || selectedIds.has(q.id) || busy} onClick={() => add.mutate(q.id)}>{selectedIds.has(q.id) ? 'Added' : 'Add'}</Button></div></article>)}</div>}<div className="flex items-center justify-between text-sm"><span>{questionsQuery.data ? `${questionsQuery.data.total} questions · page ${page}` : ''}</span><div className="flex gap-2"><Button size="sm" variant="secondary" disabled={page <= 1 || questionsQuery.isFetching} onClick={() => setPage((n) => n - 1)}>Previous</Button><Button size="sm" variant="secondary" disabled={!questionsQuery.data || page * questionsQuery.data.pageSize >= questionsQuery.data.total || questionsQuery.isFetching} onClick={() => setPage((n) => n + 1)}>Next</Button></div></div>{!assignment && <p className="text-sm text-ink-muted">Create the quiz draft in Quiz information before selecting questions.</p>}</div>}
+    {tab === 'preview' && <div className="space-y-3 rounded-md border border-line p-4"><h3 className="text-lg font-semibold">{title || assignment?.title || 'Untitled quiz'}</h3><p>{instructions || assignment?.instructions}</p><p className="text-sm text-ink-muted">Passing score: {assignment?.constraints.passPercent ?? 80}% · {selected.length} questions</p>{preview.data?.questions?.map((question, index) => <article key={question.versionId} className="border-t border-line py-3"><p className="font-medium">{index + 1}. {question.stem}</p><ol className="list-[upper-alpha] pl-6">{question.options.map((option) => <li key={option.id}>{option.text}</li>)}</ol>{question.answerKey && <p className="mt-2 text-xs text-success-ink">Answer: {question.answerKey.join(', ')}</p>}</article>)}{!assignment && <p className="text-sm text-ink-muted">Create a quiz draft to preview.</p>}</div>}
+    {assignment && selected.length > 0 && tab !== 'info' && <div className="space-y-2 border-t border-line pt-3"><h4 className="text-sm font-semibold">Quiz order</h4>{selected.map((q, index) => <div key={q.versionId} className="flex items-center gap-2 rounded border border-line p-2"><span className="flex-1 text-sm">{index + 1}. {q.code}: {q.stem}</span><Button size="sm" variant="ghost" disabled={index === 0 || busy} onClick={() => reorder.mutate(moveItem(selected.map((x) => x.versionId), index, index - 1))}>↑</Button><Button size="sm" variant="ghost" disabled={index === selected.length - 1 || busy} onClick={() => reorder.mutate(moveItem(selected.map((x) => x.versionId), index, index + 1))}>↓</Button><Button size="sm" variant="ghost" disabled={busy} onClick={() => remove.mutate(q.versionId)}>Remove</Button></div>)}</div>}
+    {(create.error || update.error || add.error || remove.error || reorder.error || assignmentQuery.error) && <p role="alert" className="text-sm text-danger">{(create.error || update.error || add.error || remove.error || reorder.error || assignmentQuery.error)?.message ?? 'Quiz authoring failed.'}</p>}
+  </div>;
+}
+
+function moveItem<T>(items: T[], from: number, to: number): T[] {
+  const result = [...items];
+  const [item] = result.splice(from, 1);
+  result.splice(to, 0, item);
+  return result;
+}

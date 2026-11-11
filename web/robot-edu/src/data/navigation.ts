@@ -85,7 +85,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     title: 'Platform',
     items: [
     { to: '/lab', label: 'Robot Lab', icon: Cpu },
-    { to: '/courses', label: 'Course catalogue', icon: BookOpenIcon }]
+    { to: '/admin/courses', label: 'Course catalogue', icon: BookOpenIcon }]
 
   }],
 
