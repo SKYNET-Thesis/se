@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArchiveIcon,
@@ -12,12 +13,10 @@ import {
 } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Badge, type BadgeTone } from '../../components/ui/Badge';
-import { Dialog } from '../../components/ui/Dialog';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { catalogApi, type ApiCourse } from '../../lib/api';
-import { CanonicalCurriculumEditor } from './CanonicalCurriculumEditor';
 import { MediaAssetLibraryModal } from '../../components/authoring/MediaAssetLibraryModal';
 import { publishNotice } from '../../lib/publishNotice';
 
@@ -37,9 +36,10 @@ export function AdminCourses() {
   const [selected, setSelected] = useState<ApiCourse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [dirty, setDirty] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
+  const navigate = useNavigate();
+  // Create / edit / curriculum all live in the full-page Course Builder; this page only lists and navigates.
+  const openBuilder = (courseId: string | 'new', tab?: 'details' | 'curriculum') =>
+    navigate(courseId === 'new' ? '/admin/courses/new' : `/admin/courses/${courseId}?tab=${tab ?? 'curriculum'}`);
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
   // Learning Media is stored per course in private object storage, so the library opens for the selected course only.
   const openMediaLibrary = () => {
@@ -82,42 +82,10 @@ export function AdminCourses() {
     onError: (e) => setError(message(e)),
   });
 
-  const create = useMutation({
-    mutationFn: (body: { title: string; description?: string }) => catalogApi.createGlobalCourse(token, body),
-    onSuccess: async (created) => {
-      await refresh();
-      setCreateOpen(false);
-      setSelected(created);
-      setError(null);
-      setNotice('Draft course created. Configure its curriculum below, then publish.');
-    },
-    onError: (e) => setError(message(e)),
-  });
-
-  const edit = useMutation({
-    mutationFn: (body: { title: string; description?: string }) => catalogApi.updateGlobalCourse(selected!.id, token, body),
-    onSuccess: async (updated) => {
-      await refresh();
-      setSelected(updated);
-      setEditOpen(false);
-      setError(null);
-      setNotice('Course details updated successfully.');
-    },
-    onError: (e) => setError(message(e)),
-  });
-
   const choose = (course: ApiCourse) => {
-    if (selected?.id !== course.id && dirty && !window.confirm('Discard unsaved curriculum changes?')) return;
     setSelected(course);
     setError(null);
     setNotice(null);
-  };
-
-  const courseBody = (form: FormData) => {
-    const title = String(form.get('title') ?? '').trim();
-    if (!title) return null;
-    const description = String(form.get('description') ?? '').trim();
-    return { title, description: description || undefined };
   };
 
   // Derive compact statistics
@@ -152,7 +120,7 @@ export function AdminCourses() {
           <Button
             variant="primary"
             icon={<PlusIcon className="h-4 w-4" />}
-            onClick={() => setCreateOpen(true)}
+            onClick={() => openBuilder('new')}
           >
             Create Course
           </Button>
@@ -219,7 +187,8 @@ export function AdminCourses() {
               variant="primary"
               disabled={filteredCourses.length === 0}
               onClick={() => {
-                if (filteredCourses[0]) choose(filteredCourses[0]);
+                const target = selected ?? filteredCourses[0];
+                if (target) openBuilder(target.id);
               }}
             >
               Open Course Builder
@@ -388,17 +357,14 @@ export function AdminCourses() {
                           <Button
                             size="sm"
                             variant={isSelected ? 'primary' : 'secondary'}
-                            onClick={() => choose(course)}
+                            onClick={() => openBuilder(course.id, 'curriculum')}
                           >
                             Manage curriculum
                           </Button>
                           <Button
                             size="sm"
                             variant="secondary"
-                            onClick={() => {
-                              choose(course);
-                              setEditOpen(true);
-                            }}
+                            onClick={() => openBuilder(course.id, 'details')}
                           >
                             Edit details
                           </Button>
@@ -429,138 +395,6 @@ export function AdminCourses() {
           </div>
         </div>
       )}
-
-      {/* Curriculum Editor Panel */}
-      {selected && (
-        <section className="mt-8 border-t border-line pt-8" aria-labelledby="curriculum-editor-section">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <span className="text-2xs font-semibold uppercase tracking-wider text-accent-ink">
-                Canonical Curriculum
-              </span>
-              <h2 id="curriculum-editor-section" className="text-xl font-semibold text-ink">
-                {selected.title}
-              </h2>
-            </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                if (dirty && !window.confirm('Discard unsaved curriculum changes?')) return;
-                setSelected(null);
-              }}
-            >
-              Close editor
-            </Button>
-          </div>
-
-          <CanonicalCurriculumEditor
-            key={selected.id}
-            course={selected}
-            token={token}
-            onDirtyChange={setDirty}
-          />
-        </section>
-      )}
-
-      {/* Create Course Dialog */}
-      <Dialog
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        title="Create course"
-        description="Creates a draft global course template. Add its lessons, sections, and activities next, then publish."
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setCreateOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" form="create-course-form" loading={create.isPending}>
-              Create course
-            </Button>
-          </>
-        }
-      >
-        <form
-          id="create-course-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const body = courseBody(new FormData(event.currentTarget));
-            if (body) create.mutate(body);
-          }}
-          className="space-y-4"
-        >
-          <label className="block text-sm font-medium text-ink">
-            Course title
-            <input
-              name="title"
-              required
-              aria-label="Course title"
-              placeholder="e.g. Dual-Arm Robotics Manipulation"
-              className="mt-1.5 h-10 w-full rounded-md border border-line-strong bg-surface px-3 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
-            />
-          </label>
-          <label className="block text-sm font-medium text-ink">
-            Description
-            <textarea
-              name="description"
-              aria-label="Course description"
-              placeholder="Describe the learning objectives and robot manipulation skills covered in this course..."
-              className="mt-1.5 min-h-24 w-full rounded-md border border-line-strong bg-surface p-3 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
-            />
-          </label>
-        </form>
-      </Dialog>
-
-      {/* Edit Course Details Dialog */}
-      <Dialog
-        open={editOpen}
-        onClose={() => setEditOpen(false)}
-        title="Edit course details"
-        description="Update the course title and overview description."
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setEditOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" form="edit-course-form" loading={edit.isPending}>
-              Save changes
-            </Button>
-          </>
-        }
-      >
-        {selected && (
-          <form
-            id="edit-course-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (dirty && !window.confirm('Discard unsaved curriculum changes?')) return;
-              const body = courseBody(new FormData(event.currentTarget));
-              if (body) edit.mutate(body);
-            }}
-            className="space-y-4"
-          >
-            <label className="block text-sm font-medium text-ink">
-              Course title
-              <input
-                name="title"
-                required
-                defaultValue={selected.title}
-                aria-label="Course title"
-                className="mt-1.5 h-10 w-full rounded-md border border-line-strong bg-surface px-3 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
-              />
-            </label>
-            <label className="block text-sm font-medium text-ink">
-              Description
-              <textarea
-                name="description"
-                defaultValue={selected.description ?? ''}
-                aria-label="Course description"
-                className="mt-1.5 min-h-24 w-full rounded-md border border-line-strong bg-surface p-3 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
-              />
-            </label>
-          </form>
-        )}
-      </Dialog>
 
       {selected && (
         <MediaAssetLibraryModal

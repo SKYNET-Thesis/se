@@ -30,6 +30,8 @@ const mockApi = vi.hoisted(() => ({
   reorderSections: vi.fn(),
   reorderActivities: vi.fn(),
   publishGlobalCourse: vi.fn(),
+  updateLesson: vi.fn(),
+  updateSection: vi.fn(),
 }));
 
 vi.mock('../../lib/api', async (importOriginal) => {
@@ -42,6 +44,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
       createLesson: mockApi.createLesson,
       reorderLessons: mockApi.reorderLessons,
       publishGlobalCourse: mockApi.publishGlobalCourse,
+      updateLesson: mockApi.updateLesson,
     },
     curriculumApi: {
       ...actual.curriculumApi,
@@ -51,6 +54,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
       createActivity: mockApi.createActivity,
       reorderSections: mockApi.reorderSections,
       reorderActivities: mockApi.reorderActivities,
+      updateSection: mockApi.updateSection,
     },
   };
 });
@@ -192,10 +196,18 @@ describe('CourseContentEditor', () => {
     const quiz = (contentRef: unknown) => ({ id: 'a3', title: 'Safety quiz', type: 'knowledge_check', ordinal: 3, required: true, status: 'draft', content_ref: contentRef, content: {} });
     const withQuiz = (contentRef: unknown) => [{ ...sampleSections[0], learning_activities: [...sampleSections[0].learning_activities, quiz(contentRef)] }] as unknown as typeof sampleSections;
     const quickAddQuiz = async () => {
-      vi.spyOn(window, 'prompt').mockReturnValue('Safety quiz');
       const add = container.querySelector('[aria-label="Quick Add Quiz"]') as HTMLButtonElement;
       expect(add).not.toBeNull();
       await act(async () => { add.click(); });
+      // naming dialog (replaces window.prompt)
+      await waitFor(() => expect(document.querySelector('#curriculum-name-form input')).not.toBeNull());
+      const input = document.querySelector('#curriculum-name-form input') as HTMLInputElement;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Safety quiz');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const confirm = [...document.querySelectorAll('button')].find((b) => b.getAttribute('form') === 'curriculum-name-form') as HTMLButtonElement;
+      await act(async () => { confirm.click(); });
     };
     const button = (label: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(label)) as HTMLButtonElement | undefined;
 
@@ -347,6 +359,95 @@ describe('CourseContentEditor', () => {
       await act(async () => { ([...container.querySelectorAll('button')].find((b) => b.textContent?.includes('Discard Changes')) as HTMLButtonElement).click(); });
       await waitFor(() => expect(container.querySelector('[data-testid="video-lesson-editor"]')).not.toBeNull());
       expect(container.textContent).not.toContain('Reading content is invalid.');
+    });
+  });
+
+  describe('Module and Lesson editing (Course Outline → Content Editor)', () => {
+    const typeInto = async (el: HTMLInputElement | HTMLTextAreaElement, value: string) =>
+      act(async () => {
+        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, 'value')!.set!.call(el, value);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    const clickText = async (selector: string, text: string) =>
+      act(async () => { ([...container.querySelectorAll(selector)].find((n) => n.textContent?.includes(text)) as HTMLElement).click(); });
+
+    it('selecting a Module opens the Module information editor and does not snap back to the first activity', async () => {
+      await renderComponent();
+      await clickText('button', 'Module 1: Introduction');
+      await waitFor(() => expect(container.querySelector('[data-testid="module-info-editor"]')).not.toBeNull());
+      await new Promise((r) => setTimeout(r, 50));
+      expect(container.querySelector('[data-testid="module-info-editor"]')).not.toBeNull();
+      expect(container.querySelector('[data-testid="reading-document-editor"]')).toBeNull();
+      expect(container.querySelector('[data-testid="course-outline-panel"]')).not.toBeNull(); // outline stays visible
+    });
+
+    it('saves a renamed Module through the existing lesson API and keeps other lesson content', async () => {
+      mockApi.lessons.mockResolvedValue([{ ...sampleLessons[0], content: { summary: 'Old', keep: 1 } }, sampleLessons[1]]);
+      mockApi.updateLesson.mockResolvedValue({});
+      await renderComponent();
+      await clickText('button', 'Module 1: Introduction');
+      const form = () => container.querySelector('[data-testid="module-info-editor"]') as HTMLElement;
+      await waitFor(() => expect(form()).not.toBeNull());
+      await typeInto(form().querySelector('input') as HTMLInputElement, 'Getting started');
+      expect(form().textContent).toContain('Unsaved changes');
+      await act(async () => { ([...form().querySelectorAll('button')].find((b) => b.textContent === 'Save module') as HTMLButtonElement).click(); });
+      await waitFor(() => expect(mockApi.updateLesson).toHaveBeenCalledWith('l1', 'token-xyz', { title: 'Getting started', content: { summary: 'Old', keep: 1 } }));
+    });
+
+    it('selecting a Lesson opens the Lesson information editor and saves via the section API', async () => {
+      mockApi.updateSection.mockResolvedValue({});
+      await renderComponent();
+      await clickText('button', 'Lesson 1: Basics');
+      const form = () => container.querySelector('[data-testid="lesson-info-editor"]') as HTMLElement;
+      await waitFor(() => expect(form()).not.toBeNull());
+      await typeInto(form().querySelector('input') as HTMLInputElement, 'Fundamentals');
+      await act(async () => { ([...form().querySelectorAll('button')].find((b) => b.textContent === 'Save lesson') as HTMLButtonElement).click(); });
+      await waitFor(() => expect(mockApi.updateSection).toHaveBeenCalledWith('s1', 'token-xyz', { title: 'Fundamentals' }));
+    });
+
+    it('guards unsaved Module edits when another item is selected', async () => {
+      await renderComponent();
+      await clickText('button', 'Module 1: Introduction');
+      const form = () => container.querySelector('[data-testid="module-info-editor"]') as HTMLElement;
+      await waitFor(() => expect(form()).not.toBeNull());
+      await typeInto(form().querySelector('input') as HTMLInputElement, 'Changed');
+      await clickText('button', 'Lesson 1: Basics');
+      await waitFor(() => expect(container.textContent).toContain('Unsaved Changes'));
+      expect(container.textContent).not.toContain('Save & Continue'); // only activity drafts can be saved from the guard
+      expect(container.querySelector('[data-testid="lesson-info-editor"]')).toBeNull();
+    });
+
+    it('adds a Module through a naming dialog (no window.prompt) and selects it', async () => {
+      const prompt = vi.spyOn(window, 'prompt');
+      mockApi.createLesson.mockResolvedValue({ id: 'l3', title: 'New module', ordinal: 3 });
+      await renderComponent();
+      await clickText('button', 'Add');
+      await waitFor(() => expect(document.querySelector('#curriculum-name-form input')).not.toBeNull());
+      await typeInto(document.querySelector('#curriculum-name-form input') as HTMLInputElement, 'New module');
+      await act(async () => { (document.querySelector('button[form="curriculum-name-form"]') as HTMLButtonElement).click(); });
+      await waitFor(() => expect(mockApi.createLesson).toHaveBeenCalledTimes(1));
+      expect(mockApi.createLesson).toHaveBeenCalledWith('course-c1', 'token-xyz', { title: 'New module', content: { summary: '' } });
+      expect(prompt).not.toHaveBeenCalled();
+    });
+
+    it('shows a helpful empty state with an Add module action for a course without content', async () => {
+      mockApi.lessons.mockResolvedValue([]);
+      await act(async () => {
+        root.render(<QueryClientProvider client={qc}><CourseContentEditor course={course} token="token-xyz" /></QueryClientProvider>);
+      });
+      await waitFor(() => expect(container.textContent).toContain('Start building your course'));
+      expect([...container.querySelectorAll('main button')].some((b) => b.textContent === 'Add module')).toBe(true);
+    });
+
+    it('reports the open curriculum to a host that owns Preview and Publish', async () => {
+      const onSnapshotChange = vi.fn();
+      await renderComponent({ onSnapshotChange });
+      await waitFor(() => {
+        const last = onSnapshotChange.mock.calls.at(-1)?.[0];
+        expect(last?.lessons.map((l: { id: string }) => l.id)).toEqual(['l1', 'l2']);
+        expect(last?.selectedLessonId).toBe('l1');
+      });
     });
   });
 });

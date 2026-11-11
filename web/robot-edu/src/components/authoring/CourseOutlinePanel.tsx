@@ -59,6 +59,7 @@ export function CourseOutlinePanel({
   selectedSectionId,
   onSelectActivity,
   onSelectLesson,
+  onSelectSection,
   onAddLesson,
   onAddSection,
   onAddActivity,
@@ -161,7 +162,7 @@ export function CourseOutlinePanel({
         ) : (
           lessons.map((lessonItem, lessonIndex) => {
             const isLessonExpanded = Boolean(expandedLessons[lessonItem.id]);
-            const isLessonSelected = selectedLessonId === lessonItem.id && !selectedActivityId;
+            const isLessonSelected = selectedLessonId === lessonItem.id && !selectedActivityId && !selectedSectionId;
             const sections = sectionsByLesson[lessonItem.id] ?? [];
 
             return (
@@ -264,9 +265,23 @@ export function CourseOutlinePanel({
                                 )}
                               </button>
 
-                              <span className="flex-1 text-xs font-medium text-ink truncate">
-                                Lesson {sectionIndex + 1}: {sectionItem.title}
-                              </span>
+                              {onSelectSection ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onSelectSection(lessonItem.id, sectionItem.id)}
+                                  aria-current={selectedSectionId === sectionItem.id && !selectedActivityId ? 'true' : undefined}
+                                  className={`flex-1 truncate rounded text-left text-xs font-medium hover:text-accent-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
+                                    selectedSectionId === sectionItem.id && !selectedActivityId ? 'text-accent-ink' : 'text-ink'
+                                  }`}
+                                  title={sectionItem.title}
+                                >
+                                  Lesson {sectionIndex + 1}: {sectionItem.title}
+                                </button>
+                              ) : (
+                                <span className="flex-1 text-xs font-medium text-ink truncate">
+                                  Lesson {sectionIndex + 1}: {sectionItem.title}
+                                </span>
+                              )}
 
                               <Badge
                                 tone={sectionItem.status === 'published' ? 'ok' : 'neutral'}

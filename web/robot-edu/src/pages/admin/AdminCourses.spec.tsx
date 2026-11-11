@@ -3,7 +3,13 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { AdminCourses } from './AdminCourses';
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{location.pathname + location.search}</output>;
+}
 
 const api = vi.hoisted(() => ({
   courses: vi.fn(),
@@ -66,7 +72,10 @@ describe('AdminCourses', () => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-          <AdminCourses />
+          <MemoryRouter initialEntries={['/admin/courses']}>
+            <AdminCourses />
+            <LocationProbe />
+          </MemoryRouter>
         </QueryClientProvider>,
       );
     });
@@ -141,20 +150,32 @@ describe('AdminCourses', () => {
     expect(container.textContent).not.toContain('Legacy Controls');
   });
 
-  it('provides Manage Curriculum button and opens curriculum editor', async () => {
-    const manageBtns = Array.from(container.querySelectorAll('button')).filter(
-      (b) => b.textContent === 'Manage curriculum',
-    );
-    expect(manageBtns.length).toBe(3);
+  const location = () => container.querySelector('[data-testid="location"]')?.textContent;
+  const buttonByText = (text: string, index = 0) =>
+    Array.from(container.querySelectorAll('button')).filter((b) => b.textContent === text)[index] as HTMLButtonElement;
 
-    // Click manage curriculum for the first course
-    manageBtns[0].click();
-    await tick();
+  it('Create Course navigates to the full-page Course Builder and never opens a modal', async () => {
+    await act(async () => { buttonByText('Create Course').click(); });
+    expect(location()).toBe('/admin/courses/new');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(api.createGlobalCourse).not.toHaveBeenCalled(); // nothing is created until the builder submits a valid draft
+  });
 
-    // Canonical curriculum editor is mounted
-    expect(container.textContent).toContain('Robotics Fundamentals curriculum');
-    expect(container.textContent).toContain('Manage curriculum');
-    expect(container.textContent).toContain('Canonical Curriculum');
+  it('Manage curriculum opens the Course Builder on the Curriculum tab', async () => {
+    expect(Array.from(container.querySelectorAll('button')).filter((b) => b.textContent === 'Manage curriculum').length).toBe(3);
+    await act(async () => { buttonByText('Manage curriculum', 0).click(); });
+    expect(location()).toBe('/admin/courses/course-1?tab=curriculum');
+  });
+
+  it('Edit details opens the same Course Builder on the Course Details tab', async () => {
+    await act(async () => { buttonByText('Edit details', 1).click(); });
+    expect(location()).toBe('/admin/courses/course-2?tab=details');
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('no longer embeds a curriculum editor or create/edit dialogs in the list page', () => {
+    expect(container.querySelector('[aria-label="Canonical curriculum editor"]')).toBeNull();
+    expect(container.textContent).not.toContain('Canonical Curriculum');
   });
 
   it('does NOT contain student-specific elements', () => {
