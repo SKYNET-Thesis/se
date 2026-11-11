@@ -218,6 +218,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ vars.PUBLIC_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
           VITE_API_BASE_URL: /api/v1
+          VITE_SO101_3D_CLEARED: 'true'
         run: |
           set -euo pipefail
           : "${VITE_SUPABASE_URL:?Missing PUBLIC_SUPABASE_URL}"
