@@ -18,7 +18,7 @@ export type LessonActivityType =
   | 'result'
   | 'reflection';
 
-export type LessonActivityStatus = 'neutral' | 'unavailable';
+export type LessonActivityStatus = 'neutral' | 'unavailable' | 'completed' | 'current' | 'available';
 
 export interface LessonActivity {
   id: string;
@@ -30,6 +30,7 @@ export interface LessonActivity {
   actionable: boolean;
   authoritative: boolean;
   action: 'reading' | 'knowledge_check' | 'practice' | 'unavailable' | null;
+  content?: Record<string, unknown>;
 }
 
 export interface LessonActivitySection {
@@ -48,6 +49,10 @@ export interface LessonSummaryOrDetail {
   lockReason?: LessonLockReason | null;
   learningItems?: string[];
   estimatedMinutes?: number | null;
+  databaseSections?: Array<{
+    id: string; title: string; ordinal: number;
+    activities: Array<{ id: string; title: string; type: string; ordinal: number; required: boolean; content_ref?: { kind: string; id?: string }; content?: Record<string, unknown> }>;
+  }>;
 }
 
 export const activityTypeLabels: Record<LessonActivityType, string> = {
@@ -98,6 +103,39 @@ const demonstration = (
 });
 
 export function buildLessonActivitySections(lesson: LessonSummaryOrDetail): LessonActivitySection[] {
+  if (lesson.databaseSections?.length) {
+    return lesson.databaseSections.map((section) => ({
+      title: section.title,
+      items: section.activities.map((item) => {
+        const type = item.type as LessonActivityType;
+        const content = item.content;
+        const instruction = typeof content?.instructions === 'string' ? content.instructions : '';
+        const blocks = Array.isArray(content?.blocks) ? content.blocks : [];
+        const readingText = blocks.flatMap((block) => {
+          if (!block || typeof block !== 'object') return [];
+          const value = block as Record<string, unknown>;
+          return typeof value.text === 'string' ? [value.text] : Array.isArray(value.items) ? value.items.filter((part): part is string => typeof part === 'string') : [];
+        }).join('\n');
+        const description = instruction || readingText || '';
+        const estimated = content?.estimatedMinutes;
+        const supportedType = (Object.hasOwn(activityTypeLabels, type));
+        const assignmentLinked = item.content_ref?.kind === 'assignment' && item.content_ref.id === lesson.assignment?.id;
+        const unavailable = !supportedType || type === 'physical_lab' || type === 'video' || (type === 'knowledge_check' && !assignmentLinked);
+        const action = type === 'reading' || type === 'demonstration' || type === 'result' || type === 'reflection'
+          ? 'reading'
+          : type === 'knowledge_check' ? 'knowledge_check'
+            : type === 'guided_practice' || type === 'simulation' || type === 'challenge' ? 'practice' : null;
+        return {
+          id: item.id, type: supportedType ? type : 'reading', title: item.title, description,
+          durationMinutes: typeof estimated === 'number' ? estimated : null,
+          status: unavailable ? 'unavailable' : 'neutral', actionable: !unavailable && action !== null,
+          authoritative: ['knowledge_check', 'guided_practice', 'simulation', 'challenge', 'physical_lab'].includes(type),
+          action: unavailable ? 'unavailable' : action,
+          ...(content ? { content } : {}),
+        };
+      }),
+    }));
+  }
   const sections = lesson.content?.conceptSections ?? [];
   const summary = lesson.content?.summary ?? lesson.content?.taskPreview ?? '';
 

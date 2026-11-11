@@ -23,6 +23,7 @@ import { Dialog } from '../components/ui/Dialog';
 import { VrPractice } from './VrPractice';
 import { DemonstrationPractice } from './DemonstrationPractice';
 import { recoverEvidence, runC1Evidence, type EvidenceStage } from '../lib/c1EvidenceOrchestrator';
+import { KnowledgeCheckAttempt, type PublicQuizSnapshot } from '../components/learning/KnowledgeCheckAttempt';
 
 interface PracticeState { attempt: ApiAttempt; assignment: ApiClassroomAssignment; program: ApiProgram; lesson: LessonDetailResponse | null; }
 type LearningTarget = { label: string; frame: 'learning_preview_v1'; arm: 'left' | 'right'; position: { x: number; y: number; z: number } };
@@ -78,6 +79,10 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
       const attempt = await learnerApi.attempt(attemptId, session.access_token);
       const assignment = await assignmentApi.detail(attempt.classroom_assignment_id, session.access_token);
       const lesson = assignment.lesson_id ? await catalogApi.lessonDetail(assignment.lesson_id, session.access_token).catch(() => null) : null;
+      if ((assignment.constraints as { kind?: string } | null | undefined)?.kind === 'knowledge_check') {
+        if (active) setData({ attempt, assignment, lesson, program: { id: '', title: assignment.title, workspace_json: emptyWorkspace, robot_program: emptyRobotProgram } });
+        return;
+      }
       let program: ApiProgram;
       try { program = await learnerApi.program(attempt.id, session.access_token); }
       catch (requestError) {
@@ -125,11 +130,11 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
   const allowedBlockTypes = useMemo(() => new Set(curriculumToolbox?.ok ? curriculumToolbox.blockTypes : []), [curriculumToolbox]);
   useEffect(() => load(), [load]);
   useEffect(() => {
-    if (!session || !attemptId || isCurriculumProgramming || isReachTarget || mode !== 'physical-enabled') return;
+    if (!session || !attemptId || assignmentConstraints.kind === 'knowledge_check' || isCurriculumProgramming || isReachTarget || mode !== 'physical-enabled') return;
     let active = true;
     void Promise.all([executionClient.getRobotStatus(session.access_token,attemptId),executionClient.restoreExecution({accessToken:session.access_token,attemptId})]).then(([status,execution]) => { if (active) { setRobotStatus(status); setRobotExecution(execution); } }).catch((requestError:unknown) => { if (active) setRobotStatus({ state: 'offline', robotName: 'Robot', message: requestError instanceof Error?requestError.message:'Physical eligibility could not be checked.', isMock: false, eligible:false }); });
     return () => { active = false; };
-  }, [attemptId, executionClient, isCurriculumProgramming, isReachTarget, mode, session]);
+  }, [assignmentConstraints.kind, attemptId, executionClient, isCurriculumProgramming, isReachTarget, mode, session]);
   useEffect(() => {
     if (mode !== 'physical-enabled' || !session || !robotExecution || !['pending','queued', 'running'].includes(robotExecution.state)) return undefined;
     const timer = window.setInterval(() => void executionClient.getExecution({ accessToken: session.access_token, executionId: robotExecution.id }).then(setRobotExecution).catch((requestError: unknown) => setRobotError(requestError instanceof Error ? requestError.message : 'Could not read robot execution.')), 700);
@@ -310,7 +315,15 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
   if (error || !data) return <EmptyState icon={<FileQuestionIcon />} title="Practice workspace unavailable" description={error ?? 'This practice attempt could not be opened.'} action={<div className="flex gap-2"><Button variant="secondary" onClick={load} icon={<RotateCcwIcon className="h-4 w-4" />}>Try again</Button><Link to="/courses" className="inline-flex h-9 items-center rounded-md border border-line-strong px-3.5 text-sm font-medium text-ink hover:bg-sunken">Courses</Link></div>} />;
   if (mode === 'physical-enabled' && data.assignment.title === 'VR Robot Control') return <VrPractice attempt={data.attempt} token={session?.access_token ?? ''} />;
   if (mode === 'physical-enabled' && data.assignment.title === 'Teach by Demonstration') return <DemonstrationPractice attempt={data.attempt} token={session?.access_token ?? ''} />;
-  if (assignmentConstraints.kind === 'knowledge_check') return <EmptyState icon={<FileQuestionIcon />} title="Knowledge Check stays in Lesson Detail" description="Return to the lesson to answer the server-graded knowledge check. Blockly is not used for this lesson." action={<Link to={data.lesson ? `/courses/${data.lesson.course_id}/lessons/${data.lesson.id}` : '/courses'} className="inline-flex h-9 items-center rounded-md border border-line-strong px-3.5 text-sm font-medium text-ink hover:bg-sunken">Return to lesson</Link>} />;
+  const publicQuiz = (data.attempt.workspace_snapshot ?? data.attempt.quiz) as PublicQuizSnapshot | undefined;
+  if (assignmentConstraints.kind === 'knowledge_check') {
+    if (publicQuiz?.kind === 'question_bank_quiz' && publicQuiz.schemaVersion === 1 && Array.isArray(publicQuiz.questions) && session) {
+    const prior = data.attempt.result_snapshot && typeof data.attempt.result_snapshot === 'object'
+      ? data.attempt.result_snapshot as import('../lib/api').KnowledgeCheckSubmissionResult : null;
+    return <KnowledgeCheckAttempt title={data.assignment.title} snapshot={publicQuiz} result={prior} onSubmit={(answers) => learnerApi.submitKnowledgeCheck(data.attempt.id, { answers }, session.access_token)} />;
+    }
+    return <EmptyState icon={<FileQuestionIcon />} title="Knowledge Check stays in Lesson Detail" description="This attempt does not contain a published server-graded quiz snapshot. Return to the lesson to open its quiz." action={<Link to={data.lesson ? `/courses/${data.lesson.course_id}/lessons/${data.lesson.id}` : '/courses'} className="inline-flex h-9 items-center rounded-md border border-line-strong px-3.5 text-sm font-medium text-ink hover:bg-sunken">Return to lesson</Link>} />;
+  }
 
   const toolbox = isCurriculumProgramming ? (curriculumToolbox?.ok ? curriculumToolbox.toolbox : { kind: 'categoryToolbox', contents: [] }) : isReachTarget ? reachTargetToolbox : openCloseGripperToolbox;
   const toolboxError = curriculumToolbox && !curriculumToolbox.ok ? `This lesson includes an unavailable block capability: ${curriculumToolbox.unknownIds.join(', ')}. The toolbox is locked until the assignment is corrected.` : null;
