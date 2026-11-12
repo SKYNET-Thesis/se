@@ -386,7 +386,7 @@ export class PhysicalExecutionService {
           WHERE rp.role_id=role.id AND permission.code='learning.experiment.execute'
         )
       LEFT JOIN public.learning_submissions s ON s.assignment_id=ca.assignment_id
-        AND s.learner_user_id=a.learner_user_id AND s.program_id=a.program_id AND s.status='submitted'
+        AND s.learner_user_id=a.learner_user_id AND (s.attempt_id=a.id OR (s.attempt_id IS NULL AND s.program_id=a.program_id)) AND s.status='submitted'
       LEFT JOIN public.learning_program_versions pv ON pv.id=s.program_version_id AND pv.program_id=a.program_id
       LEFT JOIN LATERAL (
         SELECT evidence.id,evidence.verdict
@@ -642,7 +642,7 @@ export class PhysicalExecutionService {
         AND schematic.status = 'succeeded' AND schematic.execution_mode = 'schematic'
       JOIN public.learning_lessons l ON l.ordinal = 4
       JOIN public.learning_assignments la ON la.lesson_id = l.id
-      JOIN public.learning_submissions sub ON sub.id = se.submission_id AND sub.assignment_id = la.id
+      JOIN public.learning_submissions sub ON sub.id = se.submission_id AND sub.assignment_id = la.id AND sub.status = 'submitted'
       WHERE se.program_version_id = ${versionId}::uuid
         AND se.requested_by_user_id = ${row.learner_user_id}::uuid
         AND se.verdict = 'passed'

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { CreateProgramDto } from "./dto/create-program.dto";
@@ -7,13 +7,17 @@ import { SubmitAttemptDto } from "./dto/submit-attempt.dto";
 import { UpdateProgramDto } from "./dto/update-program.dto";
 import { assertRobotProgramBounds } from "./robot-program-limits";
 import { LearningScopeService } from "./learning-scope.service";
+import { assertAttemptOpen, loadOwnAttempt, loadOwnAttemptByProgram } from "./attempt-lifecycle";
+import { SUBMISSION_UPLOAD_GRACE_MS } from "./submission-file.validation";
+import { ProgressionService } from "./progression.service";
+import { SchemaCompatibilityService } from "./schema-compatibility.service";
 
 interface AttemptProgramRow { attempt_id: string; classroom_id: string; assignment_id: string; program_id: string | null; }
 export interface ProgramRow { id: string; owner_user_id: string; assignment_id: string | null; title: string; schema_version: number; workspace_json: unknown; robot_program: unknown; validation_result: unknown; }
 
 @Injectable()
 export class ProgrammingService {
-  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService) {}
+  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly progression?: ProgressionService, private readonly compat?: SchemaCompatibilityService) {}
 
   async programForAttempt(user: AuthenticatedUser, attemptId: string) {
     const attempt = await this.ownAttempt(user, attemptId);
@@ -24,14 +28,9 @@ export class ProgrammingService {
   async createProgram(user: AuthenticatedUser, attemptId: string, dto: CreateProgramDto) {
     this.validateRobotProgram(dto.robotProgram);
     return this.prisma.$transaction(async (tx) => {
-      const attempts = await tx.$queryRaw<AttemptProgramRow[]>`
-        SELECT a.id AS attempt_id, ca.classroom_id, ca.assignment_id, a.program_id
-        FROM public.learning_assignment_attempts a
-        JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id
-        WHERE a.id=${attemptId}::uuid AND a.learner_user_id=${user.vistaUserId}::uuid FOR UPDATE`;
-      const attempt = attempts[0];
-      if (!attempt) throw new NotFoundException("Attempt was not found.");
+      const attempt = await loadOwnAttempt(tx, user.vistaUserId, attemptId, true);
       await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id, { requireActiveEnrollment: true });
+      assertAttemptOpen(attempt);
       if (attempt.program_id) throw new ConflictException("This attempt already has a program.");
       if (this.hasLearningPreview(dto.robotProgram)) await this.validateRobotProgram(dto.robotProgram, await this.assignmentAllowsLearningPreview(attempt.assignment_id));
       await this.validateCurriculumProgram(attempt.assignment_id, dto.robotProgram);
@@ -49,6 +48,7 @@ export class ProgrammingService {
 
   async updateProgram(user: AuthenticatedUser, programId: string, dto: UpdateProgramDto) {
     const current = await this.ownProgram(user, programId, true);
+    await this.assertProgramAttemptOpen(user, programId);
     if (dto.robotProgram) { this.validateRobotProgram(dto.robotProgram); if (this.hasLearningPreview(dto.robotProgram)) await this.validateRobotProgram(dto.robotProgram, await this.assignmentAllowsLearningPreview(current.assignment_id)); await this.validateCurriculumProgram(current.assignment_id, dto.robotProgram); }
     const workspace = dto.workspaceJson === undefined ? current.workspace_json : dto.workspaceJson;
     const robot = dto.robotProgram === undefined ? current.robot_program : dto.robotProgram;
@@ -78,7 +78,7 @@ export class ProgrammingService {
         WHERE p.id=${programId}::uuid AND p.owner_user_id=${user.vistaUserId}::uuid FOR UPDATE`;
       const program = programs[0];
       if (!program) throw new NotFoundException("Program was not found.");
-      await this.assertProgramHasOwnScopedAttempt(user, programId, true);
+      await this.assertProgramAttemptOpen(user, programId, tx);
       this.validateRobotProgram(program.robot_program as Record<string, unknown>);
       if (this.hasLearningPreview(program.robot_program as Record<string, unknown>)) await this.validateRobotProgram(program.robot_program as Record<string, unknown>, await this.assignmentAllowsLearningPreview(program.assignment_id));
       await this.validateCurriculumProgram(program.assignment_id, program.robot_program as Record<string, unknown>);
@@ -106,16 +106,20 @@ export class ProgrammingService {
     });
   }
 
+  /**
+   * THE explicit final action. A simulation run (create experiment, run, evaluate) never calls this: runs are bound to the
+   * attempt's draft submission and leave the attempt open. Submitting promotes that draft (or creates the row) to the attempt's
+   * single final submission, locks the attempt, and, when the submitted version already has a persisted symbolic evaluation,
+   * finalizes the attempt as evaluated and projects a PASS to lesson progression (what the old combined flow did at run time).
+   */
   async submit(user: AuthenticatedUser, attemptId: string, dto: SubmitAttemptDto) {
+    await this.compat?.requireStage2();
     return this.prisma.$transaction(async (tx) => {
-      const attempts = await tx.$queryRaw<AttemptProgramRow[]>`
-        SELECT a.id AS attempt_id,ca.classroom_id,ca.assignment_id,a.program_id
-        FROM public.learning_assignment_attempts a
-        JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id
-        WHERE a.id=${attemptId}::uuid AND a.learner_user_id=${user.vistaUserId}::uuid FOR UPDATE`;
-      const attempt = attempts[0];
-      if (!attempt?.program_id) throw new NotFoundException("Attempt program was not found.");
+      const attempt = await loadOwnAttempt(tx, user.vistaUserId, attemptId, true);
+      if (!attempt.program_id) throw new NotFoundException("Attempt program was not found.");
       await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id, { requireActiveEnrollment: true });
+      // One final submission per attempt: a submitted/evaluated attempt, a closed or unavailable delivery is rejected.
+      assertAttemptOpen(attempt);
       const versions = await tx.$queryRaw<{ id: string; workspace_json: unknown; robot_program: unknown }[]>`
         SELECT id,workspace_json,robot_program FROM public.learning_program_versions
         WHERE id=${dto.programVersionId}::uuid AND program_id=${attempt.program_id}::uuid`;
@@ -123,20 +127,52 @@ export class ProgrammingService {
       if (!version) throw new BadRequestException("Program version does not belong to this attempt program.");
       await this.validateCurriculumProgram(attempt.assignment_id, version.robot_program as Record<string, unknown>);
       await this.validateCurriculumWorkspace(attempt.assignment_id, version.workspace_json);
-      const submissions = await tx.$queryRaw<{ id: string; assignment_id: string; learner_user_id: string; program_id: string; program_version_id: string; status: string; submitted_at: Date }[]>`
-        INSERT INTO public.learning_submissions(assignment_id,learner_user_id,program_id,program_version_id,submitted_workspace,submitted_program,reflection,status,submitted_at)
-        VALUES(${attempt.assignment_id}::uuid,${user.vistaUserId}::uuid,${attempt.program_id}::uuid,${dto.programVersionId}::uuid,
-          ${JSON.stringify(version.workspace_json)}::jsonb,${JSON.stringify(version.robot_program)}::jsonb,${dto.reflection ?? null},'submitted',now())
-        ON CONFLICT (assignment_id,learner_user_id) DO UPDATE SET
-          program_id=EXCLUDED.program_id,program_version_id=EXCLUDED.program_version_id,
-          submitted_workspace=EXCLUDED.submitted_workspace,submitted_program=EXCLUDED.submitted_program,
-          reflection=EXCLUDED.reflection,status='submitted',submitted_at=now()
-        RETURNING id,assignment_id,learner_user_id,program_id,program_version_id,status,submitted_at`;
-      await tx.$executeRaw`
-        UPDATE public.learning_assignment_attempts SET status='submitted',submitted_at=now(),
+      // Submission readiness: an upload that is still being verified must finish (or be removed) first.
+      const pending = await tx.$queryRaw<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM public.learning_submission_files
+        WHERE attempt_id=${attemptId}::uuid AND status='pending' AND created_at > now() - (${SUBMISSION_UPLOAD_GRACE_MS / 1000}::int * interval '1 second')`;
+      if ((pending[0]?.n ?? 0) > 0) throw new ConflictException({ code: "ATTACHMENT_PENDING", message: "Finish or remove the file uploads in progress before submitting." });
+      type Row = { id: string; attempt_id: string; assignment_id: string; learner_user_id: string; program_id: string; program_version_id: string; status: string; submitted_at: Date };
+      const existing = await tx.$queryRaw<{ id: string; status: string }[]>`
+        SELECT id,status FROM public.learning_submissions WHERE attempt_id=${attemptId}::uuid FOR UPDATE`;
+      if (existing[0] && existing[0].status !== "draft") throw new ConflictException({ code: "ALREADY_SUBMITTED", message: "This attempt already has a final submission." });
+      let submissions: Row[];
+      try {
+        submissions = existing[0]
+          ? await tx.$queryRaw<Row[]>`
+              UPDATE public.learning_submissions SET program_id=${attempt.program_id}::uuid,program_version_id=${dto.programVersionId}::uuid,
+                submitted_workspace=${JSON.stringify(version.workspace_json)}::jsonb,submitted_program=${JSON.stringify(version.robot_program)}::jsonb,
+                reflection=${dto.reflection ?? null},status='submitted',submitted_at=now()
+              WHERE id=${existing[0].id}::uuid AND status='draft'
+              RETURNING id,attempt_id,assignment_id,learner_user_id,program_id,program_version_id,status,submitted_at`
+          : await tx.$queryRaw<Row[]>`
+              INSERT INTO public.learning_submissions(assignment_id,learner_user_id,program_id,program_version_id,submitted_workspace,submitted_program,reflection,status,submitted_at,attempt_id)
+              VALUES(${attempt.assignment_id}::uuid,${user.vistaUserId}::uuid,${attempt.program_id}::uuid,${dto.programVersionId}::uuid,
+                ${JSON.stringify(version.workspace_json)}::jsonb,${JSON.stringify(version.robot_program)}::jsonb,${dto.reflection ?? null},'submitted',now(),${attemptId}::uuid)
+              RETURNING id,attempt_id,assignment_id,learner_user_id,program_id,program_version_id,status,submitted_at`;
+      } catch (error) {
+        const detail = JSON.stringify((error as { meta?: unknown })?.meta ?? "") + String((error as { message?: unknown })?.message ?? "");
+        // Defense in depth: the legacy UNIQUE(assignment_id, learner_user_id) still exists (Stage 2 not applied).
+        if (detail.includes("learning_submissions_assignment_id_learner_user_id_key")) {
+          throw new ServiceUnavailableException("Attempt-based submissions are not enabled in this environment yet: the D03 Stage 2 database migration has not been applied.");
+        }
+        if (detail.includes("learning_submissions_attempt_id_key")) throw new ConflictException({ code: "ALREADY_SUBMITTED", message: "This attempt already has a final submission." });
+        throw error;
+      }
+      // A persisted evaluation of exactly this version (recorded by an earlier simulation run) finalizes the attempt as evaluated.
+      const snapshots = await tx.$queryRaw<{ result_snapshot: { evaluationId?: string; programVersionId?: string; verdict?: string } | null }[]>`
+        SELECT result_snapshot FROM public.learning_assignment_attempts WHERE id=${attemptId}::uuid`;
+      const evaluation = snapshots[0]?.result_snapshot;
+      const evaluated = Boolean(evaluation?.evaluationId && evaluation.programVersionId === dto.programVersionId);
+      const updated = await tx.$executeRaw`
+        UPDATE public.learning_assignment_attempts SET status=${evaluated ? "evaluated" : "submitted"},submitted_at=now(),
           workspace_snapshot=${JSON.stringify(version.workspace_json)}::jsonb,program_snapshot=${JSON.stringify(version.robot_program)}::jsonb
-        WHERE id=${attemptId}::uuid`;
-      return submissions[0];
+        WHERE id=${attemptId}::uuid AND status='in_progress'`;
+      if (updated !== 1) throw new ConflictException({ code: "ATTEMPT_NOT_IN_PROGRESS", message: "This attempt is no longer open for changes." });
+      const progression = evaluated && evaluation?.verdict === "passed" && this.progression
+        ? await this.progression.projectSymbolicPass(tx as never, user, { evaluationId: evaluation.evaluationId as string, attemptId, programVersionId: dto.programVersionId, verdict: "passed" })
+        : { completedLessonId: null, newlyUnlockedLessonIds: [] };
+      return { ...submissions[0], evaluated, progression };
     });
   }
 
@@ -170,6 +206,13 @@ export class ProgrammingService {
       WHERE a.program_id=${programId}::uuid AND a.learner_user_id=${user.vistaUserId}::uuid LIMIT 1`;
     if (!attempts[0]) throw new NotFoundException("Program was not found.");
     await this.scope.assertStudentClassroomAccess(user, attempts[0].classroom_id, { requireActiveEnrollment });
+  }
+
+  /** A program may be edited or versioned only while its attempt is open (in progress, published, not closed). */
+  private async assertProgramAttemptOpen(user: AuthenticatedUser, programId: string, db: { $queryRaw: PrismaService["$queryRaw"] } = this.prisma): Promise<void> {
+    const attempt = await loadOwnAttemptByProgram(db as never, user.vistaUserId, programId, db !== this.prisma);
+    await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id, { requireActiveEnrollment: true });
+    assertAttemptOpen(attempt);
   }
 
   private async assignmentAllowsLearningPreview(assignmentId: string | null): Promise<boolean> {

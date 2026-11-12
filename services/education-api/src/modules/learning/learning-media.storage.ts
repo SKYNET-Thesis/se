@@ -31,6 +31,14 @@ export class LearningMediaStorage {
     return { bucket, client: this.client };
   }
 
+  /**
+   * The configured private-bucket client for sibling storage services (SubmissionFileStorage). It exposes the same
+   * validated configuration; it does not relax assertKey, which still limits THIS service to course-media keys.
+   */
+  s3Context(): { bucket: string; client: S3Client } {
+    return this.settings();
+  }
+
   /** Defense in depth: this service only ever touches well-formed course-media keys, never the reserved submissions prefix. */
   private assertKey(key: string) {
     if (!isCourseMediaKey(key)) throw new ServiceUnavailableException('Learning Media object key is not valid.');

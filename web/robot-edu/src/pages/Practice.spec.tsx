@@ -305,7 +305,9 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
       simBtn?.click();
     });
 
-    expect(mocks.submit).toHaveBeenCalledWith('attempt-2', 'token', 'version-1');
+    // Run simulation is NOT the final submission: it must never call the submit endpoint or lock the attempt.
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain('This attempt is final');
     expect(mocks.createSchematic).toHaveBeenCalledWith('attempt-2', 'token', 'version-1');
     expect(mocks.runSchematic).toHaveBeenCalledWith('exp-1', 'token');
     expect(mocks.evaluateSymbolic).toHaveBeenCalledWith('exp-1', 'token');
@@ -370,9 +372,32 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
     expect(container.textContent).not.toContain('Next lesson unlocked:');
   });
 
+  it('P0. Run simulation may be repeated without finalizing; Submit assignment is a separate, confirmed, one-time final action that locks the attempt', async () => {
+    mocks.versions.mockResolvedValue([{ id: 'version-1', version_number: 1, robot_program: { kind: 'robot_program', schemaVersion: 1, steps: [] } }]);
+    mocks.assignment.mockResolvedValue({ id: 'ca-2', assignment_id: 'assignment-2', lesson_id: 'lesson-2', title: 'Reach Target A', instructions: 'Move.', allowed_blocks: ['arm.select', 'home', 'preview.move_xyz', 'wait'], constraints: { kind: 'symbolic_program', target: { x: 1 } }, status: 'published', challenge_id: null });
+    await render();
+    const button = (label: string) => Array.from(container.querySelectorAll('button')).find((b) => b.textContent === label);
+    await act(async () => { button('Run simulation')?.click(); });
+    await act(async () => { button('Run simulation')?.click(); });
+    expect(mocks.createSchematic.mock.calls.length).toBeGreaterThanOrEqual(1);
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(button('Run simulation')?.hasAttribute('disabled')).toBe(false); // runs do not lock or consume the attempt
+    expect(container.textContent).not.toContain('This attempt is final');
+
+    await act(async () => { button('Submit assignment')?.click(); });
+    expect(mocks.submit).not.toHaveBeenCalled(); // a confirmation comes first
+    expect(document.body.textContent).toContain('Submit this assignment?');
+    const confirm = Array.from(document.querySelectorAll('button')).filter((b) => b.textContent === 'Submit assignment').pop();
+    await act(async () => { confirm?.click(); });
+    expect(mocks.submit).toHaveBeenCalledTimes(1);
+    expect(mocks.submit).toHaveBeenCalledWith('attempt-2', 'token', 'version-1');
+    expect(container.textContent).toContain('This attempt is final');
+    expect(button('Submit assignment')).toBeUndefined(); // no second final submission offered
+  });
+
   it('12. TASK FAIL and SYSTEM ERROR are visually/semantically distinct', async () => {
     mocks.versions.mockResolvedValue([{ id: 'version-1', version_number: 1, robot_program: { kind: 'robot_program', schemaVersion: 1, steps: [] } }]);
-    mocks.submit.mockRejectedValueOnce(new Error('Network disconnected during simulation request'));
+    mocks.createSchematic.mockRejectedValueOnce(new Error('Network disconnected during simulation request'));
     mocks.assignment.mockResolvedValue({
       id: 'ca-2',
       assignment_id: 'assignment-2',

@@ -82,6 +82,7 @@ export class ActivityProgressService {
           AND e.status='succeeded' AND e.execution_mode='schematic'
         JOIN public.learning_assignment_attempts att ON att.id::text=e.input_snapshot->>'attemptId'
           AND att.learner_user_id=${user.vistaUserId}::uuid AND att.status='evaluated'
+          AND (sub.attempt_id=att.id OR (sub.attempt_id IS NULL AND att.program_id=sub.program_id))
         JOIN public.learning_classroom_assignments ca ON ca.id=att.classroom_assignment_id
           AND ca.assignment_id=la.id AND ca.status='published'
         WHERE a.status='published' AND a.type IN ('guided_practice','simulation','challenge')
@@ -116,7 +117,7 @@ export class ActivityProgressService {
       JOIN public.learning_submissions s ON s.id=se.submission_id AND s.learner_user_id=se.requested_by_user_id
         AND s.program_version_id=se.program_version_id AND s.status='submitted'
       JOIN public.learning_assignment_attempts att ON att.id::text=e.input_snapshot->>'attemptId'
-        AND att.learner_user_id=se.requested_by_user_id AND att.program_id=s.program_id AND att.status='evaluated'
+        AND att.learner_user_id=se.requested_by_user_id AND (s.attempt_id=att.id OR (s.attempt_id IS NULL AND att.program_id=s.program_id)) AND att.status='evaluated'
       JOIN public.learning_classroom_assignments ca ON ca.id=att.classroom_assignment_id AND ca.assignment_id=s.assignment_id
       JOIN public.learning_assignments la ON la.id=ca.assignment_id AND la.constraints->>'kind'='symbolic_program'
       JOIN public.learning_lessons l ON l.id=la.lesson_id AND l.course_id=${courseId}::uuid
@@ -127,6 +128,7 @@ export class ActivityProgressService {
       FROM public.learning_experiments e
       JOIN public.learning_submissions s ON s.id=e.submission_id AND s.learner_user_id=e.learner_user_id
         AND s.program_version_id::text=e.input_snapshot->>'programVersionId'
+        AND s.status='submitted'
       JOIN public.learning_assignments la ON la.id=s.assignment_id
       JOIN public.learning_lessons l4 ON l4.id=la.lesson_id AND l4.ordinal=4 AND l4.course_id=${courseId}::uuid
       JOIN public.learning_lessons l5 ON l5.course_id=l4.course_id AND l5.ordinal=5

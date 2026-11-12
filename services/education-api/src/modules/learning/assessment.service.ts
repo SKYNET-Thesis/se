@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { AssessSubmissionDto } from "./dto/assess-submission.dto";
@@ -6,7 +6,7 @@ import { CreateFeedbackDto } from "./dto/create-feedback.dto";
 import { CreateReflectionDto } from "./dto/create-reflection.dto";
 import { LearningScopeService } from "./learning-scope.service";
 
-interface SubmissionScope { id:string; assignment_id:string; learner_user_id:string; program_id:string; program_version_id:string|null; classroom_id:string; }
+interface SubmissionScope { attempt_id:string; id:string; assignment_id:string; learner_user_id:string; program_id:string; program_version_id:string|null; classroom_id:string; }
 
 @Injectable()
 export class AssessmentService {
@@ -16,15 +16,15 @@ export class AssessmentService {
     await this.scope.assertTeacherClassroomPermission(user,classroomId,["learning.work.review"]);
     return this.prisma.$queryRaw`
       SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,s.status,s.submitted_at,
-        at.attempt_number,u.full_name,u.email,la.title AS assignment_title,
+        at.id AS attempt_id,at.attempt_number,at.grading_released_at,s.origin,u.full_name,u.email,la.title AS assignment_title,
         CASE WHEN review.id IS NULL THEN 'unreviewed' ELSE 'assessed' END AS review_status
       FROM public.learning_submissions s
-      JOIN public.learning_assignment_attempts at ON at.program_id=s.program_id AND at.learner_user_id=s.learner_user_id
+      JOIN public.learning_assignment_attempts at ON (at.id=s.attempt_id OR (s.attempt_id IS NULL AND at.program_id=s.program_id AND at.learner_user_id=s.learner_user_id))
       JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id AND ca.assignment_id=s.assignment_id
       JOIN public.learning_assignments la ON la.id=s.assignment_id
       JOIN public.users u ON u.id=s.learner_user_id
       LEFT JOIN public.learning_assessments review ON review.submission_id=s.id
-      WHERE ca.classroom_id=${classroomId}::uuid ORDER BY s.submitted_at DESC NULLS LAST`;
+      WHERE ca.classroom_id=${classroomId}::uuid AND s.status<>'draft' ORDER BY s.submitted_at DESC NULLS LAST`;
   }
 
   async instructorSubmission(user:AuthenticatedUser,submissionId:string) {
@@ -61,24 +61,92 @@ export class AssessmentService {
 
   async feedback(user:AuthenticatedUser,submissionId:string,dto:CreateFeedbackDto) {
     const submission=await this.submissionScope(submissionId); await this.scope.assertTeacherClassroomPermission(user,submission.classroom_id,["learning.work.review"]);
-    const rows=await this.prisma.$queryRaw<{id:string;submission_id:string;author_user_id:string;feedback_type:string;content:string;created_at:Date}[]>`INSERT INTO public.learning_feedback(submission_id,author_user_id,feedback_type,content) VALUES(${submissionId}::uuid,${user.vistaUserId}::uuid,${"comment"},${dto.content}) RETURNING id,submission_id,author_user_id,feedback_type,content,created_at`;
+    const rows=await this.prisma.$queryRaw<{id:string;submission_id:string;author_user_id:string;feedback_type:string;content:string;created_at:Date}[]>`INSERT INTO public.learning_feedback(submission_id,attempt_id,author_user_id,feedback_type,content) VALUES(${submissionId}::uuid,${submission.attempt_id}::uuid,${user.vistaUserId}::uuid,${"comment"},${dto.content}) RETURNING id,submission_id,author_user_id,feedback_type,content,created_at`;
     return rows[0];
   }
 
   async mySubmissions(user:AuthenticatedUser) {
     return this.prisma.$queryRaw`
-      SELECT s.id,s.assignment_id,s.program_id,s.program_version_id,s.status,s.submitted_at
-      FROM public.learning_submissions s JOIN public.learning_assignment_attempts a ON a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id
+      SELECT s.id,a.id AS attempt_id,a.attempt_number,s.origin,s.assignment_id,s.program_id,s.program_version_id,s.status,s.submitted_at
+      FROM public.learning_submissions s JOIN public.learning_assignment_attempts a ON (a.id=s.attempt_id OR (s.attempt_id IS NULL AND a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id))
       JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id
       JOIN public.learning_classroom_members cm ON cm.classroom_id=ca.classroom_id AND cm.user_id=s.learner_user_id AND cm.classroom_role='student' AND cm.status='active'
       JOIN public.memberships m ON m.id=cm.membership_id AND m.status='active'
       JOIN public.learning_classrooms c ON c.id=ca.classroom_id AND c.organization_id=m.organization_id
-      WHERE s.learner_user_id=${user.vistaUserId}::uuid ORDER BY s.submitted_at DESC NULLS LAST`;
+      WHERE s.learner_user_id=${user.vistaUserId}::uuid AND s.status<>'draft' ORDER BY s.submitted_at DESC NULLS LAST`;
   }
 
+  /** Instructor feedback reaches the student only after the attempt's grading was released. */
   async myFeedback(user:AuthenticatedUser,submissionId:string) {
-    await this.ownSubmission(user,submissionId);
-    return this.prisma.$queryRaw`SELECT id,submission_id,author_user_id,feedback_type,content,metadata,created_at FROM public.learning_feedback WHERE submission_id=${submissionId}::uuid ORDER BY created_at ASC`;
+    const submission=await this.ownSubmission(user,submissionId);
+    if(!await this.isReleased(submission.attempt_id)) return [];
+    return this.prisma.$queryRaw`SELECT id,submission_id,attempt_id,author_user_id,feedback_type,content,metadata,created_at FROM public.learning_feedback WHERE submission_id=${submissionId}::uuid OR attempt_id=${submission.attempt_id}::uuid ORDER BY created_at ASC`;
+  }
+
+  private async isReleased(attemptId:string):Promise<boolean>{
+    const rows=await this.prisma.$queryRaw<{released:boolean}[]>`SELECT (grading_released_at IS NOT NULL) AS released FROM public.learning_assignment_attempts WHERE id=${attemptId}::uuid`;
+    return rows[0]?.released===true;
+  }
+
+  /**
+   * What a student may see of an attempt's instructor grading: nothing but `{released:false}` until an instructor
+   * releases it. Released data is limited to the rubric scores, overall feedback and visible comments of THIS attempt.
+   */
+  async myGrading(user:AuthenticatedUser,attemptId:string) {
+    const attempts=await this.prisma.$queryRaw<{id:string;classroom_id:string;grading_released_at:Date|null;score:number|null}[]>`
+      SELECT a.id,ca.classroom_id,a.grading_released_at,a.score FROM public.learning_assignment_attempts a
+      JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id
+      WHERE a.id=${attemptId}::uuid AND a.learner_user_id=${user.vistaUserId}::uuid`;
+    if(!attempts[0]) throw new NotFoundException("Attempt was not found.");
+    await this.scope.assertStudentClassroomAccess(user,attempts[0].classroom_id);
+    if(!attempts[0].grading_released_at) return { attemptId, released:false };
+    const assessment=await this.prisma.$queryRaw<Record<string,unknown>[]>`
+      SELECT ass.overall_feedback AS "overallFeedback",ass.reviewed_at AS "reviewedAt",
+        COALESCE((SELECT json_agg(json_build_object('criterionId',c.id,'title',c.title,'maxPoints',c.max_points,'awardedPoints',sc.awarded_points,'comment',sc.comment) ORDER BY c.ordinal)
+          FROM public.learning_assessment_scores sc JOIN public.learning_rubric_criteria c ON c.id=sc.criterion_id WHERE sc.assessment_id=ass.id),'[]'::json) AS scores
+      FROM public.learning_submissions s
+      JOIN public.learning_assessments ass ON ass.submission_id=s.id
+      WHERE s.attempt_id=${attemptId}::uuid AND s.learner_user_id=${user.vistaUserId}::uuid`;
+    const feedback=await this.prisma.$queryRaw`
+      SELECT f.id,f.feedback_type AS "feedbackType",f.content,f.created_at AS "createdAt"
+      FROM public.learning_feedback f
+      WHERE f.author_user_id<>${user.vistaUserId}::uuid AND (f.attempt_id=${attemptId}::uuid
+        OR f.submission_id IN (SELECT s.id FROM public.learning_submissions s WHERE s.attempt_id=${attemptId}::uuid AND s.learner_user_id=${user.vistaUserId}::uuid))
+      ORDER BY f.created_at ASC`;
+    return { attemptId, released:true, releasedAt:attempts[0].grading_released_at, score:attempts[0].score===null?null:Number(attempts[0].score), assessment:assessment[0]??null, feedback };
+  }
+
+  /** Instructor release of one attempt's grading and feedback (idempotent; the release is attempt-level for every assignment type). */
+  async releaseSubmission(user:AuthenticatedUser,submissionId:string) {
+    const submission=await this.submissionScope(submissionId);
+    return this.releaseAttemptGrading(user,submission.attempt_id,submission.classroom_id);
+  }
+
+  async releaseAttempt(user:AuthenticatedUser,attemptId:string) {
+    const rows=await this.prisma.$queryRaw<{classroom_id:string}[]>`
+      SELECT ca.classroom_id FROM public.learning_assignment_attempts a JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id WHERE a.id=${attemptId}::uuid`;
+    if(!rows[0]) throw new NotFoundException("Attempt was not found.");
+    return this.releaseAttemptGrading(user,attemptId,rows[0].classroom_id);
+  }
+
+  private async releaseAttemptGrading(user:AuthenticatedUser,attemptId:string,classroomId:string) {
+    await this.scope.assertTeacherClassroomPermission(user,classroomId,["learning.work.review","learning.assessment.assess"]);
+    return this.prisma.$transaction(async tx=>{
+      const rows=await tx.$queryRaw<{id:string;status:string;grading_released_at:Date|null;graded:boolean}[]>`
+        SELECT a.id,a.status,a.grading_released_at,
+          (EXISTS(SELECT 1 FROM public.learning_submissions s JOIN public.learning_assessments x ON x.submission_id=s.id WHERE s.attempt_id=a.id)
+           OR EXISTS(SELECT 1 FROM public.learning_feedback f WHERE f.attempt_id=a.id OR f.submission_id IN (SELECT s.id FROM public.learning_submissions s WHERE s.attempt_id=a.id))) AS graded
+        FROM public.learning_assignment_attempts a WHERE a.id=${attemptId}::uuid FOR UPDATE`;
+      const attempt=rows[0];
+      if(!attempt) throw new NotFoundException("Attempt was not found.");
+      if(attempt.grading_released_at) return { attemptId, released:true, releasedAt:attempt.grading_released_at };
+      if(!["submitted","evaluated"].includes(attempt.status)) throw new ConflictException({code:"ATTEMPT_NOT_SUBMITTED",message:"Only a submitted attempt can be released."});
+      if(!attempt.graded) throw new ConflictException({code:"NOTHING_TO_RELEASE",message:"Assess the attempt or add feedback before releasing it."});
+      const released=await tx.$queryRaw<{grading_released_at:Date}[]>`
+        UPDATE public.learning_assignment_attempts SET grading_released_at=now(),grading_released_by=${user.vistaUserId}::uuid,grading_release_origin='instructor'
+        WHERE id=${attemptId}::uuid AND grading_released_at IS NULL RETURNING grading_released_at`;
+      return { attemptId, released:true, releasedAt:released[0].grading_released_at };
+    });
   }
 
   async mySubmission(user: AuthenticatedUser, submissionId: string) {
@@ -109,7 +177,7 @@ export class AssessmentService {
   }
 
   private async ownSubmission(user:AuthenticatedUser,id:string,requireActiveEnrollment=false) {const submission=await this.submissionScope(id);if(submission.learner_user_id!==user.vistaUserId) throw new NotFoundException("Submission was not found.");await this.scope.assertStudentClassroomAccess(user,submission.classroom_id,{requireActiveEnrollment});return submission;}
-  private async submissionScope(id:string):Promise<SubmissionScope>{const rows=await this.prisma.$queryRaw<SubmissionScope[]>`SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,ca.classroom_id FROM public.learning_submissions s JOIN public.learning_assignment_attempts a ON a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id WHERE s.id=${id}::uuid`;if(rows.length!==1)throw new NotFoundException("Submission was not found.");return rows[0];}
+  private async submissionScope(id:string):Promise<SubmissionScope>{const rows=await this.prisma.$queryRaw<SubmissionScope[]>`SELECT s.id,a.id AS attempt_id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,ca.classroom_id FROM public.learning_submissions s JOIN public.learning_assignment_attempts a ON (a.id=s.attempt_id OR (s.attempt_id IS NULL AND a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id)) JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id WHERE s.id=${id}::uuid AND s.status<>'draft'`;if(rows.length!==1)throw new NotFoundException("Submission was not found.");return rows[0];}
   private async evidence(submission:SubmissionScope) {
     const rows=await this.prisma.$queryRaw<Record<string,unknown>[]>`
       SELECT e.id,e.execution_mode AS "executionMode",e.method,e.status,e.started_at AS "startedAt",
@@ -158,7 +226,7 @@ export class AssessmentService {
         ) END AS "modelMetadata"
       FROM public.learning_experiments e
       JOIN public.learning_submissions s ON s.id=e.submission_id AND s.learner_user_id=e.learner_user_id
-      JOIN public.learning_assignment_attempts at ON at.program_id=s.program_id AND at.learner_user_id=s.learner_user_id
+      JOIN public.learning_assignment_attempts at ON (at.id=s.attempt_id OR (s.attempt_id IS NULL AND at.program_id=s.program_id AND at.learner_user_id=s.learner_user_id))
       JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id AND ca.assignment_id=s.assignment_id
       JOIN public.learning_classrooms c ON c.id=ca.classroom_id
       LEFT JOIN public.control_sessions cs ON cs.id=e.control_session_id AND cs.organization_id=c.organization_id
@@ -173,13 +241,14 @@ export class AssessmentService {
     return rows??[];
   }
   private detail(submissionId:string, db:Pick<PrismaService,"$queryRaw">=this.prisma){return db.$queryRaw<Record<string,unknown>[]>`
-    SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,s.status,s.submitted_at,
+    SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,s.status,s.submitted_at,s.origin,
+      (SELECT json_build_object('id',att.id,'attemptNumber',att.attempt_number,'gradingReleasedAt',att.grading_released_at) FROM public.learning_assignment_attempts att WHERE att.id=s.attempt_id) AS attempt,
       u.full_name,u.email,la.title AS assignment_title,
       CASE WHEN pv.id IS NULL THEN NULL ELSE json_build_object('id',pv.id,'versionNumber',pv.version_number,'workspaceJson',pv.workspace_json,'robotProgram',pv.robot_program,'validationResult',pv.validation_result,'changeSummary',pv.change_summary,'createdAt',pv.created_at) END AS program_version,
       CASE WHEN se.id IS NULL THEN NULL ELSE json_build_object('id',se.id,'experimentId',se.experiment_id,'programVersionId',se.program_version_id,'evaluatorVersion',se.evaluator_version,'ruleSetSchemaVersion',se.rule_set_schema_version,'ruleSetHash',se.rule_set_hash,'verdict',se.verdict,'ruleResults',se.rule_results,'metrics',se.metrics,'createdAt',se.created_at) END AS symbolic_evaluation,
       CASE WHEN ex.id IS NULL THEN NULL ELSE json_build_object('id',ex.id,'status',ex.status,'executionMode',ex.execution_mode,'createdAt',ex.created_at,'endedAt',ex.ended_at) END AS experiment,
       CASE WHEN a.id IS NULL THEN NULL ELSE json_build_object('id',a.id,'reviewerUserId',a.reviewer_user_id,'overallFeedback',a.overall_feedback,'reviewedAt',a.reviewed_at,'scores',COALESCE((SELECT json_agg(json_build_object('criterionId',sc.criterion_id,'awardedPoints',sc.awarded_points,'comment',sc.comment)) FROM public.learning_assessment_scores sc WHERE sc.assessment_id=a.id),'[]'::json)) END AS assessment,
-      COALESCE((SELECT json_agg(json_build_object('id',f.id,'submissionId',f.submission_id,'authorUserId',f.author_user_id,'feedbackType',f.feedback_type,'content',f.content,'createdAt',f.created_at) ORDER BY f.created_at) FROM public.learning_feedback f WHERE f.submission_id=s.id),'[]'::json) AS feedback,
+      COALESCE((SELECT json_agg(json_build_object('id',f.id,'submissionId',f.submission_id,'authorUserId',f.author_user_id,'feedbackType',f.feedback_type,'content',f.content,'createdAt',f.created_at) ORDER BY f.created_at) FROM public.learning_feedback f WHERE f.submission_id=s.id OR (s.attempt_id IS NOT NULL AND f.attempt_id=s.attempt_id)),'[]'::json) AS feedback,
       COALESCE((SELECT json_agg(json_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points,'ordinal',rc.ordinal) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=s.assignment_id),'[]'::json) AS rubric_criteria
     FROM public.learning_submissions s JOIN public.users u ON u.id=s.learner_user_id JOIN public.learning_assignments la ON la.id=s.assignment_id
     LEFT JOIN public.learning_program_versions pv ON pv.id=s.program_version_id AND pv.program_id=s.program_id

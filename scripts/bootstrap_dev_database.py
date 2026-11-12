@@ -54,6 +54,11 @@ REQUIRED_OBJECTS = [
     ("global question code unique index (migration F)", "to_regclass('public.learning_questions_global_course_code_key') IS NOT NULL", "20261111_f_global_question_scope"),
     ("trigger check_learning_activity_progress_scope (migration G)", "EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.learning_activity_progress'::regclass AND tgname='check_learning_activity_progress_scope' AND NOT tgisinternal)", "20261111_g_activity_progress_scope_guard"),
     ("learning_media_assets MIME allowlist includes audio/mpeg (migration H)", "EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.learning_media_assets'::regclass AND conname='learning_media_assets_mime_type' AND contype='c' AND pg_get_constraintdef(oid) LIKE '%''audio/mpeg''%')", "20261112_h_learning_media_audio_mpeg"),
+    ("learning_submissions.attempt_id (migration I)", "EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.learning_submissions'::regclass AND attname='attempt_id' AND NOT attisdropped)", "20261113_i_attempt_submission_foundation"),
+    ("one submission per attempt unique index (migration I)", "to_regclass('public.learning_submissions_attempt_id_key') IS NOT NULL", "20261113_i_attempt_submission_foundation"),
+    ("table learning_submission_files with row level security (migration I)", "COALESCE((SELECT relrowsecurity FROM pg_class WHERE oid=to_regclass('public.learning_submission_files')), false)", "20261113_i_attempt_submission_foundation"),
+    ("attempt grading release columns (migration I)", "(SELECT count(*) FROM pg_attribute WHERE attrelid='public.learning_assignment_attempts'::regclass AND attname IN ('draft_response','draft_saved_at','grading_released_at','grading_released_by','grading_release_origin') AND NOT attisdropped)=5", "20261113_i_attempt_submission_foundation"),
+    ("trigger guard_learning_submission_files (migration I)", "EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.learning_submission_files'::regclass AND tgname='guard_learning_submission_files')", "20261113_i_attempt_submission_foundation"),
 ]
 
 

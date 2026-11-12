@@ -41,6 +41,7 @@ export class LearningController {
  @Post("classrooms/:classroomId/assignments/:assignmentId/publish") publishAssignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) classroomId:string,@Param("assignmentId",ParseUUIDPipe) assignmentId:string){return this.learning.publishAssignment(u,classroomId,assignmentId)}
  @Patch("classrooms/:classroomId/assignments/:assignmentId") updateAssignment(@CurrentUser() u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe) c:string,@Param("assignmentId",ParseUUIDPipe) a:string,@Body() dto:UpdateAssignmentDto){return this.learning.updateAssignment(u,c,a,dto)}
  @Post("classroom-assignments/:classroomAssignmentId/attempts") startAttempt(@CurrentUser() u:AuthenticatedUser,@Param("classroomAssignmentId",ParseUUIDPipe) id:string){return this.learning.startAttempt(u,id)}
+ @Get("me/classroom-assignments/:classroomAssignmentId/attempts") attemptHistory(@CurrentUser() u:AuthenticatedUser,@Param("classroomAssignmentId",ParseUUIDPipe) id:string){return this.learning.attemptHistory(u,id)}
  @Get("me/attempts") attempts(@CurrentUser() u:AuthenticatedUser){return this.learning.myAttempts(u)}
  @Get("me/attempts/:attemptId") attempt(@CurrentUser() u:AuthenticatedUser,@Param("attemptId",ParseUUIDPipe) id:string){return this.learning.myAttempt(u,id)}
 }

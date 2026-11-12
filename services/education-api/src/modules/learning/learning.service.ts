@@ -373,25 +373,28 @@ export class LearningService {
       JOIN public.learning_classroom_members cm ON cm.classroom_id=c.id AND cm.user_id=${user.vistaUserId}::uuid AND cm.classroom_role='student' AND cm.status='active'
       JOIN public.memberships m ON m.id=cm.membership_id AND m.status='active' AND m.organization_id=c.organization_id
       LEFT JOIN LATERAL (
-        SELECT id,status,program_id,score,started_at,submitted_at
+        SELECT id,status,program_id,score,started_at,submitted_at,grading_released_at
         FROM public.learning_assignment_attempts
         WHERE classroom_assignment_id=ca.id AND learner_user_id=${user.vistaUserId}::uuid
         ORDER BY started_at DESC LIMIT 1
       ) latest ON true
       LEFT JOIN LATERAL (
         SELECT s.id AS submission_id,
-          ass.overall_feedback,
-          (SELECT SUM(sc.awarded_points)::float FROM public.learning_assessment_scores sc WHERE sc.assessment_id=ass.id) AS assessment_score
+          -- Instructor grading is visible only after the attempt's grading was released.
+          CASE WHEN latest.grading_released_at IS NOT NULL THEN ass.overall_feedback END AS overall_feedback,
+          CASE WHEN latest.grading_released_at IS NOT NULL
+            THEN (SELECT SUM(sc.awarded_points)::float FROM public.learning_assessment_scores sc WHERE sc.assessment_id=ass.id) END AS assessment_score
         FROM public.learning_submissions s
         LEFT JOIN public.learning_assessments ass ON ass.submission_id=s.id
-        WHERE s.assignment_id=ca.assignment_id AND s.learner_user_id=${user.vistaUserId}::uuid
-          AND (latest.program_id IS NULL OR s.program_id=latest.program_id)
+        WHERE s.assignment_id=ca.assignment_id AND s.learner_user_id=${user.vistaUserId}::uuid AND s.status<>'draft'
+          AND (s.attempt_id=latest.id OR (s.attempt_id IS NULL AND (latest.program_id IS NULL OR s.program_id=latest.program_id)))
         ORDER BY s.submitted_at DESC NULLS LAST LIMIT 1
       ) sub ON true
       LEFT JOIN LATERAL (
         SELECT fb.content AS feedback_content
         FROM public.learning_feedback fb
-        WHERE (fb.attempt_id=latest.id OR (sub.submission_id IS NOT NULL AND fb.submission_id=sub.submission_id))
+        WHERE latest.grading_released_at IS NOT NULL
+          AND (fb.attempt_id=latest.id OR (sub.submission_id IS NOT NULL AND fb.submission_id=sub.submission_id))
           AND fb.author_user_id != ${user.vistaUserId}::uuid
         ORDER BY fb.created_at DESC LIMIT 1
       ) tf ON true
@@ -640,7 +643,31 @@ export class LearningService {
     });
   }
   async myAttempts(user:AuthenticatedUser){return this.prisma.$queryRaw`SELECT id,classroom_assignment_id,attempt_number,status,score,(result_snapshot->>'passed')::boolean AS passed,started_at,submitted_at FROM public.learning_assignment_attempts WHERE learner_user_id=${user.vistaUserId}::uuid ORDER BY started_at DESC`;}
-  async myAttempt(user:AuthenticatedUser,id:string){const r=await this.prisma.$queryRaw<Record<string,unknown>[]>`SELECT id,classroom_assignment_id,attempt_number,status,workspace_snapshot,program_snapshot,result_snapshot,started_at,submitted_at FROM public.learning_assignment_attempts WHERE id=${id}::uuid AND learner_user_id=${user.vistaUserId}::uuid`;if(!r[0])throw new NotFoundException("Attempt was not found.");return r[0];}
+  /**
+   * The learner's own attempts of one classroom assignment, newest first, each with ITS OWN submission, attachments
+   * and release state (never the latest submission's). Instructor grading is not included here (see myGrading).
+   * A quiz's auto-graded score is part of the attempt result and is returned as before.
+   */
+  async attemptHistory(user:AuthenticatedUser,classroomAssignmentId:string){
+    const scope=await this.prisma.$queryRaw<{classroom_id:string}[]>`SELECT classroom_id FROM public.learning_classroom_assignments WHERE id=${classroomAssignmentId}::uuid`;
+    if(!scope[0]) throw new NotFoundException("Assignment was not found.");
+    await this.scope.assertStudentClassroomAccess(user,scope[0].classroom_id);
+    return this.prisma.$queryRaw`
+      SELECT a.id,a.classroom_assignment_id,a.attempt_number,a.status,a.started_at,a.submitted_at,a.score,
+        (a.result_snapshot->>'passed')::boolean AS passed,(a.draft_response IS NOT NULL) AS has_draft,a.draft_saved_at,
+        a.grading_released_at,(a.grading_released_at IS NOT NULL) AS grading_released,
+        sub.id AS submission_id,sub.origin AS submission_origin,
+        (SELECT count(*)::int FROM public.learning_submission_files f WHERE f.attempt_id=a.id AND f.status='ready') AS file_count
+      FROM public.learning_assignment_attempts a
+      LEFT JOIN LATERAL (
+        SELECT s.id,s.origin FROM public.learning_submissions s
+        WHERE s.status<>'draft' AND (s.attempt_id=a.id OR (s.attempt_id IS NULL AND s.program_id=a.program_id AND s.learner_user_id=a.learner_user_id))
+        ORDER BY (s.attempt_id=a.id) DESC NULLS LAST LIMIT 1
+      ) sub ON true
+      WHERE a.classroom_assignment_id=${classroomAssignmentId}::uuid AND a.learner_user_id=${user.vistaUserId}::uuid
+      ORDER BY a.attempt_number DESC`;
+  }
+  async myAttempt(user:AuthenticatedUser,id:string){const r=await this.prisma.$queryRaw<Record<string,unknown>[]>`SELECT id,classroom_assignment_id,attempt_number,status,program_id,workspace_snapshot,program_snapshot,result_snapshot,started_at,submitted_at,draft_response,draft_saved_at,grading_released_at FROM public.learning_assignment_attempts WHERE id=${id}::uuid AND learner_user_id=${user.vistaUserId}::uuid`;if(!r[0])throw new NotFoundException("Attempt was not found.");return r[0];}
   /**
    * Write guard for attempt-bound student actions that have no classroom query of their own (VR and demonstration
    * sessions): the caller must own the attempt AND hold an active enrollment in its active classroom/offering.

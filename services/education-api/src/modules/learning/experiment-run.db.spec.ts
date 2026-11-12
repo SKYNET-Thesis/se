@@ -55,7 +55,7 @@ describeDb('real PostgreSQL ExperimentService.runSchematic authorization', () =>
     const prog = await db.learning_programs.create({ data: { owner_user_id: u.id, assignment_id: x.assignment.id, robot_program: program } });
     const version = await db.learning_program_versions.create({ data: { program_id: prog.id, version_number: 1, robot_program: program } });
     const attempt = await db.learning_assignment_attempts.create({ data: { classroom_assignment_id: x.delivery.id, learner_user_id: u.id, attempt_number: 1, program_id: prog.id } });
-    const sub = await db.learning_submissions.create({ data: { assignment_id: x.assignment.id, learner_user_id: u.id, program_id: prog.id, program_version_id: version.id, status: 'submitted' } });
+    const sub = await db.learning_submissions.create({ data: { assignment_id: x.assignment.id, learner_user_id: u.id, program_id: prog.id, program_version_id: version.id, status: 'submitted', attempt_id: attempt.id } });
     const exp = await db.learning_experiments.create({ data: { submission_id: sub.id, learner_user_id: u.id, method: 'blockly', execution_mode: 'schematic', input_snapshot: { attemptId: attempt.id, programVersionId: version.id } } });
     const user = { authUserId: 'a', vistaUserId: u.id, email: 'x@test', status: 'active', systemRoleCodes: [], systemPermissions: [],
       memberships: [{ id: m.id, organizationId: x.org.id, roleCode: 'student', status: 'active', permissions: ['learning.work.write', 'learning.experiment.execute'] }] } as never;

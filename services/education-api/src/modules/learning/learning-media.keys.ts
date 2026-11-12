@@ -4,12 +4,13 @@ import { randomUUID } from 'node:crypto';
  * Object-key layout of the single Learning Media bucket (S3 "prefixes" are key conventions, not folders):
  *
  *   learning-media/courses/<courseId>/{documents|images|videos|audio}/<mediaId><ext>   course media (D02, this module)
- *   learning-media/submissions/<assignmentId>/<studentId>/<submissionId>/...           RESERVED for D03, never issued here
+ *   learning-media/submissions/<assignmentId>/<studentId>/<attemptId>/<fileId><ext>   student attachments (D03, SubmissionFileStorage only)
+ *   (the "submission" segment is the immutable attempt id: one attempt = one submission unit)
  *
  * Keys are always built on the server from UUIDs and a fixed allowlist; a client never supplies any part of a key.
  */
 export const COURSE_MEDIA_PREFIX = 'learning-media/courses/';
-/** Reserved for student submissions (D03). Course-media code must never read or write below it. */
+/** Student submissions (D03). Course-media code must never read or write below it; only SubmissionFileStorage may. */
 export const SUBMISSIONS_PREFIX = 'learning-media/submissions/';
 
 export const MEDIA_CATEGORIES = ['documents', 'images', 'videos', 'audio'] as const;
@@ -35,3 +36,24 @@ export function isCourseMediaKey(key: string): boolean {
 export function courseIdOfKey(key: string): string | null {
   return COURSE_KEY.exec(key)?.[1] ?? null;
 }
+
+/** Extensions a student attachment key may carry (the allowlist lives in submission-file.validation.ts). */
+const SUBMISSION_EXTENSIONS = ['pdf', 'docx', 'png', 'jpg', 'jpeg', 'webp'] as const;
+const SUBMISSION_KEY = new RegExp(`^${SUBMISSIONS_PREFIX}(${UUID})/(${UUID})/(${UUID})/(${UUID})(\\.(?:${SUBMISSION_EXTENSIONS.join('|')}))$`);
+
+export type SubmissionKeyParts = { assignmentId: string; studentId: string; attemptId: string; fileId: string; extension: string };
+
+/** Builds a student attachment key from server-held UUIDs only; a client never supplies any part of it. */
+export function submissionFileKey(assignmentId: string, studentId: string, attemptId: string, fileId: string, extension: string): string {
+  const key = `${SUBMISSIONS_PREFIX}${assignmentId}/${studentId}/${attemptId}/${fileId}${extension}`;
+  if (!SUBMISSION_KEY.test(key)) throw new Error('Refusing to build a malformed submission file key.');
+  return key;
+}
+
+export function parseSubmissionKey(key: string): SubmissionKeyParts | null {
+  if (typeof key !== 'string') return null;
+  const match = SUBMISSION_KEY.exec(key);
+  return match ? { assignmentId: match[1], studentId: match[2], attemptId: match[3], fileId: match[4], extension: match[5] } : null;
+}
+
+export const isSubmissionKey = (key: string): boolean => parseSubmissionKey(key) !== null;
