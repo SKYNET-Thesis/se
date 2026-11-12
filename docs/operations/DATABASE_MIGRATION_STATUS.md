@@ -55,6 +55,7 @@ nothing below has been registered, released or applied to Production):
 | `20261110_a_curriculum_foundation.sql` … `_c_question_bank_quiz_attempt.sql` | Sections, Activities, Question Bank, quiz attempts | already in the baseline under historical versions; replaying them fails (`relation already exists`) |
 | `20261110_d_activity_content.sql` | `learning_activities.content` | additive; not applied to Production |
 | `20261110_e_learning_media.sql` | `learning_media_assets` | additive; not applied to Production |
+| `20261112_h_learning_media_audio_mpeg.sql` | `learning_media_assets` MIME CHECK | additive (allows `audio/mpeg`); prepared, not yet in the manifest, not applied to Production |
 | `20261111_f_global_question_scope.sql` | `learning_questions.organization_id` nullable, `(course_id, code)` unique for global questions, NULL-safe scope guards | additive and replay-safe (verified by running it twice on a disposable database); depends only on the migration-B objects that the baseline already contains; **not registered, not applied to Production, needs release approval** |
 
 Migration F is the minimal Question Bank part of the earlier draft
