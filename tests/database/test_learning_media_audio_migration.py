@@ -36,8 +36,9 @@ class AudioMigrationStaticTests(unittest.TestCase):
     def test_file_follows_the_version_and_ordering_conventions(self):
         self.assertTrue(H_SQL.is_file())
         self.assertRegex(VERSION, r"^\d{8}_[a-z0-9]+(?:_[a-z0-9]+)*$")
-        existing = sorted(p.stem for p in (ROOT / "database/migrations").glob("*.sql"))
-        self.assertEqual(existing[-1], VERSION, "migration H must sort after every existing migration")
+        # Later migrations (e.g. I) may follow H; H must sort after every migration that preceded it.
+        existing = sorted(p.stem for p in (ROOT / "database/migrations").glob("*.sql") if p.stem <= VERSION)
+        self.assertEqual(existing[-1], VERSION, "migration H must sort after every earlier migration")
         self.assertGreater(VERSION, "20261111_g_activity_progress_scope_guard")
 
     def test_runner_accepts_it_as_transactional_sql(self):

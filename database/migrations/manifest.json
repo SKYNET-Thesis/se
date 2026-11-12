@@ -32,6 +32,12 @@
       "path": "database/migrations/20261112_h_learning_media_audio_mpeg.sql",
       "sha256": "468f8cefd37127efa3a54291ab51e862903acc7c83af0fba442f694f429ff5c2",
       "order": 5
+    },
+    {
+      "version": "20261113_i_attempt_submission_foundation",
+      "path": "database/migrations/20261113_i_attempt_submission_foundation.sql",
+      "sha256": "d13e7ddc22fb98ac5735777b86d1410e419f1422fcc748195d03b306ae8cf093",
+      "order": 6
     }
   ]
 }
