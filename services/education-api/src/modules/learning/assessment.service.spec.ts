@@ -44,6 +44,13 @@ describe("AssessmentService M2D authorization", () => {
   it("returns a learner submission only after ownership and active classroom scope", async()=>{
     queryRaw.mockResolvedValueOnce([{id:"submission-a",assignment_id:"assignment-a",learner_user_id:"student-1",program_id:"program-a",program_version_id:"version-a",classroom_id:"class-a"}]).mockResolvedValueOnce([{id:"submission-a",reflections:[]}]);
     await expect(service.mySubmission(student,"submission-a")).resolves.toMatchObject({id:"submission-a"});
-    expect(assertStudentClassroomAccess).toHaveBeenCalledWith(student,"class-a");
+    expect(assertStudentClassroomAccess).toHaveBeenCalledWith(student,"class-a",{requireActiveEnrollment:false});
+  });
+  it("requires an active enrollment to write a reflection but not to read preserved ones",async()=>{
+    const row={id:"submission-a",assignment_id:"assignment-a",learner_user_id:"student-1",program_id:"program-a",program_version_id:"version-a",classroom_id:"class-a"};
+    queryRaw.mockResolvedValue([row]);
+    assertStudentClassroomAccess.mockImplementation(async(_u:unknown,_c:unknown,o?:{requireActiveEnrollment?:boolean})=>{if(o?.requireActiveEnrollment)throw new NotFoundException("Assignment was not found.")});
+    await expect(service.createReflection(student,"submission-a",{promptKey:"k",promptText:"p",responseText:"r"} as never)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.myReflections(student,"submission-a")).resolves.toBeDefined();
   });
 });
