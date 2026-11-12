@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ActivityEditorPanel, type ActivityEditorDraft } from './ActivityEditorPanel';
+import { ActivityContentPreview, ActivityEditorPanel, type ActivityEditorDraft } from './ActivityEditorPanel';
 
 const draft: ActivityEditorDraft = { title: 'Safety reading', type: 'reading', required: true, contentRef: { kind: 'lesson_content', key: 'summary' }, content: { version: 1, blocks: [] } };
 let root: Root;
@@ -30,5 +30,23 @@ describe('ActivityEditorPanel', () => {
     expect([...element.querySelectorAll('label')].some((label) => /video url/i.test(label.textContent ?? ''))).toBe(false);
     const save = [...element.querySelectorAll('button')].find((button) => button.textContent === 'Save Draft');
     expect(save?.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('renders MP3 attachments with a native audio player (student-facing and preview), not as a video', () => {
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+    act(() => root.render(<ActivityContentPreview content={{ version: 1, blocks: [], mediaIds: ['m-audio', 'm-pdf'] }} mediaUrls={{ 'm-audio': { url: 'https://s3.example/a?sig=1', filename: 'lecture.mp3' }, 'm-pdf': { url: 'https://s3.example/b?sig=1', filename: 'guide.pdf' } }} />));
+    const players = host.querySelectorAll('audio');
+    expect(players).toHaveLength(1);
+    expect(players[0].controls).toBe(true);
+    expect(players[0].getAttribute('src')).toBe('https://s3.example/a?sig=1');
+    expect(host.querySelector('video')).toBeNull();
+    expect(host.textContent).toContain('guide.pdf');
+    expect(host.querySelectorAll('a')).toHaveLength(2);
+  });
+
+  it('does not render an audio player until the authorized URL is available', () => {
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+    act(() => root.render(<ActivityContentPreview content={{ version: 1, blocks: [], mediaIds: ['m-audio'] }} mediaUrls={{}} />));
+    expect(host.querySelector('audio')).toBeNull();
   });
 });

@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { MediaAssetLibraryModal, type MediaAsset } from './MediaAssetLibraryModal';
+import { isAudioMedia } from '../../lib/learningMediaKinds';
 import { learningMediaApi } from '../../lib/api';
 
 export type ReadingBlock =
@@ -829,7 +830,7 @@ export function ReadingDocumentEditor({
           <div className="flex items-center justify-between">
             <div>
               <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted">
-                Attached Learning Materials (PDF, DOCX, PPTX, Images)
+                Attached Learning Materials (PDF, DOCX, PPTX, Images, MP3 audio)
               </h4>
               <p className="text-2xs text-ink-subtle mt-0.5">
                 Students will be able to download and reference these files alongside the reading.
@@ -858,7 +859,7 @@ export function ReadingDocumentEditor({
                 return (
                   <li
                     key={id}
-                    className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-line bg-surface"
+                    className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-lg border border-line bg-surface"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <FileTextIcon className="h-4 w-4 text-accent shrink-0" />
@@ -889,6 +890,9 @@ export function ReadingDocumentEditor({
                         <Trash2Icon className="h-3.5 w-3.5" />
                       </button>
                     </div>
+                    {media?.url && isAudioMedia(media.filename) && (
+                      <audio controls preload="none" className="w-full" src={media.url} aria-label={`Audio: ${media.filename}`} />
+                    )}
                   </li>
                 );
               })}

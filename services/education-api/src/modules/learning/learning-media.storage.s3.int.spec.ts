@@ -72,6 +72,8 @@ describeLocalS3('Learning Media integration against a loopback S3-compatible ser
 
     await expect(storage.head(objectKey)).resolves.toEqual({ contentLength: bytes.byteLength, contentType: 'application/pdf', mediaId });
     await expect(storage.head(`learning-media/courses/${courseId}/documents/${randomUUID()}.pdf`)).resolves.toBeNull();
+    // ranged GET returns only the requested prefix (used for content verification)
+    await expect(storage.readPrefix(objectKey, 9)).resolves.toEqual(bytes.slice(0, 9));
     const downloadUrl = await storage.createDownload(objectKey, 'guide.pdf', 'application/pdf');
     const parsedDownload = new URL(downloadUrl);
     expect(parsedDownload.searchParams.get('X-Amz-Expires')).toBe('900');

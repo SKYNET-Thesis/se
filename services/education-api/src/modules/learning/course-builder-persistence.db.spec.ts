@@ -24,7 +24,7 @@ const describeDb = requested && isolatedIdentity ? describe : describe.skip;
 const adminId = '00000000-0000-4000-8000-000000000001';
 const admin = { vistaUserId: adminId, status: 'active', systemPermissions: ['org.manage'], memberships: [] };
 
-describeDb('real PostgreSQL Course Builder persistence scenarios A-F', () => {
+describeDb('real PostgreSQL Course Builder persistence scenarios A-G', () => {
   const db = new PrismaClient({ datasources: { db: { url: configuredUrl } } });
   const scope = new LearningScopeService(db as never);
   const progression = new ProgressionService(db as never, scope as never);
@@ -119,6 +119,7 @@ describeDb('real PostgreSQL Course Builder persistence scenarios A-F', () => {
         const [media] = await db.$queryRaw<Array<{ size_bytes: number; mime_type: string; id: string }>>`SELECT size_bytes::int,mime_type,id FROM public.learning_media_assets WHERE object_key=${key}`;
         return { contentLength: media.size_bytes, contentType: media.mime_type, mediaId: media.id };
       }),
+      readPrefix: jest.fn(async () => new TextEncoder().encode('%PDF-1.7 test double')), // completion also verifies the file's magic bytes
     };
     const media = new LearningMediaService(db as never, scope as never, storage as never);
     const curriculumWithMedia = new CurriculumService(db as never, progression as never, media);
@@ -227,5 +228,23 @@ describeDb('real PostgreSQL Course Builder persistence scenarios A-F', () => {
     await expect(media.completeUpload(x.user as never, pending.media.id as string)).rejects.toThrow(/not present/i);
     const [stored] = await db.$queryRaw<Array<{ status: string }>>`SELECT status FROM public.learning_media_assets WHERE id=${pending.media.id as string}::uuid`;
     expect(stored.status).toBe('pending');
+  });
+  it('G: completes an upload to a JSON-serializable ready asset (bigint size_bytes must not reach the HTTP serializer)', async () => {
+    const x = await globalFixture('media-complete');
+    const storage = { createUpload: jest.fn(async () => ({ url: 'test-double', fields: {} })), head: jest.fn(), readPrefix: jest.fn(async () => new TextEncoder().encode('%PDF-1.7 test double')) };
+    const media = new LearningMediaService(db as never, scope as never, storage as never);
+    const pending = await media.createUpload(x.user as never, x.course.id, { filename: 'lab.pdf', contentType: 'application/pdf', sizeBytes: 2048 });
+    storage.head.mockResolvedValue({ contentLength: 2048, contentType: 'application/pdf', mediaId: pending.media.id });
+
+    const ready = await media.completeUpload(x.user as never, pending.media.id as string);
+    // Express serializes the controller result with JSON.stringify, which throws "Do not know how to serialize a BigInt".
+    expect(() => JSON.stringify(ready)).not.toThrow();
+    expect(ready).toMatchObject({ id: pending.media.id, status: 'ready', original_filename: 'lab.pdf' });
+    expect(typeof ready.size_bytes).toBe('number');
+    expect(ready.size_bytes).toBe(2048);
+    expect(() => JSON.stringify(pending)).not.toThrow();
+    const listed = await media.list(x.user as never, x.course.id);
+    expect(() => JSON.stringify(listed)).not.toThrow();
+    expect(listed[0]).toMatchObject({ id: pending.media.id, status: 'ready', size_bytes: 2048 });
   });
 });
