@@ -5,6 +5,7 @@ export const studentLearningKeys = {
   list: (userId = '', sessionRevision = 0) => [...studentLearningKeys.all, 'list', userId, sessionRevision] as const,
   assignment: (classroomAssignmentId:string) => [...studentLearningKeys.all, 'assignment', classroomAssignmentId] as const,
   attempts: (classroomAssignmentId:string) => [...studentLearningKeys.assignment(classroomAssignmentId), 'attempts'] as const,
+  history: (classroomAssignmentId:string) => [...studentLearningKeys.assignment(classroomAssignmentId), 'history'] as const,
   practice: (attemptId:string) => [...studentLearningKeys.all, 'practice', attemptId] as const,
   coursePaths: (userId = '', sessionRevision = 0) => [...studentLearningKeys.all, 'course-paths', userId, sessionRevision] as const,
   coursePath: (courseId = '', userId = '', sessionRevision = 0) => [...studentLearningKeys.all, 'course-path', courseId, userId, sessionRevision] as const,
