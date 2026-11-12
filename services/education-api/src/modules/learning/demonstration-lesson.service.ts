@@ -224,10 +224,10 @@ export class DemonstrationLessonService {
       JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id
       JOIN public.learning_classrooms c ON c.id=ca.classroom_id
       JOIN public.learning_assignments a ON a.id=ca.assignment_id
-      JOIN public.learning_submissions s ON s.assignment_id=a.id
-        AND s.program_id=at.program_id AND s.learner_user_id=at.learner_user_id
+      JOIN public.learning_submissions s ON s.assignment_id=a.id AND s.status<>'draft'
+        AND s.learner_user_id=at.learner_user_id AND (s.attempt_id=at.id OR (s.attempt_id IS NULL AND s.program_id=at.program_id))
       WHERE at.id=${attemptId}::uuid AND at.learner_user_id=${user.vistaUserId}::uuid
-      ORDER BY s.submitted_at DESC NULLS LAST LIMIT 1`;
+      ORDER BY (s.attempt_id=at.id) DESC NULLS LAST, s.submitted_at DESC NULLS LAST LIMIT 1`;
     if (!rows[0]) throw new NotFoundException("C3 submission context was not found.");
     return rows[0];
   }

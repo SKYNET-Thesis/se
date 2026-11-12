@@ -20,6 +20,9 @@ export class AssessmentController {
   @Post("submissions/:submissionId/feedback") feedback(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string,@Body() dto:CreateFeedbackDto){return this.assessments.feedback(user,id,dto)}
   @Get("me/submissions") mine(@CurrentUser() user: AuthenticatedUser){return this.assessments.mySubmissions(user)}
   @Get("me/submissions/:submissionId") mySubmission(@CurrentUser() user: AuthenticatedUser,@Param("submissionId",ParseUUIDPipe) id:string){return this.assessments.mySubmission(user,id)}
+  @Post("submissions/:submissionId/release") release(@CurrentUser() user: AuthenticatedUser,@Param("submissionId",ParseUUIDPipe) id:string){return this.assessments.releaseSubmission(user,id)}
+  @Post("attempts/:attemptId/release") releaseAttempt(@CurrentUser() user: AuthenticatedUser,@Param("attemptId",ParseUUIDPipe) id:string){return this.assessments.releaseAttempt(user,id)}
+  @Get("me/attempts/:attemptId/grading") myGrading(@CurrentUser() user: AuthenticatedUser,@Param("attemptId",ParseUUIDPipe) id:string){return this.assessments.myGrading(user,id)}
   @Get("me/submissions/:submissionId/feedback") myFeedback(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string){return this.assessments.myFeedback(user,id)}
   @Get("me/submissions/:submissionId/reflections") reflections(@CurrentUser() user: AuthenticatedUser,@Param("submissionId",ParseUUIDPipe) id:string){return this.assessments.myReflections(user,id)}
   @Post("me/submissions/:submissionId/reflections") reflection(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string,@Body() dto:CreateReflectionDto){return this.assessments.createReflection(user,id,dto)}

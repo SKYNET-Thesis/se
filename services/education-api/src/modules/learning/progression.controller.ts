@@ -1,8 +1,9 @@
-import { BadRequestException, Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, Put, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../identity/auth/current-user.decorator";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { SupabaseAuthGuard } from "../identity/auth/supabase-auth.guard";
+import { SaveQuizDraftDto } from "./dto/save-quiz-draft.dto";
 import { SubmitKnowledgeCheckDto } from "./dto/submit-knowledge-check.dto";
 import { ProgressionService } from "./progression.service";
 import { ActivityProgressService } from './activity-progress.service';
@@ -56,5 +57,10 @@ export class ProgressionController {
     @Body() dto: SubmitKnowledgeCheckDto,
   ) {
     return this.progression.submitKnowledgeCheck(user, attemptId, dto);
+  }
+
+  @Put("me/attempts/:attemptId/draft")
+  saveQuizDraft(@CurrentUser() user: AuthenticatedUser, @Param("attemptId", ParseUUIDPipe) attemptId: string, @Body() dto: SaveQuizDraftDto) {
+    return this.progression.saveQuizDraft(user, attemptId, dto);
   }
 }
