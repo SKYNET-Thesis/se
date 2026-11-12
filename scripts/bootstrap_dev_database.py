@@ -53,6 +53,7 @@ REQUIRED_OBJECTS = [
     ("learning_questions.organization_id nullable (migration F)", "EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.learning_questions'::regclass AND attname='organization_id' AND NOT attnotnull)", "20261111_f_global_question_scope"),
     ("global question code unique index (migration F)", "to_regclass('public.learning_questions_global_course_code_key') IS NOT NULL", "20261111_f_global_question_scope"),
     ("trigger check_learning_activity_progress_scope (migration G)", "EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.learning_activity_progress'::regclass AND tgname='check_learning_activity_progress_scope' AND NOT tgisinternal)", "20261111_g_activity_progress_scope_guard"),
+    ("learning_media_assets MIME allowlist includes audio/mpeg (migration H)", "EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.learning_media_assets'::regclass AND conname='learning_media_assets_mime_type' AND contype='c' AND pg_get_constraintdef(oid) LIKE '%''audio/mpeg''%')", "20261112_h_learning_media_audio_mpeg"),
 ]
 
 
