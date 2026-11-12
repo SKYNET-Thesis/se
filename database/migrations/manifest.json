@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "baselineSha256": "5b140ce7b5f9b71e5c013f45ec9298cde48db29ac5e6a979b78aea694c2ef962",
-  "sourceCommit": "0d54fae85c0d6a100677e8c5658236c1d464402d",
+  "sourceCommit": "e8e0bb7c133b2d160c360ac8d9d8a6af1f5a9ed0",
   "migrations": [
     {
       "version": "20261110_d_activity_content",
@@ -26,6 +26,12 @@
       "path": "database/migrations/20261111_g_activity_progress_scope_guard.sql",
       "sha256": "f83b78621bef0941c54c4e31b4611e77216ce3cf1d7ad4ff9865972de96b0bad",
       "order": 4
+    },
+    {
+      "version": "20261112_h_learning_media_audio_mpeg",
+      "path": "database/migrations/20261112_h_learning_media_audio_mpeg.sql",
+      "sha256": "468f8cefd37127efa3a54291ab51e862903acc7c83af0fba442f694f429ff5c2",
+      "order": 5
     }
   ]
 }

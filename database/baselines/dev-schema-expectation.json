@@ -19,8 +19,9 @@
     "20261110_d_activity_content",
     "20261110_e_learning_media",
     "20261111_f_global_question_scope",
-    "20261111_g_activity_progress_scope_guard"
+    "20261111_g_activity_progress_scope_guard",
+    "20261112_h_learning_media_audio_mpeg"
   ],
   "note": "Schema fingerprint of a fresh PostgreSQL 17 bootstrap (baseline + manifest migrations) for a database owned by user vista_test. Regenerate with --verify-only --write-expectation after a reviewed manifest change.",
-  "schemaFingerprint": "cf6ed59046530d5fa51bf55186b18acf7eff237f0f57b8d7d82402a1f4dc93b9"
+  "schemaFingerprint": "de8d9e0ecfabe27cbc09d1b5be7194992431f5dcf317a18692bd2d3374e557af"
 }
