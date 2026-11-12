@@ -1,0 +1,31 @@
+{
+  "formatVersion": 1,
+  "_comment": "Reviewed, explicit release definitions. A scope lists exactly the migrations a release applies, their pinned SHA-256, what must already be applied, what must never be present, and the registered postflight verifier. The release workflow can only run scopes defined here; adding a scope or changing a pin needs a reviewed change (CODEOWNERS) and a matching workflow choice, verifier and tests.",
+  "scopes": {
+    "D-I": {
+      "description": "Course Builder D, Learning Media E/H, global Question Bank scope F, activity-progress guard G, D03 Stage 1 foundation I",
+      "requiresApplied": [],
+      "versions": [
+        "20261110_d_activity_content",
+        "20261110_e_learning_media",
+        "20261111_f_global_question_scope",
+        "20261111_g_activity_progress_scope_guard",
+        "20261112_h_learning_media_audio_mpeg",
+        "20261113_i_attempt_submission_foundation"
+      ],
+      "sha256": {
+        "20261110_d_activity_content": "108c321adf155233791aae453b9e6bf77f57ef82c0da4444fbcae8b728ed5627",
+        "20261110_e_learning_media": "a19f11708c4029afca9cce4474c2c3e95cbea0a5d1a850de5c0c1c08d73812a9",
+        "20261111_f_global_question_scope": "63b291c479c94ed8a9563bd64956ce3d09098a88cff98960b0c80c5e6e7306fe",
+        "20261111_g_activity_progress_scope_guard": "f83b78621bef0941c54c4e31b4611e77216ce3cf1d7ad4ff9865972de96b0bad",
+        "20261112_h_learning_media_audio_mpeg": "468f8cefd37127efa3a54291ab51e862903acc7c83af0fba442f694f429ff5c2",
+        "20261113_i_attempt_submission_foundation": "d13e7ddc22fb98ac5735777b86d1410e419f1422fcc748195d03b306ae8cf093"
+      },
+      "excludedVersions": [
+        "20261114_j_one_submission_per_attempt"
+      ],
+      "catalogBaseline": "verified-2026-11-09",
+      "verifier": "d_i"
+    }
+  }
+}

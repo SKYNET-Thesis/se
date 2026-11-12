@@ -1,0 +1,179 @@
+name: Production Database Release
+
+# The ONLY workflow allowed to change the Production schema. It is manual (workflow_dispatch), runs only on main, and is gated by
+# GitHub Environments: read-only credentials live in `production-database-preflight` (no reviewers) and the privileged credential
+# lives ONLY in `production-database-apply`, which requires reviewer approval, so an unapproved run cannot even read it.
+# scripts/check_database_workflow_safety.py enforces this structure in CI. See docs/operations/production-release-d-i-runbook.md.
+#
+# Scope: the approved migration inventory only (D-I). Stage J (database/staged-migrations) can never be applied here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Approved release scope"
+        type: choice
+        options: ["D-I"]
+        default: "D-I"
+      expected_main_sha:
+        description: "Full 40-character SHA of the reviewed main commit; must equal the current head of main"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-database-release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production-database-preflight
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      status: ${{ steps.plan.outputs.status }}
+      plan_hash: ${{ steps.plan.outputs.plan_hash }}
+    env:
+      EXPECTED_SHA: ${{ inputs.expected_main_sha }}
+      RELEASE_SCOPE: ${{ inputs.scope }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The reviewed commit is the current, merged head of main
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'expected_main_sha must be a full 40-character SHA' >&2; exit 1; }
+          test "$GITHUB_SHA" = "$EXPECTED_SHA" || { echo "main moved: head is $GITHUB_SHA, approved $EXPECTED_SHA" >&2; exit 1; }
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA" || { echo 'checked-out commit is not the head of origin/main' >&2; exit 1; }
+          merged="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '[.[] | select(.merged_at != null)] | length')"
+          test "$merged" -ge 1 || { echo 'the release commit does not come from a merged pull request' >&2; exit 1; }
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Validate the immutable manifest, source checksums and workflow safety
+        run: |
+          python scripts/validate_database_migration_manifest.py --release
+          python scripts/check_database_workflow_safety.py .github/workflows
+      - name: Read-only plan (project identity, ledger, catalog baseline, scope; Stage J excluded)
+        id: plan
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_READONLY_URL }}
+          SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$DATABASE_URL" && test -n "$SUPABASE_URL" || { echo 'read-only Production secrets are missing in production-database-preflight (fail closed)' >&2; exit 1; }
+          python scripts/production_db_release.py plan --scope "$RELEASE_SCOPE" --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/plan.json"
+          echo "status=$(python -c "import json,os;print(json.load(open(os.environ['RUNNER_TEMP']+'/plan.json'))['status'])")" >> "$GITHUB_OUTPUT"
+          echo "plan_hash=$(python -c "import json,os;print(json.load(open(os.environ['RUNNER_TEMP']+'/plan.json'))['planHash'])")" >> "$GITHUB_OUTPUT"
+      - name: Pre-release snapshot (non-sensitive row counts) and backup / PITR verification
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_READONLY_URL }}
+          SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          python scripts/production_db_release.py snapshot --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/pre.json"
+          python scripts/production_db_release.py check-backup --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/backup-preflight.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: production-db-release-plan
+          path: |
+            ${{ runner.temp }}/plan.json
+            ${{ runner.temp }}/pre.json
+            ${{ runner.temp }}/backup-preflight.json
+          retention-days: 90
+          if-no-files-found: error
+
+  apply:
+    needs: [preflight]
+    if: needs.preflight.outputs.status == 'ready'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Required reviewers (not the dispatcher) must approve before this job starts or can read PRODUCTION_DATABASE_APPLY_URL.
+    environment: production-database-apply
+    permissions:
+      contents: read
+    env:
+      EXPECTED_SHA: ${{ inputs.expected_main_sha }}
+      RELEASE_SCOPE: ${{ inputs.scope }}
+      APPROVED_PLAN_HASH: ${{ needs.preflight.outputs.plan_hash }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Main has not moved since the plan was approved
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "$EXPECTED_SHA" || { echo 'checked-out commit differs from the approved SHA' >&2; exit 1; }
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA" || { echo 'main moved after approval was requested; start a new release' >&2; exit 1; }
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@v4
+        with:
+          name: production-db-release-plan
+          path: ${{ runner.temp }}/approved
+      - name: Fresh backup / PITR verification immediately before apply
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: python scripts/production_db_release.py check-backup --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/backup-apply.json"
+      - name: Revalidate the approved plan against the live database, apply exactly that scope, verify
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_APPLY_URL }}
+          SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$DATABASE_URL" && test -n "$SUPABASE_URL" || { echo 'privileged Production secrets are missing (fail closed)' >&2; exit 1; }
+          python - <<'PY'
+          import json, os, sys
+          plan = json.load(open(os.environ["RUNNER_TEMP"] + "/approved/plan.json"))
+          if plan["planHash"] != os.environ["APPROVED_PLAN_HASH"]:
+              sys.exit("artifact plan hash differs from the approved preflight output")
+          PY
+          python scripts/production_db_release.py apply --scope "$RELEASE_SCOPE" --expected-project-ref ovijutkvaaxohauvuxbj \
+            --plan "$RUNNER_TEMP/approved/plan.json" --backup-evidence "$RUNNER_TEMP/backup-apply.json" \
+            --approval-reference "gh-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --operator-id "${GITHUB_ACTOR}" \
+            --output "$RUNNER_TEMP/release-evidence.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: production-db-release-evidence
+          path: |
+            ${{ runner.temp }}/release-evidence.json
+            ${{ runner.temp }}/backup-apply.json
+          retention-days: 365
+          if-no-files-found: warn
+
+  resume-deployment:
+    # After an approved, verified release, resume the intended API/Web deployment. The dispatched Education CI run still passes its own
+    # schema gate and its own aws-demo reviewer approval; nothing is deployed from here directly.
+    needs: [apply]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Dispatch Education CI (deploy) on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run backend-ci.yml --repo "$GITHUB_REPOSITORY" --ref main -f action=deploy
