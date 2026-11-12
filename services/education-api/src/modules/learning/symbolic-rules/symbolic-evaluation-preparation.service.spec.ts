@@ -16,7 +16,7 @@ describe("SymbolicEvaluationPreparationService", () => {
 
   it("loads only an own successful schematic chain and creates deterministic immutable preparation", async () => {
     const prepared = await prepare();
-    expect(assertStudentClassroomAccess).toHaveBeenCalledWith(user, "classroom-1");
+    expect(assertStudentClassroomAccess).toHaveBeenCalledWith(user, "classroom-1", { requireActiveEnrollment: true });
     expect(prepared).toMatchObject({ experimentId: "experiment-1", submissionId: "submission-1", programVersionId: "version-1", requestedByUserId: "student-1", evaluatorVersion: "vista-symbolic-evaluator-1" });
     expect(prepared.ruleSet.ruleSetHash).toMatch(/^[a-f0-9]{64}$/);
     expect(prepared.fingerprint).toMatch(/^[a-f0-9]{64}$/);

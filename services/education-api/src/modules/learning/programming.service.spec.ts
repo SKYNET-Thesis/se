@@ -32,7 +32,7 @@ describe("ProgrammingService M2C", () => {
       $executeRaw: jest.fn().mockResolvedValue(undefined),
     }));
     const result = await service.createProgram(user, "attempt-1", { title:"My work", workspaceJson:{ blocks:[] }, robotProgram:validRobotProgram });
-    expect(assertStudentClassroomAccess).toHaveBeenCalledWith(user, "class-1");
+    expect(assertStudentClassroomAccess).toHaveBeenCalledWith(user, "class-1", { requireActiveEnrollment: true });
     expect(result.id).toBe("program-1");
   });
 
@@ -44,6 +44,42 @@ describe("ProgrammingService M2C", () => {
     }));
     await expect(service.submit(user, "attempt-1", { programVersionId:"00000000-0000-0000-0000-000000000001" }))
       .rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  describe("revoked enrollment", () => {
+    // Membership is still active, but the enrollment was revoked: the guard only rejects the enrollment-aware call.
+    const denyWhenEnrollmentRequired = () => assertStudentClassroomAccess.mockImplementation(async (_u: unknown, _c: unknown, opts?: { requireActiveEnrollment?: boolean }) => {
+      if (opts?.requireActiveEnrollment) throw new NotFoundException("Assignment was not found.");
+    });
+    const attemptTx = (programId: string | null) => transaction.mockImplementation(async (work) => work({
+      $queryRaw: jest.fn().mockResolvedValue([{ attempt_id:"attempt-1", classroom_id:"class-1", assignment_id:"assignment-1", program_id:programId, id:"program-1", owner_user_id:"user-1" }]),
+      $executeRaw: jest.fn(),
+    }));
+
+    it("cannot create a program", async () => {
+      denyWhenEnrollmentRequired(); attemptTx(null);
+      await expect(service.createProgram(user, "attempt-1", { title:"t", workspaceJson:{}, robotProgram:validRobotProgram })).rejects.toBeInstanceOf(NotFoundException);
+    });
+    it("cannot submit an attempt", async () => {
+      denyWhenEnrollmentRequired(); attemptTx("program-1");
+      await expect(service.submit(user, "attempt-1", { programVersionId:"00000000-0000-0000-0000-000000000001" })).rejects.toBeInstanceOf(NotFoundException);
+    });
+    it("cannot save a new program version", async () => {
+      denyWhenEnrollmentRequired(); attemptTx("program-1");
+      queryRaw.mockResolvedValue([{ attempt_id:"attempt-1", classroom_id:"class-1", assignment_id:"assignment-1", program_id:"program-1" }]);
+      await expect(service.createVersion(user, "program-1", {} as never)).rejects.toBeInstanceOf(NotFoundException);
+    });
+    it("cannot update a program", async () => {
+      denyWhenEnrollmentRequired();
+      queryRaw.mockResolvedValue([{ id:"program-1", owner_user_id:"user-1", assignment_id:"assignment-1", attempt_id:"attempt-1", classroom_id:"class-1" }]);
+      await expect(service.updateProgram(user, "program-1", { title:"x" } as never)).rejects.toBeInstanceOf(NotFoundException);
+    });
+    it("can still read the preserved program and its versions", async () => {
+      denyWhenEnrollmentRequired();
+      queryRaw.mockResolvedValue([{ id:"program-1", owner_user_id:"user-1", assignment_id:"assignment-1", attempt_id:"attempt-1", classroom_id:"class-1", program_id:"program-1" }]);
+      await expect(service.versions(user, "program-1")).resolves.toBeDefined();
+      for (const [, , options] of assertStudentClassroomAccess.mock.calls) expect(options?.requireActiveEnrollment).toBeFalsy();
+    });
   });
 
   it("does not reveal another learner's attempt as a program", async () => {

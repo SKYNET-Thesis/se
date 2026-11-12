@@ -76,11 +76,22 @@ export class LearningScopeService {
     if (!rows.length) throw new NotFoundException("Classroom was not found.");
   }
 
-  async assertStudentClassroomAccess(user: AuthenticatedUser, classroomId: string): Promise<void> {
+  /**
+   * Student membership guard. Reads of the learner's own history use the default (membership only) so
+   * revocation never hides preserved evidence. Anything that creates or advances learning work must pass
+   * `requireActiveEnrollment`, which additionally requires an active classroom, an active offering and an
+   * `active` enrollment for exactly that classroom/offering/course, so revoked or archived access cannot act.
+   */
+  async assertStudentClassroomAccess(
+    user: AuthenticatedUser,
+    classroomId: string,
+    options: { requireActiveEnrollment?: boolean } = {},
+  ): Promise<void> {
     if (this.isSystemAdministrator(user)) return;
     if (!user.memberships.some((m) => m.status === "active" && m.permissions.includes("learning.work.write"))) {
       throw new NotFoundException("Assignment was not found.");
     }
+    const requireEnrollment = options.requireActiveEnrollment === true;
     const rows = await this.prisma.$queryRaw<{ classroom_id: string }[]>`
       SELECT cm.classroom_id
       FROM public.learning_classroom_members cm
@@ -88,7 +99,14 @@ export class LearningScopeService {
       JOIN public.learning_classrooms c ON c.id = cm.classroom_id
       WHERE cm.classroom_id=${classroomId}::uuid AND cm.user_id=${user.vistaUserId}::uuid
         AND cm.classroom_role='student' AND cm.status='active' AND m.status='active'
-        AND m.organization_id=c.organization_id`;
+        AND m.organization_id=c.organization_id
+        AND (NOT ${requireEnrollment}::boolean OR (
+          c.status='active' AND EXISTS (
+            SELECT 1 FROM public.learning_course_offerings o
+            JOIN public.learning_enrollments e ON e.offering_id=o.id AND e.course_id=o.course_id
+              AND e.classroom_id=c.id AND e.learner_user_id=cm.user_id AND e.status='active'
+            WHERE o.id=c.offering_id AND o.status='active'
+          )))`;
     if (!rows.length) throw new NotFoundException("Assignment was not found.");
   }
 }

@@ -103,12 +103,12 @@ export class AssessmentService {
   }
 
   async createReflection(user:AuthenticatedUser,submissionId:string,dto:CreateReflectionDto) {
-    await this.ownSubmission(user,submissionId);
+    await this.ownSubmission(user,submissionId,true);
     const rows=await this.prisma.$queryRaw<{id:string;submission_id:string;learner_user_id:string;prompt_key:string;prompt_text:string;response_text:string|null;created_at:Date}[]>`INSERT INTO public.learning_reflections(submission_id,learner_user_id,prompt_key,prompt_text,response_text) VALUES(${submissionId}::uuid,${user.vistaUserId}::uuid,${dto.promptKey},${dto.promptText},${dto.responseText??null}) RETURNING id,submission_id,learner_user_id,prompt_key,prompt_text,response_text,created_at`;
     return rows[0];
   }
 
-  private async ownSubmission(user:AuthenticatedUser,id:string) {const submission=await this.submissionScope(id);if(submission.learner_user_id!==user.vistaUserId) throw new NotFoundException("Submission was not found.");await this.scope.assertStudentClassroomAccess(user,submission.classroom_id);return submission;}
+  private async ownSubmission(user:AuthenticatedUser,id:string,requireActiveEnrollment=false) {const submission=await this.submissionScope(id);if(submission.learner_user_id!==user.vistaUserId) throw new NotFoundException("Submission was not found.");await this.scope.assertStudentClassroomAccess(user,submission.classroom_id,{requireActiveEnrollment});return submission;}
   private async submissionScope(id:string):Promise<SubmissionScope>{const rows=await this.prisma.$queryRaw<SubmissionScope[]>`SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,ca.classroom_id FROM public.learning_submissions s JOIN public.learning_assignment_attempts a ON a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id WHERE s.id=${id}::uuid`;if(rows.length!==1)throw new NotFoundException("Submission was not found.");return rows[0];}
   private async evidence(submission:SubmissionScope) {
     const rows=await this.prisma.$queryRaw<Record<string,unknown>[]>`
