@@ -45,7 +45,7 @@ Content verification limits: this proves a file *starts like* its declared forma
 
 Known behaviour: the API role has no `s3:ListBucket`, so S3 answers 403 (not 404) for a missing object; `HeadObject` then surfaces as "could not verify the uploaded object" instead of "not present". Granting ListBucket was deliberately not done (least privilege).
 
-## Database: MP3 needs migration H (prepared, not registered, not applied)
+## Database: MP3 needs migration H (registered in the manifest, not applied to production)
 
 `public.learning_media_assets` has a CHECK constraint `learning_media_assets_mime_type` (created by migration E) that lists the allowed MIME types.
 `audio/mpeg` was not in it, so inserting an MP3 asset fails in the database. Until migration H is applied the API answers a clear
@@ -56,7 +56,7 @@ nine previous values unchanged plus `audio/mpeg`; no row is read, rewritten or d
 Verification: `tests/database/test_learning_media_audio_migration.py` (static checks always; a PostgreSQL test, run in a rolled-back transaction on the
 disposable database of the bootstrap workflow, proves existing rows are byte-identical, `audio/mpeg` is accepted, other types stay rejected and a replay is harmless).
 
-Registration follows the repository's two-commit convention (as for migration G), because the manifest's `sourceCommit` must be a commit that already contains the SQL bytes:
+Status: **Registered in the migration manifest (order 5), not applied to production.** Registration followed the repository's two-commit convention (as for migration G), because the manifest's `sourceCommit` must be a commit that already contains the SQL bytes (done: SQL in `e8e0bb7`, registration in the next commit):
 
 1. Commit the migration file, the test and the `REQUIRED_OBJECTS` entry in `scripts/bootstrap_dev_database.py` (the manifest validator rejects an *untracked* SQL file, so bootstrap cannot run before this commit).
 2. In a second commit: add the manifest entry `{version: 20261112_h_learning_media_audio_mpeg, path, sha256 of the file, order: 5}`, set `sourceCommit` to the commit from step 1, run
