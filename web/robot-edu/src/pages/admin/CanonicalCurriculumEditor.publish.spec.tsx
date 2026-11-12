@@ -17,14 +17,16 @@ vi.mock('../../lib/api', async (importOriginal) => {
   };
 });
 
+const snapshotRef = vi.hoisted(() => ({ current: null as unknown }));
 /** The Content Editor is stubbed: it only reports dirtiness and asks the parent to open Preview/Publish. */
-const snapshot = { lessons: [{ id: 'l-snap', title: 'Snapshot lesson', ordinal: 1 }], sections: [], selectedLessonId: 'l-snap' };
+const deliverableSections = [{ id: 's1', title: 'Lesson 1', ordinal: 1, status: 'published', learning_activities: [{ id: 'a1', title: 'Read', type: 'reading', ordinal: 1, required: true, status: 'published' }] }];
+const snapshot = { lessons: [{ id: 'l-snap', title: 'Snapshot lesson', ordinal: 1 }], sections: deliverableSections, selectedLessonId: 'l-snap' };
 vi.mock('../../components/authoring/CourseContentEditor', () => ({
   CourseContentEditor: ({ onDirtyChange, onOpenPreview, onOpenPublish }: { onDirtyChange?: (dirty: boolean) => void; onOpenPreview?: (s: typeof snapshot) => void; onOpenPublish?: (s: typeof snapshot) => void }) => (
     <div data-testid="course-content-editor">
       <button type="button" onClick={() => onDirtyChange?.(true)}>Mark dirty</button>
       <button type="button" onClick={() => onDirtyChange?.(false)}>Mark saved</button>
-      <button type="button" onClick={() => onOpenPublish?.(snapshot)}>Stub publish</button>
+      <button type="button" onClick={() => onOpenPublish?.((snapshotRef.current ?? snapshot) as typeof snapshot)}>Stub publish</button>
       <button type="button" onClick={() => onOpenPreview?.(snapshot)}>Stub preview</button>
     </div>
   ),
@@ -45,8 +47,9 @@ describe('CanonicalCurriculumEditor: one publish flow', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    snapshotRef.current = null;
     api.lessons.mockResolvedValue([{ id: 'l1', title: 'Intro', ordinal: 1 }]);
-    api.sections.mockResolvedValue([]);
+    api.sections.mockResolvedValue(deliverableSections);
     container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
     await act(async () => { root.render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CanonicalCurriculumEditor course={course} token="token" /></QueryClientProvider>); });
     await tick();
@@ -100,5 +103,27 @@ describe('CanonicalCurriculumEditor: one publish flow', () => {
   it('previews and checks readiness against the curriculum the Content Editor has open', async () => {
     await press('Stub preview');
     expect(document.body.textContent).toContain('Snapshot lesson');
+  });
+
+  it('does not report Ready to Publish while a module has no published lesson with a published activity', async () => {
+    const draftOnly = [{ ...deliverableSections[0], status: 'draft' }];
+    const stubbed = { ...snapshot, lessons: [{ id: 'l-snap', title: 'Snapshot lesson', ordinal: 1 }, { id: 'l-other', title: 'Empty module', ordinal: 2 }], sections: deliverableSections };
+    api.sections.mockImplementation(async (id: string) => (id === 'l-other' ? draftOnly : deliverableSections));
+    // the stub reports the 2-module snapshot
+    snapshotRef.current = stubbed;
+    await press('Stub publish');
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Missing in: Empty module'));
+    expect(document.body.textContent).toContain('Requirements Incomplete');
+    expect(document.body.textContent).not.toContain('Ready to Publish');
+    expect(([...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Proceed to Review') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('reports Ready to Publish once every module has published content', async () => {
+    const stubbed = { ...snapshot, lessons: [{ id: 'l-snap', title: 'Snapshot lesson', ordinal: 1 }, { id: 'l-other', title: 'Second module', ordinal: 2 }] };
+    api.sections.mockResolvedValue(deliverableSections);
+    snapshotRef.current = stubbed;
+    await press('Stub publish');
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Ready to Publish'));
+    expect(([...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Proceed to Review') as HTMLButtonElement).disabled).toBe(false);
   });
 });

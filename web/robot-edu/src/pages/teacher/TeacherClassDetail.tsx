@@ -130,7 +130,7 @@ export function TeacherClassDetail() {
 
       <section className="mt-10">
         <h2 className="text-xl font-semibold text-ink">Submitted results</h2>
-        <ul className="mt-4 divide-y divide-line">{(submissions.data ?? []).map((result) => <li key={result.id} className="flex items-center justify-between gap-4 py-3"><div><p className="font-medium text-ink">{result.full_name ?? 'Student'} · {result.assignment_title??'Assignment'}</p><p className="text-sm text-ink-muted">{result.status} · {result.submitted_at?new Date(result.submitted_at).toLocaleString():'Not timestamped'} · {result.review_status??'unreviewed'}</p></div><Link to={`/teacher/classes/${classroomId}/submissions/${result.id}`} className="text-sm font-semibold text-[#176255] underline underline-offset-4">Review</Link></li>)}</ul>
+        <ul className="mt-4 divide-y divide-line">{(submissions.data ?? []).map((result) => <li key={result.id} className="flex items-center justify-between gap-4 py-3"><div><p className="font-medium text-ink">{result.full_name ?? 'Student'} · {result.assignment_title??'Assignment'}{result.attempt_number?` · Attempt ${result.attempt_number}`:''}</p><p className="text-sm text-ink-muted">{result.status} · {result.grading_released_at?'released to student':'not released'} · {result.submitted_at?new Date(result.submitted_at).toLocaleString():'Not timestamped'} · {result.review_status??'unreviewed'}</p></div><Link to={`/teacher/classes/${classroomId}/submissions/${result.id}`} className="text-sm font-semibold text-[#176255] underline underline-offset-4">Review</Link></li>)}</ul>
         {!submissions.isLoading && !submissions.data?.length && <p className="mt-3 text-sm text-ink-muted">No submitted results yet.</p>}
       </section>
     </main>

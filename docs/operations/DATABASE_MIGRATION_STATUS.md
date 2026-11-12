@@ -47,14 +47,16 @@ not the older checked-in 2026-11-07 dump. Relevant facts, checked on a disposabl
 | `learning_classrooms.status` | `draft, active, completed, archived` |
 | `learning_questions.organization_id` | `NOT NULL` (global course questions need migration F) |
 
-SQL migration sources under `database/migrations/` (the manifest is intentionally still empty;
-nothing below has been registered, released or applied to Production):
+SQL migration sources under `database/migrations/` (migrations D to H are registered in the manifest;
+none of them has been released or applied to Production):
 
 | Source | Effect | State |
 | --- | --- | --- |
 | `20261110_a_curriculum_foundation.sql` … `_c_question_bank_quiz_attempt.sql` | Sections, Activities, Question Bank, quiz attempts | already in the baseline under historical versions; replaying them fails (`relation already exists`) |
 | `20261110_d_activity_content.sql` | `learning_activities.content` | additive; not applied to Production |
 | `20261110_e_learning_media.sql` | `learning_media_assets` | additive; not applied to Production |
+| `20261112_h_learning_media_audio_mpeg.sql` | `learning_media_assets` MIME CHECK | additive (allows `audio/mpeg`); Registered in the migration manifest (order 5), not applied to production. |
+| `20261113_i_attempt_submission_foundation.sql` | `learning_submissions.attempt_id`, quiz draft and grading-release columns on attempts, `learning_submission_files`, backfill audit | additive (D03 Stage 1); Registered in the migration manifest (order 6), not applied to production. Stage 2 (`database/staged-migrations/20261114_j_one_submission_per_attempt.sql`) is a separate, unregistered release; see `docs/operations/d03-student-submissions.md`. |
 | `20261111_f_global_question_scope.sql` | `learning_questions.organization_id` nullable, `(course_id, code)` unique for global questions, NULL-safe scope guards | additive and replay-safe (verified by running it twice on a disposable database); depends only on the migration-B objects that the baseline already contains; **not registered, not applied to Production, needs release approval** |
 
 Migration F is the minimal Question Bank part of the earlier draft
@@ -70,7 +72,7 @@ failure-retry suites pass. This is not a release validation.
 
 A new development database is built from the repository alone: the verified baseline
 (`database/baselines/production-public-schema-20261109T172950Z.sql`, SHA-256 `5b140ce7…`) is restored into an
-empty loopback `vista_test_*` PostgreSQL 17 database, then the manifest migrations (D/E/F/G) are applied through
+empty loopback `vista_test_*` PostgreSQL 17 database, then the manifest migrations (D/E/F/G/H) are applied through
 `scripts/sql_migration_runner.py`, then the result is verified (ledger, required objects, idempotent re-run).
 Command: `python3 scripts/bootstrap_dev_database.py --confirm-local-bootstrap`; guide in `database/README.md`.
 

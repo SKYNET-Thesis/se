@@ -83,7 +83,15 @@ export class SymbolicEvaluationService {
         programVersionId: response.programVersionId,
         versionNumber,
       };
-      const finalized=await tx.$queryRaw<{id:string}[]>`UPDATE public.learning_assignment_attempts SET status='evaluated',result_snapshot=${JSON.stringify({ evaluationId: response.id, programVersionId: response.programVersionId, verdict: response.verdict, ruleResults: response.ruleResults, metrics: response.metrics, status, taskState, robotState, objectState, feedback, evidence: resultEvidence })}::jsonb WHERE id=${prepared.attemptId}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status IN ('submitted','evaluated') RETURNING id`;
+      const resultSnapshot = JSON.stringify({ evaluationId: response.id, programVersionId: response.programVersionId, verdict: response.verdict, ruleResults: response.ruleResults, metrics: response.metrics, status, taskState, robotState, objectState, feedback, evidence: resultEvidence });
+      // A simulation RUN (the submission is still a draft, the attempt still open) only records the evaluation and its
+      // result: it neither finalizes the attempt nor completes anything. The explicit final submit promotes it.
+      if (prepared.submissionStatus === "draft") {
+        const recorded = await tx.$queryRaw<{id:string}[]>`UPDATE public.learning_assignment_attempts SET result_snapshot=${resultSnapshot}::jsonb WHERE id=${prepared.attemptId}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status='in_progress' RETURNING id`;
+        if (!recorded[0]) throw new ConflictException("The evaluation could not be recorded on the open attempt.");
+        return { ...response, versionNumber, attemptId: prepared.attemptId, status, taskState, robotState, objectState, feedback, evidence: resultEvidence, progression: { completedLessonId: null, newlyUnlockedLessonIds: [] } };
+      }
+      const finalized=await tx.$queryRaw<{id:string}[]>`UPDATE public.learning_assignment_attempts SET status='evaluated',result_snapshot=${resultSnapshot}::jsonb WHERE id=${prepared.attemptId}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status IN ('submitted','evaluated') RETURNING id`;
       if(!finalized[0])throw new ConflictException("Attempt could not be finalized after evaluation.");
       const progression = await this.progression.projectSymbolicPass(tx, user, {
         evaluationId: response.id,

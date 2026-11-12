@@ -12,7 +12,7 @@ export interface LearningMediaPreviewItem {
   duration?: string;
 }
 
-type PreviewKind = 'pdf' | 'image' | 'video' | 'unsupported';
+type PreviewKind = 'pdf' | 'image' | 'video' | 'audio' | 'unsupported';
 
 function validMediaUrl(value: string): boolean {
   if (!value.trim()) return false;
@@ -30,12 +30,14 @@ function previewKind(item: LearningMediaPreviewItem): PreviewKind {
   if (format) {
     if (format === 'pdf') return 'pdf';
     if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg'].includes(format)) return 'image';
-    if (['mp4', 'webm', 'ogg', 'mov'].includes(format)) return 'video';
+    if (['mp4', 'webm', 'ogg', 'mov', 'quicktime'].includes(format)) return 'video';
+    if (['mp3', 'mpeg'].includes(format)) return 'audio';
     return 'unsupported';
   }
   if (path.endsWith('.pdf')) return 'pdf';
   if (/\.(png|jpe?g|gif|webp|avif|svg)$/.test(path)) return 'image';
   if (/\.(mp4|webm|ogv|mov)$/.test(path)) return 'video';
+  if (/\.mp3$/.test(path)) return 'audio';
   return 'unsupported';
 }
 
@@ -128,6 +130,7 @@ export function LearningMediaPreviewModal({
               {error && <p className="p-6 text-center text-sm text-danger" role="alert">This file could not be previewed. Check your access or open the full content.</p>}
               {!error && kind === 'pdf' && <iframe key={media.url} src={media.url} title={`PDF preview: ${media.name}`} className="h-[68vh] max-h-[680px] min-h-64 w-full" onLoad={() => setLoading(false)} onError={() => { setLoading(false); setError(true); }} />}
               {!error && kind === 'image' && <img key={media.url} src={media.url} alt={media.name} className="max-h-[68vh] max-w-full object-contain" onLoad={() => setLoading(false)} onError={() => { setLoading(false); setError(true); }} />}
+              {!error && kind === 'audio' && <audio key={media.url} src={media.url} controls preload="metadata" className="w-full max-w-xl p-6" onLoadedData={() => setLoading(false)} onError={() => { setLoading(false); setError(true); }} aria-label={`Audio preview: ${media.name}`} />}
               {!error && kind === 'video' && <video key={media.url} ref={videoRef} src={media.url} controls playsInline preload="metadata" className="max-h-[68vh] w-full" onLoadedData={() => setLoading(false)} onError={() => { setLoading(false); setError(true); }} aria-label={`Video preview: ${media.name}`} />}
             </div>
           )}

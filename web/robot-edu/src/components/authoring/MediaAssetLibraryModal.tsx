@@ -1,16 +1,17 @@
 import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileTextIcon, VideoIcon, ImageIcon, EyeIcon, SearchIcon, UploadCloudIcon } from 'lucide-react';
+import { FileTextIcon, VideoIcon, ImageIcon, EyeIcon, SearchIcon, UploadCloudIcon, MusicIcon } from 'lucide-react';
 import { Dialog } from '../ui/Dialog';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { LearningMediaPreviewModal } from './LearningMediaPreviewModal';
 import { learningMediaApi, type ApiLearningMedia } from '../../lib/api';
+import { kindOfMime, LEARNING_MEDIA_ACCEPT, LEARNING_MEDIA_FORMATS_LABEL, type LearningMediaKind } from '../../lib/learningMediaKinds';
 
 export interface MediaAsset {
   id: string;
   name: string;
-  type: 'video' | 'document' | 'image';
+  type: LearningMediaKind;
   format: string;
   size: string;
   url: string;
@@ -25,17 +26,19 @@ export interface MediaAssetLibraryModalProps {
   token: string;
   onSelectAsset?: (asset: MediaAsset) => void;
   selectionMode?: boolean;
-  initialKind?: 'video' | 'document' | 'image';
+  initialKind?: LearningMediaKind;
   /** Render as a page section (Course Builder Media Library tab) instead of a dialog. */
   inline?: boolean;
 }
 
-const kindOf = (mime: string): MediaAsset['type'] => mime.startsWith('video/') ? 'video' : mime.startsWith('image/') ? 'image' : 'document';
+const kindOf = kindOfMime;
+/** Short badge text; the MIME subtype alone reads badly for MP3 (`mpeg`) and MOV (`quicktime`). */
+const formatLabel = (mime: string) => ({ 'audio/mpeg': 'MP3', 'video/quicktime': 'MOV' } as Record<string, string>)[mime] ?? mime.split('/').at(-1)?.toUpperCase() ?? mime;
 const assetOf = (row: ApiLearningMedia, url = ''): MediaAsset => ({
   id: row.id,
   name: row.original_filename,
   type: kindOf(row.mime_type),
-  format: row.mime_type.split('/').at(-1)?.toUpperCase() ?? row.mime_type,
+  format: formatLabel(row.mime_type),
   size: `${(row.size_bytes / (1024 * 1024)).toFixed(row.size_bytes > 1024 * 1024 ? 1 : 2)} MB`,
   url,
   uploadedAt: new Date(row.created_at).toLocaleDateString(),
@@ -71,18 +74,18 @@ export function MediaAssetLibraryModal({ open, onClose, courseId, token, onSelec
   };
 
   const rows = mediaQuery.data ?? [];
-  const icon = (type: MediaAsset['type']) => type === 'video' ? <VideoIcon className="h-5 w-5 text-blue-600" /> : type === 'image' ? <ImageIcon className="h-5 w-5 text-emerald-600" /> : <FileTextIcon className="h-5 w-5 text-indigo-600" />;
+  const icon = (type: MediaAsset['type']) => type === 'video' ? <VideoIcon className="h-5 w-5 text-blue-600" /> : type === 'audio' ? <MusicIcon className="h-5 w-5 text-amber-600" /> : type === 'image' ? <ImageIcon className="h-5 w-5 text-emerald-600" /> : <FileTextIcon className="h-5 w-5 text-indigo-600" />;
   const preview = previewAsset && previewQuery.data?.url ? assetOf(previewAsset, previewQuery.data.url) : null;
 
   const body = (
   <div className="space-y-4">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-1 items-center gap-2 rounded-md border border-line-strong bg-surface px-3 py-1.5"><SearchIcon className="h-4 w-4 text-ink-subtle" /><input placeholder="Search files by name..." value={search} onChange={(event) => setSearch(event.target.value)} className="w-full bg-transparent text-sm outline-none text-ink" aria-label="Search library assets" /></div>
-      <div className="flex flex-wrap gap-1.5">{[['', 'all'], ['video', 'video'], ['document', 'document'], ['image', 'image']].map(([value, label]) => <button key={value || 'all'} type="button" onClick={() => setFilterType(value)} className={`rounded-md px-2.5 py-1 text-xs font-semibold capitalize ${filterType === value ? 'bg-accent text-accent-contrast' : 'bg-sunken text-ink-muted'}`}>{label}</button>)}</div>
+      <div className="flex flex-wrap gap-1.5">{[['', 'all'], ['video', 'video'], ['document', 'document'], ['image', 'image'], ['audio', 'audio']].map(([value, label]) => <button key={value || 'all'} type="button" onClick={() => setFilterType(value)} className={`rounded-md px-2.5 py-1 text-xs font-semibold capitalize ${filterType === value ? 'bg-accent text-accent-contrast' : 'bg-sunken text-ink-muted'}`}>{label}</button>)}</div>
     </div>
     <div className="flex items-center gap-3 rounded-lg border border-dashed border-line-strong bg-sunken/20 p-4">
-      <UploadCloudIcon className="h-6 w-6 text-ink-subtle" /><span className="flex-1"><span className="block text-xs font-semibold text-ink">Upload learning media</span><span className="mt-0.5 block text-xs text-ink-muted">MP4, WebM, MOV, PDF, DOCX, PPTX, PNG, JPEG, WebP · 250 MB maximum</span></span>
-      <input ref={fileInput} className="sr-only" type="file" accept="video/mp4,video/webm,video/quicktime,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg,image/webp" disabled={uploading || !courseId || !token} onChange={(event) => { void upload(event.target.files?.[0]); event.target.value = ''; }} aria-label="Upload learning media" />
+      <UploadCloudIcon className="h-6 w-6 text-ink-subtle" /><span className="flex-1"><span className="block text-xs font-semibold text-ink">Upload learning media</span><span className="mt-0.5 block text-xs text-ink-muted">{LEARNING_MEDIA_FORMATS_LABEL} · 250 MB maximum</span></span>
+      <input ref={fileInput} className="sr-only" type="file" accept={LEARNING_MEDIA_ACCEPT} disabled={uploading || !courseId || !token} onChange={(event) => { void upload(event.target.files?.[0]); event.target.value = ''; }} aria-label="Upload learning media" />
       <div className="flex items-center gap-2">
         {uploading && <span role="status" className="text-xs text-ink-muted">Uploading{uploadProgress === null ? '…' : ` ${uploadProgress}%`}</span>}
         {error && retryFile && <Button type="button" size="sm" variant="secondary" onClick={() => void upload(retryFile)}>Retry upload</Button>}
@@ -103,14 +106,14 @@ export function MediaAssetLibraryModal({ open, onClose, courseId, token, onSelec
         <header className="flex flex-wrap items-end justify-between gap-2 border-b border-line pb-3">
           <div>
             <h2 id="learning-media-heading" className="text-lg font-bold text-ink">Learning Media Library</h2>
-            <p className="mt-0.5 text-xs text-ink-muted">Course-scoped videos, documents, and images stored in private Learning Media storage.</p>
+            <p className="mt-0.5 text-xs text-ink-muted">Course-scoped videos, documents, images, and audio stored in private Learning Media storage.</p>
           </div>
           <span className="text-xs text-ink-muted">{rows.length} ready file{rows.length === 1 ? '' : 's'}</span>
         </header>
         {body}
       </section>
     ) : (
-    <Dialog open={open} onClose={onClose} title="Learning Media Library" description="Course-scoped videos, documents, and images stored in private Learning Media storage." footer={<div className="flex items-center justify-between w-full"><span className="text-xs text-ink-muted">{rows.length} ready file{rows.length === 1 ? '' : 's'}</span><Button variant="secondary" onClick={onClose}>Close</Button></div>}>
+    <Dialog open={open} onClose={onClose} title="Learning Media Library" description="Course-scoped videos, documents, images, and audio stored in private Learning Media storage." footer={<div className="flex items-center justify-between w-full"><span className="text-xs text-ink-muted">{rows.length} ready file{rows.length === 1 ? '' : 's'}</span><Button variant="secondary" onClick={onClose}>Close</Button></div>}>
         {body}
     </Dialog>
     )}

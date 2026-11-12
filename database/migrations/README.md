@@ -1,7 +1,7 @@
 # Production SQL migration stream
 
 This directory is the source inventory for SQL releases owned by the SQL
-release runner. The active manifest selects migrations D, E, F, and G against the
+release runner. The active manifest selects migrations D, E, F, G, and H against the
 verified 2026-11-09 Production baseline. Migrations A–C are excluded because
 their schema is already represented in that baseline and their historical
 Production versions must not be replayed.

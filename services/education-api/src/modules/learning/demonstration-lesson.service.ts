@@ -70,7 +70,7 @@ export class DemonstrationLessonService {
   }
 
   async create(user: AuthenticatedUser, attemptId: string) {
-    await this.own(user, attemptId);
+    await this.own(user, attemptId, true);
     let session = [...this.sessions.values()].find(
       (candidate) => candidate.userId === user.vistaUserId && candidate.attemptId === attemptId,
     );
@@ -224,15 +224,17 @@ export class DemonstrationLessonService {
       JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id
       JOIN public.learning_classrooms c ON c.id=ca.classroom_id
       JOIN public.learning_assignments a ON a.id=ca.assignment_id
-      JOIN public.learning_submissions s ON s.assignment_id=a.id
-        AND s.program_id=at.program_id AND s.learner_user_id=at.learner_user_id
+      JOIN public.learning_submissions s ON s.assignment_id=a.id AND s.status<>'draft'
+        AND s.learner_user_id=at.learner_user_id AND (s.attempt_id=at.id OR (s.attempt_id IS NULL AND s.program_id=at.program_id))
       WHERE at.id=${attemptId}::uuid AND at.learner_user_id=${user.vistaUserId}::uuid
-      ORDER BY s.submitted_at DESC NULLS LAST LIMIT 1`;
+      ORDER BY (s.attempt_id=at.id) DESC NULLS LAST, s.submitted_at DESC NULLS LAST LIMIT 1`;
     if (!rows[0]) throw new NotFoundException("C3 submission context was not found.");
     return rows[0];
   }
 
-  private async own(user: AuthenticatedUser, attemptId: string) {
+  private async own(user: AuthenticatedUser, attemptId: string, write = false) {
+    // New demonstration work needs an active enrollment; reading an existing session does not.
+    if (write) await this.learning.assertAttemptWritable(user, attemptId);
     if (await this.learning.assignmentTitleForAttempt(user, attemptId) !== "Teach by Demonstration") {
       throw new NotFoundException("C3 demonstration practice was not found.");
     }
@@ -243,7 +245,7 @@ export class DemonstrationLessonService {
     if (!session || session.userId !== user.vistaUserId) {
       throw new NotFoundException("Demonstration session was not found.");
     }
-    await this.own(user, session.attemptId);
+    await this.own(user, session.attemptId, true);
     return session;
   }
 

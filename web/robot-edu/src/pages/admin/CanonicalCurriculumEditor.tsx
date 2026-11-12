@@ -1187,6 +1187,7 @@ export function CanonicalCurriculumEditor({
         lessons={modalLessons}
         sections={modalSections}
         selectedLessonId={modalLessonId}
+        token={token}
       />
 
       <ReadinessChecklistModal
@@ -1195,6 +1196,8 @@ export function CanonicalCurriculumEditor({
         course={course}
         lessons={modalLessons}
         sections={modalSections}
+        currentLessonId={modalLessonId ?? null}
+        token={token}
         onPublish={() => {
           // the checklist may have been opened before an edit: re-check at the moment of publishing
           if (isContentDirty) { setReadinessChecklistOpen(false); openPublish(); return; }

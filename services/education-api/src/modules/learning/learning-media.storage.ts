@@ -1,6 +1,7 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HeadObjectCommand, GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { isCourseMediaKey } from './learning-media.keys';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -30,7 +31,21 @@ export class LearningMediaStorage {
     return { bucket, client: this.client };
   }
 
+  /**
+   * The configured private-bucket client for sibling storage services (SubmissionFileStorage). It exposes the same
+   * validated configuration; it does not relax assertKey, which still limits THIS service to course-media keys.
+   */
+  s3Context(): { bucket: string; client: S3Client } {
+    return this.settings();
+  }
+
+  /** Defense in depth: this service only ever touches well-formed course-media keys, never the reserved submissions prefix. */
+  private assertKey(key: string) {
+    if (!isCourseMediaKey(key)) throw new ServiceUnavailableException('Learning Media object key is not valid.');
+  }
+
   async createUpload(key: string, mediaId: string, contentType: string, sizeBytes: number) {
+    this.assertKey(key);
     const { bucket, client } = this.settings();
     try {
       return await createPresignedPost(client, {
@@ -51,6 +66,7 @@ export class LearningMediaStorage {
   }
 
   async head(key: string): Promise<LearningMediaObjectHead | null> {
+    this.assertKey(key);
     const { bucket, client } = this.settings();
     try {
       const result = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
@@ -62,7 +78,21 @@ export class LearningMediaStorage {
     }
   }
 
+  /** The first `length` bytes of the object (ranged GET, needs only s3:GetObject), for content verification. */
+  async readPrefix(key: string, length: number): Promise<Uint8Array | null> {
+    this.assertKey(key);
+    const { bucket, client } = this.settings();
+    try {
+      const result = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key, Range: `bytes=0-${length - 1}` }));
+      return result.Body ? await result.Body.transformToByteArray() : null;
+    } catch (error) {
+      if (error && typeof error === 'object' && '$metadata' in error && (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode === 404) return null;
+      throw new ServiceUnavailableException('Learning Media storage could not read the uploaded object. Verify the API AWS role has s3:GetObject access to the configured media bucket.');
+    }
+  }
+
   async createDownload(key: string, filename: string, contentType: string, disposition: 'inline' | 'attachment' = 'inline') {
+    this.assertKey(key);
     const { bucket, client } = this.settings();
     const safeFilename = filename.replace(/[\r\n"\\]/g, '_').slice(0, 180) || 'learning-material';
     try {

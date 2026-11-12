@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { catalogApi, educationAdminApi, learningMediaApi, progressionApi, studentAuthApi } from './api';
+import { apiGetOptional, catalogApi, curriculumApi, educationAdminApi, learningMediaApi, progressionApi, quizAuthoringApi, studentAuthApi } from './api';
 
 describe('progressionApi.coursePaths', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -198,5 +198,47 @@ describe('course enrollment synchronization contract', () => {
     await expect(catalogApi.syncCourseEnrollments('course-1', 'token')).resolves.toEqual({ classrooms: 2, enrolled: 5 });
     expect(String(fetchMock.mock.calls[0][0])).toContain('/admin/courses/course-1/enrollments/sync');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' });
+  });
+});
+
+describe('apiGetOptional (NestJS sends an empty 200 body for a null result)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('returns null for an empty body instead of failing to parse JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 200, headers: { 'Content-Length': '0' } })));
+    await expect(apiGetOptional('/x', 'token')).resolves.toBeNull();
+  });
+
+  it('parses a present body and still reports HTTP errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ id: 'a1' }), { status: 200 })).mockResolvedValueOnce(new Response(JSON.stringify({ message: 'Forbidden' }), { status: 403 })));
+    await expect(apiGetOptional('/x', 'token')).resolves.toEqual({ id: 'a1' });
+    await expect(apiGetOptional('/x', 'token')).rejects.toEqual(expect.objectContaining({ status: 403, message: 'Forbidden' }));
+  });
+
+  it('is what quiz authoring uses for a lesson that has no quiz assignment yet', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response('', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(quizAuthoringApi.assignment('lesson-1', 'token')).resolves.toBeNull();
+    await expect(quizAuthoringApi.preview('lesson-1', 'token')).resolves.toBeNull();
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/author/question-bank/quiz-authoring/lessons/lesson-1/assignment');
+  });
+});
+
+describe('curriculumApi programming assignment', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('reads the linked assignment (null before the first save) and saves with PUT to the activity-scoped route', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'as-1', allowedBlocks: ['home'] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(curriculumApi.programmingAssignment('act-1', 'token')).resolves.toBeNull();
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/author\/activities\/act-1\/programming-assignment$/);
+    const body = { title: 'T', instructions: 'I', allowedBlocks: ['home'] };
+    await expect(curriculumApi.saveProgrammingAssignment('act-1', 'token', body)).resolves.toMatchObject({ id: 'as-1' });
+    const [url, init] = fetchMock.mock.calls[1];
+    expect(String(url)).toMatch(/\/author\/activities\/act-1\/programming-assignment$/);
+    expect(init.method).toBe('PUT');
+    expect(JSON.parse(init.body)).toEqual(body);
+    expect(init.headers.Authorization ?? init.headers.authorization).toBe('Bearer token');
   });
 });

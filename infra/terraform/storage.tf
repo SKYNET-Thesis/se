@@ -104,14 +104,18 @@ resource "aws_s3_bucket_lifecycle_configuration" "media" {
 
 }
 
+# Browser uploads use a presigned POST (multipart/form-data) straight to this bucket, so POST must be allowed
+# from every origin that serves the Course Builder. Downloads/playback use presigned GET URLs through <video>,
+# <audio>, <img> and links, which are not CORS-restricted, so GET is intentionally not listed.
+# No wildcard origins and no localhost: production buckets are not exposed to developer machines.
 resource "aws_s3_bucket_cors_configuration" "media" {
 
   bucket = aws_s3_bucket.media.id
   cors_rule {
 
     allowed_headers = ["content-type", "x-amz-*", "content-md5"]
-    allowed_methods = ["PUT", "HEAD"]
-    allowed_origins = ["https://${aws_cloudfront_distribution.web.domain_name}"]
+    allowed_methods = ["POST", "HEAD"]
+    allowed_origins = distinct(concat(["https://${aws_cloudfront_distribution.web.domain_name}"], var.media_cors_allowed_origins))
     max_age_seconds = 300
 
   }

@@ -3,6 +3,8 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { CoursePathLesson, CoursePathLockReason, CoursePathResponse, ProgressionProjection } from "./dto/course-path.dto";
+import { assertAttemptOpen, loadOwnAttempt } from "./attempt-lifecycle";
+import { SaveQuizDraftDto } from "./dto/save-quiz-draft.dto";
 import { SubmitKnowledgeCheckDto } from "./dto/submit-knowledge-check.dto";
 import { LearningScopeService } from "./learning-scope.service";
 import { gradeQuestionBankQuiz, IssuedQuestionRow, issueQuestionBankQuiz } from './question-bank-quiz.snapshot';
@@ -11,7 +13,7 @@ export interface QueryDb { $queryRaw<T = unknown>(query: TemplateStringsArray | 
 interface CourseRow { id: string; title: string; status: string; description: string | null; label: string | null; level: string | null; recommended_grades: string | null; learning_outcome: string | null; competencies: Array<{ code: string; title: string }> | null; }
 interface PrerequisiteRow { lessonId: string; title: string; required: boolean; minimumScore: number | string | null; status: string | null; progressPercent: number | string | null; }
 interface LessonRow { id: string; code?: string | null; ordinal: number; title: string; progress_status: string | null; progress_percent: number | string | null; completed_at: Date | null; prerequisites: PrerequisiteRow[] | null; summary?: string | null; learning_items?: string[] | null; estimated_minutes?: number | string | null; }
-interface KnowledgeCheckRow { attempt_id: string; assignment_id?: string; lesson_id: string; course_id: string; classroom_id: string; status: string; constraints: unknown; success_criteria: unknown; workspace_snapshot?: unknown; grading_snapshot?: unknown; result_snapshot?: unknown; }
+interface KnowledgeCheckRow { delivery_status?: string; close_at?: Date | null; attempt_id: string; assignment_id?: string; lesson_id: string; course_id: string; classroom_id: string; status: string; constraints: unknown; success_criteria: unknown; workspace_snapshot?: unknown; grading_snapshot?: unknown; result_snapshot?: unknown; }
 interface SymbolicChainRow { evaluation_id: string; verdict: "passed" | "failed"; attempt_id: string; lesson_id: string; course_id: string; program_version_id: string; challenge_id: string; }
 
 export interface SymbolicProjectionInput { evaluationId: string; attemptId: string; programVersionId: string; verdict: "passed" | "failed"; }
@@ -127,7 +129,7 @@ export class ProgressionService {
     return this.prisma.$transaction(async (tx) => {
       const attempts = await tx.$queryRaw<KnowledgeCheckRow[]>`
         SELECT a.id AS attempt_id,a.status,a.workspace_snapshot,g.grading_snapshot,a.result_snapshot,
-          la.id AS assignment_id,la.lesson_id,l.course_id,ca.classroom_id,la.constraints,ch.success_criteria
+          la.id AS assignment_id,la.lesson_id,l.course_id,ca.classroom_id,la.constraints,ch.success_criteria,ca.status AS delivery_status,ca.close_at
         FROM public.learning_assignment_attempts a
         LEFT JOIN public.learning_quiz_attempt_grading g ON g.attempt_id=a.id
         JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id
@@ -152,17 +154,20 @@ export class ProgressionService {
       if (!attempt) throw new NotFoundException("Knowledge check was not found.");
       await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id);
       if ((attempt.workspace_snapshot as { kind?: string } | undefined)?.kind === 'question_bank_quiz') {
+        // An already evaluated attempt keeps returning its stored result (idempotent) even after the window closed.
+        if (attempt.status !== 'evaluated') this.assertQuizWindowOpen(attempt);
         if (attempt.status !== 'evaluated') await this.assertPrerequisites(tx, user.vistaUserId, attempt.lesson_id);
         return this.submitQuestionBankKnowledgeCheck(tx, user, attempt, dto);
       }
       if (attempt.status === 'evaluated') throw new NotFoundException('Knowledge check was not found.');
+      this.assertQuizWindowOpen(attempt);
       await this.assertPrerequisites(tx, user.vistaUserId, attempt.lesson_id);
       const definition = parseKnowledgeCheck(attempt.constraints, attempt.success_criteria);
       const score = gradeKnowledgeCheck(definition, dto);
       const passed = score >= definition.passPercent;
       const updated = await tx.$queryRaw<Array<{ id: string }>>`
         UPDATE public.learning_assignment_attempts
-        SET status='evaluated',score=${score},submitted_at=COALESCE(submitted_at,now()),
+        SET status='evaluated',score=${score},submitted_at=COALESCE(submitted_at,now()),grading_released_at=COALESCE(grading_released_at,now()),grading_release_origin=COALESCE(grading_release_origin,'system_auto'),
           result_snapshot=${JSON.stringify({ kind: "knowledge_check_result", schemaVersion: 1, score, passPercent: definition.passPercent, passed })}::jsonb
         WHERE id=${attemptId}::uuid AND learner_user_id=${user.vistaUserId}::uuid
         RETURNING id`;
@@ -176,6 +181,47 @@ export class ProgressionService {
     });
   }
 
+  /** A delivery that was closed/archived or whose close time passed accepts no new final answers. */
+  private assertQuizWindowOpen(attempt: Pick<KnowledgeCheckRow, 'delivery_status' | 'close_at'>): void {
+    if (attempt.delivery_status === 'closed' || attempt.delivery_status === 'archived' || (attempt.close_at && new Date(attempt.close_at) <= new Date())) {
+      throw new ConflictException({ code: 'ASSIGNMENT_CLOSED', message: 'This assignment is closed for submissions.' });
+    }
+  }
+
+  /**
+   * Saves quiz answers without grading them. Only the caller's own open Question Bank quiz attempt, with an active
+   * enrollment. The draft holds only the learner's own selections; answer keys never leave the grading snapshot.
+   */
+  async saveQuizDraft(user: AuthenticatedUser, attemptId: string, dto: SaveQuizDraftDto) {
+    if (user.status !== 'active') throw new NotFoundException('Attempt was not found.');
+    return this.prisma.$transaction(async (tx) => {
+      const attempt = await loadOwnAttempt(tx, user.vistaUserId, attemptId, true);
+      await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id, { requireActiveEnrollment: true });
+      assertAttemptOpen(attempt);
+      const snapshots = await tx.$queryRaw<Array<{ workspace_snapshot: unknown }>>`
+        SELECT workspace_snapshot FROM public.learning_assignment_attempts WHERE id=${attemptId}::uuid`;
+      const snapshot = snapshots[0]?.workspace_snapshot as { kind?: string; questions?: Array<{ questionVersionId: string; options: Array<{ id: string }> }> } | undefined;
+      if (snapshot?.kind !== 'question_bank_quiz' || !Array.isArray(snapshot.questions)) {
+        throw new ConflictException({ code: 'DRAFT_NOT_SUPPORTED', message: 'Drafts are only available for quiz attempts.' });
+      }
+      const questions = new Map(snapshot.questions.map((question) => [question.questionVersionId, new Set(question.options.map((option) => option.id))]));
+      const seen = new Set<string>();
+      const answers = dto.answers.map((answer) => {
+        const options = questions.get(answer.questionId);
+        if (!options || seen.has(answer.questionId)) throw new BadRequestException('Draft answers must reference distinct questions of this quiz.');
+        seen.add(answer.questionId);
+        const chosen = [...(answer.optionId ? [answer.optionId] : []), ...(answer.optionIds ?? [])];
+        if (chosen.some((id) => !options.has(id))) throw new BadRequestException('Draft answers must reference options of the question.');
+        return { questionId: answer.questionId, ...(answer.optionId ? { optionId: answer.optionId } : {}), ...(answer.optionIds ? { optionIds: answer.optionIds } : {}) };
+      });
+      const saved = await tx.$queryRaw<Array<{ draft_saved_at: Date }>>`
+        UPDATE public.learning_assignment_attempts SET draft_response=${JSON.stringify({ answers })}::jsonb,draft_saved_at=now()
+        WHERE id=${attemptId}::uuid AND status='in_progress' RETURNING draft_saved_at`;
+      if (!saved[0]) throw new ConflictException({ code: 'ATTEMPT_NOT_IN_PROGRESS', message: 'This attempt is no longer open for changes.' });
+      return { attemptId, answers, draftSavedAt: saved[0].draft_saved_at };
+    });
+  }
+
   private async submitQuestionBankKnowledgeCheck(tx: QueryDb, user: AuthenticatedUser, attempt: KnowledgeCheckRow, dto: SubmitKnowledgeCheckDto): Promise<KnowledgeCheckResult> {
     if (!attempt.assignment_id) throw new ConflictException('Quiz snapshot is missing assignment identity.');
     if (attempt.status === 'evaluated') {
@@ -186,6 +232,7 @@ export class ProgressionService {
     const graded = gradeQuestionBankQuiz(attempt.workspace_snapshot, attempt.grading_snapshot, attempt.assignment_id, attempt.lesson_id, dto);
     const saved = await tx.$queryRaw<Array<{ id: string }>>`
       UPDATE public.learning_assignment_attempts SET status='evaluated',score=${graded.score},submitted_at=COALESCE(submitted_at,now()),
+        grading_released_at=COALESCE(grading_released_at,now()),grading_release_origin=COALESCE(grading_release_origin,'system_auto'),draft_response=NULL,
         result_snapshot=${JSON.stringify({ kind: 'question_bank_quiz_result', schemaVersion: 1, score: graded.score, passPercent: graded.passPercent, passed: graded.passed })}::jsonb
       WHERE id=${attempt.attempt_id}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status IN ('in_progress','submitted')
       RETURNING id`;
@@ -229,6 +276,7 @@ export class ProgressionService {
             AND e.status='succeeded' AND e.execution_mode='schematic'
           JOIN public.learning_assignment_attempts att ON att.id::text=e.input_snapshot->>'attemptId'
             AND att.learner_user_id=${learnerId}::uuid AND att.status='evaluated'
+            AND (sub.attempt_id=att.id OR (sub.attempt_id IS NULL AND att.program_id=sub.program_id))
           JOIN public.learning_classroom_assignments ca ON ca.id=att.classroom_assignment_id
             AND ca.assignment_id=sub.assignment_id AND ca.status='published'
           WHERE sub.assignment_id=${activity.assignment_id}::uuid AND sub.learner_user_id=${learnerId}::uuid
@@ -250,7 +298,7 @@ export class ProgressionService {
       JOIN public.learning_submissions s ON s.id=se.submission_id AND s.learner_user_id=se.requested_by_user_id
         AND s.program_version_id=se.program_version_id AND s.status='submitted'
       JOIN public.learning_assignment_attempts a ON a.id::text=e.input_snapshot->>'attemptId'
-        AND a.learner_user_id=se.requested_by_user_id AND a.program_id=s.program_id
+        AND a.learner_user_id=se.requested_by_user_id AND (s.attempt_id=a.id OR (s.attempt_id IS NULL AND a.program_id=s.program_id))
       JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id
       JOIN public.learning_assignments la ON la.id=ca.assignment_id AND la.challenge_id=e.challenge_id
         AND la.constraints->>'kind'='symbolic_program'
@@ -303,9 +351,9 @@ export class ProgressionService {
         AND e.status='succeeded' AND e.execution_mode='schematic'
       JOIN public.learning_program_versions pv ON pv.id=se.program_version_id
       JOIN public.learning_submissions s ON s.id=se.submission_id AND s.learner_user_id=se.requested_by_user_id
-        AND s.program_id=pv.program_id
+        AND s.program_id=pv.program_id AND s.status='submitted'
       JOIN public.learning_assignment_attempts a ON a.id::text=e.input_snapshot->>'attemptId'
-        AND a.learner_user_id=se.requested_by_user_id AND a.program_id=s.program_id
+        AND a.learner_user_id=se.requested_by_user_id AND (s.attempt_id=a.id OR (s.attempt_id IS NULL AND a.program_id=s.program_id))
       JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id
       JOIN public.learning_assignments la ON la.id=ca.assignment_id AND la.challenge_id=e.challenge_id
       JOIN public.learning_lessons l ON l.id=la.lesson_id

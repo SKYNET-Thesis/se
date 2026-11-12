@@ -17,6 +17,20 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/** For endpoints that return `null` as an empty 200 body (NestJS sends no body for a null result). */
+export async function apiGetOptional<T>(path: string, accessToken: string): Promise<T | null> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Cache-Control": "no-store" },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { message?: string } | null;
+    throw new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`);
+  }
+  const text = await response.text();
+  return text.trim() ? JSON.parse(text) as T : null;
+}
+
 export interface ApiEnrollmentSync { classrooms: number; enrolled: number }
 export interface ApiCourse { enrollmentSync?: ApiEnrollmentSync; id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
 export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
@@ -274,10 +288,19 @@ export interface ApiDeliveryOption { course_id:string; course_title:string; less
 export interface ApiEnrollment { id: string; course_id: string; classroom_id: string | null; status: string; enrolled_at?: string; completed_at?: string | null; }
 export interface ApiClassroomAssignment { id: string; classroom_id: string; assignment_id: string; lesson_id: string; lesson_title?:string; challenge_id: string | null; challenge_title?:string|null; title: string; instructions: string | null; allowed_blocks?: unknown; constraints?: unknown; status: string; available_from?:string|null; due_at?:string|null; close_at?:string|null; max_attempts?:number|null; published_by?:string|null; }
 export interface ApiPublishedQuiz { canonical_assignment_id: string; quiz_title: string; instructions: string; lesson_id: string; lesson_title: string; course_id: string; course_title: string; course_status: string; pass_percent: number; question_count: number; already_assigned: boolean; }
-export interface ApiAttempt { id: string; classroom_assignment_id: string; attempt_number?: number; program_id?: string | null; status: string; started_at?: string; submitted_at?: string | null; workspace_snapshot?: unknown; result_snapshot?: unknown; quiz?: unknown; }
+export interface ApiAttempt { id: string; classroom_assignment_id: string; attempt_number?: number; program_id?: string | null; status: string; started_at?: string; submitted_at?: string | null; workspace_snapshot?: unknown; result_snapshot?: unknown; quiz?: unknown; draft_response?: { answers?: Array<{ questionId: string; optionId?: string; optionIds?: string[] }> } | null; draft_saved_at?: string | null; grading_released_at?: string | null; }
 export interface ApiProgram { id: string; title: string; workspace_json: Record<string, unknown>; robot_program: Record<string, unknown>; }
 export interface ApiProgramVersion { id: string; version_number: number; robot_program: Record<string, unknown>; }
 export interface ApiSubmission { id: string; program_version_id: string; status: string; assignment_id?:string; program_id?:string; submitted_at?:string|null; }
+
+/** D03: one row of the learner's attempt history for a classroom assignment (each attempt has its own submission/files/release). */
+export interface ApiAttemptHistoryItem { id: string; classroom_assignment_id: string; attempt_number: number; status: string; started_at: string; submitted_at: string | null; score: number | string | null; passed: boolean | null; has_draft: boolean; draft_saved_at: string | null; grading_released: boolean; grading_released_at: string | null; submission_id: string | null; submission_origin: 'original' | 'reconstructed' | null; file_count: number; }
+export interface ApiSubmissionFile { id: string; attempt_id: string; original_filename: string; mime_type: string; size_bytes: number; status: 'pending' | 'ready' | 'failed' | 'removed'; created_at: string; ready_at?: string | null; }
+export interface ApiPresignedPost { url: string; fields: Record<string, string>; }
+export interface ApiGradingScore { criterionId: string; title: string; maxPoints: number | string; awardedPoints: number | string; comment: string | null; }
+/** Until an instructor releases an attempt the server returns ONLY { attemptId, released: false }. */
+export type ApiAttemptGrading = { attemptId: string; released: false } | { attemptId: string; released: true; releasedAt: string; score: number | null; assessment: { overallFeedback: string | null; reviewedAt: string | null; scores: ApiGradingScore[] } | null; feedback: Array<{ id: string; feedbackType: string; content: string; createdAt: string }> };
+export interface ApiDraftAnswer { questionId: string; optionId?: string; optionIds?: string[]; }
 export interface ApiExperiment { id: string; status: string; execution_mode: string; input_snapshot?:{attemptId?:string;programVersionId?:string}; submission_id?:string; }
 export interface ApiSymbolicRuleResult { ordinal: number; type: string; passed: boolean; expected: Record<string, unknown>; observed: Record<string, unknown>; evidence: Array<{ timelineIndex?: number }>; reason: string; code?: string; message?: string; }
 export interface ApiObjectState { objectId: string; position: { x: number; y: number; z: number }; graspedBy: "left" | "right" | null; state: "free" | "grasped" | "carried" | "released"; }
@@ -304,7 +327,7 @@ export interface ApiSymbolicEvaluation {
 }
 export interface ApiFeedback { id: string; submission_id: string; content: string; feedback_type: string; created_at: string; }
 export interface ApiRubricCriterion { id: string; title: string; description: string | null; maxPoints: number | string; ordinal: number; }
-export interface ApiInstructorSubmission { id: string; assignment_id: string; learner_user_id: string; status: string; submitted_at: string | null; full_name?: string; assignment_title?:string; review_status?:string; rubric_criteria?: ApiRubricCriterion[]; overall_feedback?: string | null; }
+export interface ApiInstructorSubmission { id: string; assignment_id: string; learner_user_id: string; status: string; submitted_at: string | null; attempt_id?: string; attempt_number?: number; grading_released_at?: string | null; origin?: 'original' | 'reconstructed'; attempt?: { id: string; attemptNumber: number; gradingReleasedAt: string | null } | null; full_name?: string; assignment_title?:string; review_status?:string; rubric_criteria?: ApiRubricCriterion[]; overall_feedback?: string | null; }
 export interface ApiTeacherExperimentEvidence {id:string;executionMode:string;method:string;status:string;startedAt:string|null;endedAt:string|null;createdAt:string;provenance:{programVersionId:string|null};result:Record<string,unknown>;metrics:Record<string,unknown>;events:Array<{index:number;type:string;occurredAt:string;state?:string|null;errorCode?:string|null}>;artifacts:Array<{id:string;type:string;mimeType:string|null;createdAt:string;availability:'unavailable'|'local_only'|'metadata_only'}>;controlSession:{id:string;state:string;startedAt:string|null;endedAt:string|null;robot:{id:string;name:string;model:string;serial:string}}|null;demonstration:{id:string;status:string;startedAt:string;endedAt:string|null;frameCount:number|null;checksum:string|null;durationS:number|null;artifactAvailability:'unavailable'|'local_only'|'metadata_only';segments:Array<{index:number;startMs:number;endMs:number;action:string|null;arm:string|null;object:string|null}>;reflection:{prompt:string;response:string|null;createdAt:string}|null;datasets:Array<{id:string;name:string;version:string;split:string;frozen:boolean;huggingFaceRepo:string|null;huggingFaceRevision:string|null}>}|null;modelMetadata:{evaluationRunId:string;status:string;outcome:string|null;createdAt:string;checkpoint:{id:string;version:string;step:number|null};model:{id:string;name:string;status:string}}|null;}
 export interface ApiInstructorSubmissionDetail extends ApiInstructorSubmission { email?:string|null;program_version:{id:string;versionNumber:number;workspaceJson:Record<string,unknown>;robotProgram:Record<string,unknown>;validationResult:Record<string,unknown>;changeSummary?:string|null;createdAt:string}|null;experiment:{id:string;status:string;executionMode:string;createdAt:string;endedAt?:string|null}|null;experiments:ApiTeacherExperimentEvidence[];symbolic_evaluation:ApiSymbolicEvaluation|null;assessment:{id:string;overallFeedback:string|null;reviewedAt:string;scores:Array<{criterionId:string;awardedPoints:number;comment?:string|null}>}|null;feedback:Array<{id:string;content:string;createdAt:string}>; }
 export type ApiRecord = Record<string, unknown>;
@@ -317,6 +340,14 @@ export const learnerApi = {
   classrooms: (token: string) => apiGet<ApiCollection<ApiClassroom>>("/me/classrooms?page=1&pageSize=100", token),
   assignments: (classroomId: string, token: string) => apiGet<ApiClassroomAssignment[]>(`/classrooms/${classroomId}/assignments`, token),
   attempts: (token: string) => apiGet<ApiAttempt[]>("/me/attempts", token),
+  attemptHistory: (classroomAssignmentId: string, token: string) => apiGet<ApiAttemptHistoryItem[]>(`/me/classroom-assignments/${classroomAssignmentId}/attempts`, token),
+  saveQuizDraft: (attemptId: string, answers: ApiDraftAnswer[], token: string) => apiRequest<{ attemptId: string; answers: ApiDraftAnswer[]; draftSavedAt: string }>(`/me/attempts/${attemptId}/draft`, token, "PUT", { answers }),
+  attemptGrading: (attemptId: string, token: string) => apiGet<ApiAttemptGrading>(`/me/attempts/${attemptId}/grading`, token),
+  attemptFiles: (attemptId: string, token: string) => apiGet<ApiSubmissionFile[]>(`/me/attempts/${attemptId}/files`, token),
+  createAttemptFile: (attemptId: string, token: string, body: { filename: string; contentType: string; sizeBytes: number }) => apiRequest<{ file: ApiSubmissionFile; upload: ApiPresignedPost }>(`/me/attempts/${attemptId}/files`, token, "POST", body),
+  completeAttemptFile: (attemptId: string, fileId: string, token: string) => apiRequest<ApiSubmissionFile>(`/me/attempts/${attemptId}/files/${fileId}/complete`, token, "POST"),
+  removeAttemptFile: (attemptId: string, fileId: string, token: string) => apiRequest<{ id: string; status: string }>(`/me/attempts/${attemptId}/files/${fileId}`, token, "DELETE"),
+  attemptFileUrl: (attemptId: string, fileId: string, token: string) => apiGet<{ url: string; filename: string; mimeType: string; expiresIn: number }>(`/me/attempts/${attemptId}/files/${fileId}/url`, token),
   myLearning: (token: string) => apiGet<ApiMyLearning[]>("/me/learning", token),
   createAttempt: (classroomAssignmentId: string, token: string) => apiRequest<ApiAttempt>(`/classroom-assignments/${classroomAssignmentId}/attempts`, token, "POST"),
   attempt: (attemptId: string, token: string) => apiGet<ApiAttempt>(`/me/attempts/${attemptId}`, token),
@@ -389,6 +420,9 @@ export const instructorApi = {
   submission: (submissionId: string, token: string) => apiGet<ApiInstructorSubmissionDetail>(`/submissions/${submissionId}`, token),
   assess: (submissionId: string, token: string, body: { overallFeedback?: string; scores: { criterionId: string; awardedPoints: number; comment?: string }[] }) => apiRequest<ApiInstructorSubmission[]>(`/submissions/${submissionId}/assessment`, token, "POST", body),
   feedback: (submissionId: string, token: string, content: string) => apiRequest<ApiFeedback>(`/submissions/${submissionId}/feedback`, token, "POST", { content }),
+  releaseGrading: (submissionId: string, token: string) => apiRequest<{ attemptId: string; released: true; releasedAt: string }>(`/submissions/${submissionId}/release`, token, "POST"),
+  attemptFiles: (attemptId: string, token: string) => apiGet<ApiSubmissionFile[]>(`/attempts/${attemptId}/files`, token),
+  attemptFileUrl: (attemptId: string, fileId: string, token: string) => apiGet<{ url: string; filename: string; mimeType: string; expiresIn: number }>(`/attempts/${attemptId}/files/${fileId}/url`, token),
 };
 
 /** Typed domain groups are the canonical browser contract.  `learnerApi` and
@@ -482,7 +516,13 @@ export const curriculumApi = {
   reorderActivities: (sectionId:string, token:string, orderedIds:string[]) => apiRequest<ApiRecord>(`/author/sections/${sectionId}/activities/order`,token,'PUT',{orderedIds}),
   setSectionStatus: (sectionId: string, token: string, status: 'draft' | 'published') => apiRequest<ApiRecord>(`/author/sections/${sectionId}/status`, token, 'POST', { status }),
   setActivityStatus: (activityId: string, token: string, status: 'draft' | 'published') => apiRequest<ApiRecord>(`/author/activities/${activityId}/status`, token, 'POST', { status }),
+  /** The programming assignment linked to a Programming Assignment (guided_practice) activity; null until the first save. */
+  programmingAssignment: (activityId: string, token: string) => apiGetOptional<ApiProgrammingAssignment>(`/author/activities/${activityId}/programming-assignment`, token),
+  /** Creates the template and links it on the first save; later saves edit it in place. */
+  saveProgrammingAssignment: (activityId: string, token: string, body: { title: string; instructions: string; allowedBlocks: string[] }) =>
+    apiRequest<ApiProgrammingAssignment>(`/author/activities/${activityId}/programming-assignment`, token, 'PUT', body),
 };
+export type ApiProgrammingAssignment = { id: string; lessonId: string; title: string; instructions: string; allowedBlocks: string[]; challengeId: string | null; kind: string | null };
 
 export type ApiLearningMedia = { id: string; course_id: string; original_filename: string; mime_type: string; size_bytes: number; status: 'pending' | 'ready' | 'failed'; created_at: string };
 export const learningMediaApi = {
@@ -523,8 +563,8 @@ type QuizAuthoringSelected = { versionId: string; questionId: string; ordinal: n
 type QuizAuthoringAssignment = { id: string; title: string; instructions: string; constraints: { kind: string; passPercent: number }; questions: QuizAuthoringSelected[] };
 export const quizAuthoringApi = {
   questions: (lessonId: string, token: string, search = '', type = '', page = 1, pageSize = 20) => apiGet<{ items: QuizAuthoringQuestion[]; total: number; page: number; pageSize: number }>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/questions?search=${encodeURIComponent(search)}&type=${encodeURIComponent(type)}&page=${page}&pageSize=${pageSize}`, token),
-  assignment: (lessonId: string, token: string) => apiGet<QuizAuthoringAssignment | null>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment`, token),
-  preview: (lessonId: string, token: string) => apiGet<QuizAuthoringAssignment | null>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/preview`, token),
+  assignment: (lessonId: string, token: string) => apiGetOptional<QuizAuthoringAssignment>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment`, token),
+  preview: (lessonId: string, token: string) => apiGetOptional<QuizAuthoringAssignment>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/preview`, token),
   createAssignment: (lessonId: string, token: string, body: { title: string; instructions: string; passPercent: number }) => apiRequest<{ id: string }>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment`, token, 'POST', body),
   updateAssignment: (lessonId: string, assignmentId: string, token: string, body: { title: string; instructions: string; passPercent: number }) => apiRequest<ApiRecord>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment/${assignmentId}`, token, 'PATCH', body),
   addQuestion: (assignmentId: string, token: string, body: { questionVersionId: string; ordinal: number; points: number }) => apiRequest<ApiRecord>(`/author/question-bank/assignments/${assignmentId}/questions`, token, 'POST', body),

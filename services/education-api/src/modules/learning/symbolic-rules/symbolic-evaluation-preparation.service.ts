@@ -11,13 +11,13 @@ export const SYMBOLIC_EVALUATOR_VERSION = "vista-symbolic-evaluator-1";
 interface EvaluationChainRow {
   attempt_id: string;
   experiment_id: string; learner_user_id: string; status: string; execution_mode: string;
-  input_snapshot: unknown; output_snapshot: unknown; submission_id: string;
+  input_snapshot: unknown; output_snapshot: unknown; submission_id: string; submission_status: string;
   assignment_id: string; program_version_id: string; challenge_id: string | null;
   classroom_id: string; robot_program: unknown;
 }
 
 export interface PreparedSymbolicEvaluation {
-  attemptId: string; experimentId: string; submissionId: string; programVersionId: string; requestedByUserId: string;
+  attemptId: string; experimentId: string; submissionId: string; submissionStatus: string; programVersionId: string; requestedByUserId: string;
   schematic: SchematicOutputV1; ruleSet: NormalizedRuleSetV1;
   evaluatorVersion: typeof SYMBOLIC_EVALUATOR_VERSION; programHash: string;
   outputSnapshotHash: string; fingerprint: string;
@@ -40,18 +40,18 @@ export class SymbolicEvaluationPreparationService {
     this.requireCapability(user);
     const rows = await this.prisma.$queryRaw<EvaluationChainRow[]>`
       SELECT a.id AS attempt_id,e.id AS experiment_id,e.learner_user_id,e.status,e.execution_mode,e.input_snapshot,e.output_snapshot,
-             s.id AS submission_id,s.assignment_id,s.program_version_id,la.challenge_id,ca.classroom_id,pv.robot_program
+             s.id AS submission_id,s.status AS submission_status,s.assignment_id,s.program_version_id,la.challenge_id,ca.classroom_id,pv.robot_program
       FROM public.learning_experiments e
       JOIN public.learning_submissions s ON s.id=e.submission_id AND s.learner_user_id=e.learner_user_id
       JOIN public.learning_assignments la ON la.id=s.assignment_id
       JOIN public.learning_assignment_attempts a ON a.id::text=e.input_snapshot->>'attemptId'
-        AND a.learner_user_id=s.learner_user_id AND a.program_id=s.program_id
+        AND a.learner_user_id=s.learner_user_id AND (s.attempt_id=a.id OR (s.attempt_id IS NULL AND a.program_id=s.program_id))
       JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id
       JOIN public.learning_program_versions pv ON pv.id=s.program_version_id AND pv.program_id=s.program_id
       WHERE e.id=${experimentId}::uuid AND e.learner_user_id=${user.vistaUserId}::uuid`;
     const row = rows[0];
     if (!row) throw new NotFoundException("Experiment was not found.");
-    await this.scope.assertStudentClassroomAccess(user, row.classroom_id);
+    await this.scope.assertStudentClassroomAccess(user, row.classroom_id, { requireActiveEnrollment: true });
     if (row.status !== "succeeded" || row.execution_mode !== "schematic") throw new BadRequestException("Only a completed schematic experiment can be evaluated.");
     if (!row.challenge_id) throw new BadRequestException("The experiment assignment has no challenge.");
     const input = asRecord(row.input_snapshot, "Experiment input provenance is invalid.");
@@ -68,7 +68,7 @@ export class SymbolicEvaluationPreparationService {
     const fingerprint = sha256(canonicalJson({ experimentId: row.experiment_id, programHash, outputSnapshotHash,
       schematicSchemaVersion: output.schemaVersion, schematicEngineVersion: output.engineVersion,
       evaluatorVersion: SYMBOLIC_EVALUATOR_VERSION, ruleSetSchemaVersion: ruleSet.schemaVersion, ruleSetHash: ruleSet.ruleSetHash }));
-    return { attemptId: row.attempt_id, experimentId: row.experiment_id, submissionId: row.submission_id, programVersionId: row.program_version_id,
+    return { attemptId: row.attempt_id, experimentId: row.experiment_id, submissionId: row.submission_id, submissionStatus: row.submission_status, programVersionId: row.program_version_id,
       requestedByUserId: user.vistaUserId, schematic: output, ruleSet, evaluatorVersion: SYMBOLIC_EVALUATOR_VERSION,
       programHash, outputSnapshotHash, fingerprint };
   }
