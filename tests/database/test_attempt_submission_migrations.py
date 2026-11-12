@@ -5,7 +5,7 @@ baseline + manifest migrations D-H that has NOT had Stage 1/2 applied) into a th
 it afterwards. Skipped unless VISTA_D03_MIGRATION_TEST_URL is set, e.g.
 
   VISTA_D03_MIGRATION_TEST_URL=postgresql://vista_test:<pw>@127.0.0.1:55432/postgres
-  VISTA_D03_MIGRATION_TEMPLATE=vista_d03_pristine   (default)
+  VISTA_D03_MIGRATION_TEMPLATE=vista_test_d03_pristine   (default; built on demand by scripts/build_d03_pristine_template.py)
 
 It never connects to anything but a loopback host and refuses Supabase/Production-looking targets.
 """
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import unittest
 import uuid
 from pathlib import Path
@@ -23,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 STAGE1 = ROOT / "database/migrations/20261113_i_attempt_submission_foundation.sql"
 STAGE2 = ROOT / "database/staged-migrations/20261114_j_one_submission_per_attempt.sql"
 URL = os.environ.get("VISTA_D03_MIGRATION_TEST_URL", "")
-TEMPLATE = os.environ.get("VISTA_D03_MIGRATION_TEMPLATE", "vista_d03_pristine")
+TEMPLATE = os.environ.get("VISTA_D03_MIGRATION_TEMPLATE", "vista_test_d03_pristine")
 
 
 def _target():
@@ -35,6 +36,12 @@ def _target():
 
 @unittest.skipUnless(URL, "VISTA_D03_MIGRATION_TEST_URL is not set (disposable loopback PostgreSQL required)")
 class AttemptSubmissionMigrationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # The template is the schema BEFORE D03 Stage 1 (baseline + D-H). Build it once per server when it is missing.
+        subprocess.run([sys.executable, str(ROOT / "scripts/build_d03_pristine_template.py"), "--admin-url", URL, "--template", TEMPLATE],
+                       check=True, cwd=ROOT, env={**os.environ, "VISTA_DATABASE_PROJECT_REF": os.environ.get("VISTA_DATABASE_PROJECT_REF", "vista-course-builder-test")})
+
     def setUp(self):
         self.target = _target()
         self.db = f"d03_mig_{uuid.uuid4().hex[:10]}"

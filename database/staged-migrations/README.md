@@ -14,3 +14,7 @@ To release a staged migration: move the file into `database/migrations/`, add it
 two-commit procedure as migration H), run `python3 scripts/validate_database_migration_manifest.py --release`, and
 regenerate `database/baselines/dev-schema-expectation.json` with the bootstrap script on a disposable database.
 Never edit a migration after it has been registered or applied.
+
+CI: the `Database Bootstrap` workflow applies staged SQL to its throw-away runner database only (after the manifest-pinned schema
+verification) with `scripts/apply_staged_migration_to_test_database.py`, so the database-backed integration tests exercise the final schema.
+That script refuses anything but a loopback `vista_test_*` database and files under this directory; it is not a release mechanism.
