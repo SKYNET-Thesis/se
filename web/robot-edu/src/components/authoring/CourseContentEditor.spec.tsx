@@ -3,13 +3,23 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { CourseContentEditor } from './CourseContentEditor';
+import { CourseContentEditor, activityContentForSave } from './CourseContentEditor';
 
 // The Question Bank panel has its own spec; here it is a stub that exposes what the editor passes to it.
 vi.mock('./QuizAuthoringPanel', () => ({
   QuizAuthoringPanel: ({ lessonId, assignmentId, readOnly, onChange }: { lessonId: string; assignmentId?: string; readOnly?: boolean; onChange: (patch: { contentRef?: { kind: 'assignment'; id: string } }) => void }) => (
     <div data-testid="quiz-authoring-panel" data-lesson={lessonId} data-assignment={assignmentId ?? ''} data-readonly={String(Boolean(readOnly))}>
       <button type="button" disabled={readOnly} onClick={() => onChange({ contentRef: { kind: 'assignment', id: '99999999-9999-4999-8999-999999999999' } })}>Create quiz draft</button>
+    </div>
+  ),
+}));
+
+// The programming assignment panel has its own spec; here it is a stub exposing what the editor passes and lets a test drive its callbacks.
+vi.mock('./ProgrammingAssignmentPanel', () => ({
+  ProgrammingAssignmentPanel: ({ activityId, readOnly, onLinked, onDirtyChange }: { activityId: string; readOnly?: boolean; onLinked: (id: string) => void; onDirtyChange?: (dirty: boolean) => void }) => (
+    <div data-testid="programming-assignment-panel" data-activity={activityId} data-readonly={String(Boolean(readOnly))}>
+      <button type="button" onClick={() => onLinked('44444444-4444-4444-8444-444444444444')}>Link programming assignment</button>
+      <button type="button" onClick={() => onDirtyChange?.(true)}>Edit assignment fields</button>
     </div>
   ),
 }));
@@ -225,6 +235,8 @@ describe('CourseContentEditor', () => {
       expect([sectionId, token]).toEqual(['s1', 'token-xyz']);
       expect(body).toMatchObject({ title: 'Safety quiz', type: 'knowledge_check', ordinal: 3, required: true, contentRef: { kind: 'none' } });
       expect(JSON.stringify(body)).not.toContain('"id":""');
+      // The API validates any `content` it receives against a per-type schema and rejects `{}`; a quiz has none to send.
+      expect(body.content).toBeUndefined();
     });
 
     it('opens the new quiz in the Question Bank panel, links the created assignment on Save, and keeps it after reload', async () => {
@@ -243,6 +255,7 @@ describe('CourseContentEditor', () => {
       await act(async () => { button('Save Quiz Activity')?.click(); });
       await waitFor(() => expect(mockApi.updateActivity).toHaveBeenCalledTimes(1));
       expect(mockApi.updateActivity).toHaveBeenCalledWith('a3', 'token-xyz', expect.objectContaining({ type: 'knowledge_check', contentRef: { kind: 'assignment', id: QUIZ_UUID } }));
+      expect(mockApi.updateActivity.mock.calls[0][2].content).toBeUndefined(); // quiz content lives in the canonical assignment
       await waitFor(() => expect(container.textContent).toContain('Saved'));
 
       // Reload: a fresh mount reads the persisted reference back from the API
@@ -254,6 +267,29 @@ describe('CourseContentEditor', () => {
       const quizRow = [...container.querySelectorAll('p')].find((p) => p.textContent === 'Safety quiz');
       await act(async () => { quizRow?.closest('div[class*="cursor-pointer"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
       await waitFor(() => expect(panel().dataset.assignment).toBe(QUIZ_UUID));
+    });
+
+    it('keeps the linked assignment and stays dirty until the saved activity has been refetched (no stale re-sync, no phantom "Unsaved changes")', async () => {
+      let sectionsDelay = 0;
+      mockApi.sections.mockImplementation(async () => { if (sectionsDelay) await new Promise((resolve) => setTimeout(resolve, sectionsDelay)); return sectionsNow; });
+      mockApi.updateActivity.mockImplementation(async () => { sectionsNow = withQuiz({ kind: 'assignment', id: QUIZ_UUID }); return {}; });
+      await renderComponent();
+      await quickAddQuiz();
+      await waitFor(() => expect(container.querySelector('[data-testid="quiz-authoring-panel"]')).not.toBeNull());
+      const panel = () => container.querySelector('[data-testid="quiz-authoring-panel"]') as HTMLElement;
+      await act(async () => { button('Create quiz draft')?.click(); });
+      await waitFor(() => expect(panel().dataset.assignment).toBe(QUIZ_UUID));
+
+      sectionsDelay = 150; // the refetch after saving is slower than the PATCH response
+      await act(async () => { button('Save Quiz Activity')?.click(); });
+      await waitFor(() => expect(mockApi.updateActivity).toHaveBeenCalledTimes(1));
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 40)); });
+      // Before the refetch lands the cache still holds the old (unlinked) activity; the draft must not be re-synced from it.
+      expect(panel().dataset.assignment).toBe(QUIZ_UUID);
+      sectionsDelay = 0;
+      await waitFor(() => expect(container.textContent).toContain('Saved'));
+      expect(container.textContent).not.toContain('Unsaved changes');
+      expect(panel().dataset.assignment).toBe(QUIZ_UUID);
     });
 
     it('shows the API error and does not select an activity when creating the quiz fails', async () => {
@@ -449,5 +485,79 @@ describe('CourseContentEditor', () => {
         expect(last?.selectedLessonId).toBe('l1');
       });
     });
+  });
+});
+
+describe('activityContentForSave', () => {
+  it('sends content only in the shape the API schema accepts for the type', () => {
+    const reading = { version: 1, blocks: [], mediaIds: [] };
+    expect(activityContentForSave('reading', reading)).toBe(reading);
+    expect(activityContentForSave('video', { version: 1, videoMediaId: '' })).toEqual({ version: 1, videoMediaId: '' });
+    // `{}` / unversioned objects are rejected by the API ("Activity content version is invalid")
+    expect(activityContentForSave('knowledge_check', {})).toBeUndefined();
+    expect(activityContentForSave('knowledge_check', { instructions: 'Quiz text lives in the assignment' })).toBeUndefined();
+    expect(activityContentForSave('guided_practice', {})).toBeUndefined();
+    expect(activityContentForSave(undefined as never, undefined)).toBeUndefined();
+  });
+
+  it('versions and whitelists instruction content so Programming Assignment / Demonstration saves validate', () => {
+    expect(activityContentForSave('guided_practice', { instructions: 'Write a program', stray: true })).toEqual({ version: 1, instructions: 'Write a program' });
+    expect(activityContentForSave('demonstration', { version: 1, instructions: 'Watch', learningOutcome: 'Observe', estimatedMinutes: 5 })).toEqual({ version: 1, instructions: 'Watch', learningOutcome: 'Observe', estimatedMinutes: 5 });
+  });
+});
+
+describe('CourseContentEditor: Programming Assignment activity', () => {
+  let root: Root; let container: HTMLDivElement;
+  const PA_UUID = '44444444-4444-4444-8444-444444444444';
+  const withActivity = (type: string, contentRef: unknown) => [{ ...sampleSections[0], learning_activities: [...sampleSections[0].learning_activities,
+    { id: 'a9', title: 'Program the arm', type, ordinal: 3, required: true, content_ref: contentRef, contentRef, content: { version: 1, instructions: 'Use Blockly.' } }] }];
+  let sectionsNow: unknown;
+  const button = (label: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(label)) as HTMLButtonElement | undefined;
+  const open = async (type: string, contentRef: unknown, props: Partial<Parameters<typeof CourseContentEditor>[0]> = {}) => {
+    sectionsNow = withActivity(type, contentRef);
+    mockApi.lessons.mockResolvedValue(sampleLessons); mockApi.sections.mockImplementation(async () => sectionsNow); mockApi.updateActivity.mockResolvedValue({});
+    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+    await act(async () => { root.render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CourseContentEditor course={course} token="token-xyz" {...props} /></QueryClientProvider>); });
+    await waitFor(() => expect(container.textContent).toContain('Program the arm'));
+    const row = [...container.querySelectorAll('p')].find((p) => p.textContent === 'Program the arm');
+    await act(async () => { row?.closest('div[class*="cursor-pointer"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  };
+  afterEach(() => { act(() => root.unmount()); container.remove(); vi.clearAllMocks(); });
+
+  it('replaces the assignment UUID box with the Programming Assignment editor for guided_practice', async () => {
+    await open('guided_practice', { kind: 'none' });
+    await waitFor(() => expect(container.querySelector('[data-testid="programming-assignment-panel"]')).not.toBeNull());
+    expect(container.querySelector('[data-testid="programming-assignment-panel"]')!.getAttribute('data-activity')).toBe('a9');
+    expect(container.textContent).not.toContain('Existing Assignment UUID');
+  });
+
+  it('keeps the existing UUID field for the other evaluated types (not part of this change)', async () => {
+    await open('simulation', { kind: 'none' });
+    await waitFor(() => expect(container.textContent).toContain('Existing Assignment UUID'));
+    expect(container.querySelector('[data-testid="programming-assignment-panel"]')).toBeNull();
+  });
+
+  it('keeps the link created by the editor when the activity is saved afterwards (never reverts it to none)', async () => {
+    await open('guided_practice', { kind: 'none' });
+    await waitFor(() => expect(button('Link programming assignment')).toBeDefined());
+    await act(async () => { button('Link programming assignment')!.click(); });
+    await act(async () => { button('Save Assignment Activity')!.click(); });
+    await waitFor(() => expect(mockApi.updateActivity).toHaveBeenCalledTimes(1));
+    expect(mockApi.updateActivity).toHaveBeenCalledWith('a9', 'token-xyz', expect.objectContaining({ type: 'guided_practice', contentRef: { kind: 'assignment', id: PA_UUID } }));
+  });
+
+  it('treats unsaved assignment edits as unsaved changes: reported to the host and blocks Publish', async () => {
+    const onDirtyChange = vi.fn();
+    await open('guided_practice', { kind: 'none' }, { onDirtyChange, onOpenPublish: vi.fn(), onOpenPreview: vi.fn() });
+    await waitFor(() => expect(button('Edit assignment fields')).toBeDefined());
+    await act(async () => { button('Edit assignment fields')!.click(); });
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true));
+    expect(button('Publish')!.disabled).toBe(true);
+  });
+
+  it('makes the editor read-only for an archived course', async () => {
+    await open('guided_practice', { kind: 'none' }, { isArchived: true });
+    await waitFor(() => expect(container.querySelector('[data-testid="programming-assignment-panel"]')).not.toBeNull());
+    expect(container.querySelector('[data-testid="programming-assignment-panel"]')!.getAttribute('data-readonly')).toBe('true');
   });
 });

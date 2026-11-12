@@ -6,6 +6,7 @@ import { activityIdsForLesson } from './activity-progress.service';
 import { assertCourseNotArchived, assertCurriculumMutable } from './course-lifecycle';
 import { validateActivityContent } from './activity-content.schema';
 import { LearningMediaService } from './learning-media.service';
+import { assertAssignmentMatchesActivityType, assignmentKind, PROGRAMMING_KIND, validProgrammingAssignment, type ProgrammingAssignmentInput } from './assignment-compat';
 
 const activityTypes = new Set([
   'reading', 'video', 'demonstration', 'guided_practice', 'knowledge_check',
@@ -128,7 +129,7 @@ export class CurriculumService {
     const contentRef = validContentRef(input.contentRef);
     validTypeRef(input.type, contentRef);
     const content = input.content === undefined ? {} : (validateActivityContent(input.type, input.content) ?? {});
-    await this.validateAssignmentRef(contentRef, section.lesson_id);
+    await this.validateAssignmentRef(contentRef, section.lesson_id, input.type);
     const objectiveIds = await this.validObjectiveIds(input.objectiveIds ?? [], section.lesson_id);
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -153,8 +154,11 @@ export class CurriculumService {
     if (meaningBearing) await assertCurriculumMutable(this.prisma, activity.course_id, 'Changing activity definitions');
     const contentRef = input.contentRef === undefined ? undefined : validContentRef(input.contentRef);
     const content = input.content === undefined ? undefined : validateActivityContent(input.type ?? activity.type, input.content);
-    if (contentRef) await this.validateAssignmentRef(contentRef, activity.learning_sections.lesson_id);
-    validTypeRef(input.type ?? activity.type, contentRef ?? validContentRef(activity.content_ref));
+    const effectiveType = input.type ?? activity.type;
+    const effectiveRef = contentRef ?? validContentRef(activity.content_ref);
+    // Re-check the link whenever the reference or the activity type changes, so a type change cannot leave a mismatched assignment behind.
+    if (contentRef || input.type !== undefined) await this.validateAssignmentRef(effectiveRef, activity.learning_sections.lesson_id, effectiveType);
+    validTypeRef(effectiveType, effectiveRef);
     const objectiveIds = input.objectiveIds === undefined ? undefined : await this.validObjectiveIds(input.objectiveIds, activity.learning_sections.lesson_id);
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -214,7 +218,7 @@ export class CurriculumService {
       const ref = validContentRef(activity.content_ref);
       if (ref.kind === 'none') throw new ConflictException('Published activity requires a content reference.');
       validTypeRef(activity.type, ref);
-      await this.validateAssignmentRef(ref, activity.learning_sections.lesson_id);
+      await this.validateAssignmentRef(ref, activity.learning_sections.lesson_id, activity.type);
       if (activity.type === 'knowledge_check' && ref.kind === 'assignment') {
         const quiz = await this.prisma.$queryRaw<Array<{ question_count: number; quiz: boolean }>>`
           SELECT (SELECT COUNT(*)::int FROM public.learning_assignment_question_versions q WHERE q.assignment_id=a.id) AS question_count,
@@ -297,11 +301,67 @@ export class CurriculumService {
     return ids;
   }
 
-  private async validateAssignmentRef(ref: ContentRef, lessonId: string) {
+  private async validateAssignmentRef(ref: ContentRef, lessonId: string, type?: string) {
     if (ref.kind !== 'assignment') return;
-    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
-      SELECT id FROM public.learning_assignments WHERE id=${ref.id}::uuid AND lesson_id=${lessonId}::uuid`;
+    const rows = await this.prisma.$queryRaw<{ id: string; constraints: unknown }[]>`
+      SELECT id,constraints FROM public.learning_assignments WHERE id=${ref.id}::uuid AND lesson_id=${lessonId}::uuid`;
     if (!rows.length) throw new BadRequestException('Referenced assignment must belong to the activity lesson.');
+    if (type) assertAssignmentMatchesActivityType(type, rows[0].constraints);
+  }
+
+  // ---- Programming Assignment authoring (reuses learning_assignments; the activity stays `guided_practice`) ----
+
+  /** The programming template linked to a guided_practice activity, or null while none is linked. */
+  async programmingAssignment(user: AuthenticatedUser, activityId: string) {
+    const activity = await this.programmingActivity(user, activityId);
+    const ref = validContentRef(activity.content_ref);
+    if (ref.kind !== 'assignment') return null;
+    return this.programmingTemplate(ref.id, activity.learning_sections.lesson_id, this.prisma);
+  }
+
+  /** Creates the template on first save and links it to the activity; later saves edit it in place. */
+  async saveProgrammingAssignment(user: AuthenticatedUser, activityId: string, input: ProgrammingAssignmentInput) {
+    const activity = await this.programmingActivity(user, activityId);
+    await assertCurriculumMutable(this.prisma, activity.course_id, 'Changing a programming assignment');
+    const data = validProgrammingAssignment(input);
+    const lessonId = activity.learning_sections.lesson_id;
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM public.learning_activities WHERE id=${activityId}::uuid FOR UPDATE`;
+      const current = await tx.learning_activities.findUnique({ where: { id: activityId }, select: { content_ref: true } });
+      const ref = validContentRef(current?.content_ref);
+      if (ref.kind === 'assignment') {
+        const existing = await this.programmingTemplate(ref.id, lessonId, tx, true);
+        const delivered = await tx.learning_classroom_assignments.findFirst({
+          where: { assignment_id: ref.id, OR: [{ status: { not: 'draft' } }, { learning_assignment_attempts: { some: {} } }] }, select: { id: true } });
+        if (delivered) throw new ConflictException('A delivered programming assignment cannot be edited.');
+        await tx.learning_assignments.update({ where: { id: existing.id }, data: { title: data.title, instructions: data.instructions, allowed_blocks: data.allowedBlocks } });
+        return this.programmingTemplate(existing.id, lessonId, tx);
+      }
+      const created = await tx.learning_assignments.create({ data: {
+        lesson_id: lessonId, title: data.title, instructions: data.instructions,
+        allowed_blocks: data.allowedBlocks, constraints: { kind: PROGRAMMING_KIND },
+      } });
+      await tx.learning_activities.update({ where: { id: activityId }, data: { content_ref: { kind: 'assignment', id: created.id }, updated_at: new Date() } });
+      return this.programmingTemplate(created.id, lessonId, tx);
+    });
+  }
+
+  private async programmingActivity(user: AuthenticatedUser, activityId: string) {
+    const activity = await this.activityForAuthor(user, activityId);
+    if (activity.type !== 'guided_practice') throw new BadRequestException('Programming assignments belong to Programming Assignment activities.');
+    return activity;
+  }
+
+  private async programmingTemplate(id: string, lessonId: string, db: Pick<PrismaService, '$queryRaw'>, requireEditable = false) {
+    const rows = await db.$queryRaw<Array<{ id: string; lesson_id: string; challenge_id: string | null; title: string; instructions: string; allowed_blocks: unknown; constraints: unknown }>>`
+      SELECT id,lesson_id,challenge_id,title,instructions,allowed_blocks,constraints
+      FROM public.learning_assignments WHERE id=${id}::uuid AND lesson_id=${lessonId}::uuid`;
+    const row = rows[0];
+    if (!row) throw new BadRequestException('Referenced assignment must belong to the activity lesson.');
+    if (requireEditable && assignmentKind(row.constraints) !== PROGRAMMING_KIND) {
+      throw new ConflictException('The linked assignment was not created as a programming assignment and cannot be edited here.');
+    }
+    return { id: row.id, lessonId: row.lesson_id, title: row.title, instructions: row.instructions, allowedBlocks: Array.isArray(row.allowed_blocks) ? row.allowed_blocks : [], challengeId: row.challenge_id, kind: assignmentKind(row.constraints) };
   }
 }
 

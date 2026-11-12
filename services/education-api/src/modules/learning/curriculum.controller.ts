@@ -4,7 +4,7 @@ import { CurrentUser } from '../identity/auth/current-user.decorator';
 import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
 import { SupabaseAuthGuard } from '../identity/auth/supabase-auth.guard';
 import { CurriculumService } from './curriculum.service';
-import { CreateActivityDto, CreateSectionDto, CurriculumStatusDto, ReorderCurriculumDto, UpdateActivityDto, UpdateSectionDto } from './dto/curriculum.dto';
+import { CreateActivityDto, SaveProgrammingAssignmentDto, CreateSectionDto, CurriculumStatusDto, ReorderCurriculumDto, UpdateActivityDto, UpdateSectionDto } from './dto/curriculum.dto';
 
 @ApiTags('Curriculum')
 @ApiBearerAuth()
@@ -61,5 +61,15 @@ export class CurriculumController {
   @Post('author/activities/:activityId/status')
   activityStatus(@CurrentUser() user: AuthenticatedUser, @Param('activityId', ParseUUIDPipe) activityId: string, @Body() body: CurriculumStatusDto) {
     return this.curriculum.setActivityStatus(user, activityId, body.status);
+  }
+
+  @Get('author/activities/:activityId/programming-assignment')
+  programmingAssignment(@CurrentUser() user: AuthenticatedUser, @Param('activityId', ParseUUIDPipe) activityId: string) {
+    return this.curriculum.programmingAssignment(user, activityId);
+  }
+
+  @Put('author/activities/:activityId/programming-assignment')
+  saveProgrammingAssignment(@CurrentUser() user: AuthenticatedUser, @Param('activityId', ParseUUIDPipe) activityId: string, @Body() body: SaveProgrammingAssignmentDto) {
+    return this.curriculum.saveProgrammingAssignment(user, activityId, body);
   }
 }

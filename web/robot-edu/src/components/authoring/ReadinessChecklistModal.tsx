@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useQueries } from '@tanstack/react-query';
 import {
   AlertTriangleIcon,
   CheckCircle2Icon,
@@ -10,7 +11,7 @@ import {
 import { Dialog } from '../ui/Dialog';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
-import type { ApiCourse } from '../../lib/api';
+import { curriculumApi, type ApiCourse } from '../../lib/api';
 import type { Lesson, Section } from '../../pages/admin/CanonicalCurriculumEditor';
 
 export interface ReadinessChecklistModalProps {
@@ -18,7 +19,10 @@ export interface ReadinessChecklistModalProps {
   onClose: () => void;
   course: ApiCourse;
   lessons: Lesson[];
+  /** Sections of the module in `currentLessonId` (the other modules' sections are loaded here). */
   sections: Section[];
+  currentLessonId?: string | null;
+  token?: string;
   onPublish: () => void;
   isPublishing?: boolean;
 }
@@ -29,6 +33,8 @@ export function ReadinessChecklistModal({
   course,
   lessons,
   sections,
+  currentLessonId = null,
+  token,
   onPublish,
   isPublishing = false,
 }: ReadinessChecklistModalProps) {
@@ -36,33 +42,52 @@ export function ReadinessChecklistModal({
   // Re-opening the checklist (for example to retry after a failed publish) always starts from the checklist step.
   useEffect(() => { if (open) setStep(1); }, [open]);
 
-  // Validation rules (Authoritative backend rules)
+  // The backend publishes a course only when it has a lesson (module) and every module has at least one
+  // published section containing a published activity (Course 1 / legacy courses are exempt).
+  // Sections are per module, so the other modules' sections are read from the same cache the outline uses.
+  const otherModules = lessons.filter((l) => l.id !== currentLessonId);
+  const loaded = useQueries({
+    queries: otherModules.map((l) => ({
+      queryKey: ['curriculum', l.id, 'sections'],
+      queryFn: () => curriculumApi.sections(l.id, token ?? '') as Promise<Section[]>,
+      enabled: open && Boolean(token),
+    })),
+  });
+  const deliverable = (list: Section[] | undefined) =>
+    list?.some((s) => s.status === 'published' && s.learning_activities?.some((a) => a.status === 'published'));
+  const legacyCourse = lessons.some((l) => l.ordinal === 1 && (l.content as { courseOverview?: { label?: string } } | undefined)?.courseOverview?.label === 'Course 1');
+  const moduleState = lessons.map((l) => {
+    if (l.id === currentLessonId) return { lesson: l, ok: Boolean(deliverable(sections)), pending: false };
+    const q = loaded[otherModules.findIndex((m) => m.id === l.id)];
+    return { lesson: l, ok: Boolean(deliverable(q?.data)), pending: !q || q.isLoading || (!q.data && !q.isError && Boolean(token)) || !token };
+  });
+  const incomplete = legacyCourse ? [] : moduleState.filter((m) => !m.ok);
+  const checking = !legacyCourse && incomplete.some((m) => m.pending);
+  const notReady = incomplete.filter((m) => !m.pending);
+
   const checks = [
     {
       title: 'Course Metadata',
-      description: 'Course has an approved title and description.',
+      description: 'A description helps school administrators choose the course. The server does not require it to publish.',
       passed: Boolean(course.title.trim() && course.description?.trim()),
-      critical: true,
+      critical: false,
     },
     {
       title: 'Canonical Lessons Requirement',
-      description: 'Course must contain at least 1 lesson before publication.',
+      description: 'Course must contain at least 1 module before publication.',
       passed: lessons.length >= 1,
       critical: true,
-      current: `${lessons.length} lesson${lessons.length === 1 ? '' : 's'}`,
+      current: `${lessons.length} module${lessons.length === 1 ? '' : 's'}`,
     },
     {
-      title: 'Curriculum Sections Configured',
-      description: 'Lessons should contain structured learning sections.',
-      passed: sections.length >= 1,
-      critical: false,
-      current: `${sections.length} section${sections.length === 1 ? '' : 's'} in current lesson`,
-    },
-    {
-      title: 'Published Learning Activities',
-      description: 'Activities marked as published will become accessible to enrolled students.',
-      passed: sections.some((s) => s.learning_activities?.some((a) => a.status === 'published')),
-      critical: false,
+      title: 'Every module has published content',
+      description: checking
+        ? 'Checking each module for a published lesson with a published activity…'
+        : notReady.length
+          ? `Each module needs at least one published lesson containing a published activity. Missing in: ${notReady.map((m) => m.lesson.title).join(', ')}.`
+          : 'Each module has a published lesson containing a published activity.',
+      passed: lessons.length >= 1 && incomplete.length === 0,
+      critical: true,
     },
     {
       title: 'Lifecycle & Integrity Safeguards',
@@ -126,7 +151,7 @@ export function ReadinessChecklistModal({
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold text-ink">Readiness Score</span>
               <Badge tone={canPublish ? 'ok' : 'warn'}>
-                {canPublish ? 'Ready to Publish' : 'Requirements Incomplete'}
+                {canPublish ? 'Ready to Publish' : checking ? 'Checking…' : 'Requirements Incomplete'}
               </Badge>
             </div>
             <span className="text-xs text-ink-muted">

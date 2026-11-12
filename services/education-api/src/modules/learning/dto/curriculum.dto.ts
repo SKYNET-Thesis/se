@@ -41,3 +41,9 @@ export class ReorderCurriculumDto {
 export class CurriculumStatusDto {
   @IsIn(['draft', 'published']) status!: 'draft' | 'published';
 }
+
+export class SaveProgrammingAssignmentDto {
+  @IsString() @Matches(/\S/, nonBlank) @MaxLength(200) title!: string;
+  @IsString() @MaxLength(10000) instructions!: string;
+  @IsArray() @ArrayUnique() @IsString({ each: true }) allowedBlocks!: string[];
+}

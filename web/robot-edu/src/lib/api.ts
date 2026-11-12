@@ -17,6 +17,20 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/** For endpoints that return `null` as an empty 200 body (NestJS sends no body for a null result). */
+export async function apiGetOptional<T>(path: string, accessToken: string): Promise<T | null> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Cache-Control": "no-store" },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { message?: string } | null;
+    throw new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`);
+  }
+  const text = await response.text();
+  return text.trim() ? JSON.parse(text) as T : null;
+}
+
 export interface ApiEnrollmentSync { classrooms: number; enrolled: number }
 export interface ApiCourse { enrollmentSync?: ApiEnrollmentSync; id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
 export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
@@ -482,7 +496,13 @@ export const curriculumApi = {
   reorderActivities: (sectionId:string, token:string, orderedIds:string[]) => apiRequest<ApiRecord>(`/author/sections/${sectionId}/activities/order`,token,'PUT',{orderedIds}),
   setSectionStatus: (sectionId: string, token: string, status: 'draft' | 'published') => apiRequest<ApiRecord>(`/author/sections/${sectionId}/status`, token, 'POST', { status }),
   setActivityStatus: (activityId: string, token: string, status: 'draft' | 'published') => apiRequest<ApiRecord>(`/author/activities/${activityId}/status`, token, 'POST', { status }),
+  /** The programming assignment linked to a Programming Assignment (guided_practice) activity; null until the first save. */
+  programmingAssignment: (activityId: string, token: string) => apiGetOptional<ApiProgrammingAssignment>(`/author/activities/${activityId}/programming-assignment`, token),
+  /** Creates the template and links it on the first save; later saves edit it in place. */
+  saveProgrammingAssignment: (activityId: string, token: string, body: { title: string; instructions: string; allowedBlocks: string[] }) =>
+    apiRequest<ApiProgrammingAssignment>(`/author/activities/${activityId}/programming-assignment`, token, 'PUT', body),
 };
+export type ApiProgrammingAssignment = { id: string; lessonId: string; title: string; instructions: string; allowedBlocks: string[]; challengeId: string | null; kind: string | null };
 
 export type ApiLearningMedia = { id: string; course_id: string; original_filename: string; mime_type: string; size_bytes: number; status: 'pending' | 'ready' | 'failed'; created_at: string };
 export const learningMediaApi = {
@@ -523,8 +543,8 @@ type QuizAuthoringSelected = { versionId: string; questionId: string; ordinal: n
 type QuizAuthoringAssignment = { id: string; title: string; instructions: string; constraints: { kind: string; passPercent: number }; questions: QuizAuthoringSelected[] };
 export const quizAuthoringApi = {
   questions: (lessonId: string, token: string, search = '', type = '', page = 1, pageSize = 20) => apiGet<{ items: QuizAuthoringQuestion[]; total: number; page: number; pageSize: number }>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/questions?search=${encodeURIComponent(search)}&type=${encodeURIComponent(type)}&page=${page}&pageSize=${pageSize}`, token),
-  assignment: (lessonId: string, token: string) => apiGet<QuizAuthoringAssignment | null>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment`, token),
-  preview: (lessonId: string, token: string) => apiGet<QuizAuthoringAssignment | null>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/preview`, token),
+  assignment: (lessonId: string, token: string) => apiGetOptional<QuizAuthoringAssignment>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment`, token),
+  preview: (lessonId: string, token: string) => apiGetOptional<QuizAuthoringAssignment>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/preview`, token),
   createAssignment: (lessonId: string, token: string, body: { title: string; instructions: string; passPercent: number }) => apiRequest<{ id: string }>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment`, token, 'POST', body),
   updateAssignment: (lessonId: string, assignmentId: string, token: string, body: { title: string; instructions: string; passPercent: number }) => apiRequest<ApiRecord>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment/${assignmentId}`, token, 'PATCH', body),
   addQuestion: (assignmentId: string, token: string, body: { questionVersionId: string; ordinal: number; points: number }) => apiRequest<ApiRecord>(`/author/question-bank/assignments/${assignmentId}/questions`, token, 'POST', body),

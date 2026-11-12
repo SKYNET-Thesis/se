@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   BookOpenIcon,
   BotIcon,
@@ -11,7 +12,7 @@ import { Dialog } from '../ui/Dialog';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import type { Lesson, Section, Activity } from '../../pages/admin/CanonicalCurriculumEditor';
-import type { ApiCourse } from '../../lib/api';
+import { curriculumApi, type ApiCourse } from '../../lib/api';
 
 export interface LearnerPreviewModalProps {
   open: boolean;
@@ -20,6 +21,8 @@ export interface LearnerPreviewModalProps {
   lessons: Lesson[];
   sections: Section[];
   selectedLessonId?: string;
+  /** Needed only to load the saved sections of a lesson other than `selectedLessonId`. */
+  token?: string;
 }
 
 export function LearnerPreviewModal({
@@ -29,13 +32,32 @@ export function LearnerPreviewModal({
   lessons,
   sections,
   selectedLessonId,
+  token = '',
 }: LearnerPreviewModalProps) {
-  const [activeLessonId, setActiveLessonId] = useState<string>(
-    selectedLessonId ?? lessons[0]?.id ?? ''
-  );
+  const [pickedLessonId, setPickedLessonId] = useState<string | null>(null);
   const [activeActivity, setActiveActivity] = useState<Activity | null>(null);
 
+  // The modal stays mounted while closed: forget the learner-view navigation on close so the next open starts on the
+  // lesson currently selected in the editor (derived below, never a value captured at mount).
+  useEffect(() => {
+    if (open) return;
+    setPickedLessonId(null);
+    setActiveActivity(null);
+  }, [open]);
+
+  const activeLessonId = pickedLessonId ?? selectedLessonId ?? lessons[0]?.id ?? '';
   const activeLesson = lessons.find((l) => l.id === activeLessonId) ?? lessons[0];
+  // `sections` only describes the lesson open in the editor. Any other lesson shown here must load its own saved sections
+  // (same query key as the editor, so this is normally a cache hit) instead of reusing the wrong lesson's list.
+  const showsEditorSections = Boolean(activeLesson) && activeLesson?.id === selectedLessonId;
+  const otherLessonSections = useQuery({
+    queryKey: ['curriculum', activeLesson?.id, 'sections'],
+    queryFn: () => curriculumApi.sections(activeLesson!.id, token) as Promise<Section[]>,
+    enabled: open && Boolean(activeLesson) && !showsEditorSections && Boolean(token),
+    staleTime: 30_000,
+  });
+  const visibleSections: Section[] = showsEditorSections ? sections : otherLessonSections.data ?? [];
+  const sectionsLoading = !showsEditorSections && otherLessonSections.isLoading;
 
   const getActivityIcon = (type: string) => {
     switch (type) {
@@ -106,7 +128,7 @@ export function LearnerPreviewModal({
                       key={les.id}
                       type="button"
                       onClick={() => {
-                        setActiveLessonId(les.id);
+                        setPickedLessonId(les.id);
                         setActiveActivity(null);
                       }}
                       className={`w-full text-left rounded-lg p-2.5 text-xs transition-colors ${
@@ -143,13 +165,15 @@ export function LearnerPreviewModal({
                 </div>
 
                 {/* Sections & Activities */}
-                {sections.length === 0 ? (
+                {sectionsLoading ? (
+                  <p className="text-xs text-ink-muted italic py-4 text-center">Loading lesson content…</p>
+                ) : visibleSections.length === 0 ? (
                   <p className="text-xs text-ink-muted italic py-4 text-center">
                     No published sections available in this lesson yet.
                   </p>
                 ) : (
                   <div className="space-y-4">
-                    {sections.map((sec) => (
+                    {visibleSections.map((sec) => (
                       <div key={sec.id} className="rounded-lg border border-line bg-sunken/20 p-4 space-y-3">
                         <div className="flex items-center justify-between">
                           <h5 className="text-xs font-bold text-ink uppercase tracking-wide">

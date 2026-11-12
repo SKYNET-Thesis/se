@@ -433,17 +433,21 @@ export function CourseOutlinePanel({
         )}
       </div>
 
-      {/* Outline Footer Action (Image 4 Reference) */}
+      {/* Footer action: adds a lesson to the selected module (modules are added from the header; activities from inside a lesson) */}
       <div className="border-t border-line bg-sunken/20 p-3">
         <Button
           size="sm"
           variant="secondary"
           className="w-full justify-center"
           icon={<PlusIcon className="h-4 w-4" />}
-          onClick={onAddLesson}
-          disabled={isArchived}
+          onClick={() => {
+            const target = selectedLessonId ?? lessons[0]?.id;
+            if (target) onAddSection(target);
+          }}
+          disabled={isArchived || lessons.length === 0}
+          title={lessons.length === 0 ? 'Create a module first' : 'Add a lesson to the selected module. Add activities from inside a lesson.'}
         >
-          Add Lesson / Activity
+          Add Lesson
         </Button>
       </div>
     </aside>

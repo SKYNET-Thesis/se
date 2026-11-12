@@ -85,6 +85,17 @@ describe('LearningMediaPreviewModal', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it('plays MP3 with a native audio player (format reported as MPEG) and still previews MOV', () => {
+    render({ ...pdf, name: 'lecture.mp3', format: 'MPEG', url: 'https://media.example/lecture.mp3?sig=x' });
+    const audio = document.querySelector('audio') as HTMLAudioElement;
+    expect(audio.controls).toBe(true);
+    expect(audio.autoplay).toBe(false);
+    expect(audio.getAttribute('aria-label')).toBe('Audio preview: lecture.mp3');
+    click('Close');
+    render({ ...pdf, name: 'clip.mov', format: 'QUICKTIME', url: 'https://media.example/clip.mov' });
+    expect(document.querySelector('video')).not.toBeNull();
+  });
+
   it('shows a clear unsupported state for DOCX and invokes only the provided full-content action', () => {
     const openFull = vi.fn();
     render({ ...pdf, name: 'lesson.docx', format: 'DOCX' }, { onOpenFull: openFull });
@@ -175,6 +186,34 @@ describe('LearningMediaPreviewModal', () => {
     const file = new File(['pdf'], 'guide.pdf', { type: 'application/pdf' });
     const input = document.querySelector<HTMLInputElement>('[aria-label="Upload learning media"]');
     if (!input) throw new Error('Learning media file input was not rendered.');
+    Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); await new Promise((resolve) => setTimeout(resolve, 30)); });
+    expect(mediaApi.upload).toHaveBeenCalledWith('course-1', 'session-token', file, expect.any(Function));
+  });
+
+  it('offers only the supported formats in the picker, including MP3, and filters audio separately', async () => {
+    mediaApi.list.mockResolvedValue([{ id: 'media-3', course_id: 'course-1', original_filename: 'lecture.mp3', mime_type: 'audio/mpeg', size_bytes: 4096, status: 'ready', created_at: '2026-11-10T00:00:00Z' }]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" /></QueryClientProvider>); await new Promise((resolve) => setTimeout(resolve, 60)); });
+    await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" /></QueryClientProvider>); });
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Upload learning media"]')!;
+    expect(input.accept).toContain('audio/mpeg');
+    expect(input.accept).toContain('.mp3');
+    expect(input.accept).not.toMatch(/\.exe|svg/);
+    expect(document.body.textContent).toContain('MP3');
+    expect(document.body.textContent).toContain('lecture.mp3');
+    const audioFilter = [...document.querySelectorAll('button')].find((b) => b.textContent === 'audio') as HTMLButtonElement;
+    await act(async () => { audioFilter.click(); await new Promise((resolve) => setTimeout(resolve, 30)); });
+    expect(mediaApi.list).toHaveBeenLastCalledWith('course-1', 'session-token', '', 'audio');
+  });
+
+  it('uploads an MP3 through the same authenticated media API', async () => {
+    mediaApi.list.mockResolvedValue([]);
+    mediaApi.upload.mockResolvedValue({ id: 'media-4', course_id: 'course-1', original_filename: 'lecture.mp3', mime_type: 'audio/mpeg', size_bytes: 4096, status: 'ready', created_at: '2026-11-10T00:00:00Z' });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" /></QueryClientProvider>); await new Promise((resolve) => setTimeout(resolve, 30)); });
+    const file = new File(['ID3'], 'lecture.mp3', { type: 'audio/mpeg' });
+    const input = document.querySelector<HTMLInputElement>('[aria-label="Upload learning media"]')!;
     Object.defineProperty(input, 'files', { configurable: true, value: [file] });
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); await new Promise((resolve) => setTimeout(resolve, 30)); });
     expect(mediaApi.upload).toHaveBeenCalledWith('course-1', 'session-token', file, expect.any(Function));

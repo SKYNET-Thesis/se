@@ -4,6 +4,7 @@ import { Button } from '../ui/Button';
 import { QuizAuthoringPanel } from './QuizAuthoringPanel';
 import { MediaAssetLibraryModal, type MediaAsset } from './MediaAssetLibraryModal';
 import { learningMediaApi } from '../../lib/api';
+import { isAudioMedia } from '../../lib/learningMediaKinds';
 
 type ContentRef = { kind: 'lesson_content'; key: string } | { kind: 'assignment'; id: string } | { kind: 'none' };
 type ReadingBlock =
@@ -78,7 +79,7 @@ export function ActivityContentPreview({ content, mediaUrls = {} }: { content: R
     if (block.type === 'image') return mediaUrls[block.mediaId] ? <img key={index} src={mediaUrls[block.mediaId].url} alt={block.alt} className="max-h-96 max-w-full rounded-md object-contain" /> : <p key={index} className="text-xs text-ink-muted">Image unavailable in this preview.</p>;
     const List = block.type === 'numbered_list' ? 'ol' : 'ul';
     return <List key={index} className={block.type === 'numbered_list' ? 'list-decimal pl-5' : 'list-disc pl-5'}>{block.items.map((item, itemIndex) => <li key={itemIndex}>{item}</li>)}</List>;
-  })}{Array.isArray(content.mediaIds) && <ul className="space-y-1 border-t border-line pt-3" aria-label="Learning material attachments">{content.mediaIds.filter((id): id is string => typeof id === 'string').map((id) => mediaUrls[id] ? <li key={id}><a className="text-accent-ink underline" href={mediaUrls[id].url} target="_blank" rel="noreferrer" download={mediaUrls[id].filename}>{mediaUrls[id].filename}</a></li> : null)}</ul>}{typeof content.instructions === 'string' && <p>{content.instructions}</p>}{typeof content.learningOutcome === 'string' && content.learningOutcome && <p className="font-medium">Learning outcome: {content.learningOutcome}</p>}</div>;
+  })}{Array.isArray(content.mediaIds) && <ul className="space-y-1 border-t border-line pt-3" aria-label="Learning material attachments">{content.mediaIds.filter((id): id is string => typeof id === 'string').map((id) => mediaUrls[id] ? <li key={id}><a className="text-accent-ink underline" href={mediaUrls[id].url} target="_blank" rel="noreferrer" download={mediaUrls[id].filename}>{mediaUrls[id].filename}</a>{isAudioMedia(mediaUrls[id].filename) && <audio controls preload="none" className="mt-1 w-full max-w-md" src={mediaUrls[id].url} aria-label={`Audio: ${mediaUrls[id].filename}`} />}</li> : null)}</ul>}{typeof content.instructions === 'string' && <p>{content.instructions}</p>}{typeof content.learningOutcome === 'string' && content.learningOutcome && <p className="font-medium">Learning outcome: {content.learningOutcome}</p>}</div>;
 }
 
 function mediaIdsForContent(content: Record<string, unknown>) {

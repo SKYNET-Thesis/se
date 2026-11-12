@@ -1,18 +1,23 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../common/database/prisma.service';
 import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
 import { LearningScopeService } from './learning-scope.service';
 import { LearningMediaStorage } from './learning-media.storage';
 import { MAX_LEARNING_MEDIA_BYTES } from './learning-media.constants';
+import { courseMediaKey, newMediaId, type MediaCategory } from './learning-media.keys';
+import { matchesDeclaredFormat, SIGNATURE_BYTES } from './learning-media.signature';
 import { ProgressionService } from './progression.service';
 
-const accepted = new Map<string, { mime: string; category: 'videos' | 'documents' | 'images' }>([
+/** An upload URL lives 5 minutes; a pending asset with no object after this long can never complete. */
+const PENDING_UPLOAD_GRACE_MS = 10 * 60 * 1000;
+
+const accepted = new Map<string, { mime: string; category: MediaCategory }>([
   ['.mp4', { mime: 'video/mp4', category: 'videos' }], ['.webm', { mime: 'video/webm', category: 'videos' }], ['.mov', { mime: 'video/quicktime', category: 'videos' }],
   ['.pdf', { mime: 'application/pdf', category: 'documents' }],
   ['.docx', { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', category: 'documents' }],
   ['.pptx', { mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', category: 'documents' }],
   ['.png', { mime: 'image/png', category: 'images' }], ['.jpg', { mime: 'image/jpeg', category: 'images' }], ['.jpeg', { mime: 'image/jpeg', category: 'images' }], ['.webp', { mime: 'image/webp', category: 'images' }],
+  ['.mp3', { mime: 'audio/mpeg', category: 'audio' }],
 ]);
 
 export type CreateLearningMediaUpload = { filename: string; contentType: string; sizeBytes: number };
@@ -50,13 +55,23 @@ export class LearningMediaService {
     const extension = filename.slice(filename.lastIndexOf('.')).toLowerCase();
     const type = accepted.get(extension);
     if (!type || input.contentType.toLowerCase() !== type.mime) throw new BadRequestException('File extension and content type are not supported.');
-    const id = randomUUID();
-    const objectKey = `learning-media/courses/${courseId}/${type.category}/${id}${extension}`;
+    const id = newMediaId();
+    const objectKey = courseMediaKey(courseId, type.category, id, extension);
     const upload = await this.storage.createUpload(objectKey, id, type.mime, input.sizeBytes);
-    const rows = await this.prisma.$queryRaw<Array<Record<string, unknown>>>`
-      INSERT INTO public.learning_media_assets(id,course_id,object_key,original_filename,mime_type,size_bytes,status,created_by)
-      VALUES(${id}::uuid,${courseId}::uuid,${objectKey},${filename},${type.mime},${input.sizeBytes},'pending',${user.vistaUserId}::uuid)
-      RETURNING id,course_id,original_filename,mime_type,size_bytes::int AS size_bytes,status,created_at`;
+    let rows: Array<Record<string, unknown>>;
+    try {
+      rows = await this.prisma.$queryRaw<Array<Record<string, unknown>>>`
+        INSERT INTO public.learning_media_assets(id,course_id,object_key,original_filename,mime_type,size_bytes,status,created_by)
+        VALUES(${id}::uuid,${courseId}::uuid,${objectKey},${filename},${type.mime},${input.sizeBytes},'pending',${user.vistaUserId}::uuid)
+        RETURNING id,course_id,original_filename,mime_type,size_bytes::int AS size_bytes,status,created_at`;
+    } catch (error) {
+      // The table's learning_media_assets_mime_type CHECK lists the allowed MIME types. A type the API accepts but the
+      // deployed database does not yet list (MP3 until its migration is applied) must fail clearly, not as a 500.
+      if (JSON.stringify((error as { meta?: unknown })?.meta ?? '').includes('learning_media_assets_mime_type')) {
+        throw new ServiceUnavailableException(`${type.mime} uploads are not enabled in this environment yet: the Learning Media database migration for this file type has not been applied.`);
+      }
+      throw error;
+    }
     return { media: rows[0], upload };
   }
 
@@ -66,14 +81,27 @@ export class LearningMediaService {
       SELECT created_by FROM public.learning_media_assets WHERE id=${mediaId}::uuid`;
     if (owners[0]?.created_by !== user.vistaUserId) throw new NotFoundException('Learning media was not found.');
     const head = await this.storage.head(asset.object_key);
-    if (!head) throw new BadRequestException('The uploaded file is not present in Learning Media storage.');
+    if (!head) {
+      // The signed upload expired without an object: stop offering this asset for completion.
+      if (Date.now() - new Date(asset.created_at).getTime() > PENDING_UPLOAD_GRACE_MS) {
+        await this.prisma.$executeRaw`UPDATE public.learning_media_assets SET status='failed' WHERE id=${asset.id}::uuid AND status='pending'`;
+        throw new BadRequestException('The upload window expired before the file arrived. Upload the file again.');
+      }
+      throw new BadRequestException('The uploaded file is not present in Learning Media storage.');
+    }
     if (head.contentLength !== asset.size_bytes || head.contentType !== asset.mime_type || head.mediaId !== asset.id) {
       await this.prisma.$executeRaw`UPDATE public.learning_media_assets SET status='failed' WHERE id=${asset.id}::uuid AND status='pending'`;
       throw new BadRequestException('Uploaded object metadata does not match the authorized file.');
     }
+    // The declared type and extension are client-controlled: also require the file to start like that format.
+    const prefix = await this.storage.readPrefix(asset.object_key, SIGNATURE_BYTES);
+    if (!prefix || !matchesDeclaredFormat(asset.mime_type, prefix)) {
+      await this.prisma.$executeRaw`UPDATE public.learning_media_assets SET status='failed' WHERE id=${asset.id}::uuid AND status='pending'`;
+      throw new BadRequestException('The uploaded file content does not match its declared type.');
+    }
     const rows = await this.prisma.$queryRaw<Array<Record<string, unknown>>>`
       UPDATE public.learning_media_assets SET status='ready' WHERE id=${asset.id}::uuid AND status='pending'
-      RETURNING id,course_id,original_filename,mime_type,size_bytes,status,created_at`;
+      RETURNING id,course_id,original_filename,mime_type,size_bytes::int AS size_bytes,status,created_at`;
     if (!rows[0]) throw new ConflictException('Upload is no longer pending.');
     return rows[0];
   }
@@ -89,16 +117,16 @@ export class LearningMediaService {
   async list(user: AuthenticatedUser, courseId: string, search = '', kind = '') {
     this.assertAuthor(user);
     if (search.length > 120) throw new BadRequestException('Search text is too long.');
-    if (kind && !['video', 'document', 'image'].includes(kind)) throw new BadRequestException('Media type filter is invalid.');
+    if (kind && !['video', 'document', 'image', 'audio'].includes(kind)) throw new BadRequestException('Media type filter is invalid.');
     const courses = await this.prisma.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM public.learning_courses WHERE id=${courseId}::uuid AND organization_id IS NULL`;
     if (!courses[0]) throw new NotFoundException('Course was not found.');
-    const mimePrefix = kind === 'video' ? 'video/%' : kind === 'image' ? 'image/%' : kind === 'document' ? '!video/%' : '';
+    const mimePrefix = kind === 'video' ? 'video/%' : kind === 'image' ? 'image/%' : kind === 'audio' ? 'audio/%' : '';
     return this.prisma.$queryRaw<Array<Record<string, unknown>>>`
       SELECT id,course_id,original_filename,mime_type,size_bytes::int AS size_bytes,status,created_at FROM public.learning_media_assets
       WHERE course_id=${courseId}::uuid AND status='ready'
         AND (${search}='' OR original_filename ILIKE ${`%${search}%`})
-        AND (${kind}='' OR (${kind}='document' AND mime_type NOT LIKE 'video/%' AND mime_type NOT LIKE 'image/%') OR mime_type LIKE ${mimePrefix})
+        AND (${kind}='' OR (${kind}='document' AND mime_type NOT LIKE 'video/%' AND mime_type NOT LIKE 'image/%' AND mime_type NOT LIKE 'audio/%') OR mime_type LIKE ${mimePrefix})
       ORDER BY created_at DESC LIMIT 200`;
   }
 
@@ -135,7 +163,7 @@ export class LearningMediaService {
       await this.scope.assertStudentClassroomAccess(user, activity.classroom_id);
       await this.progression?.assertPrerequisites(this.prisma, user.vistaUserId, activity.lesson_id);
     }
-    const disposition = activity.mime_type === 'application/pdf' || activity.mime_type.startsWith('image/') || activity.mime_type.startsWith('video/') ? 'inline' : 'attachment';
+    const disposition = activity.mime_type === 'application/pdf' || activity.mime_type.startsWith('image/') || activity.mime_type.startsWith('video/') || activity.mime_type.startsWith('audio/') ? 'inline' : 'attachment';
     return { url: await this.storage.createDownload(activity.object_key, activity.original_filename, activity.mime_type, disposition), filename: activity.original_filename, mimeType: activity.mime_type, expiresIn: 900 };
   }
 

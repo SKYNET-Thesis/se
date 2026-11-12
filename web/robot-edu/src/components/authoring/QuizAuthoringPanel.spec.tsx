@@ -71,6 +71,30 @@ describe('QuizAuthoringPanel', () => {
     expect(api.updateAssignment).not.toHaveBeenCalled();
     expect(host.textContent).toContain('Passing score must be a whole number from 1 to 100.');
   });
+  it('creates the quiz draft with the passing score the author entered, not a hard-coded default', async () => {
+    api.assignment.mockResolvedValue(null);
+    api.createAssignment.mockResolvedValue({ id: 'as-new' });
+    const host = await render();
+    const input = host.querySelector('input[aria-label="Passing score"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => { setter.call(input, '65'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    const create = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Create quiz draft')) as HTMLButtonElement;
+    await act(async () => { create.click(); });
+    await vi.waitFor(() => expect(api.createAssignment).toHaveBeenCalledTimes(1));
+    expect(api.createAssignment).toHaveBeenCalledWith('lesson-1', 'token', expect.objectContaining({ passPercent: 65 }));
+  });
+  it('does not create a quiz draft with an out-of-range passing score', async () => {
+    api.assignment.mockResolvedValue(null);
+    const host = await render();
+    const input = host.querySelector('input[aria-label="Passing score"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+    await act(async () => { setter.call(input, '0'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    const create = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Create quiz draft')) as HTMLButtonElement;
+    await act(async () => { create.click(); });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(api.createAssignment).not.toHaveBeenCalled();
+    expect(host.textContent).toContain('Passing score must be a whole number from 1 to 100.');
+  });
   it('is read-only for an archived course: nothing can be created, added, reordered, removed or edited, and the state is explained', async () => {
     const selected = [1, 2].map((n) => ({ versionId: `v-${n}`, questionId: `q-${n}`, ordinal: n, points: 1, type: 'single_choice', stem: `Question ${n}`, options: [{ id: 'a', text: 'A' }], code: `Q${n}` }));
     api.assignment.mockResolvedValue({ ...assignment, questions: selected });

@@ -59,3 +59,14 @@ variable "ai_models_bucket_name" {
   description = "Globally unique private bucket for AI model artifacts; override the placeholder before provisioning."
   default     = "vista-demo-ai-models-change-me-sg"
 }
+
+variable "media_cors_allowed_origins" {
+  type        = list(string)
+  default     = ["https://skynex.best", "https://www.skynex.best"]
+  description = "Browser origins allowed to upload Learning Media with presigned POST, in addition to the CloudFront default domain. Exact HTTPS origins only."
+
+  validation {
+    condition     = alltrue([for origin in var.media_cors_allowed_origins : can(regex("^https://[a-z0-9.-]+$", origin))])
+    error_message = "Each origin must be an exact https:// origin without a wildcard, path or port."
+  }
+}

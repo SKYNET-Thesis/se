@@ -2,3 +2,5 @@ web_bucket_name = "REPLACE-globally-unique-vista-demo-web"
 media_bucket_name = "REPLACE-globally-unique-vista-demo-media"
 ai_models_bucket_name = "vista-demo-ai-models-157098813811-sg"
 enable_insecure_api_origin = false
+# Origins allowed to upload Learning Media (presigned POST). Defaults to the production domains; override only for another environment.
+# media_cors_allowed_origins = ["https://skynex.best", "https://www.skynex.best"]

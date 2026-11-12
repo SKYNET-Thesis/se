@@ -98,4 +98,23 @@ describe('CourseOutlinePanel', () => {
 
     expect(onSelectActivity).toHaveBeenCalledWith('lesson-1', 'section-1-1', 'act-2');
   });
+
+  const footerButton = () => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add Lesson') as HTMLButtonElement;
+
+  it('footer action adds a lesson to the selected module and never opens Add Module', () => {
+    const { onAddSection, onAddLesson } = renderComponent({ selectedLessonId: 'lesson-2', selectedSectionId: undefined, selectedActivityId: undefined });
+    act(() => { footerButton().click(); });
+    expect(onAddSection).toHaveBeenCalledWith('lesson-2');
+    expect(onAddLesson).not.toHaveBeenCalled();
+  });
+
+  it('footer action targets the first module when none is selected and is disabled without modules', () => {
+    const { onAddSection } = renderComponent({ selectedLessonId: undefined, selectedSectionId: undefined, selectedActivityId: undefined });
+    act(() => { footerButton().click(); });
+    expect(onAddSection).toHaveBeenCalledWith('lesson-1');
+    act(() => root.unmount());
+    root = createRoot(container);
+    renderComponent({ lessons: [], sectionsByLesson: {} });
+    expect(footerButton().disabled).toBe(true);
+  });
 });
