@@ -21,6 +21,7 @@ import type { Lesson, Section, Activity } from '../../pages/admin/CanonicalCurri
 import { CourseOutlinePanel } from './CourseOutlinePanel';
 import { ReadingDocumentEditor } from './ReadingDocumentEditor';
 import { VideoLessonEditor } from './VideoLessonEditor';
+import { ProgrammingAssignmentPanel } from './ProgrammingAssignmentPanel';
 import { QuizAuthoringPanel } from './QuizAuthoringPanel';
 import { MediaAssetLibraryModal } from './MediaAssetLibraryModal';
 import { CurriculumItemEditor } from './CurriculumItemEditor';
@@ -51,6 +52,21 @@ type NamePrompt =
 
 /** Activity types whose content reference must be an assignment UUID (or none while the activity is still being set up). */
 const EVALUATED_TYPES = new Set(['knowledge_check', 'guided_practice', 'simulation', 'challenge', 'physical_lab']);
+/** Types whose authored content is `{ version: 1, instructions, learningOutcome?, estimatedMinutes? }` (see activity-content.schema.ts). */
+const INSTRUCTION_TYPES = new Set(['demonstration', 'guided_practice', 'simulation', 'challenge', 'physical_lab', 'reflection', 'result']);
+/**
+ * The API validates any `content` it receives against a per-type schema (and rejects `{}` or unversioned objects), so
+ * only send content the type's schema accepts. A Quiz keeps its questions in the canonical assignment, never in `content`.
+ */
+export function activityContentForSave(type: string, content: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!content) return undefined;
+  if (type === 'reading' || type === 'video') return content;
+  if (INSTRUCTION_TYPES.has(type) && typeof content.instructions === 'string') {
+    const { instructions, learningOutcome, estimatedMinutes } = content;
+    return { version: 1, instructions, ...(learningOutcome === undefined ? {} : { learningOutcome }), ...(estimatedMinutes === undefined ? {} : { estimatedMinutes }) };
+  }
+  return undefined;
+}
 const nextOrdinal = (items: Array<{ ordinal: number }> | undefined) => Math.max(0, ...(items ?? []).map((item) => item.ordinal)) + 1;
 const apiErrorMessage = (error: unknown) => (error instanceof Error && error.message ? error.message : 'The request failed. Please try again.');
 
@@ -92,11 +108,12 @@ export function CourseContentEditor({
 
   // Module / Lesson information editors keep their own draft; this flag feeds the shared unsaved-changes guard.
   const [isInfoDirty, setIsInfoDirty] = useState(false);
+  const [isAssignmentDirty, setIsAssignmentDirty] = useState(false);
   // Naming dialog for Add Module / Add Lesson / Add Activity (replaces window.prompt)
   const [namePrompt, setNamePrompt] = useState<NamePrompt | null>(null);
   const [nameValue, setNameValue] = useState('');
   const initialSelectionDone = useRef(false);
-  const hasUnsavedChanges = isActivityDirty || isInfoDirty;
+  const hasUnsavedChanges = isActivityDirty || isInfoDirty || isAssignmentDirty;
 
   // Responsive Outline Toggle (Tablet & Mobile)
   const [outlineVisible, setOutlineVisible] = useState(true);
@@ -229,10 +246,10 @@ export function CourseContentEditor({
   // Invalidate queries helper
   const invalidateLessons = () =>
     qc.invalidateQueries({ queryKey: ['curriculum', course.id, 'lessons'] });
-  const invalidateSections = (lessonId?: string) => {
-    if (lessonId) qc.invalidateQueries({ queryKey: ['curriculum', lessonId, 'sections'] });
-    else qc.invalidateQueries({ queryKey: ['curriculum'] });
-  };
+  // Return the promise: callers `await` it so the cache holds the saved activity before the dirty flag is cleared
+  // (otherwise the draft re-syncs from stale data and the editor reports "Unsaved changes" after a successful save).
+  const invalidateSections = (lessonId?: string) =>
+    lessonId ? qc.invalidateQueries({ queryKey: ['curriculum', lessonId, 'sections'] }) : qc.invalidateQueries({ queryKey: ['curriculum'] });
 
   // Mutation: Save Activity
   const saveActivityMutation = useMutation({
@@ -242,7 +259,7 @@ export function CourseContentEditor({
         type: draft.type,
         required: draft.required,
         contentRef: draft.contentRef,
-        content: draft.content,
+        content: activityContentForSave(draft.type, draft.content),
       });
     },
     onSuccess: async () => {
@@ -357,7 +374,7 @@ export function CourseContentEditor({
             ? { version: 1, blocks: [], mediaIds: [] }
             : type === 'video'
             ? { version: 1, videoMediaId: '', description: '' }
-            : {},
+            : undefined,
       });
     },
     onSuccess: async (created, { sectionId }) => {
@@ -519,14 +536,14 @@ export function CourseContentEditor({
               size="sm"
               variant="secondary"
               icon={<RocketIcon className="h-4 w-4" />}
-              disabled={isArchived || course.status !== 'draft' || isActivityDirty}
-              title={isActivityDirty ? 'Save or discard your unsaved changes before publishing.' : undefined}
+              disabled={isArchived || course.status !== 'draft' || isActivityDirty || isAssignmentDirty}
+              title={isActivityDirty || isAssignmentDirty ? 'Save or discard your unsaved changes before publishing.' : undefined}
               onClick={() => onOpenPublish(snapshot)}
             >
               Publish
             </Button>
           )}
-          {onOpenPublish && isActivityDirty && (
+          {onOpenPublish && (isActivityDirty || isAssignmentDirty) && (
             <span role="status" className="text-xs text-warn-ink">Save or discard changes to publish</span>
           )}
         </div>
@@ -746,7 +763,18 @@ export function CourseContentEditor({
                       />
                     </label>
 
-                    <label className="block text-sm font-medium text-ink">
+                    {activityDraft.type === 'guided_practice' ? (
+                      <ProgrammingAssignmentPanel
+                        key={activeActivity.id}
+                        activityId={activeActivity.id}
+                        token={token}
+                        activityTitle={activityDraft.title}
+                        readOnly={isArchived}
+                        onDirtyChange={setIsAssignmentDirty}
+                        onLinked={(id) => setActivityDraft((current) => (current ? { ...current, contentRef: { kind: 'assignment', id } } : current))}
+                      />
+                    ) : (
+                      <label className="block text-sm font-medium text-ink">
                       Existing Assignment UUID
                       <input
                         type="text"
@@ -767,6 +795,8 @@ export function CourseContentEditor({
                         className="mt-1 block w-full rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-accent"
                       />
                     </label>
+
+                    )}
 
                     <label className="block text-sm font-medium text-ink">
                       Instructions
@@ -871,7 +901,7 @@ export function CourseContentEditor({
             <p className="text-sm text-ink-muted leading-relaxed">
               You have unsaved changes in{' '}
               <strong className="text-ink font-semibold">
-                {isActivityDirty ? activityDraft?.title || 'current activity' : 'the module or lesson details'}
+                {isActivityDirty || isAssignmentDirty ? activityDraft?.title || 'current activity' : 'the module or lesson details'}
               </strong>
               . What would you like to do before navigating to another learning item?
             </p>
