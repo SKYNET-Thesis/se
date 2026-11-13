@@ -57,7 +57,16 @@ def query(url: str, sql: str):
     return json.loads(out[-1]) if out and out[-1][:1] in "[{" else (out[-1] if out else None)
 
 
+RLS_BLOCKED_SQL = """SELECT (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') AND c.relrowsecurity
+      AND NOT (SELECT r.rolbypassrls OR r.rolsuper FROM pg_roles r WHERE r.rolname=current_user)
+      AND (c.relforcerowsecurity OR NOT pg_has_role(current_user, c.relowner, 'MEMBER')))::text"""
+
+
 def snapshot(url: str) -> dict:
+    # count(*) through a role that is subject to row level security silently returns 0; such a snapshot would be meaningless and would
+    # make the post-release comparison fail. A SELECT grant alone is not enough: the read-only role must be BYPASSRLS (or own the tables).
+    if int(query(url, RLS_BLOCKED_SQL) or 0):
+        raise SystemExit("read-only role is subject to row level security on public tables (needs BYPASSRLS or ownership); row counts would be wrong, refusing to snapshot")
     parts = ",".join(f"'{t}',(SELECT count(*) FROM public.{t})" for t in COUNT_TABLES)
     counts = query(url, f"SELECT json_build_object({parts})::text")
     ledger = query(url, "SELECT COALESCE(json_agg(version ORDER BY version),'[]'::json)::text FROM public.vista_schema_migrations")

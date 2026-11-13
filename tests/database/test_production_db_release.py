@@ -59,6 +59,12 @@ def run_cli(argv: list[str], env: dict[str, str] | None = None) -> tuple[int, st
     return code, out.getvalue(), err.getvalue()
 
 
+def _in_apply_call(text: str, fragment: str) -> str:
+    """Remove `fragment` from the production_db_release.py apply invocation only (earlier jobs use similar flags)."""
+    head, tail = text.split("production_db_release.py apply", 1)
+    return head + "production_db_release.py apply" + tail.replace(fragment, "", 1)
+
+
 class StaticSafeguardTests(unittest.TestCase):
     def test_release_workflow_and_all_workflows_pass_the_safety_checker(self):
         self.assertEqual(inspect_workflows(WORKFLOWS), [])
@@ -91,7 +97,7 @@ class StaticSafeguardTests(unittest.TestCase):
     def test_environment_approval_cannot_be_replaced_by_workflow_inputs(self):
         text = (WORKFLOWS / "production-database-release.yml").read_text()
         inputs = re.search(r"(?ms)^    inputs:\n(.*?)^permissions:", text).group(1)
-        self.assertEqual(re.findall(r"^      ([a-z_]+):", inputs, re.M), ["scope", "expected_main_sha"])  # no approve/confirm/skip-backup style input
+        self.assertEqual(re.findall(r"^      ([a-z_]+):", inputs, re.M), ["scope", "backup_mode", "expected_main_sha"])  # no approve/confirm/skip-backup style input
         apply_job = re.search(r"(?ms)^  apply:\n(.*?)^  resume-deployment:", text).group(1)
         self.assertIn("production-database-apply", apply_job)
         self.assertIn("PRODUCTION_DATABASE_APPLY_URL", apply_job)
@@ -141,8 +147,8 @@ class StaticSafeguardTests(unittest.TestCase):
         v = self._variant
         self.assertTrue(any("required reviewers" in p for p in v(lambda t: t.replace("    environment: production-database-apply\n", "    # environment: production-database-apply\n", 1))))
         self.assertTrue(any("ready plan" in p for p in v(lambda t: t.replace("if: needs.preflight.outputs.status == 'ready'", "if: always()", 1))))
-        self.assertTrue(any("--plan" in p for p in v(lambda t: t.replace("--plan \"$RUNNER_TEMP/approved/plan.json\" ", "", 1))))
-        self.assertTrue(any("--backup-evidence" in p for p in v(lambda t: t.replace("--backup-evidence \"$RUNNER_TEMP/backup-apply.json\" ", "", 1))))
+        self.assertTrue(any("--plan" in p for p in v(lambda t: _in_apply_call(t, "--plan \"$RUNNER_TEMP/approved/plan.json\" "))))
+        self.assertTrue(any("--backup-evidence" in p for p in v(lambda t: _in_apply_call(t, "--backup-evidence \"$RUNNER_TEMP/backup-apply.json\" "))))
         self.assertTrue(any("continue-on-error" in p for p in v(lambda t: t.replace("    timeout-minutes: 20\n    # Required", "    timeout-minutes: 20\n    continue-on-error: true\n    # Required", 1))))
         self.assertTrue(any("only workflow it may dispatch" in p for p in v(lambda t: t.replace("gh workflow run backend-ci.yml", "gh workflow run other.yml", 1))))
 

@@ -5,6 +5,10 @@ name: Production Database Release
 # lives ONLY in `production-database-apply`, which requires reviewer approval, so an unapproved run cannot even read it.
 # scripts/check_database_workflow_safety.py enforces this structure in CI. See docs/operations/production-release-d-i-runbook.md.
 #
+# Backup modes: `managed` verifies Supabase managed backups / PITR. `logical` (Supabase Free) takes a consistent logical dump in the `backup` job,
+# proves it restores into a disposable PostgreSQL 17, stores it SSE-KMS encrypted in a private bucket (never a workflow artifact) and binds
+# the evidence to the project, scope, manifest, release commit and plan hash. The `apply` job (human approval) re-verifies that evidence.
+#
 # Scope: the approved migration inventory only (D-I). Stage J (database/staged-migrations) can never be applied here.
 
 on:
@@ -15,6 +19,11 @@ on:
         type: choice
         options: ["D-I"]
         default: "D-I"
+      backup_mode:
+        description: "managed = verify Supabase managed backup/PITR (paid plans); logical = logical-dump backup + restore test (Supabase Free)"
+        type: choice
+        options: ["managed", "logical"]
+        default: "managed"
       expected_main_sha:
         description: "Full 40-character SHA of the reviewed main commit; must equal the current head of main"
         type: string
@@ -42,6 +51,7 @@ jobs:
     env:
       EXPECTED_SHA: ${{ inputs.expected_main_sha }}
       RELEASE_SCOPE: ${{ inputs.scope }}
+      BACKUP_MODE: ${{ inputs.backup_mode }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -79,15 +89,18 @@ jobs:
           python scripts/production_db_release.py plan --scope "$RELEASE_SCOPE" --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/plan.json"
           echo "status=$(python -c "import json,os;print(json.load(open(os.environ['RUNNER_TEMP']+'/plan.json'))['status'])")" >> "$GITHUB_OUTPUT"
           echo "plan_hash=$(python -c "import json,os;print(json.load(open(os.environ['RUNNER_TEMP']+'/plan.json'))['planHash'])")" >> "$GITHUB_OUTPUT"
-      - name: Pre-release snapshot (non-sensitive row counts) and backup / PITR verification
+      - name: Pre-release snapshot (non-sensitive row counts)
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_READONLY_URL }}
+          SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
+        run: python scripts/production_db_release.py snapshot --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/pre.json"
+      - name: Managed backup / PITR verification (backup_mode=managed)
+        if: env.BACKUP_MODE == 'managed'
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_READONLY_URL }}
           SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-          python scripts/production_db_release.py snapshot --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/pre.json"
-          python scripts/production_db_release.py check-backup --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/backup-preflight.json"
+        run: python scripts/production_db_release.py check-backup --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/backup-preflight.json"
       - uses: actions/upload-artifact@v4
         with:
           name: production-db-release-plan
@@ -98,8 +111,97 @@ jobs:
           retention-days: 90
           if-no-files-found: error
 
-  apply:
+  backup:
+    # Supabase Free only (backup_mode=logical); a no-op in managed mode so that apply keeps one uniform dependency chain.
+    # Runs in the preflight environment (read-only database credential, no reviewers). It must finish, restore test included,
+    # BEFORE the apply job asks a human for approval. The dump lives only on this runner's private temp dir and in the encrypted bucket.
     needs: [preflight]
+    if: needs.preflight.outputs.status == 'ready'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production-database-preflight
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      evidence_key: ${{ steps.dump.outputs.evidence_key }}
+    env:
+      EXPECTED_SHA: ${{ inputs.expected_main_sha }}
+      RELEASE_SCOPE: ${{ inputs.scope }}
+      BACKUP_MODE: ${{ inputs.backup_mode }}
+    services:
+      restore-target:
+        image: postgres:17
+        env:
+          POSTGRES_USER: vista_test
+          POSTGRES_PASSWORD: ci-disposable-local-only
+          POSTGRES_DB: vista_test_restore_admin
+        ports:
+          - 55433:5432
+        options: >-
+          --health-cmd "pg_isready -U vista_test -d vista_test_restore_admin"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - name: Managed mode needs no logical backup
+        if: env.BACKUP_MODE == 'managed'
+        run: echo "backup_mode=managed - Supabase managed backup or PITR was verified in preflight"
+      - uses: actions/checkout@v4
+        if: env.BACKUP_MODE == 'logical'
+        with:
+          fetch-depth: 0
+      - name: Main has not moved
+        if: env.BACKUP_MODE == 'logical'
+        run: |
+          set -euo pipefail
+          test "$GITHUB_SHA" = "$EXPECTED_SHA" || { echo 'checked-out commit differs from the approved SHA' >&2; exit 1; }
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA" || { echo 'main moved; start a new release' >&2; exit 1; }
+      - uses: actions/setup-python@v5
+        if: env.BACKUP_MODE == 'logical'
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL 17 client
+        if: env.BACKUP_MODE == 'logical'
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@v4
+        if: env.BACKUP_MODE == 'logical'
+        with:
+          name: production-db-release-plan
+          path: ${{ runner.temp }}/approved
+      - name: Assume the backup-write role (short-lived OIDC credentials, one bucket prefix)
+        if: env.BACKUP_MODE == 'logical'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DB_BACKUP_WRITE_ROLE_ARN }}
+          aws-region: ap-southeast-1
+      - name: Consistent logical dump, restore test on a disposable PostgreSQL 17, encrypted upload, evidence
+        id: dump
+        if: env.BACKUP_MODE == 'logical'
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_READONLY_URL }}
+          DB_BACKUP_BUCKET: ${{ vars.DB_BACKUP_BUCKET }}
+          DB_BACKUP_KMS_KEY_ARN: ${{ vars.DB_BACKUP_KMS_KEY_ARN }}
+        run: |
+          set -euo pipefail
+          test -n "$DATABASE_URL" && test -n "$DB_BACKUP_BUCKET" && test -n "$DB_BACKUP_KMS_KEY_ARN" || { echo 'logical backup configuration is missing (fail closed)' >&2; exit 1; }
+          python scripts/production_db_backup.py run --expected-project-ref ovijutkvaaxohauvuxbj --plan "$RUNNER_TEMP/approved/plan.json" \
+            --restore-admin-url "postgresql://vista_test:ci-disposable-local-only@127.0.0.1:55433/vista_test_restore_admin" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --output "$RUNNER_TEMP/backup-result.json"
+          echo "evidence_key=$(python -c "import json,os;print(json.load(open(os.environ['RUNNER_TEMP']+'/backup-result.json'))['evidenceKey'])")" >> "$GITHUB_OUTPUT"
+      - name: Backup summary (hashes only)
+        if: env.BACKUP_MODE == 'logical'
+        run: |
+          python - <<'PY'
+          import json, os
+          r = json.load(open(os.environ["RUNNER_TEMP"] + "/backup-result.json"))
+          print({k: r[k] for k in ("status", "dumpSha256", "sizeBytes", "restoreTestPassed", "restorePostgres", "pgDumpMajor", "tablesCompared", "retentionDays")})
+          PY
+
+  apply:
+    needs: [preflight, backup]
     if: needs.preflight.outputs.status == 'ready'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -107,10 +209,13 @@ jobs:
     environment: production-database-apply
     permissions:
       contents: read
+      id-token: write
     env:
       EXPECTED_SHA: ${{ inputs.expected_main_sha }}
       RELEASE_SCOPE: ${{ inputs.scope }}
+      BACKUP_MODE: ${{ inputs.backup_mode }}
       APPROVED_PLAN_HASH: ${{ needs.preflight.outputs.plan_hash }}
+      BACKUP_EVIDENCE_KEY: ${{ needs.backup.outputs.evidence_key }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -133,10 +238,27 @@ jobs:
         with:
           name: production-db-release-plan
           path: ${{ runner.temp }}/approved
-      - name: Fresh backup / PITR verification immediately before apply
+      - name: Fresh managed backup / PITR verification immediately before apply (backup_mode=managed)
+        if: env.BACKUP_MODE == 'managed'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: python scripts/production_db_release.py check-backup --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/backup-apply.json"
+      - name: Assume the backup-read role (backup_mode=logical)
+        if: env.BACKUP_MODE == 'logical'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DB_BACKUP_READ_ROLE_ARN }}
+          aws-region: ap-southeast-1
+      - name: Re-verify the logical backup evidence (bindings, freshness, restore test, object checksum and encryption)
+        if: env.BACKUP_MODE == 'logical'
+        env:
+          DB_BACKUP_BUCKET: ${{ vars.DB_BACKUP_BUCKET }}
+          DB_BACKUP_KMS_KEY_ARN: ${{ vars.DB_BACKUP_KMS_KEY_ARN }}
+        run: |
+          set -euo pipefail
+          test -n "$BACKUP_EVIDENCE_KEY" || { echo 'no backup evidence was produced (fail closed)' >&2; exit 1; }
+          python scripts/production_db_backup.py verify-evidence --expected-project-ref ovijutkvaaxohauvuxbj --plan "$RUNNER_TEMP/approved/plan.json" \
+            --evidence-key "$BACKUP_EVIDENCE_KEY" --output "$RUNNER_TEMP/backup-apply.json"
       - name: Revalidate the approved plan against the live database, apply exactly that scope, verify
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_APPLY_URL }}
@@ -151,7 +273,7 @@ jobs:
               sys.exit("artifact plan hash differs from the approved preflight output")
           PY
           python scripts/production_db_release.py apply --scope "$RELEASE_SCOPE" --expected-project-ref ovijutkvaaxohauvuxbj \
-            --plan "$RUNNER_TEMP/approved/plan.json" --backup-evidence "$RUNNER_TEMP/backup-apply.json" \
+            --plan "$RUNNER_TEMP/approved/plan.json" --backup-evidence "$RUNNER_TEMP/backup-apply.json" --backup-mode "$BACKUP_MODE" \
             --approval-reference "gh-run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" --operator-id "${GITHUB_ACTOR}" \
             --output "$RUNNER_TEMP/release-evidence.json"
       - uses: actions/upload-artifact@v4
