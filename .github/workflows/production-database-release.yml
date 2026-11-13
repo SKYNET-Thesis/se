@@ -9,7 +9,8 @@ name: Production Database Release
 # proves it restores into a disposable PostgreSQL 17, stores it SSE-KMS encrypted in a private bucket (never a workflow artifact) and binds
 # the evidence to the project, scope, manifest, release commit and plan hash. The `apply` job (human approval) re-verifies that evidence.
 #
-# Scope: the approved migration inventory only (D-I). Stage J (database/staged-migrations) can never be applied here.
+# Scope: only reviewed scopes from database/release-scopes.json can be chosen: D-I (applied 2026-11-13) and J (D03 Stage 2). A scope is plannable only
+# when the manifest equals its requiresApplied + versions exactly, so J stays unusable until its separately reviewed manifest activation is on main.
 
 on:
   workflow_dispatch:
@@ -17,8 +18,8 @@ on:
       scope:
         description: "Approved release scope"
         type: choice
-        options: ["D-I"]
-        default: "D-I"
+        options: ["D-I", "J"]
+        default: "J"
       backup_mode:
         description: "managed = verify Supabase managed backup/PITR (paid plans); logical = logical-dump backup + restore test (Supabase Free)"
         type: choice
@@ -78,7 +79,7 @@ jobs:
         run: |
           python scripts/validate_database_migration_manifest.py --release
           python scripts/check_database_workflow_safety.py .github/workflows
-      - name: Read-only plan (project identity, ledger, catalog baseline, scope; Stage J excluded)
+      - name: Read-only plan (project identity, ledger, pinned catalog fingerprint, data preview, scope)
         id: plan
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_READONLY_URL }}
@@ -93,7 +94,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_READONLY_URL }}
           SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
-        run: python scripts/production_db_release.py snapshot --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/pre.json"
+        run: python scripts/production_db_release.py snapshot --scope "$RELEASE_SCOPE" --expected-project-ref ovijutkvaaxohauvuxbj --output "$RUNNER_TEMP/pre.json"
       - name: Managed backup / PITR verification (backup_mode=managed)
         if: env.BACKUP_MODE == 'managed'
         env:

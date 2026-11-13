@@ -59,6 +59,9 @@ REQUIRED_OBJECTS = [
     ("table learning_submission_files with row level security (migration I)", "COALESCE((SELECT relrowsecurity FROM pg_class WHERE oid=to_regclass('public.learning_submission_files')), false)", "20261113_i_attempt_submission_foundation"),
     ("attempt grading release columns (migration I)", "(SELECT count(*) FROM pg_attribute WHERE attrelid='public.learning_assignment_attempts'::regclass AND attname IN ('draft_response','draft_saved_at','grading_released_at','grading_released_by','grading_release_origin') AND NOT attisdropped)=5", "20261113_i_attempt_submission_foundation"),
     ("trigger guard_learning_submission_files (migration I)", "EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.learning_submission_files'::regclass AND tgname='guard_learning_submission_files')", "20261113_i_attempt_submission_foundation"),
+    ("legacy UNIQUE (assignment_id, learner_user_id) removed (migration J)", "NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.learning_submissions'::regclass AND conname='learning_submissions_assignment_id_learner_user_id_key')", "20261114_j_one_submission_per_attempt"),
+    ("lookup index learning_submissions_assignment_learner_idx (migration J)", "to_regclass('public.learning_submissions_assignment_learner_idx') IS NOT NULL", "20261114_j_one_submission_per_attempt"),
+    ("trigger guard_learning_submission_attempt (migration J)", "EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.learning_submissions'::regclass AND tgname='guard_learning_submission_attempt' AND NOT tgisinternal)", "20261114_j_one_submission_per_attempt"),
 ]
 
 

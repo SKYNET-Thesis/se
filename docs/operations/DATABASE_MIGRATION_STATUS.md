@@ -57,6 +57,7 @@ none of them has been released or applied to Production):
 | `20261110_e_learning_media.sql` | `learning_media_assets` | additive; not applied to Production |
 | `20261112_h_learning_media_audio_mpeg.sql` | `learning_media_assets` MIME CHECK | additive (allows `audio/mpeg`); Registered in the migration manifest (order 5), not applied to production. |
 | `20261113_i_attempt_submission_foundation.sql` | `learning_submissions.attempt_id`, quiz draft and grading-release columns on attempts, `learning_submission_files`, backfill audit | additive (D03 Stage 1); Registered in the migration manifest (order 6), not applied to production. Stage 2 (`database/staged-migrations/20261114_j_one_submission_per_attempt.sql`) is a separate, unregistered release; see `docs/operations/d03-student-submissions.md`. |
+| `20261114_j_one_submission_per_attempt.sql` | D03 Stage 2: one final submission per attempt, legacy-grade policy A, reconstruction of overwritten attempts. **Registered in the manifest by the activation change; NOT applied to Production until release scope `J` is approved and run.** |
 | `20261111_f_global_question_scope.sql` | `learning_questions.organization_id` nullable, `(course_id, code)` unique for global questions, NULL-safe scope guards | additive and replay-safe (verified by running it twice on a disposable database); depends only on the migration-B objects that the baseline already contains; **not registered, not applied to Production, needs release approval** |
 
 Migration F is the minimal Question Bank part of the earlier draft

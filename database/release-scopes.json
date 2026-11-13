@@ -26,6 +26,40 @@
       ],
       "catalogBaseline": "verified-2026-11-09",
       "verifier": "d_i"
+    },
+    "J": {
+      "description": "D03 Stage 2: one final submission per attempt, legacy-grade visibility policy A, reconstruction of overwritten attempts",
+      "requiresApplied": [
+        "20261110_d_activity_content",
+        "20261110_e_learning_media",
+        "20261111_f_global_question_scope",
+        "20261111_g_activity_progress_scope_guard",
+        "20261112_h_learning_media_audio_mpeg",
+        "20261113_i_attempt_submission_foundation"
+      ],
+      "versions": [
+        "20261114_j_one_submission_per_attempt"
+      ],
+      "sha256": {
+        "20261114_j_one_submission_per_attempt": "52d3c21427bd5fd03c9d66bb98e276d6442f07faad9e27c580071ad911f2ba68"
+      },
+      "excludedVersions": [],
+      "expectedCatalogBefore": {
+        "tables": 91,
+        "rls_enabled": 49,
+        "policies": 0,
+        "triggers": 21,
+        "functions": 14
+      },
+      "expectedCatalogAfter": {
+        "tables": 91,
+        "rls_enabled": 49,
+        "policies": 0,
+        "triggers": 22,
+        "functions": 15
+      },
+      "maxGradedWithoutAttempt": 0,
+      "verifier": "j"
     }
   }
 }

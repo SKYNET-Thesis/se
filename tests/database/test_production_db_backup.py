@@ -339,13 +339,16 @@ class WorkflowSafetyTests(unittest.TestCase):
             (Path(tmp) / "x.yml").write_text("env:\n  B: ${{ vars.DB_BACKUP_BUCKET }}\n")
             self.assertTrue(inspect_workflows(Path(tmp)))
 
-    def test_stage_j_and_d_i_scope_are_untouched(self):
+    def test_stage_j_is_a_separate_scope_after_d_i(self):
         scopes = json.loads((ROOT / "database/release-scopes.json").read_text())
         d_i = scopes["scopes"]["D-I"]
         self.assertNotIn("20261114_j_one_submission_per_attempt", d_i["versions"])
         self.assertIn("20261114_j_one_submission_per_attempt", d_i["excludedVersions"])
-        manifest = (ROOT / "database/migrations/manifest.json").read_text()
-        self.assertNotIn("20261114_j", manifest)
+        j = scopes["scopes"]["J"]  # Stage 2 is its own scope: it needs exactly D-I applied and nothing else
+        self.assertEqual(j["versions"], ["20261114_j_one_submission_per_attempt"])
+        self.assertEqual(j["requiresApplied"], d_i["versions"])
+        manifest = json.loads((ROOT / "database/migrations/manifest.json").read_text())["migrations"]
+        self.assertEqual([e["version"] for e in manifest], d_i["versions"] + j["versions"])  # D-I first, J strictly after, nothing else
 
     def test_aws_deploy_flag_and_api_web_deploy_jobs_are_untouched(self):
         backend = (WORKFLOWS / "backend-ci.yml").read_text()

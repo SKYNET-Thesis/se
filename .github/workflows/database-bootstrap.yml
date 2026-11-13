@@ -101,10 +101,6 @@ jobs:
           # d03_mig_* databases (and build their own pre-D03 template) on this disposable service container. Without this variable the strict runner would fail them as skipped.
           VISTA_D03_MIGRATION_TEST_URL: ${{ env.MAIN_DB_URL }}
         run: python scripts/run_database_safety_tests.py
-      - name: Apply the staged D03 Stage 2 schema to the disposable main database (test only, after verification)
-        # Stage 2 is a separate production release and is NOT in the manifest; the integration tests below exercise the final
-        # one-submission-per-attempt schema, so it is applied here to this throw-away runner database only.
-        run: python scripts/apply_staged_migration_to_test_database.py --database-url "$MAIN_DB_URL" database/staged-migrations/20261114_j_one_submission_per_attempt.sql
       - name: Install backend dependencies
         working-directory: services/education-api
         run: npm ci
