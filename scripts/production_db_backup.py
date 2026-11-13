@@ -102,7 +102,10 @@ class Target:
         os.fchmod(fd, 0o600)
         esc = lambda v: v.replace("\\", "\\\\").replace(":", "\\:")  # noqa: E731
         with os.fdopen(fd, "w") as handle:
-            handle.write(":".join(esc(x) for x in (self.host, str(self.port), self.database, self.user, self.password)) + "\n")
+            # Database field is the libpq wildcard: callers legitimately connect to another database of the same server and user
+            # (e.g. `postgres` to run CREATE DATABASE while the URL names a different database); a line bound to the URL's database
+            # would leave those connections without a password. Host, port and user stay exact, and the file holds this one credential only.
+            handle.write(":".join([esc(self.host), str(self.port), "*", esc(self.user), esc(self.password)]) + "\n")
         base = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG", "TMPDIR", "LD_LIBRARY_PATH")}
         base.update({"PGHOST": self.host, "PGPORT": str(self.port), "PGUSER": self.user, "PGDATABASE": self.database, "PGPASSFILE": passfile,
                      "PGSSLMODE": "disable" if self.local else "require", "PGCONNECT_TIMEOUT": "15", "PGAPPNAME": "vista-db-backup"})
@@ -138,6 +141,8 @@ def check_target(target: Target, expected_ref: str, allow_local: bool, env_label
 
 
 def _run(cmd: list[str], target: Target, env: dict, *, stdin: str | None = None, timeout: int = 1800) -> subprocess.CompletedProcess:
+    if Path(cmd[0]).name in ("psql", "pg_dump", "pg_restore"):
+        cmd = [cmd[0], "-w", *cmd[1:]]  # never prompt for a password: a missing credential must fail immediately, not hang on a terminal
     try:
         return subprocess.run(cmd, input=stdin, capture_output=True, text=True, env=env, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -205,6 +210,35 @@ def emptiness_problems(state: dict, *, allow_empty: bool) -> list[str]:
     return problems
 
 
+# Roles named by ACLs / default privileges of the `public` schema. `pg_restore --exit-on-error` replays `GRANT ... TO <role>` and
+# `ALTER DEFAULT PRIVILEGES FOR ROLE <role>`; the disposable restore server must therefore know every one of them (as NOLOGIN stubs).
+ACL_ROLES_SQL = """SELECT COALESCE(json_agg(r ORDER BY r), '[]'::json)::text FROM (
+  SELECT DISTINCT r FROM (
+    SELECT pg_get_userbyid(a.grantee) AS r FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace CROSS JOIN LATERAL aclexplode(c.relacl) a WHERE n.nspname = 'public' AND a.grantee <> 0
+    UNION ALL SELECT pg_get_userbyid(a.grantee) FROM pg_attribute t JOIN pg_class c ON c.oid = t.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace CROSS JOIN LATERAL aclexplode(t.attacl) a WHERE n.nspname = 'public' AND a.grantee <> 0
+    UNION ALL SELECT pg_get_userbyid(a.grantee) FROM pg_namespace n CROSS JOIN LATERAL aclexplode(n.nspacl) a WHERE n.nspname = 'public' AND a.grantee <> 0
+    UNION ALL SELECT pg_get_userbyid(a.grantee) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace CROSS JOIN LATERAL aclexplode(p.proacl) a WHERE n.nspname = 'public' AND a.grantee <> 0
+    UNION ALL SELECT pg_get_userbyid(a.grantee) FROM pg_type y JOIN pg_namespace n ON n.oid = y.typnamespace CROSS JOIN LATERAL aclexplode(y.typacl) a WHERE n.nspname = 'public' AND a.grantee <> 0
+    UNION ALL SELECT pg_get_userbyid(d.defaclrole) FROM pg_default_acl d WHERE d.defaclnamespace IN (0, 'public'::regnamespace)
+    UNION ALL SELECT pg_get_userbyid(a.grantee) FROM pg_default_acl d CROSS JOIN LATERAL aclexplode(d.defaclacl) a WHERE d.defaclnamespace IN (0, 'public'::regnamespace) AND a.grantee <> 0
+  ) u WHERE left(r, 3) <> 'pg_' AND left(r, 7) <> 'unknown'
+) t"""
+ROLE_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.$-]{0,62}")
+
+
+def restore_stub_roles(acl_roles: list, restore_user: str) -> list[str]:
+    """Names of the NOLOGIN stub roles to create on the DISPOSABLE restore server: the fixed Supabase roles plus every role the dump's ACLs name.
+    Names are validated (they end up inside quoted identifiers); the restore server's own admin user is never touched."""
+    names = []
+    for role in sorted(set(SUPABASE_ROLES) | {str(r) for r in (acl_roles or [])}):
+        if role == restore_user:
+            continue
+        if not ROLE_NAME.fullmatch(role) or '"' in role:
+            raise BackupError("the dump references a role with an unexpected name; failing closed")
+        names.append(role)
+    return names
+
+
 def snapshot_state(target: Target) -> dict:
     return {"catalog": psql_json(target, INVENTORY_SQL), "rowCounts": psql_json(target, ROWS_SQL), "ledger": psql_json(target, LEDGER_SQL)}
 
@@ -227,6 +261,7 @@ def dump(target: Target, out_dir: Path, *, allow_local: bool, attempts: int = 3)
     if gaps:
         raise BackupError("backup role cannot read the whole public schema: " + "; ".join(gaps))
     server_version = psql_json(target, "SELECT to_json(current_setting('server_version'))::text")
+    acl_roles = psql_json(target, ACL_ROLES_SQL) or []
     last_error = "database changed during the dump window"
     for attempt in range(1, attempts + 1):
         before = snapshot_state(target)
@@ -254,7 +289,7 @@ def dump(target: Target, out_dir: Path, *, allow_local: bool, attempts: int = 3)
         raise BackupError("the backup is empty or incomplete: " + "; ".join(content))
     return {"format": "custom", "schemas": ["public"], "file": path.name, "sizeBytes": path.stat().st_size, "sha256": _sha256_file(path),
             "pgDumpMajor": pg_dump_major, "serverVersion": server_version, "tocEntries": len(entries),
-            "tocSha256": hashlib.sha256("\n".join(entries).encode()).hexdigest(), "production": before, "allowEmpty": allow_local}
+            "tocSha256": hashlib.sha256("\n".join(entries).encode()).hexdigest(), "production": before, "allowEmpty": allow_local, "aclRoles": acl_roles}
 
 
 # ---------------------------------------------------------------------------------------------------------------- restore test
@@ -278,11 +313,12 @@ def restore_test(dump_file: Path, manifest: dict, admin_url: str) -> dict:
     try:
         with admin.env() as env:
             env = {**env, "PGDATABASE": "postgres"}
-            for role in SUPABASE_ROLES:
+            for role in restore_stub_roles(manifest.get("aclRoles"), admin.user):  # disposable server only; admin.local was enforced above
                 _run(["psql", "-X", "-q", "-c", f'DO $$ BEGIN CREATE ROLE "{role}" NOLOGIN; EXCEPTION WHEN duplicate_object THEN NULL; END $$;'], admin, env, timeout=60)
             created = _run(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-c", f'CREATE DATABASE "{name}"'], admin, env, timeout=60)
             if created.returncode:
-                raise BackupError("could not create the disposable restore database")
+                reason = [line for line in _scrub(created.stderr, *admin.secrets()).strip().splitlines() if line.strip()]
+                raise BackupError("could not create the disposable restore database" + (": " + " | ".join(reason[:2])[:240] if reason else ""))
         with restore_target.env() as env:  # Supabase keeps pgcrypto in the `extensions` schema, which a public-only dump does not carry; the archive itself creates `public`, so the empty default one is dropped
             _run(["psql", "-X", "-q", "-c", "CREATE SCHEMA IF NOT EXISTS extensions; CREATE EXTENSION IF NOT EXISTS pgcrypto SCHEMA extensions; DROP SCHEMA IF EXISTS public CASCADE;"], restore_target, env, timeout=60)
         postgres_version = psql_json(restore_target, "SELECT to_json(current_setting('server_version'))::text")
@@ -465,7 +501,7 @@ def cmd_run(args) -> dict:
         dump_key, evidence_key = f"{prefix}/backup.dump", f"{prefix}/evidence.json"
         stored = storage.put(work / "backup.dump", dump_key, manifest["sha256"])
         evidence = {"kind": EVIDENCE_KIND, "version": EVIDENCE_VERSION, **binding, "createdAt": created.isoformat(), "expiresAt": (created + timedelta(days=RETENTION_DAYS)).isoformat(),
-                    "runId": args.run_id, "dump": {k: v for k, v in manifest.items() if k not in ("production", "file", "allowEmpty")}, "production": manifest["production"],
+                    "runId": args.run_id, "dump": {k: v for k, v in manifest.items() if k not in ("production", "file", "allowEmpty", "aclRoles")}, "production": manifest["production"],
                     "restoreTest": result, "storage": {**storage.describe(), "dumpKey": dump_key, "evidenceKey": evidence_key, **stored}}
         evidence["storage"].pop("bucket", None)  # location details stay in the private evidence copy only, see below
         evidence["storage"]["bucket"] = storage.describe()["bucket"]
