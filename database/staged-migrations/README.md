@@ -1,5 +1,7 @@
 # Staged migrations (not part of the active release manifest)
 
+_Currently empty: D03 Stage 2 (`20261114_j_one_submission_per_attempt`) was activated and now lives in `database/migrations/` (manifest order 7). Release rules for it: [d03-stage2-release-runbook.md](../../docs/operations/d03-stage2-release-runbook.md)._
+
 SQL here is **prepared but deliberately not registered** in `database/migrations/manifest.json`, and the manifest
 validator ignores this directory (it only scans `database/migrations/`). A staged migration is released separately,
 after its prerequisites, by the procedure in its own header and in

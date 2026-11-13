@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[2]
 STAGE1 = ROOT / "database/migrations/20261113_i_attempt_submission_foundation.sql"
-STAGE2 = ROOT / "database/staged-migrations/20261114_j_one_submission_per_attempt.sql"
+STAGE2 = ROOT / "database/migrations/20261114_j_one_submission_per_attempt.sql"
 URL = os.environ.get("VISTA_D03_MIGRATION_TEST_URL", "")
 TEMPLATE = os.environ.get("VISTA_D03_MIGRATION_TEMPLATE", "vista_test_d03_pristine")
 
