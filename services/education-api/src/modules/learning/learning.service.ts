@@ -322,12 +322,13 @@ export class LearningService {
   /** Classroom teaching scope; unlike /me/classrooms this never includes a learner membership. */
   async teachingClassrooms(user: AuthenticatedUser) {
     if (this.scope.isSystemAdministrator(user)) {
-      return this.prisma.$queryRaw`SELECT c.id,c.organization_id,c.name,c.code,c.status,o.name AS organization_name,COUNT(DISTINCT cm.id) FILTER (WHERE cm.status='active' AND cm.classroom_role='student')::int AS student_count,COUNT(DISTINCT ca.id)::int AS assignment_count FROM public.learning_classrooms c JOIN public.organizations o ON o.id=c.organization_id LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id=c.id LEFT JOIN public.learning_classroom_assignments ca ON ca.classroom_id=c.id GROUP BY c.id,o.name ORDER BY c.name`;
+      return this.prisma.$queryRaw`SELECT c.id,c.organization_id,c.name,c.code,c.status,o.name AS organization_name,COUNT(DISTINCT cm.id) FILTER (WHERE cm.status='active' AND cm.classroom_role='student')::int AS student_count,COUNT(DISTINCT ca.id)::int AS assignment_count,(SELECT COUNT(*) FROM public.learning_enrollments en JOIN public.learning_classroom_members sm ON sm.classroom_id=en.classroom_id AND sm.user_id=en.learner_user_id AND sm.classroom_role='student' AND sm.status='active' WHERE en.classroom_id=c.id AND en.status='active')::int AS enrolled_student_count FROM public.learning_classrooms c JOIN public.organizations o ON o.id=c.organization_id LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id=c.id LEFT JOIN public.learning_classroom_assignments ca ON ca.classroom_id=c.id GROUP BY c.id,o.name ORDER BY c.name`;
     }
     return this.prisma.$queryRaw`
       SELECT c.id,c.organization_id,c.name,c.code,c.status,o.name AS organization_name,
         COUNT(DISTINCT students.id) FILTER (WHERE students.status='active' AND students.classroom_role='student')::int AS student_count,
-        COUNT(DISTINCT ca.id)::int AS assignment_count
+        COUNT(DISTINCT ca.id)::int AS assignment_count,
+        (SELECT COUNT(*) FROM public.learning_enrollments en JOIN public.learning_classroom_members sm ON sm.classroom_id=en.classroom_id AND sm.user_id=en.learner_user_id AND sm.classroom_role='student' AND sm.status='active' WHERE en.classroom_id=c.id AND en.status='active')::int AS enrolled_student_count
       FROM public.learning_classroom_members mine
       JOIN public.memberships m ON m.id=mine.membership_id AND m.status='active'
       JOIN public.learning_classrooms c ON c.id=mine.classroom_id AND c.organization_id=m.organization_id
@@ -348,6 +349,8 @@ export class LearningService {
         COALESCE(ca.due_at, a.due_at) AS due_at,
         latest.id AS attempt_id,latest.status AS attempt_status,latest.started_at,latest.submitted_at,
         COALESCE(latest.score::float, sub.assessment_score) AS score,
+        -- Denominator of score: an automatic attempt score is a percentage; a released rubric total is out of the persisted rubric maximum.
+        CASE WHEN latest.score IS NOT NULL THEN 100::float ELSE sub.assessment_max END AS score_max,
         COALESCE(sub.overall_feedback, tf.feedback_content) AS teacher_feedback,
         CASE
           WHEN latest.status = 'evaluated' OR sub.overall_feedback IS NOT NULL OR sub.assessment_score IS NOT NULL THEN 'evaluated'
@@ -383,7 +386,9 @@ export class LearningService {
           -- Instructor grading is visible only after the attempt's grading was released.
           CASE WHEN latest.grading_released_at IS NOT NULL THEN ass.overall_feedback END AS overall_feedback,
           CASE WHEN latest.grading_released_at IS NOT NULL
-            THEN (SELECT SUM(sc.awarded_points)::float FROM public.learning_assessment_scores sc WHERE sc.assessment_id=ass.id) END AS assessment_score
+            THEN (SELECT SUM(sc.awarded_points)::float FROM public.learning_assessment_scores sc WHERE sc.assessment_id=ass.id) END AS assessment_score,
+          CASE WHEN latest.grading_released_at IS NOT NULL
+            THEN (SELECT SUM(rc.max_points)::float FROM public.learning_assessment_scores sc JOIN public.learning_rubric_criteria rc ON rc.id=sc.criterion_id WHERE sc.assessment_id=ass.id) END AS assessment_max
         FROM public.learning_submissions s
         LEFT JOIN public.learning_assessments ass ON ass.submission_id=s.id
         WHERE s.assignment_id=ca.assignment_id AND s.learner_user_id=${user.vistaUserId}::uuid AND s.status<>'draft'

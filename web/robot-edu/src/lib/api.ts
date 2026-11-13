@@ -250,7 +250,7 @@ export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> 
 
 export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; }
 export interface ApiRobotResource { id: string; name: string; serialNo: string; modelName: string; status?: string; }
-export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; assignment_count: number; }
+export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; /** Active students with an active enrollment in this classroom (what students can actually receive). Absent on older APIs. */ enrolled_student_count?: number; assignment_count: number; }
 export interface ApiMyLearning {
   classroom_assignment_id: string;
   title: string;
@@ -265,6 +265,8 @@ export interface ApiMyLearning {
   attempt_status: string | null;
   due_at?: string | null;
   score?: number | null;
+  /** Denominator of `score` (100 for an automatic percentage, otherwise the persisted rubric maximum). Absent on older APIs. */
+  score_max?: number | null;
   teacher_feedback?: string | null;
   status?: 'assigned' | 'in_progress' | 'submitted' | 'evaluated';
   learning_status: 'assigned' | 'started' | 'completed' | 'in_progress' | 'submitted' | 'evaluated';

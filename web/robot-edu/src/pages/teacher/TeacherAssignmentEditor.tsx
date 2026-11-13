@@ -219,7 +219,7 @@ export function TeacherAssignmentEditor() {
             </Section>
 
             <div className="sticky bottom-0 -mx-4 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-surface/95 px-4 py-3 backdrop-blur md:-mx-8 md:px-8">
-              <p className="text-xs text-ink-muted">{classroom ? <>For <strong className="text-ink">{classroom.name}</strong>{classroom.student_count ? ` · ${classroom.student_count} students` : ''}</> : 'Choose a classroom to begin.'}{dirty && <span className="ml-2 font-medium text-warn">Unsaved changes</span>}</p>
+              <p className="text-xs text-ink-muted">{classroom ? <>For <strong className="text-ink">{classroom.name}</strong>{(classroom.enrolled_student_count ?? classroom.student_count) ? ` · ${classroom.enrolled_student_count ?? classroom.student_count} enrolled students` : ''}</> : 'Choose a classroom to begin.'}{dirty && <span className="ml-2 font-medium text-warn">Unsaved changes</span>}</p>
               <div className="flex gap-2">
                 <Button variant="ghost" onClick={requestCancel}>{readOnly ? 'Close' : 'Cancel'}</Button>
                 {!readOnly && <Button type="submit" variant="secondary" loading={run.isPending && run.variables === false} disabled={run.isPending || missing}>Save Draft</Button>}

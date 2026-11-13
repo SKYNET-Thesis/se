@@ -33,7 +33,7 @@ vi.mock('../lib/api', async (importOriginal) => {
   };
 });
 
-import { StudentAssignments } from './StudentAssignments';
+import { StudentAssignments, formatScore } from './StudentAssignments';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -382,5 +382,16 @@ describe('Student Assignments Workspace (/assignments)', () => {
       );
     });
     expect(inProgressTab?.getAttribute('aria-selected')).toBe('true');
+  });
+});
+
+describe('formatScore', () => {
+  it('uses the persisted rubric maximum instead of a hardcoded 100', () => {
+    expect(formatScore(9, 10)).toBe('9 / 10');
+    expect(formatScore(7.5, 15)).toBe('7.5 / 15');
+    expect(formatScore(8.25, 12)).toBe('8.25 / 12');
+  });
+  it('keeps the percentage reading when no maximum is known', () => {
+    expect(formatScore(80)).toBe('80 / 100'); expect(formatScore(80, null)).toBe('80 / 100'); expect(formatScore(80, 0)).toBe('80 / 100');
   });
 });

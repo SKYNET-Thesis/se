@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import { AssessmentService } from "./assessment.service";
 
 const instructor = { authUserId:"auth-teacher",vistaUserId:"teacher-1",email:"teacher@vista.test",status:"active",systemRoleCodes:[],systemPermissions:[],memberships:[{id:"m-teacher",organizationId:"org-a",roleCode:"instructor",status:"active",permissions:["learning.work.review","learning.assessment.assess"]}] };
@@ -34,7 +34,39 @@ describe("AssessmentService M2D authorization", () => {
     await expect(service.assess(instructor,"submission-a",{scores:[{criterionId:"criterion-a",awardedPoints:6}]})).rejects.toBeInstanceOf(BadRequestException);
   });
   it("persists and reloads an authorized assessment",async()=>{queryRaw.mockResolvedValueOnce([{id:"submission-a",assignment_id:"assignment-a",learner_user_id:"student-1",program_id:"program-a",program_version_id:"version-a",classroom_id:"class-a"}]);const txQuery=jest.fn().mockResolvedValueOnce([{id:"criterion-a",max_points:5}]).mockResolvedValueOnce([{id:"assessment-a"}]).mockResolvedValueOnce([{id:"submission-a",assessment:{id:"assessment-a"}}]);transaction.mockImplementation(async work=>work({$queryRaw:txQuery,$executeRaw:jest.fn()}));await expect(service.assess(instructor,"submission-a",{overallFeedback:"Good work",scores:[{criterionId:"criterion-a",awardedPoints:4}]})).resolves.toEqual([{id:"submission-a",assessment:{id:"assessment-a"}}]);expect(assertTeacherClassroomPermission).toHaveBeenCalledWith(instructor,"class-a",["learning.work.review","learning.assessment.assess"]);});
-  it("persists feedback with a database-supported type and reloads it through the authorized review",async()=>{queryRaw.mockResolvedValueOnce([{id:"submission-a",assignment_id:"assignment-a",learner_user_id:"student-1",program_id:"program-a",program_version_id:"version-a",classroom_id:"class-a"}]).mockResolvedValueOnce([{id:"feedback-a",content:"Good sequence"}]);await expect(service.feedback(instructor,"submission-a",{content:"Good sequence"})).resolves.toMatchObject({id:"feedback-a"});expect(queryRaw.mock.calls[1]).toContain("comment");queryRaw.mockResolvedValueOnce([{id:"submission-a",assignment_id:"assignment-a",learner_user_id:"student-1",program_id:"program-a",program_version_id:"version-a",classroom_id:"class-a"}]).mockResolvedValueOnce([{id:"feedback-a",content:"Good sequence"}]);await expect(service.instructorFeedback(instructor,"submission-a")).resolves.toEqual([{id:"feedback-a",content:"Good sequence"}]);});
+  it("persists feedback with a database-supported type and reloads it through the authorized review",async()=>{queryRaw.mockResolvedValueOnce([{id:"submission-a",assignment_id:"assignment-a",learner_user_id:"student-1",program_id:"program-a",program_version_id:"version-a",classroom_id:"class-a"}]);const fbTx=jest.fn().mockResolvedValueOnce([{id:"feedback-a",content:"Good sequence"}]);transaction.mockImplementation(async work=>work({$queryRaw:fbTx}));await expect(service.feedback(instructor,"submission-a",{content:"Good sequence"})).resolves.toMatchObject({id:"feedback-a"});expect(fbTx.mock.calls[0]).toContain("comment");queryRaw.mockResolvedValueOnce([{id:"submission-a",assignment_id:"assignment-a",learner_user_id:"student-1",program_id:"program-a",program_version_id:"version-a",classroom_id:"class-a"}]).mockResolvedValueOnce([{id:"feedback-a",content:"Good sequence"}]);await expect(service.instructorFeedback(instructor,"submission-a")).resolves.toEqual([{id:"feedback-a",content:"Good sequence"}]);});
+  describe("released grades are immutable", () => {
+    const scoped = { id: "submission-a", attempt_id: "attempt-a", assignment_id: "assignment-a", learner_user_id: "student-1", program_id: "program-a", program_version_id: "version-a", classroom_id: "class-a" };
+    const run = (releasedAt: Date | null) => {
+      const txQuery = jest.fn()
+        .mockResolvedValueOnce([{ grading_released_at: releasedAt }])
+        .mockResolvedValueOnce([{ id: "criterion-a", max_points: 5 }])
+        .mockResolvedValueOnce([{ id: "assessment-a" }])
+        .mockResolvedValueOnce([{ id: "submission-a" }]);
+      const executeRaw = jest.fn();
+      queryRaw.mockResolvedValueOnce([scoped]);
+      transaction.mockImplementation(async (work) => work({ $queryRaw: txQuery, $executeRaw: executeRaw }));
+      return { txQuery, executeRaw };
+    };
+    it("rejects a changed assessment after release, before any write, and locks the attempt row", async () => {
+      const { txQuery, executeRaw } = run(new Date());
+      await expect(service.assess(instructor, "submission-a", { scores: [{ criterionId: "criterion-a", awardedPoints: 1 }] })).rejects.toMatchObject({ response: { code: "GRADE_RELEASED" } });
+      expect(txQuery).toHaveBeenCalledTimes(1); expect(executeRaw).not.toHaveBeenCalled();
+      expect(String((txQuery.mock.calls[0] as unknown[])[0])).toContain("FOR UPDATE");
+    });
+    it("still allows assessing an attempt that has not been released", async () => {
+      const { executeRaw } = run(null);
+      await expect(service.assess(instructor, "submission-a", { scores: [{ criterionId: "criterion-a", awardedPoints: 4 }] })).resolves.toEqual([{ id: "submission-a" }]);
+      expect(executeRaw).toHaveBeenCalledTimes(1);
+    });
+    it("rejects new feedback after release so the student's view cannot change silently", async () => {
+      queryRaw.mockResolvedValueOnce([scoped]);
+      const txQuery = jest.fn().mockResolvedValueOnce([{ grading_released_at: new Date() }]);
+      transaction.mockImplementation(async (work) => work({ $queryRaw: txQuery }));
+      await expect(service.feedback(instructor, "submission-a", { content: "late" })).rejects.toBeInstanceOf(ConflictException);
+      expect(txQuery).toHaveBeenCalledTimes(1);
+    });
+  });
   it("does not allow a student or outside teacher to review or write",async()=>{queryRaw.mockResolvedValueOnce([{id:"submission-a",assignment_id:"assignment-a",learner_user_id:"student-1",program_id:"program-a",program_version_id:"version-a",classroom_id:"class-a"}]);assertTeacherClassroomPermission.mockRejectedValueOnce(new NotFoundException());await expect(service.instructorSubmission(student,"submission-a")).rejects.toBeInstanceOf(NotFoundException);queryRaw.mockResolvedValueOnce([{id:"submission-a",assignment_id:"assignment-a",learner_user_id:"student-1",program_id:"program-a",program_version_id:"version-a",classroom_id:"class-a"}]);assertTeacherClassroomPermission.mockRejectedValueOnce(new NotFoundException());await expect(service.feedback(instructor,"submission-a",{content:"forged"})).rejects.toBeInstanceOf(NotFoundException);});
   it("does not disclose another student's submission through learner endpoints",async()=>{
     queryRaw.mockResolvedValue([{id:"submission-other",assignment_id:"assignment-a",learner_user_id:"student-other",program_id:"program-a",program_version_id:"version-a",classroom_id:"class-a"}]);

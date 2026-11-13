@@ -53,3 +53,12 @@ describe('row capabilities follow the API lifecycle', () => {
     expect(canViewSubmissions('draft')).toBe(false); expect(canViewSubmissions('published')).toBe(true);
   });
 });
+
+describe('enrolled count', () => {
+  it('uses active enrollments, not raw membership, and falls back on an older API', () => {
+    const base = { classroom: { id: 'c1', name: 'A', student_count: 5, enrolled_student_count: 3 }, assignments: [assignment({})] };
+    expect(buildAssignmentRows([base])[0].assignedStudents).toBe(3);
+    expect(buildAssignmentRows([{ ...base, classroom: { id: 'c1', name: 'A', student_count: 5 } }])[0].assignedStudents).toBe(5);
+    expect(buildAssignmentRows([{ ...base, classroom: { id: 'c1', name: 'A', student_count: 5, enrolled_student_count: 0 } }])[0].assignedStudents).toBe(0);
+  });
+});

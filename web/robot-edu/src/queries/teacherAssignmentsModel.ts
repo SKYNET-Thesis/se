@@ -19,6 +19,7 @@ export interface AssignmentRow {
   status: string;
   dueAt: string | null;
   createdOrder: number;
+  /** Active students with an active enrollment (eligible to receive the assignment); falls back to classroom members on an older API. */
   assignedStudents: number;
   /** Submitted attempts (one final submission per attempt). */
   submitted: number | null;
@@ -27,7 +28,7 @@ export interface AssignmentRow {
 }
 
 export interface ClassroomAssignmentsInput {
-  classroom: Pick<ApiTeachingClassroom, 'id' | 'name' | 'student_count'>;
+  classroom: Pick<ApiTeachingClassroom, 'id' | 'name' | 'student_count'> & { enrolled_student_count?: number };
   assignments: ApiClassroomAssignment[];
   /** `undefined` when the request failed or has not resolved. */
   submissions?: ApiInstructorSubmission[];
@@ -53,7 +54,7 @@ export function buildAssignmentRows(groups: ClassroomAssignmentsInput[]): Assign
       status: assignment.status,
       dueAt: assignment.due_at ?? null,
       createdOrder: index,
-      assignedStudents: classroom.student_count ?? 0,
+      assignedStudents: classroom.enrolled_student_count ?? classroom.student_count ?? 0,
       submitted: own ? own.length : null,
       assessed: own ? assessed ?? 0 : null,
       needsReview: own ? own.length - (assessed ?? 0) : null,

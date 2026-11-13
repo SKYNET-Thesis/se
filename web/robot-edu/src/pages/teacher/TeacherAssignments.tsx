@@ -133,7 +133,7 @@ export function TeacherAssignments() {
                 <th scope="col" className="px-3 py-3 font-medium">Course / Lesson</th>
                 <th scope="col" className="px-3 py-3 font-medium">Classroom</th>
                 <th scope="col" className="px-3 py-3 font-medium">Status</th>
-                <th scope="col" className="px-3 py-3 text-right font-medium">Assigned</th>
+                <th scope="col" title="Active students enrolled in the classroom" className="px-3 py-3 text-right font-medium">Enrolled</th>
                 <th scope="col" className="px-3 py-3 text-right font-medium">Submitted</th>
                 <th scope="col" className="px-3 py-3 text-right font-medium">Assessed</th>
                 <th scope="col" className="px-3 py-3 text-right font-medium">Needs review</th>

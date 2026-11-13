@@ -402,6 +402,8 @@ describe("LearningService assignment delivery", () => {
       expect(sql).toContain("due_at");
       expect(sql).toContain("challenge_title");
       expect(sql).toContain("score");
+      expect(sql).toContain("score_max");
+      expect(sql).toContain("assessment_max");
       expect(sql).toContain("teacher_feedback");
       expect(sql).toContain("status");
     }
