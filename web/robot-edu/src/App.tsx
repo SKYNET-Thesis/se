@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppShell } from './components/layout/AppShell';
@@ -13,10 +13,10 @@ import { LessonViewer } from './pages/LessonViewer';
 import { CourseInfo } from './pages/CourseInfo';
 import { ActivityReader } from './pages/ActivityReader';
 import { AssignmentDetail } from './pages/AssignmentDetail';
-import { Studio } from './pages/Studio';
-import { Practice } from './pages/Practice';
+const Studio = lazy(() => import('./pages/Studio').then((module) => ({ default: module.Studio })));
+const Practice = lazy(() => import('./pages/Practice').then((module) => ({ default: module.Practice })));
 import { SimulationResult } from './pages/SimulationResult';
-import { RobotLab } from './pages/RobotLab';
+const RobotLab = lazy(() => import('./pages/RobotLab').then((module) => ({ default: module.RobotLab })));
 import { TeacherOverview } from './pages/teacher/TeacherOverview';
 import { TeacherCourses } from './pages/teacher/TeacherCourses';
 import { TeacherAssignments } from './pages/teacher/TeacherAssignments';
@@ -26,7 +26,7 @@ import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminRobots } from './pages/admin/AdminRobots';
 import { AdminSettings } from './pages/admin/AdminSettings';
 import { AdminCourses } from './pages/admin/AdminCourses';
-import { CourseBuilder } from './pages/admin/CourseBuilder';
+const CourseBuilder = lazy(() => import('./pages/admin/CourseBuilder').then((module) => ({ default: module.CourseBuilder })));
 import { NotFound } from './pages/NotFound';
 import { Login } from './pages/Login';
 import { LearningLoop } from './pages/LearningLoop';
@@ -46,6 +46,9 @@ import { StudentAssignmentDetail } from './pages/StudentAssignmentDetail';
 import { StudentAssignments } from './pages/StudentAssignments';
 import { TeacherSubmissionReview } from './pages/teacher/TeacherSubmissionReview';
 
+/** Heavy routes (Blockly, Three.js, course builder) load on demand so every other page starts from a much smaller bundle. */
+const RouteFallback = () => <div role="status" aria-live="polite" className="mx-auto max-w-[1060px] px-4 py-10 text-sm text-ink-muted md:px-8">Loading…</div>;
+
 export function App() {
   return (
     <SupabaseSessionProvider><SchoolQueryProvider><BrowserRouter>
@@ -58,7 +61,7 @@ export function App() {
                 <Route index element={<PublicEntry />} />
                 <Route path="home-v2" element={<Navigate to="/" replace />} />
                 {/* Full-page workspace: deliberately outside AppShell so the editor owns the whole viewport. */}
-                <Route path="admin/courses/:courseId" element={<RequireSession><RequireRole roles={['admin']}><CourseBuilder /></RequireRole></RequireSession>} />
+                <Route path="admin/courses/:courseId" element={<RequireSession><RequireRole roles={['admin']}><Suspense fallback={<RouteFallback />}><CourseBuilder /></Suspense></RequireRole></RequireSession>} />
                 <Route element={<RequireSession><AppShell /></RequireSession>}>
                   <Route path="account" element={<AccountSettings />} />
                   <Route path="settings" element={<WebSettings />} />
@@ -72,11 +75,11 @@ export function App() {
                   <Route path="my-learning/:classroomAssignmentId" element={<RequireRole roles={['student']}><StudentAssignmentDetail /></RequireRole>} />
                   <Route path="learning-loop" element={<LearningLoop />} />
                   <Route path="assignments/:assignmentId" element={<AssignmentDetail />} />
-                  <Route path="studio" element={<Studio />} />
-                  <Route path="studio/:programId" element={<Studio />} />
-                  <Route path="practice/:attemptId" element={<Practice mode="physical-enabled" />} />
+                  <Route path="studio" element={<Suspense fallback={<RouteFallback />}><Studio /></Suspense>} />
+                  <Route path="studio/:programId" element={<Suspense fallback={<RouteFallback />}><Studio /></Suspense>} />
+                  <Route path="practice/:attemptId" element={<Suspense fallback={<RouteFallback />}><Practice mode="physical-enabled" /></Suspense>} />
                   <Route path="practice/:attemptId/result/:evaluationId" element={<SimulationResult />} />
-                  <Route path="lab" element={<RobotLab />} />
+                  <Route path="lab" element={<Suspense fallback={<RouteFallback />}><RobotLab /></Suspense>} />
                   <Route path="teacher" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherOverview /></RequireRole>} />
                   <Route path="teacher/classes" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherClasses /></RequireRole>} />
                   <Route path="teacher/classes/:classroomId" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherClassDetail /></RequireRole>} />

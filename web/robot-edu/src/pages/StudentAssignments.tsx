@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { prefetchPracticeWorkspace } from '../lib/routePrefetch';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
@@ -49,6 +50,7 @@ export function getAssignmentStatusBadge(
 }
 
 export function StudentAssignments() {
+  useEffect(() => prefetchPracticeWorkspace(), []);
   const { session, loading: authLoading, sessionRevision } = useSupabaseSession();
   const token = session?.access_token ?? '';
   const navigate = useNavigate();
