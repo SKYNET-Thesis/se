@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type * as THREE from 'three';
 import type { SimState } from '../../types/robotProgram';
+import { perfMark } from '../../utils/perf';
+import { loadSo101Geometry, SO101_URDF } from './so101Assets';
 
 type Viewer = HTMLElement & {
   setJointValue?: (name: string, value: number) => void;
@@ -18,11 +20,13 @@ export function So101Viewer3D({ state, learningTarget = null, targetZone = null 
   const animationFrame = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [attempt, setAttempt] = useState(0); // bumped by Retry to rebuild the viewer
 
   useEffect(() => {
     const hostElement = host.current;
     let disposed = false;
-    void Promise.all([import('urdf-loader/src/urdf-manipulator-element.js'), import('three'), import('three/examples/jsm/loaders/STLLoader.js')]).then(([{ default: URDFManipulator }, THREE, { STLLoader }]) => {
+    let failedMeshes = 0;
+    void Promise.all([import('urdf-loader/src/urdf-manipulator-element.js'), import('three')]).then(([{ default: URDFManipulator }, THREE]) => {
       if (disposed || !hostElement) return;
       if (!customElements.get('urdf-viewer')) customElements.define('urdf-viewer', URDFManipulator);
       const element = document.createElement('urdf-viewer') as Viewer;
@@ -32,16 +36,24 @@ export function So101Viewer3D({ state, learningTarget = null, targetZone = null 
         material: THREE.Material,
         done: (mesh: THREE.Object3D | null, error?: unknown) => void,
       ) => {
-        const file = path.split('/').pop();
-        new STLLoader(manager).load(
-          `/assets/so101/meshes/${file}`,
-          (geometry) => done(new THREE.Mesh(geometry, material ?? new THREE.MeshStandardMaterial({ color: 0x6b736f, metalness: 0.45, roughness: 0.42 }))),
-          undefined,
-          (loadError) => done(null, loadError),
+        const file = path.split('/').pop() as string;
+        // The loading manager must still see every mesh, otherwise urdf-processed would fire early or never.
+        manager.itemStart(file);
+        loadSo101Geometry(file).then(
+          (geometry) => { done(new THREE.Mesh(geometry, material ?? new THREE.MeshStandardMaterial({ color: 0x6b736f, metalness: 0.45, roughness: 0.42 }))); manager.itemEnd(file); },
+          (loadError) => { failedMeshes += 1; manager.itemError(file); done(null, loadError); manager.itemEnd(file); },
         );
       };
-      element.setAttribute('up', 'Z'); element.setAttribute('urdf', '/assets/so101/urdf/so101_new_calib.urdf');
-      element.setAttribute('ambient-light', '1.5'); element.setAttribute('auto-redraw', 'true');
+      // The library resizes the canvas every animation frame, which reallocates the drawing buffer. Only do it on a real change.
+      const originalUpdateSize = (element as Viewer & { updateSize: () => void }).updateSize.bind(element);
+      let lastSize = '';
+      (element as Viewer & { updateSize: () => void }).updateSize = () => {
+        const size = `${element.clientWidth}x${element.clientHeight}@${window.devicePixelRatio}`;
+        if (size === lastSize) return;
+        lastSize = size; originalUpdateSize();
+      };
+      element.setAttribute('up', 'Z'); element.setAttribute('urdf', SO101_URDF);
+      element.setAttribute('ambient-light', '1.5'); // no auto-redraw: render only when a joint, the camera or the size changes
       element.addEventListener('urdf-processed', () => {
         // urdf-loader only recenters its target; it deliberately leaves its
         // camera at the default distance. Fit from the actual mesh bounds so
@@ -59,6 +71,8 @@ export function So101Viewer3D({ state, learningTarget = null, targetZone = null 
           loadedViewer.controls.update();
           loadedViewer.redraw?.();
         }
+        if (failedMeshes > 0) { setError(`${failedMeshes} robot part${failedMeshes === 1 ? '' : 's'} could not be downloaded.`); return; }
+        perfMark('viewer3d-ready');
         setReady(true);
       }, { once: true });
       // Custom elements default to `display: inline`, which gives this viewer a
@@ -69,8 +83,14 @@ export function So101Viewer3D({ state, learningTarget = null, targetZone = null 
       element.style.height = '100%';
       hostElement.replaceChildren(element); viewer.current = element;
     }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Unable to load 3D viewer.'));
-    return () => { disposed = true; hostElement?.replaceChildren(); viewer.current = null; };
-  }, []);
+    return () => {
+      disposed = true;
+      const renderer = (viewer.current as (Viewer & { renderer?: THREE.WebGLRenderer }) | null)?.renderer;
+      hostElement?.replaceChildren(); viewer.current = null;
+      // Release the WebGL context: browsers cap live contexts, and each workspace visit would otherwise leak one.
+      renderer?.dispose(); renderer?.forceContextLoss();
+    };
+  }, [attempt]);
 
   useEffect(() => () => {
     if (animationFrame.current !== null) cancelAnimationFrame(animationFrame.current);
@@ -155,5 +175,5 @@ export function So101Viewer3D({ state, learningTarget = null, targetZone = null 
     return () => { disposed = true; };
   }, [ready, targetZone]);
 
-  return error ? <div className="grid h-full place-items-center p-6 text-center text-sm text-ink-muted">3D preview unavailable: {error}</div> : <div ref={host} className="h-full w-full" aria-label="Interactive 3D SO-101 robot preview" />;
+  return error ? <div role="alert" className="grid h-full place-items-center p-6 text-center text-sm text-ink-muted"><div><p>3D preview unavailable: {error}</p><button type="button" onClick={() => { setError(null); setReady(false); setAttempt((value) => value + 1); }} className="mt-3 rounded-md border border-line-strong bg-surface px-3 py-1.5 font-medium text-ink hover:bg-sunken">Retry 3D preview</button></div></div> : <div ref={host} data-ready={ready} className="h-full w-full" aria-label="Interactive 3D SO-101 robot preview" />;
 }
