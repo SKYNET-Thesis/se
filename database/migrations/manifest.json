@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "baselineSha256": "5b140ce7b5f9b71e5c013f45ec9298cde48db29ac5e6a979b78aea694c2ef962",
-  "sourceCommit": "78f676a95bee43db1b9f1cf0cbadea50e487aab0",
+  "sourceCommit": "a9b5aedb8170d7adf1b86d3631a8fda0da51af25",
   "migrations": [
     {
       "version": "20261110_d_activity_content",
@@ -38,6 +38,12 @@
       "path": "database/migrations/20261113_i_attempt_submission_foundation.sql",
       "sha256": "d13e7ddc22fb98ac5735777b86d1410e419f1422fcc748195d03b306ae8cf093",
       "order": 6
+    },
+    {
+      "version": "20261114_j_one_submission_per_attempt",
+      "path": "database/migrations/20261114_j_one_submission_per_attempt.sql",
+      "sha256": "52d3c21427bd5fd03c9d66bb98e276d6442f07faad9e27c580071ad911f2ba68",
+      "order": 7
     }
   ]
 }

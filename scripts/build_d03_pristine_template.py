@@ -2,7 +2,7 @@
 """Build a disposable, loopback-only "pristine" PostgreSQL database for the D03 migration tests.
 
 The D03 migration tests need a database that is at the schema BEFORE D03 Stage 1: the verified baseline plus the
-release migrations that precede it (D-H). The active manifest now also lists Stage 1, so this script bootstraps a
+release migrations that precede it (D-H). The active manifest now also lists Stage 1 and Stage 2, so this script bootstraps a
 throw-away copy of the repository inputs (git-initialised so the runner's sourceCommit provenance check still runs)
 whose manifest excludes the D03 migration, into a new database named vista_test_*.
 
@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
-EXCLUDED_VERSIONS = {"20261113_i_attempt_submission_foundation"}
+EXCLUDED_VERSIONS = {"20261113_i_attempt_submission_foundation", "20261114_j_one_submission_per_attempt"}
 
 
 def _psql(parsed, database: str, sql: str) -> str:

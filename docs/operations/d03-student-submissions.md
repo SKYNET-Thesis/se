@@ -24,7 +24,7 @@ Terraform change has been made, nothing is deployed.** Everything below is a pla
 | Stage | File | Where | Safe with the old API running? |
 | --- | --- | --- | --- |
 | 1 | `database/migrations/20261113_i_attempt_submission_foundation.sql` | registered in the manifest (order 6) | **Yes.** Additive only; keeps the legacy UNIQUE; backfills only unambiguous `attempt_id`s. |
-| 2 | `database/staged-migrations/20261114_j_one_submission_per_attempt.sql` | staged, NOT in the manifest | **No.** After it the old API's `ON CONFLICT (assignment_id, learner_user_id)` is invalid (proved by `tests/database/test_attempt_submission_migrations.py`). |
+| 2 | `database/migrations/20261114_j_one_submission_per_attempt.sql` | registered in the manifest (order 7) on the activation branch; released only by scope `J` (see [d03-stage2-release-runbook.md](d03-stage2-release-runbook.md)) | **No.** After it the old API's `ON CONFLICT (assignment_id, learner_user_id)` is invalid (proved by `tests/database/test_attempt_submission_migrations.py`). |
 
 Backfill rules (both stages): a legacy submission gets `attempt_id` only when exactly one attempt of the same learner,
 in a delivery of the same assignment, owns its program. Rows with no match or several matches keep `attempt_id = NULL`
@@ -49,7 +49,7 @@ anything else is audited as `reconstruction_skipped`.
 5. Stage 2 window (announce a short maintenance window for submissions):
    1. scale the education API to **zero** tasks (old and new code must never run together);
    2. re-verify there are no other writers (`pg_stat_activity` for `learning_submissions`);
-   3. move the Stage 2 file into `database/migrations/`, register it (order 7), validate, run the runner;
+   3. run the `Production Database Release` workflow with scope `J` (the file is already registered; see the Stage 2 runbook);
    4. verify: legacy UNIQUE gone, `guard_learning_submission_attempt` present, audit rows for `stage2`, counts of the
       dependent tables unchanged, `learning_submissions` count increased only by the reconstructed rows;
    5. deploy the matching API/web build and scale up; run the smoke checks (start attempt, save, submit, second attempt,
@@ -123,7 +123,7 @@ FINAL submission with a persisted symbolic PASS. A lesson completes at final sub
 | --- | --- | --- |
 | previous API (`origin/develop` at `e5ef4b7`) | migrations D-H; works unchanged on Stage 1 (additive; the legacy `UNIQUE` and its `ON CONFLICT` target are kept) | **invalid on Stage 2** (its upsert conflict target no longer exists) |
 | this D03 API | **Stage 1** (`20261113_i_attempt_submission_foundation`) to start | `SchemaCompatibilityService.onModuleInit` refuses to boot without Stage 1 (explicit error, no silent degradation) |
-| this D03 API, Stage-2 endpoints | **Stage 2** (staged `20261114_j_one_submission_per_attempt`) | answer **503** *before any write*; re-checked every 30 s, so applying Stage 2 needs no restart |
+| this D03 API, Stage-2 endpoints | **Stage 2** (`20261114_j_one_submission_per_attempt`, scope `J`) | answer **503** *before any write*; re-checked every 30 s, so applying Stage 2 needs no restart |
 
 Endpoints that need Stage 2: `POST /me/attempts/:id/submission` (final submit) and `POST /me/attempts/:id/experiments` (it creates the
 draft submission a run is bound to). Everything else (quiz drafts, attachments, history, grading, release, reads) needs Stage 1 only. The
@@ -143,7 +143,7 @@ capability probe SQL is exercised against pristine / Stage 1 / Stage 2 databases
 (A) keep withheld until the instructor reviews and releases each one (current, safest); (B) release them as `legacy_visible` because the student
 already saw them (preserves visibility, but may show a grade next to work it was not given for); (C) release them only on the latest attempt
 (the row they were attached to) and mark the earlier attempts "grade unavailable". This policy is applied at Stage 2 cutover and can be changed
-before that release by editing the staged SQL only.
+before that release by editing the SQL (policy A was approved on 2026-11-13).
 
 ## `/assignments/:assignmentId` (demo/localStorage) migration plan
 

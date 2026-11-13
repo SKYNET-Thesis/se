@@ -170,7 +170,8 @@ class StaticSafeguardTests(unittest.TestCase):
         d_i = scopes["D-I"]
         self.assertEqual(d_i["versions"], [e["version"] for e in manifest["migrations"]][: len(d_i["versions"])])
         self.assertIn("20261114_j_one_submission_per_attempt", d_i["excludedVersions"])  # Stage J can never ride along with D-I
-        self.assertFalse(list((ROOT / "database/migrations").glob("*one_submission_per_attempt*")))
+        registered = [e["version"] for e in manifest["migrations"]]
+        self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"])  # J is registered strictly after D-I
 
     def test_deploy_script_still_has_health_check_and_rollback(self):
         script = (ROOT / "infra/terraform/scripts/deploy-api.sh").read_text()
@@ -665,7 +666,7 @@ class ReleaseFlowTests(unittest.TestCase):
 
     def test_stage_j_cannot_enter_the_release(self):
         def add_j(repo, order):
-            src = ROOT / "database/staged-migrations/20261114_j_one_submission_per_attempt.sql"
+            src = J_SQL
             target = repo / "database/migrations/20261114_j_one_submission_per_attempt.sql"
             shutil.copy2(src, target)
             return {"version": "20261114_j_one_submission_per_attempt", "path": "database/migrations/20261114_j_one_submission_per_attempt.sql", "sha256": "x", "order": order}
