@@ -38,6 +38,9 @@ URL = os.environ.get("VISTA_D03_MIGRATION_TEST_URL", "")
 LABEL = "vista-course-builder-test"
 TEMPLATE = "vista_test_release_baseline_only"
 WORKFLOWS = ROOT / ".github/workflows"
+J_VERSION = "20261114_j_one_submission_per_attempt"
+J_CANDIDATES = [ROOT / "database/migrations" / f"{J_VERSION}.sql", ROOT / "database/staged-migrations" / f"{J_VERSION}.sql"]
+J_SQL = next(p for p in J_CANDIDATES if p.exists())  # staged until the manifest activation, registered afterwards
 
 
 def run_cli(argv: list[str], env: dict[str, str] | None = None) -> tuple[int, str, str]:
@@ -470,12 +473,15 @@ class ReleaseFlowTests(unittest.TestCase):
         self.url = self._db_url(self.db) + "?sslmode=disable"  # the runner defaults to sslmode=require; loopback test servers have no TLS
         self.tmp = Path(tempfile.mkdtemp(prefix="vista-release-test-"))
         self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+        # Once Stage J is registered in the real manifest, the D-I scenarios run against a copy without it (as Production's D-I did).
+        self.d_i_repo = self.release_repo() if any(e["version"] == J_VERSION for e in json.loads((ROOT / "database/migrations/manifest.json").read_text())["migrations"]) else None
 
     # -- helpers --------------------------------------------------------------------------------------------
     def sql(self, statement):
         return self._psql(self.db, statement).stdout.strip()
 
     def cli(self, *argv, repo=None, db_url=None, extra_env=None):
+        repo = repo or self.d_i_repo
         base = ["--repo-root", str(repo)] if repo else []
         env = {"DATABASE_URL": db_url or self.url}
         env.update(extra_env or {})
@@ -501,7 +507,7 @@ class ReleaseFlowTests(unittest.TestCase):
     def ledger(self):
         return json.loads(self.sql("SELECT json_agg(version ORDER BY version)::text FROM public.vista_schema_migrations"))
 
-    def release_repo(self, mutate=None, extra_migration=None, repin_scopes=True):
+    def release_repo(self, mutate=None, extra_migration=None, repin_scopes=True, with_j=False):
         """A throw-away Git copy of the release inputs whose manifest is re-pinned after `mutate(repo_path)` (the real repo is never touched)."""
         repo = self.tmp / f"repo-{uuid.uuid4().hex[:6]}"
         shutil.copytree(ROOT / "scripts", repo / "scripts", ignore=shutil.ignore_patterns("__pycache__"))
@@ -512,6 +518,11 @@ class ReleaseFlowTests(unittest.TestCase):
             mutate(repo)
         manifest_path = repo / "database/migrations/manifest.json"
         manifest = json.loads(manifest_path.read_text())
+        manifest["migrations"] = [e for e in manifest["migrations"] if e["version"] != J_VERSION]  # D-I scenarios never see Stage J
+        (repo / "database/migrations" / f"{J_VERSION}.sql").unlink(missing_ok=True)
+        if with_j:
+            shutil.copy2(J_SQL, repo / "database/migrations" / f"{J_VERSION}.sql")
+            manifest["migrations"].append({"version": J_VERSION, "path": f"database/migrations/{J_VERSION}.sql", "sha256": "x", "order": len(manifest["migrations"]) + 1})
         if extra_migration:
             manifest["migrations"].append(extra_migration(repo, len(manifest["migrations"]) + 1))
         for entry in manifest["migrations"]:
@@ -704,7 +715,7 @@ class ReleaseFlowTests(unittest.TestCase):
             path.write_text(json.dumps(data))
         class StubVerifier:
             snapshot = staticmethod(lambda url: {})
-            verify = staticmethod(lambda url, pre: [("future table exists", True, "")])
+            verify = staticmethod(lambda url, pre, root=None: [("future table exists", True, "")])
         prm.VERIFIERS["test_k"] = StubVerifier
         self.addCleanup(prm.VERIFIERS.pop, "test_k", None)
         repo = self.release_repo(mutate=define_k, extra_migration=add_k)
@@ -743,6 +754,231 @@ class ReleaseFlowTests(unittest.TestCase):
         code, out, err = self.cli("compat", "--expected-project-ref", LABEL, "--allow-local-test-database")
         self.assertEqual(code, 0, err)
         self.assertEqual(json.loads(out)["status"], "compatible")
+
+    # -- Stage 2 (scope J) --------------------------------------------------------------------------------------
+    def j_repo(self, mutate=None, repin_scopes=True):
+        return self.release_repo(mutate=mutate, with_j=True, repin_scopes=repin_scopes)
+
+    def j_plan(self, repo, name="j-plan.json"):
+        out = self.tmp / name
+        code, _, err = self.cli("plan", "--scope", "J", "--expected-project-ref", LABEL, "--allow-local-test-database", "--output", str(out), repo=repo)
+        return code, err, (json.loads(out.read_text()) if code == 0 else None), out
+
+    def j_apply(self, plan_path, backup_path, repo, reference="j-approval"):
+        return self.cli("apply", "--scope", "J", "--expected-project-ref", LABEL, "--allow-local-test-database", "--plan", str(plan_path), "--backup-evidence", str(backup_path),
+                        "--approval-reference", reference, "--operator-id", "tester", "--output", str(self.tmp / "j-evidence.json"), repo=repo)
+
+    def uid(self):
+        return str(uuid.uuid4())
+
+    def seed_legacy_world(self):
+        """Pre-D03 data as the old API left it (baseline schema): one overwritten attempt with a grade (uncertain), one clean graded row,
+        one clean ungraded row, and an earlier attempt whose own row was overwritten but whose snapshots match one stored version."""
+        w = {k: self.uid() for k in ("org", "course", "lesson", "assignment", "offering", "classroom", "delivery")}
+        s = uuid.uuid4().hex[:8]
+        self.sql(f"""
+          INSERT INTO organizations(id,name,type,segment) VALUES ('{w['org']}','o{s}','institution','education');
+          INSERT INTO learning_courses(id,title,status) VALUES ('{w['course']}','c{s}','published');
+          INSERT INTO learning_lessons(id,course_id,title,ordinal) VALUES ('{w['lesson']}','{w['course']}','L1',1);
+          INSERT INTO learning_assignments(id,lesson_id,title,constraints) VALUES ('{w['assignment']}','{w['lesson']}','Program','{{"kind":"symbolic_program"}}');
+          INSERT INTO learning_course_offerings(id,course_id,organization_id,code,status) VALUES ('{w['offering']}','{w['course']}','{w['org']}','of{s}','active');
+          INSERT INTO learning_classrooms(id,organization_id,offering_id,name,code) VALUES ('{w['classroom']}','{w['org']}','{w['offering']}','r{s}','r{s}');
+          INSERT INTO learning_classroom_assignments(id,classroom_id,assignment_id,status) VALUES ('{w['delivery']}','{w['classroom']}','{w['assignment']}','published');""")
+
+        def user():
+            u = self.uid(); self.sql(f"INSERT INTO users(id,full_name,signup_method,status) VALUES ('{u}','L','admin_created','active')"); return u
+
+        def program(learner, workspace, robot):
+            p, v = self.uid(), self.uid()
+            self.sql(f"""INSERT INTO learning_programs(id,owner_user_id,assignment_id) VALUES ('{p}','{learner}','{w['assignment']}');
+                         INSERT INTO learning_program_versions(id,program_id,version_number,workspace_json,robot_program) VALUES ('{v}','{p}',1,'{workspace}'::jsonb,'{robot}'::jsonb)""")
+            return p, v
+
+        def attempt(learner, number, prog, workspace, robot):
+            a = self.uid()
+            self.sql(f"""INSERT INTO learning_assignment_attempts(id,classroom_assignment_id,learner_user_id,program_id,attempt_number,status,workspace_snapshot,program_snapshot,submitted_at)
+                         VALUES ('{a}','{w['delivery']}','{learner}','{prog}',{number},'submitted','{workspace}'::jsonb,'{robot}'::jsonb,now())""")
+            return a
+
+        def submission(learner, prog, version):
+            sid = self.uid()
+            self.sql(f"INSERT INTO learning_submissions(id,assignment_id,learner_user_id,program_id,program_version_id,status,submitted_at) VALUES ('{sid}','{w['assignment']}','{learner}','{prog}','{version}','submitted',now())")
+            return sid
+
+        reviewer = user()
+        a = user(); p1, v1 = program(a, '{"b":"one"}', '{"s":"one"}'); p2, v2 = program(a, '{"b":"two"}', '{"s":"two"}')
+        at1 = attempt(a, 1, p1, '{"b":"one"}', '{"s":"one"}'); at2 = attempt(a, 2, p2, '{"b":"two"}', '{"s":"two"}')
+        sub_a = submission(a, p2, v2)
+        self.sql(f"""INSERT INTO learning_assessments(submission_id,reviewer_user_id,overall_feedback,reviewed_at) VALUES ('{sub_a}','{reviewer}','good',now());
+                     INSERT INTO learning_feedback(submission_id,author_user_id,content) VALUES ('{sub_a}','{reviewer}','nice')""")
+        f = user(); pf, vf = program(f, '{"b":1}', '{"s":1}'); atf = attempt(f, 1, pf, '{"b":1}', '{"s":1}'); sub_f = submission(f, pf, vf)
+        self.sql(f"INSERT INTO learning_assessments(submission_id,reviewer_user_id,overall_feedback,reviewed_at) VALUES ('{sub_f}','{reviewer}','solid',now())")
+        b = user(); pb, vb = program(b, '{"b":2}', '{"s":2}'); atb = attempt(b, 1, pb, '{"b":2}', '{"s":2}'); sub_b = submission(b, pb, vb)
+        return {"w": w, "at1": at1, "at2": at2, "atf": atf, "atb": atb, "sub_a": sub_a, "sub_f": sub_f, "sub_b": sub_b}
+
+    def release_d_i(self):
+        _, _, _, plan_path = self.plan()
+        code, _, err = self.apply(plan_path, self.backup())
+        self.assertEqual(code, 0, err)
+
+    def test_j_is_a_separate_reviewed_scope_and_cannot_be_planned_before_its_prerequisites_or_activation(self):
+        code, err, _, _ = self.j_plan(self.j_repo())  # D-I not applied yet
+        self.assertEqual(code, 1)
+        self.assertRegex(err, "pending migrations are not exactly|requires")
+        self.release_d_i()
+        code, err, _, _ = self.j_plan(None)  # manifest without J (the state before the activation phase)
+        self.assertEqual(code, 1)
+        self.assertIn("approved scope", err)
+
+    def test_stage_1_to_stage_2_transition_through_the_release_tooling_preserves_history_and_applies_policy_a(self):
+        seeded = self.seed_legacy_world()
+        self.release_d_i()  # Stage 1 backfill runs inside D-I
+        repo = self.j_repo()
+        code, err, plan, plan_path = self.j_plan(repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(plan["status"], "ready")
+        self.assertEqual([p["version"] for p in plan["pending"]], [J_VERSION])
+        self.assertEqual(plan["alreadyApplied"], prm.SCOPES["D-I"])
+        self.assertEqual(plan["stageJ"], "in-scope")
+        self.assertEqual(plan["catalog"], {"tables": 91, "rls_enabled": 49, "policies": 0, "triggers": 21, "functions": 14})  # strict fingerprint before
+        self.assertEqual(plan["dataPreview"]["graded_without_attempt"], 0)
+        self.assertEqual(plan["dataPreview"]["submissions"], 3)
+        self.assertEqual(plan["dataPreview"]["attempts_finalized_without_submission"], 1)  # the overwritten earlier attempt
+        self.assertEqual(self.sql("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='learning_submissions_assignment_id_learner_user_id_key')"), "t")
+        code, _, err = self.j_apply(plan_path, self.backup(), repo)
+        self.assertEqual(code, 0, err)
+        evidence = json.loads((self.tmp / "j-evidence.json").read_text())
+        self.assertEqual(evidence["applied"], [J_VERSION])
+        self.assertEqual(evidence["postflight"]["failed"], [])
+        self.assertGreaterEqual(evidence["postflight"]["passed"], 30)
+        self.assertEqual(len(self.ledger()), 14)
+        self.assertEqual(self.sql("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='learning_submissions_assignment_id_learner_user_id_key')"), "f")
+        self.assertEqual(self.sql("SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='guard_learning_submission_attempt' AND tgenabled='O')"), "t")
+        self.assertEqual(self.sql("SELECT count(*) FROM learning_submissions"), "4")  # 3 original + the one reconstructed earlier attempt
+        self.assertEqual(self.sql("SELECT count(*) FROM learning_submissions WHERE origin='reconstructed' AND attempt_id='%s'" % seeded["at1"]), "1")
+        self.assertEqual(self.sql("SELECT count(*) FROM learning_assessments"), "2")  # nothing deleted
+        # policy A: the clean grade stays visible, the uncertain one is held, the ungraded attempt is untouched
+        rel = lambda a: self.sql(f"SELECT COALESCE(grading_release_origin,'none')||'|'||(grading_released_by IS NULL) FROM learning_assignment_attempts WHERE id='{a}'")
+        self.assertEqual(rel(seeded["atf"]), "legacy_visible|true")
+        self.assertEqual(rel(seeded["at2"]), "none|true")
+        self.assertEqual(rel(seeded["atb"]), "none|true")
+        self.assertEqual(self.sql(f"SELECT classification FROM learning_submission_backfill_audit WHERE stage='stage2' AND classification='legacy_grading_withheld_uncertain' AND submission_id='{seeded['sub_a']}'"), "legacy_grading_withheld_uncertain")
+        # the approval is spent: a new plan has nothing to do and the old plan cannot be replayed
+        _, _, again, _ = self.j_plan(repo, name="j-again.json")
+        self.assertEqual(again["status"], "nothing_to_do")
+        code, _, err = self.j_apply(plan_path, self.backup(), repo)
+        self.assertEqual(code, 1)
+
+    def test_j_apply_needs_fresh_backup_evidence_and_the_approved_plan(self):
+        self.release_d_i()
+        repo = self.j_repo()
+        _, _, _, plan_path = self.j_plan(repo)
+        code, _, err = self.j_apply(plan_path, self.backup(age_minutes=45), repo)
+        self.assertEqual(code, 1)
+        self.assertIn("older than", err)
+        missing = self.tmp / "nope.json"
+        self.assertEqual(self.j_apply(plan_path, missing, repo)[0], 1)
+        self.assertEqual(self.j_apply(self.tmp / "missing-plan.json", self.backup(), repo)[0], 1)
+        d_i_plan = self.tmp / "d-i-plan.json"
+        d_i_plan.write_text(json.dumps({**json.loads(plan_path.read_text()), "scope": "D-I"}))
+        code, _, err = self.j_apply(d_i_plan, self.backup(), repo)
+        self.assertEqual(code, 1)
+        self.assertIn("scope differs", err)
+        self.assertEqual(len(self.ledger()), 13)  # nothing was applied by any refusal
+
+    def test_j_plan_fails_on_catalog_drift_or_unreviewed_graded_rows_and_apply_on_data_drift(self):
+        self.release_d_i()
+        repo = self.j_repo()
+        self.sql("CREATE TABLE public.stray_table(id int)")
+        code, err, _, _ = self.j_plan(repo)
+        self.assertEqual(code, 1)
+        self.assertIn("Catalog differs", err)
+        self.sql("DROP TABLE public.stray_table")
+        seeded = self.seed_legacy_world()  # written after Stage 1, so the rows have no attempt_id yet
+        code, err, _, _ = self.j_plan(repo)
+        self.assertEqual(code, 1)
+        self.assertIn("have no attempt", err)
+        self.sql("DELETE FROM learning_assessments; DELETE FROM learning_feedback")  # ungraded rows are fine
+        code, err, _, plan_path = self.j_plan(repo)
+        self.assertEqual(code, 0, err)
+        self.sql(f"INSERT INTO learning_submissions(assignment_id,learner_user_id,status,submitted_at) VALUES ('{seeded['w']['assignment']}','{self.sql('SELECT id FROM users LIMIT 1')}','submitted',now())")
+        code, _, err = self.j_apply(plan_path, self.backup(), repo)
+        self.assertEqual(code, 1)
+        self.assertIn("State changed", err)
+
+    def test_j_tampered_or_failing_migration_cannot_ride_or_leaves_no_partial_state(self):
+        self.release_d_i()
+
+        code, err, _, _ = self.j_plan(self.j_repo(), name="ok.json")
+        self.assertEqual(code, 0, err)
+        # bytes edited after the scope pinned them: the manifest is re-pinned, the scope is not
+        repo = self.release_repo(with_j=True, repin_scopes=False)
+        (repo / f"database/migrations/{J_VERSION}.sql").write_text((repo / f"database/migrations/{J_VERSION}.sql").read_text() + "\n-- x\n")
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True); subprocess.run(["git", "-C", str(repo), "commit", "-qm", "edit"], check=True)
+        code, err, _, _ = self.j_plan(repo, name="tampered.json")
+        self.assertEqual(code, 1)
+        self.assertRegex(err, "Checksum mismatch|pinned by the approved scope")  # the manifest/Git provenance check or the scope pin, whichever sees it first
+
+        # a migration that fails at its very end rolls back as a whole: still Stage 1, ledger untouched
+        sabotaged = self.release_repo(with_j=True)
+        path = sabotaged / f"database/migrations/{J_VERSION}.sql"
+        path.write_text(path.read_text() + "\nSELECT 1/0;\n")
+        manifest_path = sabotaged / "database/migrations/manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        for entry in manifest["migrations"]:
+            entry["sha256"] = hashlib.sha256((sabotaged / entry["path"]).read_bytes()).hexdigest()
+        scopes_path = sabotaged / "database/release-scopes.json"
+        scopes = json.loads(scopes_path.read_text()); scopes["scopes"]["J"]["sha256"][J_VERSION] = next(e["sha256"] for e in manifest["migrations"] if e["version"] == J_VERSION)
+        scopes_path.write_text(json.dumps(scopes, indent=2) + "\n"); manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+        git = lambda *a: subprocess.run(["git", "-C", str(sabotaged), *a], capture_output=True, text=True, check=True).stdout.strip()  # noqa: E731
+        git("add", "-A"); git("commit", "-qm", "sabotage")
+        manifest["sourceCommit"] = git("rev-parse", "HEAD"); manifest_path.write_text(json.dumps(manifest, indent=2) + "\n"); git("add", "-A"); git("commit", "-qm", "pin")
+        code, err, _, plan_path = self.j_plan(sabotaged, name="sab.json")
+        self.assertEqual(code, 0, err)
+        code, _, err = self.j_apply(plan_path, self.backup(), sabotaged)
+        self.assertEqual(code, 1)
+        self.assertIn("rolled back", err)
+        self.assertEqual(len(self.ledger()), 13)
+        self.assertEqual(self.sql("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='learning_submissions_assignment_id_learner_user_id_key')"), "t")
+        self.assertEqual(self.sql("SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='guard_learning_submission_attempt')"), "f")
+
+    def test_j_postflight_detects_rewritten_grades_and_policy_violations(self):
+        from scripts import verify_production_release_j as vj
+        seeded = self.seed_legacy_world()
+        self.release_d_i()
+        repo = self.j_repo()
+        pre = vj.snapshot(self.url)
+        _, _, _, plan_path = self.j_plan(repo)
+        self.assertEqual(self.j_apply(plan_path, self.backup(), repo)[0], 0)
+        self.assertEqual([r for r in vj.verify(self.url, pre, root=repo) if not r[1]], [])
+        self.sql("UPDATE learning_assessments SET overall_feedback='rewritten'")
+        failed = [r[0] for r in vj.verify(self.url, pre, root=repo) if not r[1]]
+        self.assertIn("content unchanged (digest): learning_assessments", failed)
+        self.sql("UPDATE learning_assessments SET overall_feedback='good' WHERE overall_feedback='rewritten' AND submission_id='%s'" % seeded["sub_a"])
+        self.sql(f"UPDATE learning_assessments SET overall_feedback='solid' WHERE submission_id='{seeded['sub_f']}'")
+        self.sql(f"UPDATE learning_assignment_attempts SET grading_released_at=now(), grading_release_origin='legacy_visible' WHERE id='{seeded['at2']}'")  # an uncertain grade leaks
+        failed = [r[0] for r in vj.verify(self.url, pre, root=repo) if not r[1]]
+        self.assertIn("policy A: uncertain grades stay withheld (unreleased)", failed)
+
+    def test_schema_gate_blocks_deployments_until_j_is_applied_and_then_passes(self):
+        self.release_d_i()
+        repo = self.j_repo()  # the manifest of the build being deployed already lists J
+        code, _, err = self.cli("compat", "--expected-project-ref", LABEL, "--allow-local-test-database", repo=repo)
+        self.assertEqual(code, 1)
+        self.assertIn(J_VERSION, err)
+        self.assertIn("running API was not touched", err)
+        code, err_, _, plan_path = self.j_plan(repo)
+        self.assertEqual(self.j_apply(plan_path, self.backup(), repo)[0], 0)
+        code, out, err = self.cli("compat", "--expected-project-ref", LABEL, "--allow-local-test-database", repo=repo)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(json.loads(out)["status"], "compatible")
+
+    def test_j_scope_is_pinned_to_the_file_that_will_be_released(self):
+        scope = json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"]["J"]
+        self.assertEqual(scope["sha256"][J_VERSION], hashlib.sha256(J_SQL.read_bytes()).hexdigest())
+        self.assertEqual(scope["requiresApplied"], json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"]["D-I"]["versions"])
+        self.assertEqual(scope["excludedVersions"], [])
+        self.assertEqual(sum(p.exists() for p in J_CANDIDATES), 1)  # staged XOR registered, never both
 
 
 if __name__ == "__main__":
