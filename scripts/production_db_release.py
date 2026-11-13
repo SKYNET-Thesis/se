@@ -37,11 +37,13 @@ try:
     from scripts import sql_migration_runner as runner_module
     from scripts import supabase_identity
     from scripts import verify_production_release_d_i as verifier
+    from scripts import verify_production_release_j as verifier_j
     from scripts.verify_schema_baseline import verify_baseline
 except ModuleNotFoundError:  # executed as a script from the repository root
     import sql_migration_runner as runner_module  # type: ignore
     import supabase_identity  # type: ignore
     import verify_production_release_d_i as verifier  # type: ignore
+    import verify_production_release_j as verifier_j  # type: ignore
     from verify_schema_baseline import verify_baseline  # type: ignore
 
 MigrationRunner = runner_module.MigrationRunner
@@ -52,7 +54,7 @@ class ReleaseError(Exception):
 
 
 SCOPE_FILE = "database/release-scopes.json"
-VERIFIERS = {"d_i": verifier}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
+VERIFIERS = {"d_i": verifier, "j": verifier_j}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
 
 
 def load_scopes(root: Path) -> dict:
@@ -78,6 +80,11 @@ def scope_definition(root: Path, name: str) -> dict:
         raise ReleaseError(f"Release scope {name!r} names the unregistered postflight verifier {d['verifier']!r}")
     if set(d["sha256"]) != set(d["versions"]) or not d["versions"]:
         raise ReleaseError(f"Release scope {name!r} must pin a SHA-256 for exactly its versions")
+    for key in ("expectedCatalogBefore", "expectedCatalogAfter"):
+        if key in d and (not isinstance(d[key], dict) or set(d[key]) != set(CATALOG_KEYS) or not all(isinstance(v, int) and not isinstance(v, bool) for v in d[key].values())):
+            raise ReleaseError(f"Release scope {name!r} has an invalid {key} (needs integer counts for exactly {', '.join(CATALOG_KEYS)})")
+    if ("expectedCatalogBefore" in d) != ("expectedCatalogAfter" in d):
+        raise ReleaseError(f"Release scope {name!r} must pin both expectedCatalogBefore and expectedCatalogAfter or neither")
     return d
 
 
@@ -209,6 +216,19 @@ def build_plan(args, operation: str = "read") -> dict:
         raise ReleaseError("The migrations a scope requires to be applied are not exactly the applied ones; refusing")
     ledger_rows = sorted((r["version"], r["checksum"], r["provenance"]) for r in state["ledger_rows"])
     catalog = None
+    data_preview = None
+    if pending and definition.get("expectedCatalogBefore"):  # strict schema fingerprint: the live catalog must equal the schema this scope was reviewed against
+        catalog = _catalog(runner, connection)
+        drift = {k: (definition["expectedCatalogBefore"][k], catalog[k]) for k in CATALOG_KEYS if definition["expectedCatalogBefore"][k] != catalog[k]}
+        if drift:
+            raise ReleaseError("Catalog differs from the schema this scope requires (expected, found): " + _canonical(drift))
+    preview_fn = getattr(VERIFIERS[definition["verifier"]], "preview", None)
+    if pending and preview_fn:  # aggregate, non-sensitive description of the data the migration will meet; bound into the plan hash
+        data_preview = preview_fn(env["DATABASE_URL"])
+        limit = definition.get("maxGradedWithoutAttempt")
+        if limit is not None and data_preview.get("graded_without_attempt", 0) > limit:
+            raise ReleaseError(f"{data_preview['graded_without_attempt']} graded legacy submission(s) have no attempt and could not be released by a teacher after this migration "
+                               f"(limit {limit}); decide their handling in a reviewed scope change first")
     if pending and definition.get("catalogBaseline") == "verified-2026-11-09":  # first release: the catalog must still equal the verified baseline
         evidence = json.loads((root / "database/baselines/production-baseline-evidence.json").read_text())
         baseline = root / "database/baselines/production-public-schema-20261109T172950Z.sql"
@@ -230,10 +250,13 @@ def build_plan(args, operation: str = "read") -> dict:
         "alreadyApplied": already,
         "ledgerDigest": _sha(_canonical(ledger_rows)),
         "catalog": catalog,
-        "stageJ": "excluded",
+        "stageJ": "excluded" if "20261114_j_one_submission_per_attempt" in excluded else "in-scope",
+        "dataPreview": data_preview,
         "status": "nothing_to_do" if not pending else "ready",
     }
     stable = {k: plan[k] for k in ("projectRef", "sourceCommit", "releaseCommit", "manifestSha256", "scope", "pending", "ledgerDigest", "catalog")}
+    if data_preview is not None:
+        stable["dataPreview"] = data_preview  # data changes between plan and apply invalidate the approval (D-I plans keep their original hash inputs)
     plan["planHash"] = _sha(_canonical(stable))
     plan["generatedAt"] = datetime.now(timezone.utc).isoformat()
     return plan
@@ -378,7 +401,7 @@ def apply_release(args) -> dict:
     applied = list(result.pending)
     if applied != [p["version"] for p in approved["pending"]]:
         raise ReleaseError(f"Applied versions {applied} differ from the approved plan")
-    checks = check_module.verify(env["DATABASE_URL"], pre)
+    checks = check_module.verify(env["DATABASE_URL"], pre, root=root)
     failed = [name for name, ok, _ in checks if not ok]
     evidence = {"planHash": approved["planHash"], "applied": applied, "approvalReference": args.approval_reference, "operator": args.operator_id,
                 "startedAt": started, "endedAt": datetime.now(timezone.utc).isoformat(), "postflight": {"passed": len(checks) - len(failed), "failed": failed}}
@@ -417,7 +440,7 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--allow-local-test-database", action="store_true", help="tests only: loopback vista_test_* database with a local label")
 
     p = sub.add_parser("plan"); common(p); p.add_argument("--scope", default="D-I"); p.add_argument("--output", type=Path)
-    p = sub.add_parser("snapshot"); common(p); p.add_argument("--output", type=Path, required=True)
+    p = sub.add_parser("snapshot"); common(p); p.add_argument("--scope", default="D-I"); p.add_argument("--output", type=Path, required=True)
     p = sub.add_parser("check-backup"); common(p); p.add_argument("--output", type=Path); p.add_argument("--api-base")
     p = sub.add_parser("apply"); common(p); p.add_argument("--scope", default="D-I"); p.add_argument("--plan", type=Path, required=True)
     p.add_argument("--backup-evidence", type=Path, required=True); p.add_argument("--approval-reference", required=True)
@@ -432,7 +455,7 @@ def main(argv: list[str] | None = None) -> int:
             env = _env_for(args)
             _check_target(args, env, "read")
             _require_reader_access(args, env)
-            out = verifier.snapshot(env["DATABASE_URL"])
+            out = VERIFIERS[scope_definition(_root(args), args.scope)["verifier"]].snapshot(env["DATABASE_URL"])
         elif args.command == "check-backup":
             out = check_backup(args)
         elif args.command == "apply":

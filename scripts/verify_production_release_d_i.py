@@ -88,8 +88,8 @@ def snapshot(url: str) -> dict:
     return {"counts": counts, "ledger": ledger, "extra": extra}
 
 
-def verify(url: str, pre: dict) -> list[tuple[str, bool, str]]:
-    manifest = json.loads((ROOT / "database/migrations/manifest.json").read_text())
+def verify(url: str, pre: dict, root: Path | None = None) -> list[tuple[str, bool, str]]:
+    manifest = json.loads(((Path(root) if root else ROOT) / "database/migrations/manifest.json").read_text())
     expected = {e["version"]: e["sha256"] for e in manifest["migrations"]}
     results: list[tuple[str, bool, str]] = []
 
