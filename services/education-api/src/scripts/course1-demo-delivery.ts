@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { enrollClassroomStudent } from "./demo-enrollment";
 import { COURSE_1_BLUEPRINT, seedCourse1 } from "./seed-course1";
 
 export const COURSE_1_DEMO_OFFERING_CODE = "ROBOTICS-FUNDAMENTALS-DEMO";
@@ -56,13 +57,7 @@ export async function provisionCourse1DemoDelivery(prisma: PrismaClient, input: 
       update: { membership_id: input.studentMembershipId, classroom_role: "student", status: "active" },
       create: { classroom_id: classroom.id, user_id: input.studentUserId, membership_id: input.studentMembershipId, classroom_role: "student", status: "active" },
     });
-    const [enrollment] = await tx.$queryRaw<Array<{ id: string }>>`
-      INSERT INTO public.learning_enrollments(course_id, learner_user_id, offering_id, classroom_id, status, enrolled_at)
-      VALUES (${course.id}::uuid, ${input.studentUserId}::uuid, ${offering.id}::uuid, ${classroom.id}::uuid, 'active', now())
-      ON CONFLICT (course_id, learner_user_id, classroom_id)
-      DO UPDATE SET status='active', offering_id=EXCLUDED.offering_id
-      RETURNING id`;
-    if (!enrollment) throw new Error("Course 1 demo enrollment could not be created.");
+    const enrollment = await enrollClassroomStudent(tx, { courseId: course.id, offeringId: offering.id, classroomId: classroom.id, studentUserId: input.studentUserId });
     for (const assignment of deliveries) {
       await tx.learning_classroom_assignments.upsert({
         where: { classroom_id_assignment_id: { classroom_id: classroom.id, assignment_id: assignment.id } },
