@@ -31,14 +31,16 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 try:
     from scripts import sql_migration_runner as runner_module
+    from scripts import supabase_identity
     from scripts import verify_production_release_d_i as verifier
     from scripts.verify_schema_baseline import verify_baseline
 except ModuleNotFoundError:  # executed as a script from the repository root
     import sql_migration_runner as runner_module  # type: ignore
+    import supabase_identity  # type: ignore
     import verify_production_release_d_i as verifier  # type: ignore
     from verify_schema_baseline import verify_baseline  # type: ignore
 
@@ -98,10 +100,13 @@ def _env_for(args) -> dict[str, str]:
     return env
 
 
-def _check_target(args, env: dict[str, str]) -> str:
-    """Return the project reference to use. Production by default; a loopback vista_test_* database only with the explicit test flag."""
+def _check_target(args, env: dict[str, str], operation: str) -> str:
+    """Return the project reference to use. Production by default; a loopback vista_test_* database only with the explicit test flag.
+    `operation` ("read" or "apply") fixes the database role that may be used (supabase_identity): the read-only role never applies,
+    the owner role is never used for the read-only preflight/gate path."""
     ref = args.expected_project_ref
-    host = (urlsplit(env.get("DATABASE_URL", "")).hostname or "").lower()
+    parts = urlsplit(env.get("DATABASE_URL", ""))
+    host = (parts.hostname or "").lower()
     local = host in {"127.0.0.1", "localhost", "::1"}
     if args.allow_local_test_database:
         if not local:
@@ -113,7 +118,38 @@ def _check_target(args, env: dict[str, str]) -> str:
             raise ReleaseError("A loopback database is not accepted for a Production release")
         if ref != PRODUCTION_REF:
             raise ReleaseError("Project reference differs from the Production project; refusing")
+        try:
+            supabase_identity.validate_hosted_role(host, unquote(parts.username or ""), ref, operation)
+        except supabase_identity.IdentityError as exc:
+            raise ReleaseError(f"DATABASE_URL is not an approved {operation} connection: {exc}") from None
     return ref
+
+
+def _server_json(env: dict[str, str], sql: str):
+    """One read-only query through the verifier's psql helper (its own BEGIN READ ONLY, no credentials in argv/output)."""
+    try:
+        return verifier.query(env["DATABASE_URL"], sql)
+    except SystemExit as exc:
+        raise ReleaseError(f"role check failed: {exc}") from None
+
+
+def _require_reader_access(args, env: dict[str, str]) -> None:
+    """The user name only selects a credential; ask the server what it really is. On Production the read path must run as the real
+    `vista_backup_reader` with BYPASSRLS and no write path, otherwise RLS-protected tables (the migration ledger included) can read as empty."""
+    if args.allow_local_test_database:
+        return
+    gaps = supabase_identity.reader_access_gaps(_server_json(env, supabase_identity.READER_ACCESS_SQL) or {}, strict=True)
+    if gaps:
+        raise ReleaseError("the read-only Production connection is not an acceptable backup reader: " + "; ".join(gaps))
+
+
+def _require_apply_role(args, env: dict[str, str]) -> None:
+    """Server-side confirmation that the apply connection really is the owner role (not, for example, the reader behind a look-alike URL)."""
+    if args.allow_local_test_database:
+        return
+    info = _server_json(env, "SELECT json_build_object('role', current_user)::text") or {}
+    if info.get("role") != supabase_identity.ROLE_APPLY:
+        raise ReleaseError("the apply connection is not the approved apply role on the server side")
 
 
 def _canonical(value) -> str:
@@ -141,14 +177,15 @@ def _catalog(runner: MigrationRunner, connection) -> dict:
     return _last_json(runner._psql(connection, sql))
 
 
-def build_plan(args) -> dict:
+def build_plan(args, operation: str = "read") -> dict:
     root = _root(args)
     env = _env_for(args)
-    ref = _check_target(args, env)
+    ref = _check_target(args, env, operation)
+    (_require_reader_access if operation == "read" else _require_apply_role)(args, env)
     runner = MigrationRunner(root, root / "database/migrations/manifest.json", env={**env}, baseline_evidence_path=None)
     try:
         manifest, entries, release_commit = runner._load()  # validates Git provenance, SHA-256 of every file, transactional SQL
-        connection = runner_module.validate_project_identity(runner.env, ref)  # Supabase project identity (or loopback label)
+        connection = runner_module.validate_project_identity(runner.env, ref, operation)  # Supabase project + role identity (or loopback label)
         state = runner._preflight(connection)  # identity, version, ledger shape; read-only SELECTs
         pending, already = runner._classify(entries, state["ledger_rows"])  # checksum/ordering/drift of the ledger
     except RunnerError as exc:
@@ -321,13 +358,14 @@ def apply_release(args) -> dict:
     if mode == "logical":
         _check_logical_evidence(backup, approved)
 
-    current = build_plan(args)  # revalidate EVERYTHING against the live database immediately before applying
+    current = build_plan(args, "apply")  # revalidate EVERYTHING against the live database immediately before applying
     if current["planHash"] != approved["planHash"]:
         raise ReleaseError("State changed since the approved plan (manifest, ledger, catalog or commit drift); refusing to apply")
 
     root = _root(args)
     env = _env_for(args)
-    ref = _check_target(args, env)
+    ref = _check_target(args, env, "apply")
+    _require_apply_role(args, env)
     os.environ["DATABASE_URL"] = env["DATABASE_URL"]
     check_module = VERIFIERS[scope_definition(root, args.scope)["verifier"]]
     pre = check_module.snapshot(env["DATABASE_URL"])
@@ -353,11 +391,12 @@ def compat(args) -> dict:
     """Gate for API/Web deployments: the image's manifest must be fully applied (names and checksums) in the target database."""
     root = _root(args)
     env = _env_for(args)
-    ref = _check_target(args, env)
+    ref = _check_target(args, env, "read")
+    _require_reader_access(args, env)
     runner = MigrationRunner(root, root / "database/migrations/manifest.json", env={**env})
     try:
         manifest, entries, release_commit = runner._load()
-        connection = runner_module.validate_project_identity(runner.env, ref)
+        connection = runner_module.validate_project_identity(runner.env, ref, "read")
         state = runner._preflight(connection)
         pending, _ = runner._classify(entries, state["ledger_rows"])
     except RunnerError as exc:
@@ -391,7 +430,8 @@ def main(argv: list[str] | None = None) -> int:
             out = build_plan(args)
         elif args.command == "snapshot":
             env = _env_for(args)
-            _check_target(args, env)
+            _check_target(args, env, "read")
+            _require_reader_access(args, env)
             out = verifier.snapshot(env["DATABASE_URL"])
         elif args.command == "check-backup":
             out = check_backup(args)

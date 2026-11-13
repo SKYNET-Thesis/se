@@ -16,8 +16,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 try:
+    from scripts import supabase_identity
     from scripts.validate_database_migration_manifest import validate_manifest
 except ModuleNotFoundError:
+    import supabase_identity  # type: ignore
     from validate_database_migration_manifest import validate_manifest
 
 PRODUCTION_PROJECT_REF = "ovijutkvaaxohauvuxbj"
@@ -112,9 +114,18 @@ def _project_from_supabase_url(value: str | None) -> str | None:
     return match.group(1)
 
 
+def _check_role(host: str, username: str, expected_project_ref: str, operation: str) -> None:
+    try:
+        supabase_identity.validate_hosted_role(host, username, expected_project_ref, operation)
+    except supabase_identity.IdentityError as exc:
+        raise RunnerError(f"Project identity mismatch: {exc}") from None
+
+
 def validate_project_identity(
-    env: dict[str, str], expected_project_ref: str
+    env: dict[str, str], expected_project_ref: str, operation: str = "apply"
 ) -> tuple[str, int, str, str, str | None, dict[str, str]]:
+    """Project + role identity of DATABASE_URL. `operation` selects the permitted database role (see supabase_identity): the runner's own
+    dry-run/apply default to the privileged apply role; read-only callers must say "read" and then only the backup reader role is accepted."""
     if not re.fullmatch(r"[a-z0-9-]{3,64}", expected_project_ref):
         raise RunnerError("Expected project reference has invalid format")
     database_url = env.get("DATABASE_URL", "")
@@ -126,9 +137,10 @@ def validate_project_identity(
         bound_ref = direct_match.group(1)
         if supabase_ref != bound_ref or bound_ref != expected_project_ref:
             raise RunnerError("Project identity mismatch: SUPABASE_URL and DATABASE_URL do not identify the expected project")
+        _check_role(host, username, expected_project_ref, operation)
     elif pooler_match:
-        user_match = re.fullmatch(r"postgres\.([a-z0-9-]+)", username)
-        if not user_match or supabase_ref != user_match.group(1) or user_match.group(1) != expected_project_ref:
+        _check_role(host, username, expected_project_ref, operation)  # <role>.<project_ref> with the exact reference and a role permitted for the operation
+        if supabase_ref != expected_project_ref:
             raise RunnerError("Project identity mismatch: Supabase pooler user and URL do not identify the expected project")
     elif host in {"localhost", "127.0.0.1", "::1"}:
         if expected_project_ref == PRODUCTION_PROJECT_REF:

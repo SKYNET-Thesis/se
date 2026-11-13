@@ -135,10 +135,11 @@ class HelperTests(unittest.TestCase):
         self.assertNotIn("postgresql://u", text)
 
     def test_target_identity_rules(self):
-        prod = bk.Target("postgresql://postgres.ovijutkvaaxohauvuxbj:pw@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres")
+        prod = bk.Target("postgresql://vista_backup_reader.ovijutkvaaxohauvuxbj:pw@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres")
         bk.check_target(prod, bk.PRODUCTION_REF, False)
-        for url in ("postgresql://postgres.otherref:pw@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres", "postgresql://postgres:pw@evil.example.com:5432/postgres",
-                    "postgresql://postgres:pw@127.0.0.1:5432/postgres"):
+        for url in ("postgresql://vista_backup_reader.otherrefotherrefother:pw@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres", "postgresql://postgres:pw@evil.example.com:5432/postgres",
+                    "postgresql://postgres:pw@127.0.0.1:5432/postgres",
+                    "postgresql://postgres.ovijutkvaaxohauvuxbj:pw@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres"):  # the owner/apply role is not a backup reader
             with self.assertRaises(bk.BackupError):
                 bk.check_target(bk.Target(url), bk.PRODUCTION_REF, False)
         with self.assertRaises(bk.BackupError):
@@ -486,6 +487,44 @@ class BackupFlowTests(unittest.TestCase):
         result = bk.restore_test(out, manifest, self.admin_url)
         self.assertFalse(result["passed"])
         self.assertIn("row_counts_equal", [c["name"] for c in result["checks"] if not c["ok"]])
+
+    def test_strict_reader_checks_use_the_server_side_role_not_the_user_name(self):
+        """Production mode asks the server: the connection must really be vista_backup_reader, with BYPASSRLS and no write path."""
+        role = "vista_backup_reader"
+        self._psql("postgres", f"DO $$ BEGIN CREATE ROLE {role} LOGIN PASSWORD 'rd-strict-1'; EXCEPTION WHEN duplicate_object THEN NULL; END $$")
+        self._psql("postgres", f"ALTER ROLE {role} NOSUPERUSER BYPASSRLS PASSWORD 'rd-strict-1'")
+        self._psql(self.db, f"REVOKE ALL ON ALL TABLES IN SCHEMA public FROM {role}; REVOKE ALL ON SCHEMA public FROM {role}; GRANT USAGE ON SCHEMA public TO {role}; "
+                            f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {role}; GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}")
+        reader = bk.Target(f"postgresql://{role}:rd-strict-1@{self.target.hostname}:{self.target.port}/{self.db}")
+        self.assertEqual(bk.reader_access_gaps(reader, strict=True), [])
+
+        table = self._psql(self.db, "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND relkind='r' ORDER BY 1 LIMIT 1").stdout.strip()
+        self._psql(self.db, f'GRANT INSERT ON public."{table}" TO {role}')
+        self.assertTrue(any("read-only" in g for g in bk.reader_access_gaps(reader, strict=True)))
+        self.assertEqual(bk.reader_access_gaps(reader, strict=False), [])  # completeness alone does not care
+        self._psql(self.db, f'REVOKE INSERT ON public."{table}" FROM {role}')
+
+        self._psql(self.db, f"GRANT CREATE ON SCHEMA public TO {role}")
+        self.assertTrue(any("CREATE" in g for g in bk.reader_access_gaps(reader, strict=True)))
+        self._psql(self.db, f"REVOKE CREATE ON SCHEMA public FROM {role}")
+
+        self._psql("postgres", f"ALTER ROLE {role} NOBYPASSRLS")
+        gaps = bk.reader_access_gaps(reader, strict=True)
+        self.assertTrue(any("BYPASSRLS" in g for g in gaps), gaps)
+        self._psql("postgres", f"ALTER ROLE {role} BYPASSRLS")
+
+        self._psql("postgres", f"ALTER ROLE {role} SUPERUSER")
+        self.assertTrue(any("superuser" in g for g in bk.reader_access_gaps(reader, strict=True)))
+        self._psql("postgres", f"ALTER ROLE {role} NOSUPERUSER")
+        self.assertEqual(bk.reader_access_gaps(reader, strict=True), [])
+
+    def test_any_other_role_fails_strict_mode_even_with_every_privilege(self):
+        owner = bk.Target(self._db_url(self.db))  # the disposable cluster's superuser: complete access, but not the reader role
+        self.assertEqual(bk.reader_access_gaps(owner, strict=False), [])
+        gaps = bk.reader_access_gaps(owner, strict=True)
+        self.assertTrue(any("server-side role" in g for g in gaps), gaps)
+        self.assertTrue(any("superuser" in g for g in gaps))
+        self.assertTrue(any("read-only" in g for g in gaps))
 
     def test_restore_databases_are_dropped(self):
         self.assertEqual(self.backup()[0], 0)

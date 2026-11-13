@@ -10,7 +10,7 @@ check with a verified `pg_dump` backup. `backup_mode=managed` (default) is uncha
 
 1. **preflight** (env `production-database-preflight`): reviewed main SHA, manifest/safety checks, read-only plan + snapshot. Logical mode skips only the managed API check.
 2. **backup** (same environment, read-only DB credential, OIDC write role). Runs `scripts/production_db_backup.py run`:
-   * identity check: pooler/direct host and user must be the Production project; plan `status=ready`.
+   * identity check (`scripts/supabase_identity.py`): host and user must name the Production project **and** the user must be the backup reader role `vista_backup_reader` (the owner role `postgres` is refused); plan `status=ready`.
    * `pg_dump --format=custom --schema=public` (one repeatable-read snapshot = transactionally consistent). The client major must be ≥ the server major (CI installs PG17; Production is 17.6).
    * before/after comparison of catalog counts, per-table row counts and the migration ledger; any drift ⇒ retry (3×), then fail closed (writes during the dump window).
    * SHA-256 of the dump; `pg_restore --list` must succeed.
@@ -49,6 +49,32 @@ GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO vista_backup_reader;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON TABLES TO vista_backup_reader;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON SEQUENCES TO vista_backup_reader;
 ```
+
+### Connection strings and role separation (enforced in code)
+
+`scripts/supabase_identity.py` is the single source of truth. A role is accepted only for its operation, only for the exact project reference `ovijutkvaaxohauvuxbj`, and only in these two shapes (anything else fails closed):
+
+| Form | User | Host |
+|---|---|---|
+| Supavisor pooler (what GitHub runners need: IPv4) | `<role>.ovijutkvaaxohauvuxbj` | `<label>.pooler.supabase.com` |
+| Direct (IPv6 only unless the IPv4 add-on is enabled) | `<role>` | `db.ovijutkvaaxohauvuxbj.supabase.co` |
+
+| Operation | Permitted role | Used by | Secret / environment |
+|---|---|---|---|
+| `read` | `vista_backup_reader` | `plan`, `snapshot`, `compat` (schema gate), the logical backup, verifier `--snapshot` | `PRODUCTION_DATABASE_READONLY_URL` (`production-database-preflight`, and the `schema-gate` job) |
+| `apply` | `postgres` | `apply` (plan recomputation, pre-snapshot, migration transaction, postflight `--verify`) | `PRODUCTION_DATABASE_APPLY_URL` (`production-database-apply` only) |
+
+Neither role is accepted for the other operation: the reader credential can never apply, and the owner credential is refused by the preflight, the gate and the backup. **Consequence:** until `PRODUCTION_DATABASE_READONLY_URL` points to `vista_backup_reader`, preflight, the deployment schema gate and the backup fail closed (by design; the schema gate is already red while D-I is pending).
+
+Expected reader URL (session-mode pooler, port 5432; `pg_dump` needs session mode; password URL-encoded, only `sslmode`, `connect_timeout`, `application_name` query parameters are accepted):
+
+```
+postgresql://vista_backup_reader.ovijutkvaaxohauvuxbj:<URL-encoded password>@<pooler host of the API's DATABASE_URL>:5432/postgres?sslmode=require
+```
+
+**The user name is not trusted on its own.** On Production every read entry point (`plan`, `snapshot`, `compat`/schema gate, the backup) also asks the server (`READER_ACCESS_SQL`, read-only) and fails closed unless the connection really is `vista_backup_reader` with `BYPASSRLS`, `USAGE`/`SELECT` on every `public` table and sequence, and **no** write path: not superuser, no `CREATE` on `public`, no `INSERT/UPDATE/DELETE/TRUNCATE` on any table, not a member of `postgres`. `apply` confirms server-side that it runs as `postgres`. A role that merely has the right name but, for example, lacks `BYPASSRLS` would otherwise read RLS-protected tables (the migration ledger included) as empty. If the hosted project grants table privileges to `PUBLIC` or to the reader beyond SELECT, these checks fail closed and name the gap.
+
+`SUPABASE_URL` (`PRODUCTION_SUPABASE_URL`) stays `https://ovijutkvaaxohauvuxbj.supabase.co` and must carry the same reference. Error messages never contain the user name, host, reference or password supplied.
 
 Deliberately **not** `pg_read_all_data` (reads `auth`/`storage` too and still does not bypass RLS). RLS stays enabled everywhere; no application role, policy or grant changes. `BYPASSRLS` gives this one login read access to every row, so its URL is a secret of `production-database-preflight` only and rotates after use; `default_transaction_read_only` is only a default (a session can switch it off) and the tooling wraps its reads in `BEGIN READ ONLY`.
 

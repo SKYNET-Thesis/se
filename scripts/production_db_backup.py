@@ -33,8 +33,10 @@ from urllib.parse import unquote, urlsplit
 
 try:
     from scripts import sql_migration_runner as runner_module
+    from scripts import supabase_identity
 except ModuleNotFoundError:  # executed as a script from the repository root
     import sql_migration_runner as runner_module  # type: ignore
+    import supabase_identity  # type: ignore
 
 PRODUCTION_REF = runner_module.PRODUCTION_PROJECT_REF
 EVIDENCE_KIND = "logical-pg_dump"
@@ -129,10 +131,10 @@ def check_target(target: Target, expected_ref: str, allow_local: bool, env_label
         raise BackupError("A loopback database is not accepted for a Production backup")
     if expected_ref != PRODUCTION_REF:
         raise BackupError("Project reference differs from the Production project; refusing")
-    pooler = target.host.endswith(".pooler.supabase.com") and target.user == f"postgres.{PRODUCTION_REF}"
-    direct = target.host in {f"db.{PRODUCTION_REF}.supabase.co", f"{PRODUCTION_REF}.supabase.co"}
-    if not (pooler or direct):
-        raise BackupError("DATABASE_URL does not identify the Production Supabase project")
+    try:  # the backup always runs with the read-only backup reader role, never with the owner/apply role
+        supabase_identity.validate_hosted_role(target.host, target.user, PRODUCTION_REF, "read")
+    except supabase_identity.IdentityError as exc:
+        raise BackupError(f"DATABASE_URL is not an approved backup reader connection for the Production project: {exc}") from None
 
 
 def _run(cmd: list[str], target: Target, env: dict, *, stdin: str | None = None, timeout: int = 1800) -> subprocess.CompletedProcess:
@@ -166,34 +168,15 @@ ROWS_SQL = """SELECT COALESCE(json_object_agg(table_name,(xpath('/row/c/text()',
 LEDGER_SQL = "SELECT COALESCE(json_agg(json_build_object('version',version,'checksum',checksum) ORDER BY version),'[]'::json)::text FROM public.vista_schema_migrations"
 
 
-# What pg_dump --schema=public needs from the connecting role. A plain SELECT grant is NOT enough on a database whose tables have row level
-# security enabled (Production: 46 tables, no policies): pg_dump then aborts ("query would be affected by row-level security policy"), and
-# count(*) silently returns 0 for such a role. The role must therefore be BYPASSRLS/superuser or own the tables.
-ACCESS_SQL = """WITH me AS (SELECT r.oid, r.rolbypassrls OR r.rolsuper AS bypass FROM pg_roles r WHERE r.rolname = current_user),
-rel AS (SELECT c.oid, c.relname, c.relkind, c.relowner, c.relrowsecurity, c.relforcerowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public' AND c.relkind IN ('r','p','S'))
-SELECT json_build_object(
-  'schemaUsage', has_schema_privilege(current_user, 'public', 'USAGE'),
-  'bypassRls', (SELECT bypass FROM me),
-  'noSelect', COALESCE((SELECT json_agg(relname ORDER BY relname) FROM rel WHERE CASE WHEN relkind IN ('r','p') THEN NOT has_table_privilege(oid, 'SELECT') ELSE false END), '[]'::json),
-  'noSequenceRead', COALESCE((SELECT json_agg(relname ORDER BY relname) FROM rel WHERE CASE WHEN relkind = 'S' THEN NOT has_sequence_privilege(oid, 'SELECT') ELSE false END), '[]'::json),
-  'rlsBlocked', COALESCE((SELECT json_agg(relname ORDER BY relname) FROM rel WHERE relkind IN ('r','p') AND relrowsecurity AND NOT (SELECT bypass FROM me)
-        AND (relforcerowsecurity OR NOT pg_has_role(current_user, relowner, 'MEMBER'))), '[]'::json))::text"""
+# What pg_dump --schema=public needs from the connecting role (and, on Production, what the read-only role must NOT be able to do) is defined
+# in supabase_identity (shared with the release script). A plain SELECT grant is NOT enough on a database whose tables have row level security
+# enabled (Production: 46 tables, no policies): pg_dump aborts, and count(*) silently returns 0 for such a role.
+ACCESS_SQL = supabase_identity.READER_ACCESS_SQL
 
 
-def reader_access_gaps(target: Target) -> list[str]:
-    """Return what is missing for a complete dump (empty = the role can read every public table, sequence and row). Table names only, no data."""
-    info = psql_json(target, ACCESS_SQL) or {}
-    gaps: list[str] = []
-    if not info.get("schemaUsage"):
-        gaps.append("role lacks USAGE on schema public")
-    if info.get("noSelect"):
-        gaps.append("role lacks SELECT on tables: " + ", ".join(info["noSelect"][:10]))
-    if info.get("noSequenceRead"):
-        gaps.append("role lacks SELECT on sequences: " + ", ".join(info["noSequenceRead"][:10]))
-    if info.get("rlsBlocked"):
-        gaps.append(f"role is neither BYPASSRLS nor the owner of {len(info['rlsBlocked'])} row-level-security table(s) (e.g. {info['rlsBlocked'][0]}); a SELECT grant alone yields an incomplete or failed dump")
-    return gaps
+def reader_access_gaps(target: Target, *, strict: bool = False) -> list[str]:
+    """Return what is missing for a complete, read-only dump (empty = fine). Names only, no data."""
+    return supabase_identity.reader_access_gaps(psql_json(target, ACCESS_SQL) or {}, strict=strict)
 
 
 def archive_content_problems(toc_lines: list[str], row_counts: dict) -> list[str]:
@@ -240,7 +223,7 @@ def dump(target: Target, out_dir: Path, *, allow_local: bool, attempts: int = 3)
     pg_dump_major = tool_major("pg_dump")
     if (not allow_local and pg_dump_major != server_major) or pg_dump_major < server_major:
         raise BackupError(f"pg_dump major {pg_dump_major} does not match the server major {server_major}; install the matching PostgreSQL client")
-    gaps = reader_access_gaps(target)
+    gaps = reader_access_gaps(target, strict=not allow_local)  # Production: the server must confirm the real reader role, BYPASSRLS and no write path
     if gaps:
         raise BackupError("backup role cannot read the whole public schema: " + "; ".join(gaps))
     server_version = psql_json(target, "SELECT to_json(current_setting('server_version'))::text")
