@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { BotIcon, ChevronLeftIcon, FileQuestionIcon, InfoIcon, LockIcon } from 'lucide-react';
+import { BotIcon, ChevronLeftIcon, InfoIcon, LockIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ClassroomQuizDeliveryPanel } from '../../components/assignments/ClassroomQuizDeliveryPanel';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -12,8 +11,6 @@ import { UNSAVED_MESSAGE, useUnsavedChangesWarning } from '../../hooks/useUnsave
 import { assignmentApi, instructorApi, type ApiClassroomAssignment } from '../../lib/api';
 import { statusPresentation } from '../../queries/teacherAssignmentsModel';
 import { createDraftBody, createUpdateBody, draftForDeliveryOption, teacherLearningInvalidations, teacherLearningKeys } from '../../queries/teacherLearningQueries';
-
-type AssignmentKind = 'blockly' | 'quiz';
 
 export interface AssignmentFormValues { classroomId: string; lessonId: string; challengeId: string; title: string; instructions: string }
 export type AssignmentFormErrors = Partial<Record<keyof AssignmentFormValues, string>>;
@@ -52,8 +49,8 @@ export function TeacherAssignmentEditor() {
   const existingMode = Boolean(assignmentId);
   const viewRoute = existingMode && !location.pathname.endsWith('/edit');
 
-  const [kind, setKind] = useState<AssignmentKind>('blockly');
-  const [classroomId, setClassroomId] = useState(routeClassroomId ?? '');
+  const [searchParams] = useSearchParams();
+  const [classroomId, setClassroomId] = useState(routeClassroomId ?? searchParams.get('classroomId') ?? '');
   const [lessonId, setLessonId] = useState('');
   const [challengeId, setChallengeId] = useState('');
   const [title, setTitle] = useState('');
@@ -166,22 +163,15 @@ export function TeacherAssignmentEditor() {
           </div>
         </Section>
 
-        <Section step={2} title="Assignment type" description="Only types the platform can already deliver and grade are offered.">
-          <div role="radiogroup" aria-label="Assignment type" className="grid gap-3 sm:grid-cols-2">
-            {([['blockly', 'Blockly programming', 'Students build a Blockly program, simulate it and submit a final version.', BotIcon], ['quiz', 'Question Bank quiz', 'Assign an already-published knowledge-check quiz. Machine-graded.', FileQuestionIcon]] as const).map(([value, label, hint, Icon]) => (
-              <label key={value} className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 ${kind === value ? 'border-accent bg-accent-soft/50' : 'border-line hover:bg-sunken/50'} ${existingMode ? 'pointer-events-none opacity-70' : ''}`}>
-                <input type="radio" name="assignment-kind" className="mt-1" checked={kind === value} disabled={existingMode} onChange={() => setKind(value)} />
-                <span><span className="flex items-center gap-1.5 text-sm font-medium text-ink"><Icon className="h-4 w-4" aria-hidden />{label}</span><span className="mt-0.5 block text-xs text-ink-muted">{hint}</span></span>
-              </label>))}
+        <Section step={2} title="Assignment type" description="Robot programming assignments with rubric review. Quizzes are delivered separately.">
+          <div className="flex items-start gap-3 rounded-md border border-accent bg-accent-soft/50 p-3">
+            <BotIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent-ink" aria-hidden />
+            <span><span className="block text-sm font-medium text-ink">Blockly programming</span><span className="mt-0.5 block text-xs text-ink-muted">Students build a Blockly program, simulate it and submit a final version. You assess it with the rubric and release the grade.</span></span>
           </div>
+          <p className="mt-3 text-[13px] text-ink-muted">Want to assign a Question Bank quiz instead? Quizzes are scheduled under <Link className="font-semibold text-accent-ink underline underline-offset-4" to={classroomId ? `/teacher/quizzes?classroomId=${classroomId}` : '/teacher/quizzes'}>Quizzes</Link>.</p>
         </Section>
 
-        {kind === 'quiz' ? (
-          <section aria-label="Quiz delivery" className="rounded-lg border border-line bg-surface p-5">
-            {classroomId ? <ClassroomQuizDeliveryPanel key={classroomId} classroomId={classroomId} token={token} /> : <Note>Choose a classroom in step 1 to see its published quizzes.</Note>}
-          </section>
-        ) : (
-          <>
+        <>
             <Section step={3} title="Blockly challenge" description="Optional. Challenges are published, organization-approved, and have persisted success conditions.">
               <Field label="Challenge">{(props) => (
                 <select {...props} disabled={disabledAll || lockedStructure || !lessonId} className={inputClasses} value={challengeId} onChange={(event) => setChallengeId(event.target.value)}>
@@ -226,8 +216,7 @@ export function TeacherAssignmentEditor() {
                 {!readOnly && <Button variant="primary" loading={run.isPending && run.variables === true} disabled={run.isPending || missing} onClick={() => { setTouched(true); if (!Object.keys(errors).length) setConfirmPublish(true); }}>Publish</Button>}
               </div>
             </div>
-          </>
-        )}
+        </>
       </form>
 
       <ConfirmDialog open={confirmPublish} tone="primary" title="Publish to the classroom?"

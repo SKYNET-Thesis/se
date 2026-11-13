@@ -21,6 +21,7 @@ import { TeacherOverview } from './pages/teacher/TeacherOverview';
 import { TeacherCourses } from './pages/teacher/TeacherCourses';
 import { TeacherAssignments } from './pages/teacher/TeacherAssignments';
 import { TeacherAssignmentEditor } from './pages/teacher/TeacherAssignmentEditor';
+import { QuizDeliveries } from './pages/teacher/QuizDeliveries';
 import { TeacherSubmissions } from './pages/teacher/TeacherSubmissions';
 import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminRobots } from './pages/admin/AdminRobots';
@@ -89,6 +90,7 @@ export function App() {
                   <Route path="teacher/assignments/new" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
                   <Route path="teacher/assignments/:classroomId/:assignmentId/edit" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
                   <Route path="teacher/assignments/:classroomId/:assignmentId" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
+ <Route path="teacher/quizzes" element={<RequireRole roles={['teacher']}><QuizDeliveries audience="teacher" /></RequireRole>} />
                   <Route path="teacher/submissions" element={<RequireRole roles={['teacher']}><TeacherSubmissions /></RequireRole>} />
                   <Route path="admin/users" element={<RequireRole roles={['admin']}><AdminUsers /></RequireRole>} />
                   <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />
@@ -97,6 +99,7 @@ export function App() {
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />
                   <Route path="school/users" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="users" /></RequireRole>} />
                   <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />
+ <Route path="school/quizzes" element={<RequireRole roles={['school_admin']}><QuizDeliveries audience="school" /></RequireRole>} />
                   <Route path="school/import" element={<RequireRole roles={['school_admin']}><SchoolImportUsers /></RequireRole>} />
                   <Route path="*" element={<NotFound />} />
                 </Route>

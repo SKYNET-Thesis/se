@@ -62,3 +62,14 @@ describe('enrolled count', () => {
     expect(buildAssignmentRows([{ ...base, classroom: { id: 'c1', name: 'A', student_count: 5, enrolled_student_count: 0 } }])[0].assignedStudents).toBe(0);
   });
 });
+
+describe('quiz deliveries are not assignments', () => {
+  it('keeps Question Bank quiz deliveries out of the assignment table, but keeps programming and teacher-created ones', () => {
+    const rows = buildAssignmentRows([{ classroom: room, assignments: [
+      assignment({ id: 'q', assignment_id: 'aq', title: 'Safety quiz', constraints: { kind: 'knowledge_check' } }),
+      assignment({ id: 'p', assignment_id: 'ap', title: 'Curriculum task', constraints: { kind: 'symbolic_program' } }),
+      assignment({ id: 't', assignment_id: 'at', title: 'Teacher task', constraints: {} }),
+    ] }]);
+    expect(rows.map((row) => row.title)).toEqual(['Curriculum task', 'Teacher task']);
+  });
+});

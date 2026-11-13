@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronLeftIcon, InboxIcon, LockIcon, SearchIcon, UsersIcon } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { assignmentKind } from '../../components/submission/submissionState';
 import { SubmissionReviewDetail } from '../../components/teacher/SubmissionReviewDetail';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
@@ -45,7 +46,7 @@ export function TeacherSubmissions() {
 
   useEffect(() => { if (!classroomId && classrooms.data?.length === 1) update({ classroomId: classrooms.data[0].id }); }, [classroomId, classrooms.data]);
 
-  const publishedAssignments = (assignments.data ?? []).filter((item) => item.status !== 'draft');
+  const publishedAssignments = (assignments.data ?? []).filter((item) => item.status !== 'draft' && assignmentKind(item.constraints) !== 'quiz');
   const all = submissions.data ?? [];
   const scoped = useMemo(() => filterSubmissions(all, { assignmentId, search, stage: 'all' }), [all, assignmentId, search]);
   const summary = summarizeSubmissions(scoped);

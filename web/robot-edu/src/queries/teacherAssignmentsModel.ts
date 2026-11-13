@@ -1,4 +1,5 @@
 import type { ApiClassroomAssignment, ApiInstructorSubmission, ApiTeachingClassroom } from '../lib/api';
+import { assignmentKind } from '../components/submission/submissionState';
 
 /**
  * Pure view-model for the instructor Assignments table. Every number comes from an Education API response:
@@ -37,7 +38,8 @@ export interface ClassroomAssignmentsInput {
 }
 
 export function buildAssignmentRows(groups: ClassroomAssignmentsInput[]): AssignmentRow[] {
-  return groups.flatMap(({ classroom, assignments, submissions, courseByLesson }) => assignments.map((assignment, index) => {
+  // Question Bank quiz deliveries are managed (and auto-graded) under Quizzes, never as rubric-reviewed assignments.
+  return groups.flatMap(({ classroom, assignments, submissions, courseByLesson }) => assignments.filter((assignment) => assignmentKind(assignment.constraints) !== 'quiz').map((assignment, index) => {
     const own = submissions?.filter((item) => item.assignment_id === assignment.assignment_id);
     const assessed = own?.filter((item) => item.review_status === 'assessed').length;
     return {

@@ -2,6 +2,7 @@ import {
   BookOpenIcon,
   ClipboardCheckIcon,
   ClipboardListIcon,
+  FileQuestionIcon,
   Cpu,
   LayoutDashboardIcon,
   LibraryIcon,
@@ -51,6 +52,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     { to: '/teacher/classes', label: 'My Classes', icon: UsersIcon },
     { to: '/teacher/courses', label: 'Courses & lessons', icon: LibraryIcon },
     { to: '/teacher/assignments', label: 'Assignments', icon: ClipboardCheckIcon },
+    { to: '/teacher/quizzes', label: 'Quizzes', icon: FileQuestionIcon },
     { to: '/teacher/submissions', label: 'Submissions', icon: InboxIcon }]
 
   },
