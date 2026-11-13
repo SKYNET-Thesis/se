@@ -47,7 +47,7 @@ export function NotificationBell() {
         {summary.count > 0 && <span aria-hidden className="absolute -right-0.5 -top-0.5 grid min-w-[18px] place-items-center rounded-full bg-danger px-1 text-[11px] font-semibold leading-[18px] text-white">{summary.count > 99 ? '99+' : summary.count}</span>}
       </button>
       {open && (
-        <div role="region" aria-label="Notifications" className="absolute right-0 top-11 z-30 w-[min(92vw,340px)] rounded-md border border-line bg-surface p-2 shadow-pop">
+        <div role="region" aria-label="Pending items" className="absolute right-0 top-11 z-30 w-[min(92vw,340px)] rounded-md border border-line bg-surface p-2 shadow-pop">
           <p className="px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">{summary.heading}</p>
           {summary.items.length === 0 ? <p className="px-2 py-4 text-sm text-ink-muted">{summary.emptyText}</p> : (
             <ul className="max-h-80 overflow-y-auto">{summary.items.map((item) => (

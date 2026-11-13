@@ -106,12 +106,12 @@ export function SubmissionReviewDetail({ submissionId, token, allSubmissions, cl
       <div className="min-w-0 space-y-5">
         <Card title="Submission" aside={<Badge tone={released ? 'ok' : stage === 'assessed' ? 'accent' : 'warn'} dot>{stageLabel[stage]}</Badge>}>
           <dl className="grid gap-4 sm:grid-cols-3">
-            <Meta label="Student" value={item.full_name ?? 'Student'} />
-            <Meta label="Assignment" value={item.assignment_title ?? '—'} />
+            <Meta plain label="Student" value={item.full_name ?? 'Student'} />
+            <Meta plain label="Assignment" value={item.assignment_title ?? '—'} />
             <Meta label="Attempt" value={item.attempt ? `Attempt ${item.attempt.attemptNumber}` : 'Not linked to an attempt'} />
             <Meta label="Submitted" value={formatDateTime(item.submitted_at)} />
             <Meta label="Program version" value={item.program_version ? `Version ${item.program_version.versionNumber}` : 'None'} />
-            <Meta label="Email" value={item.email ?? '—'} />
+            <Meta plain label="Email" value={item.email ?? '—'} />
           </dl>
           {item.origin === 'reconstructed' && <p className="mt-3 text-xs text-ink-muted">This submission was rebuilt from attempt history; no grade or feedback was invented for it.</p>}
         </Card>
@@ -183,7 +183,7 @@ export function SubmissionReviewDetail({ submissionId, token, allSubmissions, cl
                     <legend className="text-sm font-medium text-ink">{criterion.ordinal}. {criterion.title}</legend>
                     {criterion.description && <p className="text-xs text-ink-muted">{criterion.description}</p>}
                     <label className="flex items-center gap-2 text-[13px] text-ink-muted">Score
-                      <input inputMode="decimal" aria-label={`Score for ${criterion.title}`} aria-invalid={Boolean(error)} disabled={released} value={points[criterion.id] ?? ''} onChange={(event) => { setPoints({ ...points, [criterion.id]: event.target.value }); setDirty(true); }} className={`${fieldClass} h-9 w-20 text-right tabular-nums`} />
+                      <input inputMode="decimal" aria-label={`Score for ${criterion.title}`} aria-invalid={Boolean(error)} disabled={released} value={points[criterion.id] ?? ''} onChange={(event) => { setPoints({ ...points, [criterion.id]: event.target.value }); setDirty(true); }} className={`${fieldClass} h-9 !w-20 text-right tabular-nums`} />
                       <span>/ {Number(criterion.maxPoints)}</span></label>
                     {error && <p className="text-xs text-danger">{error}</p>}
                     <textarea aria-label={`Comment for ${criterion.title}`} placeholder="Criterion comment (optional)" rows={2} disabled={released} value={comments[criterion.id] ?? ''} onChange={(event) => { setComments({ ...comments, [criterion.id]: event.target.value }); setDirty(true); }} className={fieldClass} />

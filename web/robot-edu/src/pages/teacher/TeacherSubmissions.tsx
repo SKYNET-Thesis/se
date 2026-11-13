@@ -111,7 +111,7 @@ export function TeacherSubmissions() {
                 {!submissions.isLoading && publishedAssignments.length > 0 && !all.length && <EmptyState compact icon={<InboxIcon />} title="No submissions yet" description="Students’ final submissions appear here. Drafts and simulation runs are never listed." />}
                 {!submissions.isLoading && all.length > 0 && !visible.length && <EmptyState compact icon={<SearchIcon />} title="No submissions match" description="Try another assignment, status or student." action={<Button variant="secondary" onClick={() => { setStage('all'); setSearchText(''); update({ assignmentId: '' }); }}>Clear filters</Button>} />}
                 {visible.length > 0 && (
-                  <div className="overflow-x-auto">
+                  <div className="relative overflow-x-auto">
                     <table className="w-full min-w-[760px] text-left text-sm">
                       <thead className="bg-sunken/60 text-xs uppercase tracking-wide text-ink-muted"><tr><th scope="col" className="px-4 py-3 font-medium">Student</th><th scope="col" className="px-3 py-3 font-medium">Assignment</th><th scope="col" className="px-3 py-3 font-medium">Attempt</th><th scope="col" className="px-3 py-3 font-medium">Submitted</th><th scope="col" className="px-3 py-3 font-medium">Status</th><th scope="col" className="px-4 py-3 text-right font-medium"><span className="sr-only">Review</span></th></tr></thead>
                       <tbody className="divide-y divide-line">{visible.map((item) => { const itemStage = submissionStage(item); return (

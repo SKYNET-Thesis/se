@@ -125,7 +125,7 @@ export function TeacherAssignments() {
         {publish.error && <p role="alert" className="mx-4 mb-4 border-l-4 border-danger bg-danger-soft p-3 text-sm text-danger">{publish.error instanceof Error ? publish.error.message : 'The assignment could not be published.'}</p>}
         {countsUnavailable && <p role="status" className="mx-4 mb-4 text-xs text-ink-muted">Submission counts could not be loaded for some classrooms and are shown as “—”.</p>}
 
-        <div className="overflow-x-auto border-t border-line">
+        <div className="relative overflow-x-auto border-t border-line">
           <table className="w-full min-w-[980px] text-left text-sm">
             <thead className="bg-sunken/60 text-xs uppercase tracking-wide text-ink-muted">
               <tr>
