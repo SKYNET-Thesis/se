@@ -81,6 +81,8 @@ def other_workflow_problems(content: str) -> list[str]:
             problems.append(f"only the read-only 'compat' subcommand of production_db_release may be used here (found {sub or 'unknown'!r})")
     if "PRODUCTION_DATABASE_APPLY_URL" in content:
         problems.append("the privileged production database credential may only be referenced by the release workflow")
+    if BACKUP_SCRIPT in content or "DB_BACKUP_" in content:
+        problems.append("the logical backup tooling and its bucket configuration may only be used by the release workflow")
     if "production-database-release" in content:
         problems.append("only a human may start the production database release: other workflows must not reference or dispatch it")
     return problems
@@ -94,6 +96,53 @@ def _jobs(content: str) -> dict[str, str]:
     return {m.group(1): m.group(2) for m in re.finditer(r"(?ms)^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:\n|\Z)", section.group(1))}
 
 
+BACKUP_SCRIPT = "production_db_backup.py"
+
+
+def _backup_problems(content: str, jobs: dict[str, str], apply_job: str) -> list[str]:
+    """Invariants of the Supabase Free logical-backup path (backup_mode=logical)."""
+    problems: list[str] = []
+    top = content.split("\njobs:\n", 1)[0]
+    if "id-token" in top:
+        problems.append("id-token may only be granted to the backup and apply jobs, never workflow-wide")
+    for name, body in jobs.items():
+        if "id-token" in body and name not in ("backup", "apply"):
+            problems.append(f"job {name} must not request id-token (OIDC is only for the backup and apply jobs)")
+        if re.search(r"id-token:\s*(?!write\b)\S+", body):
+            problems.append(f"job {name}: id-token may only be 'write'")
+        if name not in ("backup", "apply") and (BACKUP_SCRIPT in body or "DB_BACKUP_" in body or "configure-aws-credentials" in body):
+            problems.append(f"job {name} must not touch the backup bucket or AWS credentials")
+    backup = jobs.get("backup", "")
+    if not backup:
+        problems.append("the workflow must contain the backup job (logical backup path)")
+        return problems
+    if not re.search(r"(?m)^    environment: production-database-preflight\s*$", backup):
+        problems.append("the backup job must use the read-only production-database-preflight environment")
+    if not re.search(r"(?m)^    needs: \[preflight\]\s*$", backup) or not re.search(r"(?m)^    if: needs\.preflight\.outputs\.status == 'ready'\s*$", backup):
+        problems.append("the backup job must depend on preflight and run only for a ready plan (no always())")
+    if "PRODUCTION_DATABASE_APPLY_URL" in backup or "DB_BACKUP_READ_ROLE_ARN" in backup or "apply" in re.findall(r"production_db_release\.py (\w+)", backup):
+        problems.append("the backup job must only hold the read-only database credential and the write role")
+    if "vars.DB_BACKUP_WRITE_ROLE_ARN" not in backup:
+        problems.append("the backup job must assume the dedicated write role via vars.DB_BACKUP_WRITE_ROLE_ARN")
+    if "vars.DB_BACKUP_READ_ROLE_ARN" not in apply_job or "DB_BACKUP_WRITE_ROLE_ARN" in apply_job:
+        problems.append("the apply job must assume only the read role (vars.DB_BACKUP_READ_ROLE_ARN), never the write role")
+    if "verify-evidence" not in apply_job:
+        problems.append("the apply job must re-verify the backup evidence before applying")
+    for secret in ("secrets.AWS_", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+        if secret in content:
+            problems.append("long-lived AWS keys are not allowed; use OIDC roles")
+    if re.search(r"\bpg_dump\b|\bpg_restore\b", content.replace(BACKUP_SCRIPT, "")):
+        problems.append("pg_dump/pg_restore run only inside scripts/production_db_backup.py (output scrubbing); not from the workflow")
+    if re.search(r"set -[a-z]*x|xtrace|ACTIONS_STEP_DEBUG|--debug|echo[^\n]*\$\{\{\s*secrets\.", content):
+        problems.append("shell tracing / debug output / echoing secrets is not allowed in the release workflow")
+    for block in re.finditer(r"(?ms)uses: actions/upload-artifact@.*?(?=^      - |^  \S|\Z)", content):
+        if re.search(r"\.dump\b|\.sql\b|\.gz\b|\.pgpass|backup-result|(?<!release-)evidence\.json", block.group(0)):
+            problems.append("a backup, dump or evidence file must never be a workflow artifact (public repositories expose artifacts)")
+    if any(re.search(r"upload-artifact", b) for n, b in jobs.items() if n == "backup"):
+        problems.append("the backup job must not upload artifacts")
+    return problems
+
+
 def release_workflow_problems(content: str) -> list[str]:
     """Structural invariants of the one workflow that may apply Production migrations. Any violation is a CI failure."""
     problems: list[str] = []
@@ -101,7 +150,7 @@ def release_workflow_problems(content: str) -> list[str]:
     triggers = re.findall(r"^  ([a-z_]+):", on_block.group(1), re.M) if on_block else []
     if triggers != ["workflow_dispatch"]:
         problems.append(f"must be triggered only by workflow_dispatch (found {triggers})")
-    for forbidden in ("pull_request_target", "workflow_run", "contents: write", "id-token", "secrets: inherit"):
+    for forbidden in ("pull_request_target", "workflow_run", "contents: write", "secrets: inherit"):
         if forbidden in content:
             problems.append(f"must not contain {forbidden!r}")
     if not re.search(r"(?ms)^concurrency:\n\s+group: production-database-release\n\s+cancel-in-progress: false", content):
@@ -113,8 +162,8 @@ def release_workflow_problems(content: str) -> list[str]:
         problems.append("preflight must use the production-database-preflight environment and run only on refs/heads/main")
     if not re.search(r"(?m)^    environment: production-database-apply\s*$", apply_job):
         problems.append("the apply job must use the production-database-apply environment (required reviewers)")
-    if not re.search(r"(?m)^    needs: \[preflight\]\s*$", apply_job):
-        problems.append("the apply job must depend on preflight")
+    if not re.search(r"(?m)^    needs: \[preflight, backup\]\s*$", apply_job):
+        problems.append("the apply job must depend on preflight and backup (backup and restore test finish before human approval is requested)")
     if not re.search(r"(?m)^    if: needs\.preflight\.outputs\.status == 'ready'\s*$", apply_job) or re.search(r"(?m)^    if:.*always\(\)", apply_job):
         problems.append("the apply job may only run when preflight reports a ready plan (no always())")
     call = re.search(r"production_db_release\.py apply", apply_job)
@@ -122,9 +171,10 @@ def release_workflow_problems(content: str) -> list[str]:
         problems.append("the apply job must call production_db_release.py apply")
     else:
         invocation = apply_job[call.start():_logical_end(apply_job, call.end())]
-        for flag in ("--plan", "--backup-evidence", "--approval-reference", "--expected-project-ref ovijutkvaaxohauvuxbj"):
+        for flag in ("--plan", "--backup-evidence", "--backup-mode", "--approval-reference", "--expected-project-ref ovijutkvaaxohauvuxbj"):
             if flag not in invocation:
                 problems.append(f"the apply invocation must pass {flag}")
+    problems.extend(_backup_problems(content, jobs, apply_job))
     if "continue-on-error" in content:
         problems.append("must not use continue-on-error")
     dispatches = re.findall(r"gh workflow run (\S+)", content)

@@ -63,7 +63,7 @@ All six migrations are additive; the old API keeps running throughout.
 | Failure while applying | single transaction ⇒ automatic ROLLBACK, nothing partial, ledger unchanged. Fix forward, re-run dry-run. |
 | Applied but wrong | additive schema, old API unaffected: **no rollback needed**. Fix forward with a new migration. Reviewed recovery aids (never automatic, need approval): drop the objects created by I (`learning_submission_files`, `learning_submission_backfill_audit`, the trigger/function, new columns/indexes) in reverse order, then E/G objects; the backfilled `attempt_id`s are the only changed data and are listed in the audit table. |
 | Data loss / corruption | **[APPROVAL]** Supabase restore: PITR to a timestamp just before the apply (or the latest daily backup) into a new project/branch; compare; cut over only with approval. |
-| Pre-release safety copy | **[APPROVAL]** record counts with the verifier `--snapshot` (read-only), and optionally `pg_dump --schema=public` (17 MB) to an encrypted location. |
+| Pre-release safety copy (Free plan: mandatory, automated by `backup_mode=logical`) | **[APPROVAL]** record counts with the verifier `--snapshot` (read-only), and optionally `pg_dump --schema=public` (17 MB) to an encrypted location. |
 
 ## 5. Automated release: design
 
@@ -113,8 +113,10 @@ creation until it is done; the gate does not require J because J is never in the
 
 1. Environment **`production-database-preflight`**: branch policy `main` only; no reviewers; secrets `PRODUCTION_DATABASE_READONLY_URL`,
    `PRODUCTION_SUPABASE_URL`, `SUPABASE_ACCESS_TOKEN` (Supabase personal access token able to read backups of this project only). Create a dedicated
-   PostgreSQL role with `SELECT` on `public` and `pg_catalog` only and use its URL (session pooler, `sslmode=require`); the tooling also wraps every
-   read in `BEGIN READ ONLY`.
+   PostgreSQL role with `USAGE` on schema `public`, `SELECT` on every `public` table **and sequence**, **and `BYPASSRLS`** (or table ownership) and use its URL (session pooler,
+   `sslmode=require`); the tooling also wraps every read in `BEGIN READ ONLY`. `SELECT` alone is **not enough**: all 46 RLS tables have RLS enabled, so such a role reads 0 rows
+   (`count(*)` silently returns 0, `pg_dump` aborts). `snapshot` and the logical backup now refuse a role that RLS would blind (tested). Supabase documents this role recipe and `postgres` could create it on Supabase's own PostgreSQL 17.11 image (disposable container); that it also works on the hosted Free project is
+   the one remaining unverified point (see production-db-readiness-20261113.md §10). Exact SQL: [production-db-logical-backup.md](production-db-logical-backup.md#reader-role).
 2. Environment **`production-database-apply`**: **required reviewers** (at least two people from the database owners; enable *prevent self-review*), branch
    policy `main` only, no wait-timer bypass; secret `PRODUCTION_DATABASE_APPLY_URL` (the privileged `postgres` URL used today by the API, session pooler) and the
    same `SUPABASE_ACCESS_TOKEN` and `PRODUCTION_SUPABASE_URL`. Do **not** add the privileged secret at repository level.
@@ -127,6 +129,8 @@ If required reviewers cannot be enforced (for example the plan does not support 
 leave `PRODUCTION_DATABASE_APPLY_URL` unset; the apply job then fails closed.
 
 ## 8. Backup / PITR verification
+
+> **Supabase Free (no managed backups/PITR):** dispatch with `backup_mode=logical`. The `backup` job takes a consistent dump, restore-tests it on PostgreSQL 17, stores it encrypted in a private bucket and the apply job re-verifies evidence bound to the plan after human approval. Full design, AWS/GitHub configuration and recovery limitations: [production-db-logical-backup.md](production-db-logical-backup.md). The managed path below is unchanged and remains the default.
 
 **API contract (verified against the public OpenAPI spec, captured in `tests/database/fixtures/supabase_v1_backups_response.schema.json`).**
 `GET https://api.supabase.com/v1/projects/{ref}/database/backups` (bearer personal access token; `ref` is 20 lowercase letters) returns

@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -278,6 +279,26 @@ def _load_json(path: Path, what: str) -> dict:
         raise ReleaseError(f"{what} is missing or unreadable; failing closed") from None
 
 
+LOGICAL_BINDING_KEYS = ("projectRef", "scope", "planHash", "manifestSha256", "releaseCommit", "sourceCommit")
+LOGICAL_BACKUP_MAX_AGE_HOURS = 12  # keep equal to production_db_backup.MAX_EVIDENCE_AGE_HOURS
+
+
+def _check_logical_evidence(backup: dict, approved: dict) -> None:
+    """Logical-backup evidence (Supabase Free) must be bound to exactly this release, fresh, and prove a passed restore test."""
+    for key in LOGICAL_BINDING_KEYS:
+        if not approved.get(key) or backup.get(key) != approved[key]:
+            raise ReleaseError(f"Logical backup evidence is bound to a different {key}; refusing")
+    if backup.get("restoreTestPassed") is not True or not re.fullmatch(r"[0-9a-f]{64}", str(backup.get("dumpSha256", ""))) or not backup.get("versionId"):
+        raise ReleaseError("Logical backup evidence lacks a passed restore test, the dump SHA-256 or the object version; refusing")
+    try:
+        created = datetime.fromisoformat(str(backup.get("createdAt")))
+    except ValueError:
+        raise ReleaseError("Logical backup evidence has no valid creation time; refusing") from None
+    age = datetime.now(timezone.utc) - created
+    if age < timedelta(minutes=-5) or age > timedelta(hours=LOGICAL_BACKUP_MAX_AGE_HOURS):
+        raise ReleaseError(f"The logical backup is older than {LOGICAL_BACKUP_MAX_AGE_HOURS} hours (or from the future); take a new one")
+
+
 def apply_release(args) -> dict:
     approved = _load_json(args.plan, "Approved plan")
     backup = _load_json(args.backup_evidence, "Backup evidence")
@@ -292,6 +313,13 @@ def apply_release(args) -> dict:
         raise ReleaseError(f"Backup evidence is missing or older than {BACKUP_EVIDENCE_MAX_AGE_MINUTES} minutes; re-run check-backup")
     if backup.get("projectRef") != approved.get("projectRef") or not (backup.get("pitrEnabled") or backup.get("latestBackupAt")):
         raise ReleaseError("Backup evidence does not match the approved project or proves no recovery point")
+    mode = getattr(args, "backup_mode", "managed")
+    if mode not in ("managed", "logical"):
+        raise ReleaseError("Unknown backup mode; refusing")
+    if (backup.get("kind") == "logical-pg_dump") != (mode == "logical"):
+        raise ReleaseError(f"Backup evidence kind does not match the requested backup mode ({mode}); refusing")
+    if mode == "logical":
+        _check_logical_evidence(backup, approved)
 
     current = build_plan(args)  # revalidate EVERYTHING against the live database immediately before applying
     if current["planHash"] != approved["planHash"]:
@@ -355,6 +383,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("apply"); common(p); p.add_argument("--scope", default="D-I"); p.add_argument("--plan", type=Path, required=True)
     p.add_argument("--backup-evidence", type=Path, required=True); p.add_argument("--approval-reference", required=True)
     p.add_argument("--operator-id", required=True); p.add_argument("--output", type=Path)
+    p.add_argument("--backup-mode", choices=["managed", "logical"], default="managed")
     p = sub.add_parser("compat"); common(p)
     args = parser.parse_args(argv)
     try:
