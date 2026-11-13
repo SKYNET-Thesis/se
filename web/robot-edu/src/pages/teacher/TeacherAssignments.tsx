@@ -96,7 +96,7 @@ export function TeacherAssignments() {
               <input type="search" aria-label="Search assignments" placeholder="Search assignments…" value={searchText} onChange={(event) => setSearchText(event.target.value)} className={`${inputClasses} h-9 pl-9`} />
             </div>
             <label className="sr-only" htmlFor="assignment-sort">Sort assignments</label>
-            <select id="assignment-sort" value={sort} onChange={(event) => { setSort(event.target.value as AssignmentSortKey); setPage(1); }} className={`${selectClass} w-auto`}>
+            <select id="assignment-sort" value={sort} onChange={(event) => { setSort(event.target.value as AssignmentSortKey); setPage(1); }} className={`${selectClass} !w-auto`}>
               {assignmentSortOptions.map((option) => <option key={option.value} value={option.value}>Sort: {option.label}</option>)}
             </select>
             <Button variant="secondary" aria-expanded={filtersOpen} aria-controls="assignment-filters" onClick={() => setFiltersOpen((value) => !value)} icon={<FilterIcon className="h-4 w-4" aria-hidden />}>
