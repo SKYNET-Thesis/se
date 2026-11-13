@@ -1,4 +1,5 @@
-import React, { useRef } from 'react';
+import { prefetchPracticeWorkspace } from '../lib/routePrefetch';
+import React, { useRef, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AttemptHistory } from '../components/submission/AttemptHistory';
@@ -18,6 +19,7 @@ const fmt = (value?: string | null) => (value ? new Date(value).toLocaleString()
  * released result. Working on an attempt happens in the existing /practice/:attemptId experience.
  */
 export function StudentAssignmentDetail() {
+  useEffect(() => prefetchPracticeWorkspace(), []);
   const { classroomAssignmentId = '' } = useParams();
   const { session } = useSupabaseSession();
   const token = session?.access_token ?? '';

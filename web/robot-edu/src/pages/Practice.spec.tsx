@@ -284,6 +284,23 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
     expect(container.textContent).toContain('Save a new version before running simulation.');
   });
 
+  it('reload: an unedited recovered version keeps Run simulation enabled (UI events and re-serialization are not edits)', async () => {
+    mocks.versions.mockResolvedValue([{ id: 'version-1', version_number: 1, robot_program: { kind: 'robot_program', schemaVersion: 1, steps: [] } }]);
+    mocks.assignment.mockResolvedValue({ id: 'ca-2', assignment_id: 'assignment-2', lesson_id: 'lesson-2', title: 'Reach Target A', instructions: 'Move.', allowed_blocks: ['arm.select', 'home', 'preview.move_xyz', 'wait'], constraints: { kind: 'symbolic_program', target: { x: 1 } }, status: 'published', challenge_id: null });
+    await render();
+    const runBtn = () => Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Run simulation'));
+    // Blockly re-serializes the stored workspace with different keys/metadata than the server's JSON string.
+    currentSavedWorkspace = { blocks: { blocks: [], languageVersion: 0 } };
+    await act(async () => { (canvasChangeHandler as unknown as (e: unknown) => void)?.({ isUiEvent: true }); });
+    expect(runBtn()?.hasAttribute('disabled')).toBe(false);
+    await act(async () => { (canvasChangeHandler as unknown as (e: unknown) => void)?.({ isUiEvent: false }); });
+    expect(runBtn()?.hasAttribute('disabled')).toBe(false);
+    // ...but a genuine edit still blocks a stale simulation.
+    currentSavedWorkspace = { blocks: { languageVersion: 0, blocks: [{ type: 'robot_move_home' }] } };
+    await act(async () => { (canvasChangeHandler as unknown as (e: unknown) => void)?.({ isUiEvent: false }); });
+    expect(runBtn()?.hasAttribute('disabled')).toBe(true);
+  });
+
   it('9 & 10 & 13. Valid saved version can Run Simulation, displays loading state, PASS result, and invalidates queries', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
     mocks.versions.mockResolvedValue([{ id: 'version-1', version_number: 1, robot_program: { kind: 'robot_program', schemaVersion: 1, steps: [] } }]);

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -37,6 +38,7 @@ describe('AppShell focused learning navigation', () => {
   async function renderAt(path: string) {
     await act(async () => {
       root.render(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <MemoryRouter initialEntries={[path]}>
           <Routes>
             <Route element={<AppShell />}>
@@ -44,7 +46,8 @@ describe('AppShell focused learning navigation', () => {
               <Route path="courses/:courseId" element={<p>Course path</p>} />
             </Route>
           </Routes>
-        </MemoryRouter>,
+        </MemoryRouter>
+        </QueryClientProvider>,
       );
       await Promise.resolve();
     });
@@ -72,6 +75,15 @@ describe('AppShell focused learning navigation', () => {
     await act(async () => { (container.querySelector('button[aria-label="Open navigation"]') as HTMLButtonElement).click(); });
     await act(async () => { (container.querySelector('div.fixed > div[aria-hidden="true"]') as HTMLDivElement).click(); });
     expect(container.querySelector('button[aria-label="Open navigation"]')?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('places the notification bell before Settings and the account avatar in the global header', async () => {
+    await renderAt('/courses/course-1');
+    const header = container.querySelector('header') as HTMLElement;
+    const controls = [...header.querySelectorAll('[data-testid="notification-bell"], a[aria-label="Web settings"], button[aria-label="Account menu"]')].map((el) => el.getAttribute('data-testid') ?? el.getAttribute('aria-label'));
+    expect(controls).toEqual(['notification-bell', 'Web settings', 'Account menu']);
+    expect(header.querySelector('[data-testid="notification-bell"]')?.getAttribute('aria-label')).toMatch(/^Notifications/);
+    expect(container.querySelectorAll('[data-testid="notification-bell"]').length).toBe(2); // desktop header + compact top bar, one visible per breakpoint
   });
 
   it('keeps the persistent global sidebar on a normal course route', async () => {

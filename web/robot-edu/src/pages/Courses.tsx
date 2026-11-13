@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { ArrowRightIcon, BellIcon, BookOpenIcon, Clock3Icon, GraduationCapIcon, SearchIcon, SearchXIcon, SparklesIcon, UsersIcon } from "lucide-react";
+import { ArrowRightIcon, BookOpenIcon, Clock3Icon, GraduationCapIcon, SearchIcon, SearchXIcon, SparklesIcon, UsersIcon } from "lucide-react";
 import { catalogApi, learnerApi, progressionApi, type ApiAttempt, type ApiCourse, type ApiEnrollment, type CoursePathResponse } from "../lib/api";
 import { useSupabaseSession } from "../contexts/SupabaseSessionContext";
 import { useRole } from "../contexts/RoleContext";
@@ -51,7 +51,7 @@ export function Courses() {
   return <main className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-8 md:py-9">
     <header className="grid gap-6 border-b border-line pb-7 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
       <div><div className="flex items-center gap-2 text-sm font-medium text-accent-ink"><span className="grid h-7 w-7 place-items-center rounded-full bg-accent text-white"><GraduationCapIcon className="h-4 w-4" /></span>My learning</div><h1 className="mt-4 text-3xl font-semibold tracking-[-0.03em] text-ink md:text-4xl">Welcome back, {name}.</h1><p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-ink-muted">Everything your teacher has assigned is here. Pick up a course, complete a mission, and watch your robot skills grow.</p></div>
-      <div className="rounded-xl border border-[#b8d9d3] bg-[linear-gradient(135deg,#effaf7_0%,#f8fcfa_70%,#fff_100%)] p-4"><div className="flex items-start gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent text-white"><BellIcon className="h-4 w-4" /></span><div><p className="text-sm font-semibold text-ink">Learning updates</p><p className="mt-1 text-xs leading-relaxed text-ink-muted">{inProgress ? `${inProgress} practice ${inProgress === 1 ? "mission is" : "missions are"} ready to continue.` : "Your next robot mission is ready when you are."}</p></div></div></div>
+      <div className="rounded-xl border border-[#b8d9d3] bg-[linear-gradient(135deg,#effaf7_0%,#f8fcfa_70%,#fff_100%)] p-4"><div className="flex items-start gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent text-white"><SparklesIcon className="h-4 w-4" /></span><div><p className="text-sm font-semibold text-ink">Learning updates</p><p className="mt-1 text-xs leading-relaxed text-ink-muted">{inProgress ? `${inProgress} practice ${inProgress === 1 ? "mission is" : "missions are"} ready to continue.` : "Your next robot mission is ready when you are."}</p></div></div></div>
     </header>
 
     {error && <p role="alert" className="mt-5 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>}

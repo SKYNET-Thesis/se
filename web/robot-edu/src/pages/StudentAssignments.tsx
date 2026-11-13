@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { prefetchPracticeWorkspace } from '../lib/routePrefetch';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
@@ -22,6 +23,12 @@ export const ASSIGNMENTS_TABS: TabConfig[] = [
   { id: 'completed', label: 'Completed' },
 ];
 
+/** `9 / 10` using the real maximum; an older API without `score_max` keeps the percentage reading. */
+export function formatScore(score: number, max?: number | null): string {
+  const shown = Number.isInteger(score) ? String(score) : score.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  return `${shown} / ${typeof max === 'number' && max > 0 ? max : 100}`;
+}
+
 export function isAssignmentCompleted(item: ApiMyLearning): boolean {
   return item.status === 'evaluated';
 }
@@ -43,6 +50,7 @@ export function getAssignmentStatusBadge(
 }
 
 export function StudentAssignments() {
+  useEffect(() => prefetchPracticeWorkspace(), []);
   const { session, loading: authLoading, sessionRevision } = useSupabaseSession();
   const token = session?.access_token ?? '';
   const navigate = useNavigate();
@@ -341,7 +349,7 @@ export function StudentAssignments() {
                             {item.score !== null && item.score !== undefined && (
                               <div className="flex items-center gap-2 text-sm">
                                 <span className="text-ink-muted">Score:</span>
-                                <span className="font-bold text-ok">{item.score} / 100</span>
+                                <span className="font-bold text-ok">{formatScore(item.score, item.score_max)}</span>
                               </div>
                             )}
 

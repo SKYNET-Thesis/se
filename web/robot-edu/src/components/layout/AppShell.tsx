@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { LogOutIcon, MenuIcon, SettingsIcon, XIcon } from 'lucide-react';
+import { NotificationBell } from './NotificationBell';
 import { SidebarNav } from './SidebarNav';
 import { VistaMark } from './VistaMark';
 import { cn } from '../../utils/cn';
@@ -41,20 +42,23 @@ export function AppShell() {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {!isFocusedLearning && <header className="hidden h-14 shrink-0 items-center justify-end gap-2 border-b border-line bg-surface px-5 lg:flex"><Link to="/settings" className="rounded-md p-2 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Web settings"><SettingsIcon className="h-5 w-5" /></Link><div className="relative"><button type="button" onClick={()=>setAccountOpen((open)=>!open)} className="grid h-9 w-9 place-items-center rounded-full bg-[#176255] text-xs font-semibold text-white" aria-label="Account menu" aria-expanded={accountOpen}>{initials||'V'}</button>{accountOpen&&<div className="absolute right-0 top-11 z-30 w-64 border border-line bg-surface p-3 shadow-pop"><p className="truncate text-sm font-semibold text-ink">{String(label)}</p><p className="mt-1 truncate text-xs text-ink-muted">{email}</p><p className="mt-2 text-xs capitalize text-ink-muted">{role?.replace('_',' ')}</p><Link to="/account" onClick={()=>setAccountOpen(false)} className="mt-3 block rounded px-2 py-2 text-sm hover:bg-sunken">Account Settings</Link><button type="button" onClick={()=>void logout()} className="mt-1 flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-sunken"><LogOutIcon className="h-4 w-4" />Logout</button></div>}</div></header>}
+        {!isFocusedLearning && <header className="hidden h-14 shrink-0 items-center justify-end gap-2 border-b border-line bg-surface px-5 lg:flex"><NotificationBell /><Link to="/settings" className="rounded-md p-2 text-ink-muted hover:bg-sunken hover:text-ink" aria-label="Web settings"><SettingsIcon className="h-5 w-5" /></Link><div className="relative"><button type="button" onClick={()=>setAccountOpen((open)=>!open)} className="grid h-9 w-9 place-items-center rounded-full bg-[#176255] text-xs font-semibold text-white" aria-label="Account menu" aria-expanded={accountOpen}>{initials||'V'}</button>{accountOpen&&<div className="absolute right-0 top-11 z-30 w-64 border border-line bg-surface p-3 shadow-pop"><p className="truncate text-sm font-semibold text-ink">{String(label)}</p><p className="mt-1 truncate text-xs text-ink-muted">{email}</p><p className="mt-2 text-xs capitalize text-ink-muted">{role?.replace('_',' ')}</p><Link to="/account" onClick={()=>setAccountOpen(false)} className="mt-3 block rounded px-2 py-2 text-sm hover:bg-sunken">Account Settings</Link><button type="button" onClick={()=>void logout()} className="mt-1 flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm hover:bg-sunken"><LogOutIcon className="h-4 w-4" />Logout</button></div>}</div></header>}
         <header className={`flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface px-4 ${isFocusedLearning ? '' : 'lg:hidden'}`}>
           <Link to="/" aria-label="VISTA home">
             <VistaMark />
           </Link>
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            className="rounded-md p-2 text-ink-muted hover:bg-sunken hover:text-ink"
-            aria-label="Open navigation"
-            aria-expanded={drawerOpen}>
-            
-            <MenuIcon className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <NotificationBell />
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              className="rounded-md p-2 text-ink-muted hover:bg-sunken hover:text-ink"
+              aria-label="Open navigation"
+              aria-expanded={drawerOpen}>
+
+              <MenuIcon className="h-5 w-5" />
+            </button>
+          </div>
         </header>
 
         <main id="main" className={cn('min-h-0 flex-1', isStudio ? 'overflow-hidden' : 'overflow-y-auto')}>

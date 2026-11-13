@@ -209,6 +209,38 @@ describe("LearningService assignment delivery", () => {
     expect(String(txQuery.mock.calls[1][0])).toContain("draft");
   });
 
+  it("copies the persisted rubric of the lesson's latest same-organization assignment in the creating statement", async () => {
+    const rootQuery = jest.fn().mockResolvedValueOnce([{ id: "lesson-1", organization_id: "org-1" }]);
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ id: "assignment-1" }])
+      .mockResolvedValueOnce([{ id: "delivery-1", assignment_id: "assignment-1", status: "draft", published_by: null }]);
+    const draftService = new LearningService(
+      { $queryRaw: rootQuery, $transaction: jest.fn(async (work) => work({ $queryRaw: txQuery })) } as never,
+      { assertTeacherClassroomAccess: jest.fn().mockResolvedValue(undefined) } as never,
+    );
+    await draftService.createAssignment(user, "class-1", { lessonId: "lesson-1", title: "Gripper", instructions: "x" });
+    const [strings, ...values] = txQuery.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+    const sql = strings.join("?");
+    expect(sql).toContain("INSERT INTO public.learning_rubric_criteria");
+    expect(sql).toContain("source.organization_id=");
+    expect(values).toContain("org-1");
+    expect(values).toContain(true); // not a quiz: the rubric is inherited
+    // still exactly two statements: the content+rubric statement and the draft delivery
+    expect(txQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("never gives a Question Bank quiz an inherited rubric", async () => {
+    const rootQuery = jest.fn().mockResolvedValueOnce([{ id: "lesson-1", organization_id: "org-1" }]);
+    const txQuery = jest.fn().mockResolvedValueOnce([{ id: "assignment-1" }]).mockResolvedValueOnce([{ id: "delivery-1" }]);
+    const draftService = new LearningService(
+      { $queryRaw: rootQuery, $transaction: jest.fn(async (work) => work({ $queryRaw: txQuery })) } as never,
+      { assertTeacherClassroomAccess: jest.fn().mockResolvedValue(undefined) } as never,
+    );
+    await draftService.createAssignment(user, "class-1", { lessonId: "lesson-1", title: "Quiz", quizPassPercent: 80 });
+    const values = (txQuery.mock.calls[0] as unknown[]).slice(1);
+    expect(values).toContain(false);
+  });
+
   it("rolls back assignment content when classroom delivery creation fails", async () => {
     const rootQuery = jest.fn().mockResolvedValueOnce([{ id: "lesson-1", organization_id: "org-1" }]);
     const txQuery = jest.fn().mockResolvedValueOnce([{ id: "assignment-1" }]).mockRejectedValueOnce(new Error("delivery failed"));
@@ -370,6 +402,8 @@ describe("LearningService assignment delivery", () => {
       expect(sql).toContain("due_at");
       expect(sql).toContain("challenge_title");
       expect(sql).toContain("score");
+      expect(sql).toContain("score_max");
+      expect(sql).toContain("assessment_max");
       expect(sql).toContain("teacher_feedback");
       expect(sql).toContain("status");
     }

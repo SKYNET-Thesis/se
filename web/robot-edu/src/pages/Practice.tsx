@@ -1,3 +1,6 @@
+import { isModifiedSince, workspaceFingerprint } from '../utils/workspaceFingerprint';
+import { perfMark } from '../utils/perf';
+import { prefetchSo101Assets } from '../components/studio/so101Assets';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as Blockly from 'blockly';
@@ -45,6 +48,8 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
   const [finalSubmitError, setFinalSubmitError] = useState<string | null>(null);
   const attemptLockedMessage = 'This attempt has already been submitted. Start a new attempt from the assignment page to try again.';
   const [loading, setLoading] = useState(true);
+  const [early, setEarly] = useState<{ title: string; instructions: string | null } | null>(null);
+  const [loadStage, setLoadStage] = useState<'attempt' | 'program'>('attempt');
   const [error, setError] = useState<string | null>(null);
   const [generation, setGeneration] = useState<GenerationResult | null>(null);
   const workspaceRef = useRef<Blockly.WorkspaceSvg | null>(null);
@@ -74,6 +79,7 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
   const [lastProgramVersionId, setLastProgramVersionId] = useState<string | null>(null);
   const [activeVersion, setActiveVersion] = useState<{ id: string; version_number: number } | null>(null);
   const lastVersionSnapshot = useRef<string | null>(null);
+  const baselinePending = useRef(false);
   const [isDirtyAfterVersion, setIsDirtyAfterVersion] = useState(false);
   const [disallowedBlocks, setDisallowedBlocks] = useState<string[] | null>(null);
   const [tourOpen, setTourOpen] = useState(false);
@@ -83,50 +89,75 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
 
   const load = useCallback(() => {
     if (!session || !attemptId) return;
-    let active = true; setLoading(true); setError(null);
+    let active = true; setLoading(true); setError(null); setEarly(null); setLoadStage('attempt');
+    const token = session.access_token;
+    perfMark('practice:load-start');
+    void prefetchSo101Assets(); // the 3D meshes download while the API requests below are in flight
     void (async () => {
-      const attempt = await learnerApi.attempt(attemptId, session.access_token);
-      const assignment = await assignmentApi.detail(attempt.classroom_assignment_id, session.access_token);
-      const lesson = assignment.lesson_id ? await catalogApi.lessonDetail(assignment.lesson_id, session.access_token).catch(() => null) : null;
+      // Everything that only needs the route's attempt id starts now, concurrently with the attempt lookup.
+      // Outcomes (not rejections) are kept so a speculative request that is not needed can never become an unhandled rejection.
+      const settle = <T,>(promise: Promise<T>) => promise.then((value) => ({ value }) as { value: T; error?: undefined }, (error: unknown) => ({ error }) as { value?: undefined; error: unknown });
+      const programRequest = settle(learnerApi.program(attemptId, token).then(async (found) => ({ program: found, created: false }), async (requestError: unknown) => {
+        if (!(requestError instanceof ApiError) || requestError.status !== 404) throw requestError;
+        return null;
+      }));
+      const attempt = await learnerApi.attempt(attemptId, token);
+      perfMark('practice:attempt');
+      const quizAttempt = (attempt.workspace_snapshot as { kind?: string } | undefined)?.kind === 'question_bank_quiz' || Boolean(attempt.quiz);
+      const evidenceRequest = quizAttempt ? null : settle(Promise.all([learnerApi.submissions(token), learnerApi.experiments(token), learnerApi.symbolicEvaluations(token)]));
+      const assignment = await assignmentApi.detail(attempt.classroom_assignment_id, token);
+      perfMark('practice:assignment');
+      if (active) { setEarly({ title: assignment.title, instructions: assignment.instructions ?? null }); setLoadStage('program'); }
+      // Lesson and challenge objects only decorate the page; they must never delay the editor.
+      let lessonValue: LessonDetailResponse | null = null;
+      if (assignment.lesson_id) void catalogApi.lessonDetail(assignment.lesson_id, token).then((found) => { lessonValue = found; if (active) setData((current) => (current ? { ...current, lesson: found } : current)); }, () => undefined);
       if ((assignment.constraints as { kind?: string } | null | undefined)?.kind === 'knowledge_check') {
-        if (active) setData({ attempt, assignment, lesson, program: { id: '', title: assignment.title, workspace_json: emptyWorkspace, robot_program: emptyRobotProgram } });
+        if (active) setData({ attempt, assignment, lesson: lessonValue, program: { id: '', title: assignment.title, workspace_json: emptyWorkspace, robot_program: emptyRobotProgram } });
         return;
       }
-      let program: ApiProgram;
-      try { program = await learnerApi.program(attempt.id, session.access_token); }
-      catch (requestError) {
-        if (!(requestError instanceof ApiError) || requestError.status !== 404) throw requestError;
-        program = await learnerApi.createProgram(attempt.id, session.access_token, { title: assignment.title, workspaceJson: emptyWorkspace, robotProgram: emptyRobotProgram });
+      if (assignment.challenge_id) {
+        void catalogApi.challengeObjects(assignment.challenge_id, token).then((objects) => {
+          if (!active) return;
+          const object = objects.find((item) => item.object_key === 'target-a' || item.object_key === 'cube-red');
+          const pose = (object?.target_pose ?? object?.initial_pose) as { frame?: string; arm?: 'left' | 'right'; position?: { x?: number; y?: number; z?: number } } | undefined;
+          if (pose?.frame === 'learning_preview_v1' && pose.position && Number.isInteger(pose.position.x) && Number.isInteger(pose.position.y) && Number.isInteger(pose.position.z)) setLearningTarget({ label: typeof object?.label === 'string' ? object.label : 'Target A', frame: pose.frame, arm: pose.arm, position: pose.position as { x: number; y: number; z: number } } as never);
+          const zoneObj = objects.find((item) => item.object_type === 'target_zone' || item.object_key === 'target-zone-a');
+          if (zoneObj) {
+            const props = (zoneObj.properties ?? {}) as Record<string, unknown>;
+            if (typeof props.x === 'number' && typeof props.y === 'number' && typeof props.w === 'number' && typeof props.h === 'number') setTargetZone({ x: props.x, y: props.y, w: props.w, h: props.h });
+          }
+        }, () => undefined);
       }
-      const [versions,submissions,experiments,evaluations]=await Promise.all([learnerApi.versions(program.id,session.access_token),learnerApi.submissions(session.access_token),learnerApi.experiments(session.access_token),learnerApi.symbolicEvaluations(session.access_token)]);
-      const recovered=recoverEvidence(versions,submissions,experiments.filter(item=>item.input_snapshot?.attemptId===attempt.id),evaluations);
-      if(active&&recovered){
+      const programOutcome = await programRequest;
+      if (programOutcome.error) throw programOutcome.error;
+      let program: ApiProgram;
+      let versions: Awaited<ReturnType<typeof learnerApi.versions>> = [];
+      if (programOutcome.value) program = programOutcome.value.program;
+      else { program = await learnerApi.createProgram(attempt.id, token, { title: assignment.title, workspaceJson: emptyWorkspace, robotProgram: emptyRobotProgram }); }
+      perfMark('practice:program');
+      const evidence = evidenceRequest ?? settle(Promise.all([learnerApi.submissions(token), learnerApi.experiments(token), learnerApi.symbolicEvaluations(token)]));
+      if (programOutcome.value) versions = await learnerApi.versions(program.id, token);
+      const evidenceOutcome = await evidence;
+      if (evidenceOutcome.error) throw evidenceOutcome.error;
+      const [submissions, experiments, evaluations] = evidenceOutcome.value!;
+      perfMark('practice:versions');
+      const recovered = recoverEvidence(versions, submissions, experiments.filter((item) => item.input_snapshot?.attemptId === attempt.id), evaluations);
+      if (active && recovered) {
         setLastProgramVersionId(recovered.version.id);
         setActiveVersion({ id: recovered.version.id, version_number: recovered.version.version_number });
-        lastVersionSnapshot.current = JSON.stringify(program.workspace_json);
+        baselinePending.current = true; // the baseline is taken from Blockly's own serialization once the canvas has loaded the saved workspace
+        lastVersionSnapshot.current = workspaceFingerprint(program.workspace_json);
         setIsDirtyAfterVersion(false);
         setEvaluation(recovered.evaluation);
         setEvidenceStage('evaluation_persisted');
       } else if (active && versions[0]) {
         setLastProgramVersionId(versions[0].id);
         setActiveVersion({ id: versions[0].id, version_number: versions[0].version_number });
-        lastVersionSnapshot.current = JSON.stringify(program.workspace_json);
+        baselinePending.current = true;
+        lastVersionSnapshot.current = workspaceFingerprint(program.workspace_json);
         setIsDirtyAfterVersion(false);
       }
-      if (assignment.challenge_id) {
-        const objects = await catalogApi.challengeObjects(assignment.challenge_id, session.access_token);
-        const object = objects.find((item) => item.object_key === 'target-a' || item.object_key === 'cube-red');
-        const pose = (object?.target_pose ?? object?.initial_pose) as { frame?: string; arm?: 'left' | 'right'; position?: { x?: number; y?: number; z?: number } } | undefined;
-        if (pose?.frame === 'learning_preview_v1' && pose.position && Number.isInteger(pose.position.x) && Number.isInteger(pose.position.y) && Number.isInteger(pose.position.z)) setLearningTarget({ label: typeof object?.label === 'string' ? object.label : 'Target A', frame: pose.frame, arm: pose.arm ?? 'left', position: { x: pose.position.x, y: pose.position.y, z: pose.position.z } });
-        const zoneObj = objects.find((item) => item.object_type === 'target_zone' || item.object_key === 'target-zone-a');
-        if (zoneObj) {
-          const props = (zoneObj.properties ?? {}) as Record<string, unknown>;
-          if (typeof props.x === 'number' && typeof props.y === 'number' && typeof props.w === 'number' && typeof props.h === 'number') {
-            setTargetZone({ x: props.x, y: props.y, w: props.w, h: props.h });
-          }
-        }
-      }
-      if (active) { setData({ attempt, assignment, program, lesson }); setAttemptLocked(attempt.status !== 'in_progress'); }
+      if (active) { setData({ attempt, assignment, program, lesson: lessonValue }); setAttemptLocked(attempt.status !== 'in_progress'); perfMark('practice:data-ready'); }
     })().catch((requestError: unknown) => { if (active) setError(requestError instanceof Error ? requestError.message : 'Could not load this practice workspace.'); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [attemptId, session]);
@@ -267,7 +298,7 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
       setSaveState('saved');
       setLastProgramVersionId(version.id);
       setActiveVersion({ id: version.id, version_number: version.version_number });
-      lastVersionSnapshot.current = JSON.stringify(snapshot);
+      lastVersionSnapshot.current = workspaceFingerprint(snapshot);
       setIsDirtyAfterVersion(false);
       setValidationMessage(`Immutable ProgramVersion ${version.version_number} saved. Ready for simulation.`);
     } catch (requestError) { setEvaluationError(requestError instanceof Error ? requestError.message : 'Could not create a ProgramVersion.'); }
@@ -334,7 +365,7 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
     catch (requestError) { setRobotError(requestError instanceof Error ? requestError.message : 'Could not stop robot execution.'); }
   };
 
-  if (loading) return <div className="mx-auto w-full max-w-[1060px] px-4 py-10 text-sm text-ink-muted md:px-8">Preparing your practice workspace…</div>;
+  if (loading) return <PracticeSkeleton early={early} stage={loadStage} />;
   if (error || !data) return <EmptyState icon={<FileQuestionIcon />} title="Practice workspace unavailable" description={error ?? 'This practice attempt could not be opened.'} action={<div className="flex gap-2"><Button variant="secondary" onClick={load} icon={<RotateCcwIcon className="h-4 w-4" />}>Try again</Button><Link to="/courses" className="inline-flex h-9 items-center rounded-md border border-line-strong px-3.5 text-sm font-medium text-ink hover:bg-sunken">Courses</Link></div>} />;
   if (mode === 'physical-enabled' && data.assignment.title === 'VR Robot Control') return <VrPractice attempt={data.attempt} token={session?.access_token ?? ''} />;
   if (mode === 'physical-enabled' && data.assignment.title === 'Teach by Demonstration') return <DemonstrationPractice attempt={data.attempt} token={session?.access_token ?? ''} />;
@@ -357,7 +388,7 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
     {isReachTarget && <section className="mt-5 rounded-xl border border-[#b8d9d3] bg-[#effaf7] p-4 text-sm text-ink"><strong>Learn · Predict</strong><p className="mt-1 text-ink-muted">X, Y and Z describe a lesson-only coordinate frame. Predict where Target A is, then build and compare your answer.</p><p className="mt-2 font-medium text-accent-ink">Visual learning preview — not physical robot reachability.</p></section>}
     {attemptLocked && <section role="status" className="mt-5 rounded-xl border border-line bg-sunken/50 p-4 text-sm text-ink"><strong>Submitted</strong> · This attempt is final and can no longer be edited. <Link to={`/my-learning/${data.assignment.id}`} className="font-medium text-accent hover:text-accent-hover">View attempts, files and results</Link></section>}
     <div className="mt-5 grid gap-6 xl:grid-cols-[minmax(640px,1.35fr)_minmax(420px,0.85fr)]">
-      <main className="min-w-0 rounded-xl border border-line bg-surface p-4 md:p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-medium uppercase tracking-wide text-accent-ink">Practice workspace · Task</p><h2 className="mt-2 text-2xl font-semibold text-ink">{data.assignment.title}</h2><p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-ink-muted">{data.assignment.instructions ?? 'Follow the mission instructions, then validate your Blockly program.'}</p></div><div data-tour="actions" className="flex items-center gap-2"><span role="status" className={saveState === 'error' ? 'text-xs text-danger' : 'text-xs text-ink-subtle'}>{saveState === 'unsaved' ? 'Unsaved changes' : saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved to VISTA' : 'Save failed'}</span><Button size="sm" variant="secondary" disabled={Boolean(toolboxError)} onClick={validateProgram}>Validate</Button><Button size="sm" variant="secondary" loading={evaluating} disabled={Boolean(toolboxError || savedDisallowed.length)} onClick={() => void (isCurriculumProgramming ? saveCurriculumVersion() : submitAndEvaluate())}>{isCurriculumProgramming ? 'Save version' : 'Run & evaluate'}</Button>{isCurriculumProgramming && <Button size="sm" variant="primary" loading={simulating} disabled={Boolean(simulating || evaluating || toolboxError || savedDisallowed.length || !activeVersion || isDirtyAfterVersion)} onClick={() => void runSimulation()}>Run simulation</Button>}</div></div>{lastProgramVersionId && <p role="status" className="mt-3 text-xs text-ink-muted">Immutable ProgramVersion: <code>{lastProgramVersionId}</code></p>}{isCurriculumProgramming && isDirtyAfterVersion && activeVersion && <p role="status" className="mt-3 rounded-md bg-warning-soft px-3 py-2 text-xs font-medium text-ink">Save a new version before running simulation.</p>}{toolboxError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{toolboxError}</p>}{savedDisallowed.length > 0 && <p role="alert" className="mt-3 rounded-md bg-warning-soft px-3 py-2 text-xs text-ink">Your saved workspace contains blocks outside this lesson’s toolbox ({savedDisallowed.join(', ')}). Nothing was deleted; remove them before creating valid evidence.</p>}{saveError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{saveError}</p>}{validationMessage && <p role="status" className="mt-3 rounded-md bg-accent-soft px-3 py-2 text-xs text-accent-ink">{validationMessage}</p>}{simulationSystemError && <div role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger flex items-start gap-2"><TriangleAlertIcon className="h-4 w-4 shrink-0 mt-0.5" /><div><strong>System error:</strong> {simulationSystemError}</div></div>}{evaluationError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{evidenceStage==='submission_persisted'||evidenceStage==='experiment_created'||evidenceStage==='experiment_run'?'Submission persisted · ':''}{evaluationError}</p>}<div data-tour="workspace" className="relative mt-5 h-[min(62vh,680px)] min-h-[460px] overflow-hidden rounded-lg border border-line bg-[#FBFAF8]"><BlocklyCanvas key={data.program.id} initialState={data.program.workspace_json} toolbox={toolbox} onReady={(workspace) => { workspaceRef.current = workspace; refreshGeneration(workspace); setDisallowedBlocks(isCurriculumProgramming ? validateWorkspaceBlockTypes(data.program.workspace_json, allowedBlockTypes) : []); }} onChange={() => { if (workspaceRef.current) { refreshGeneration(workspaceRef.current); persistWorkspace(workspaceRef.current); if (lastVersionSnapshot.current !== null) { const currentJson = JSON.stringify(Blockly.serialization.workspaces.save(workspaceRef.current)); setIsDirtyAfterVersion(currentJson !== lastVersionSnapshot.current); } } }} onBeforeDispose={(workspace) => persistWorkspace(workspace, true)} /></div><p className="mt-3 text-xs text-ink-subtle">Preview lets you see how your program moves the robot locally. Run Simulation checks whether your saved program completes the lesson task.</p></main>
+      <main className="min-w-0 rounded-xl border border-line bg-surface p-4 md:p-5"><div className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-medium uppercase tracking-wide text-accent-ink">Practice workspace · Task</p><h2 className="mt-2 text-2xl font-semibold text-ink">{data.assignment.title}</h2><p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-ink-muted">{data.assignment.instructions ?? 'Follow the mission instructions, then validate your Blockly program.'}</p></div><div data-tour="actions" className="flex items-center gap-2"><span role="status" className={saveState === 'error' ? 'text-xs text-danger' : 'text-xs text-ink-subtle'}>{saveState === 'unsaved' ? 'Unsaved changes' : saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved to VISTA' : 'Save failed'}</span><Button size="sm" variant="secondary" disabled={Boolean(toolboxError)} onClick={validateProgram}>Validate</Button><Button size="sm" variant="secondary" loading={evaluating} disabled={Boolean(toolboxError || savedDisallowed.length)} onClick={() => void (isCurriculumProgramming ? saveCurriculumVersion() : submitAndEvaluate())}>{isCurriculumProgramming ? 'Save version' : 'Run & evaluate'}</Button>{isCurriculumProgramming && <Button size="sm" variant="primary" loading={simulating} disabled={Boolean(simulating || evaluating || toolboxError || savedDisallowed.length || !activeVersion || isDirtyAfterVersion)} onClick={() => void runSimulation()}>Run simulation</Button>}</div></div>{lastProgramVersionId && <p role="status" className="mt-3 text-xs text-ink-muted">Immutable ProgramVersion: <code>{lastProgramVersionId}</code></p>}{isCurriculumProgramming && isDirtyAfterVersion && activeVersion && <p role="status" className="mt-3 rounded-md bg-warning-soft px-3 py-2 text-xs font-medium text-ink">Save a new version before running simulation.</p>}{toolboxError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{toolboxError}</p>}{savedDisallowed.length > 0 && <p role="alert" className="mt-3 rounded-md bg-warning-soft px-3 py-2 text-xs text-ink">Your saved workspace contains blocks outside this lesson’s toolbox ({savedDisallowed.join(', ')}). Nothing was deleted; remove them before creating valid evidence.</p>}{saveError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{saveError}</p>}{validationMessage && <p role="status" className="mt-3 rounded-md bg-accent-soft px-3 py-2 text-xs text-accent-ink">{validationMessage}</p>}{simulationSystemError && <div role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger flex items-start gap-2"><TriangleAlertIcon className="h-4 w-4 shrink-0 mt-0.5" /><div><strong>System error:</strong> {simulationSystemError}</div></div>}{evaluationError && <p role="alert" className="mt-3 rounded-md bg-danger-soft px-3 py-2 text-xs text-danger">{evidenceStage==='submission_persisted'||evidenceStage==='experiment_created'||evidenceStage==='experiment_run'?'Submission persisted · ':''}{evaluationError}</p>}<div data-tour="workspace" className="relative mt-5 h-[min(62vh,680px)] min-h-[460px] overflow-hidden rounded-lg border border-line bg-[#FBFAF8]"><BlocklyCanvas key={data.program.id} initialState={data.program.workspace_json} toolbox={toolbox} onReady={(workspace) => { perfMark('practice:blockly-ready'); workspaceRef.current = workspace; if (baselinePending.current) { baselinePending.current = false; lastVersionSnapshot.current = workspaceFingerprint(Blockly.serialization.workspaces.save(workspace)); setIsDirtyAfterVersion(false); } refreshGeneration(workspace); setDisallowedBlocks(isCurriculumProgramming ? validateWorkspaceBlockTypes(data.program.workspace_json, allowedBlockTypes) : []); }} onChange={(event) => { if (event?.isUiEvent) return; if (workspaceRef.current) { refreshGeneration(workspaceRef.current); persistWorkspace(workspaceRef.current); if (lastVersionSnapshot.current !== null) setIsDirtyAfterVersion(isModifiedSince(lastVersionSnapshot.current, Blockly.serialization.workspaces.save(workspaceRef.current))); } }} onBeforeDispose={(workspace) => persistWorkspace(workspace, true)} /></div><p className="mt-3 text-xs text-ink-subtle">Preview lets you see how your program moves the robot locally. Run Simulation checks whether your saved program completes the lesson task.</p></main>
       <aside className="space-y-4 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto xl:pr-1">{!attemptLocked && <section aria-label="Submit assignment" className="rounded-xl border border-line bg-surface p-5"><p className="text-xs font-medium uppercase tracking-wide text-accent-ink">Final submission</p><p className="mt-1 text-xs text-ink-muted">Running and saving can be repeated. Submitting sends your latest saved version to your teacher, makes this attempt final and locks editing.</p><Button className="mt-3" variant="primary" loading={finalSubmitting} disabled={!(activeVersion ?? lastProgramVersionId) || evaluating || simulating || isDirtyAfterVersion} onClick={() => setConfirmSubmit(true)}>Submit assignment</Button>{!(activeVersion ?? lastProgramVersionId) && <p className="mt-2 text-xs text-ink-subtle">Save a version first.</p>}{isDirtyAfterVersion && <p className="mt-2 text-xs text-ink-subtle">Save a new version of your latest changes first.</p>}{finalSubmitError && <p role="alert" className="mt-2 text-xs text-danger">{finalSubmitError}</p>}</section>}{acceptsAttachments(data.assignment.constraints) && <section className="rounded-xl border border-line bg-surface p-5"><p className="text-xs font-medium uppercase tracking-wide text-accent-ink">Attachments · optional</p><p className="mt-1 text-xs text-ink-muted">Attach files before you submit; submitting makes this attempt final.</p><AttachmentUploader attemptId={data.attempt.id} token={session?.access_token ?? ''} readOnly={attemptLocked} /></section>}<ProgramPreview state={previewState} steps={previewSteps} index={previewIndex} playing={previewPlaying} speed={previewSpeed} onToggle={togglePreview} onReset={resetPreview} onSpeed={setPreviewSpeed} target={learningTarget} targetZone={targetZone} />{isReachTarget ? <ReachTargetPanel target={learningTarget} steps={previewSteps} evaluation={evaluation} /> : <><LessonGuide onStartTour={() => setTourOpen(true)} onOpenGuide={() => setGuideOpen(true)} /><section className="rounded-xl border border-line bg-surface p-5"><p className="text-xs font-medium uppercase tracking-wide text-accent-ink">Mission</p><h2 className="mt-2 text-base font-semibold text-ink">{data.assignment.title}</h2><p className="mt-2 text-[13px] leading-relaxed text-ink-muted">{data.assignment.instructions}</p>{!isCurriculumProgramming && <ul className="mt-5 space-y-3"><MissionItem done={mission.selectedLeft}>Select the left arm</MissionItem><MissionItem done={mission.opened}>Open gripper action found</MissionItem><MissionItem done={mission.ordered}>Open → wait → close</MissionItem><MissionItem done={mission.waited}>Wait at least 1 second</MissionItem><MissionItem done={mission.closed}>Finish with the left gripper closed</MissionItem></ul>}</section></>}{mode==='physical-enabled'&&<PhysicalExecutionPanel status={robotStatus} execution={robotExecution} canRun={Boolean(!isCurriculumProgramming&&!isReachTarget&&robotStatus?.eligible)} previewOnly={isCurriculumProgramming||isReachTarget} onRequestRun={() => setConfirmRobotRun(true)} onStop={() => void stopRobot()} error={robotError} />}{evaluation && <EvaluationResult evaluation={evaluation} lesson={data.lesson} attemptId={data.attempt.id} onEditProgram={() => { workspaceRef.current?.scrollIntoView?.({ behavior: 'smooth' }); }} onPreviewAgain={() => { resetPreview(); setPreviewPlaying(true); }} />}<p className="px-1 text-xs leading-relaxed text-ink-subtle">{isCurriculumProgramming || isReachTarget ? 'Visual learning preview — not an authoritative PASS and not physical robot reachability.' : mode==='physical-enabled'?'Physical authorization is always verified by VISTA before a run starts.':'This learning workspace creates schematic evidence only; no robot command is sent.'}</p></aside>
     </div>
     <ConfirmDialog open={confirmSubmit} tone="primary" title="Submit this assignment?" description="This makes the attempt final. You will not be able to edit this attempt afterwards; you can start a new attempt if the assignment allows it." confirmLabel="Submit assignment" onCancel={() => setConfirmSubmit(false)} onConfirm={() => void submitAssignment()} />
@@ -534,4 +565,23 @@ function ruleLabel(type: string): string {
     object_released: 'Object released',
     object_in_target_zone: 'Object in target zone',
   } as Record<string, string>)[type] ?? type;
+}
+
+
+/** Stage A/B placeholder: real assignment content as soon as it is known, plus honest, step-based progress (no fake percentages). */
+function PracticeSkeleton({ early, stage }: { early: { title: string; instructions: string | null } | null; stage: 'attempt' | 'program' }) {
+  const steps = [['Opening your attempt', true], ['Loading assignment details', stage === 'program'], ['Restoring your saved program', false]] as const;
+  return (
+    <div className="mx-auto w-full max-w-[1680px] px-4 py-6 md:px-8 md:py-9" role="status" aria-live="polite" aria-busy="true" data-testid="practice-skeleton">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(340px,480px)]">
+        <main className="min-w-0 rounded-xl border border-line bg-surface p-4 md:p-5">
+          <p className="text-xs font-medium uppercase tracking-wide text-accent-ink">Practice workspace · Task</p>
+          {early ? <><h2 className="mt-2 text-2xl font-semibold text-ink">{early.title}</h2>{early.instructions && <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-ink-muted">{early.instructions}</p>}</> : <div className="mt-3 space-y-2" aria-hidden><div className="h-7 w-2/3 animate-pulse rounded bg-sunken" /><div className="h-4 w-1/2 animate-pulse rounded bg-sunken" /></div>}
+          <ul className="mt-4 space-y-1 text-sm text-ink-muted">{steps.map(([label, done]) => <li key={label} className="flex items-center gap-2"><span className={`inline-block h-2 w-2 rounded-full ${done ? 'bg-ok' : 'animate-pulse bg-line-strong'}`} aria-hidden />{label}{done ? ' — done' : '…'}</li>)}</ul>
+          <div className="mt-4 h-[420px] animate-pulse rounded-lg border border-line bg-sunken/60" aria-label="Blockly editor is loading" />
+        </main>
+        <aside className="hidden space-y-4 xl:block"><div className="h-72 animate-pulse rounded-xl border border-line bg-sunken/60" aria-label="3D preview is loading" /></aside>
+      </div>
+    </div>
+  );
 }

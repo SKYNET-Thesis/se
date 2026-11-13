@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { enrollClassroomStudent } from "./demo-enrollment";
 import { provisionDemoPhysicalPolicy } from "./demo-physical-policy";
 
 const prisma = new PrismaClient();
@@ -28,6 +29,8 @@ async function main() {
     const classroom = await tx.learning_classrooms.upsert({ where: { organization_id_code: { organization_id: organization.id, code: "ROBOTICS-A" } }, update: { status: "active" }, create: { organization_id: organization.id, offering_id: offering.id, name: "Robotics Class A", code: "ROBOTICS-A", status: "active", created_by: adminId } });
     await tx.learning_classroom_members.upsert({ where: { classroom_id_user_id: { classroom_id: classroom.id, user_id: instructorId } }, update: { membership_id: instructorMembership.id, classroom_role: "teacher", status: "active" }, create: { classroom_id: classroom.id, user_id: instructorId, membership_id: instructorMembership.id, classroom_role: "teacher", status: "active" } });
     await tx.learning_classroom_members.upsert({ where: { classroom_id_user_id: { classroom_id: classroom.id, user_id: studentId } }, update: { membership_id: studentMembership.id, classroom_role: "student", status: "active" }, create: { classroom_id: classroom.id, user_id: studentId, membership_id: studentMembership.id, classroom_role: "student", status: "active" } });
+    // Membership alone is not delivery: the student Assignments API also requires the classroom-scoped enrollment.
+    await enrollClassroomStudent(tx, { courseId: course.id, offeringId: offering.id, classroomId: classroom.id, studentUserId: studentId });
     const lesson = await tx.learning_lessons.upsert({ where: { course_id_ordinal: { course_id: course.id, ordinal: 1 } }, update: { title: "Open & Close Gripper", content: { summary: "Choose the left arm, open its gripper, wait one second, then close it." } }, create: { course_id: course.id, ordinal: 1, title: "Open & Close Gripper", content: { summary: "Choose the left arm, open its gripper, wait one second, then close it." } } });
     const challenge = await tx.learning_challenges.findFirst({ where: { organization_id: organization.id, title: "Gripper Sequence Challenge" } }) ?? await tx.learning_challenges.create({ data: { organization_id: organization.id, creator_user_id: adminId, title: "Gripper Sequence Challenge", description: "Open the left gripper, wait at least one second, then close it.", status: "published" } });
     await tx.learning_challenges.update({ where: { id: challenge.id }, data: { description: "Open the left gripper, wait at least one second, then close it.", status: "published" } });

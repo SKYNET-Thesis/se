@@ -143,6 +143,39 @@ describe("ProgrammingService M2C", () => {
     expect(txQuery).toHaveBeenCalledTimes(2);
   });
 
+  describe("submit after a passing simulation run", () => {
+    const evaluation = { evaluationId: "eval-1", programVersionId: "version-1", verdict: "passed" };
+    const submitWith = async (assignmentKind: string | null) => {
+      const projectSymbolicPass = jest.fn().mockResolvedValue({ completedLessonId: "lesson-1", newlyUnlockedLessonIds: [] });
+      const svc = new ProgrammingService({ $queryRaw: queryRaw, $transaction: transaction } as never, { assertStudentClassroomAccess } as never, { projectSymbolicPass } as never);
+      const txQuery = jest.fn()
+        .mockResolvedValueOnce([{ ...OPEN, assignment_constraints: assignmentKind ? { kind: assignmentKind } : {}, attempt_id: "attempt-1", classroom_id: "class-1", assignment_id: "assignment-1", program_id: "program-1" }])
+        .mockResolvedValueOnce([{ id: "version-1", workspace_json: { blocks: {} }, robot_program: validRobotProgram }])
+        .mockResolvedValueOnce([{ n: 0 }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: "submission-1", attempt_id: "attempt-1", status: "submitted" }])
+        .mockResolvedValueOnce([{ result_snapshot: evaluation }])
+        .mockResolvedValueOnce([{ kind: assignmentKind }]);
+      transaction.mockImplementation(async (work) => work({ $queryRaw: txQuery, $executeRaw: jest.fn().mockResolvedValue(1) }));
+      queryRaw.mockResolvedValue([{ constraints: assignmentKind ? { kind: assignmentKind } : {}, allowed_blocks: ["wait"] }]);
+      const result = await svc.submit(user, "attempt-1", { programVersionId: "version-1" });
+      return { result, projectSymbolicPass };
+    };
+
+    it("still submits a teacher-created assignment (no curriculum contract) and projects no lesson progression", async () => {
+      // Regression: projectSymbolicPass threw "Symbolic PASS provenance could not be verified" for these and rolled the submission back.
+      const { result, projectSymbolicPass } = await submitWith(null);
+      expect(result).toMatchObject({ id: "submission-1", evaluated: true, progression: { completedLessonId: null, newlyUnlockedLessonIds: [] } });
+      expect(projectSymbolicPass).not.toHaveBeenCalled();
+    });
+
+    it("keeps projecting progression for curriculum programming assignments", async () => {
+      const { result, projectSymbolicPass } = await submitWith("symbolic_program");
+      expect(projectSymbolicPass).toHaveBeenCalledTimes(1);
+      expect(result.progression).toMatchObject({ completedLessonId: "lesson-1" });
+    });
+  });
+
   it("creating ProgramVersion inserts a new immutable version without mutating previous versions", async () => {
     const v1 = { id: "version-1", version_number: 1, workspace_json: { blocks: [] }, robot_program: validRobotProgram };
     const txQuery = jest.fn()

@@ -50,6 +50,7 @@ export class AssessmentService {
     const submission=await this.submissionScope(submissionId);
     await this.scope.assertTeacherClassroomPermission(user,submission.classroom_id,["learning.work.review","learning.assessment.assess"]);
     return this.prisma.$transaction(async tx=>{
+      await this.assertNotReleased(tx,submission.attempt_id);
       const criteria=await tx.$queryRaw<{id:string;max_points:number}[]>`SELECT id,max_points FROM public.learning_rubric_criteria WHERE assignment_id=${submission.assignment_id}::uuid AND id=ANY(${dto.scores.map(s=>s.criterionId)}::uuid[])`;
       if(criteria.length!==dto.scores.length || new Set(dto.scores.map(s=>s.criterionId)).size!==dto.scores.length) throw new BadRequestException("Scores must reference distinct criteria from this assignment.");
       for(const score of dto.scores){const criterion=criteria.find(c=>c.id===score.criterionId)!;if(score.awardedPoints>Number(criterion.max_points)) throw new BadRequestException("Awarded points exceed the rubric maximum.");}
@@ -61,8 +62,23 @@ export class AssessmentService {
 
   async feedback(user:AuthenticatedUser,submissionId:string,dto:CreateFeedbackDto) {
     const submission=await this.submissionScope(submissionId); await this.scope.assertTeacherClassroomPermission(user,submission.classroom_id,["learning.work.review"]);
-    const rows=await this.prisma.$queryRaw<{id:string;submission_id:string;author_user_id:string;feedback_type:string;content:string;created_at:Date}[]>`INSERT INTO public.learning_feedback(submission_id,attempt_id,author_user_id,feedback_type,content) VALUES(${submissionId}::uuid,${submission.attempt_id}::uuid,${user.vistaUserId}::uuid,${"comment"},${dto.content}) RETURNING id,submission_id,author_user_id,feedback_type,content,created_at`;
-    return rows[0];
+    return this.prisma.$transaction(async tx=>{
+      await this.assertNotReleased(tx,submission.attempt_id);
+      const rows=await tx.$queryRaw<{id:string;submission_id:string;author_user_id:string;feedback_type:string;content:string;created_at:Date}[]>`INSERT INTO public.learning_feedback(submission_id,attempt_id,author_user_id,feedback_type,content) VALUES(${submissionId}::uuid,${submission.attempt_id}::uuid,${user.vistaUserId}::uuid,${"comment"},${dto.content}) RETURNING id,submission_id,author_user_id,feedback_type,content,created_at`;
+      return rows[0];
+    });
+  }
+
+  /**
+   * Released grades are immutable: once an attempt's grading is released the student can see it, so a later assessment or
+   * feedback write would silently change what they were shown. The check locks the attempt row, which is the same row
+   * `releaseAttemptGrading` locks, so a write can never interleave with a release. Correcting a released grade needs an
+   * explicit, audited "revoke release" step that does not exist yet (it would need a schema change).
+   */
+  private async assertNotReleased(tx:Pick<PrismaService,"$queryRaw">,attemptId:string|null){
+    if(!attemptId) return;
+    const rows=await tx.$queryRaw<{grading_released_at:Date|null}[]>`SELECT grading_released_at FROM public.learning_assignment_attempts WHERE id=${attemptId}::uuid FOR UPDATE`;
+    if(rows[0]?.grading_released_at) throw new ConflictException({code:"GRADE_RELEASED",message:"This grade has been released to the student and can no longer be changed."});
   }
 
   async mySubmissions(user:AuthenticatedUser) {
@@ -244,7 +260,7 @@ export class AssessmentService {
     SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,s.status,s.submitted_at,s.origin,
       (SELECT json_build_object('id',att.id,'attemptNumber',att.attempt_number,'gradingReleasedAt',att.grading_released_at) FROM public.learning_assignment_attempts att WHERE att.id=s.attempt_id) AS attempt,
       u.full_name,u.email,la.title AS assignment_title,
-      CASE WHEN pv.id IS NULL THEN NULL ELSE json_build_object('id',pv.id,'versionNumber',pv.version_number,'workspaceJson',pv.workspace_json,'robotProgram',pv.robot_program,'validationResult',pv.validation_result,'changeSummary',pv.change_summary,'createdAt',pv.created_at) END AS program_version,
+      CASE WHEN pv.id IS NULL THEN NULL ELSE json_build_object('id',pv.id,'versionNumber',pv.version_number,'workspaceJson',COALESCE(s.submitted_workspace,pv.workspace_json),'robotProgram',COALESCE(s.submitted_program,pv.robot_program),'snapshotSource',CASE WHEN s.submitted_program IS NOT NULL AND s.submitted_workspace IS NOT NULL THEN 'submission' ELSE 'version' END,'validationResult',pv.validation_result,'changeSummary',pv.change_summary,'createdAt',pv.created_at) END AS program_version,
       CASE WHEN se.id IS NULL THEN NULL ELSE json_build_object('id',se.id,'experimentId',se.experiment_id,'programVersionId',se.program_version_id,'evaluatorVersion',se.evaluator_version,'ruleSetSchemaVersion',se.rule_set_schema_version,'ruleSetHash',se.rule_set_hash,'verdict',se.verdict,'ruleResults',se.rule_results,'metrics',se.metrics,'createdAt',se.created_at) END AS symbolic_evaluation,
       CASE WHEN ex.id IS NULL THEN NULL ELSE json_build_object('id',ex.id,'status',ex.status,'executionMode',ex.execution_mode,'createdAt',ex.created_at,'endedAt',ex.ended_at) END AS experiment,
       CASE WHEN a.id IS NULL THEN NULL ELSE json_build_object('id',a.id,'reviewerUserId',a.reviewer_user_id,'overallFeedback',a.overall_feedback,'reviewedAt',a.reviewed_at,'scores',COALESCE((SELECT json_agg(json_build_object('criterionId',sc.criterion_id,'awardedPoints',sc.awarded_points,'comment',sc.comment)) FROM public.learning_assessment_scores sc WHERE sc.assessment_id=a.id),'[]'::json)) END AS assessment,
