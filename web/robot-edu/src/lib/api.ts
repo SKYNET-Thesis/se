@@ -283,8 +283,10 @@ export interface ApiClassroomStudentPreview { processed:number;newStudents:numbe
 export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string}>; }
 export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; description?:string|null; capacity?:number|null; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
 export interface ApiOffering { id:string; code:string; title:string; status:string; }
-export interface ApiDeliveryChallenge { id:string; title:string; }
-export interface ApiDeliveryOption { course_id:string; course_title:string; lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; challenges:ApiDeliveryChallenge[]; }
+export interface ApiChallengeCondition { type: string; description: string | null; ruleKey: string; }
+export interface ApiDeliveryChallenge { id:string; title:string; description?:string|null; conditions?:ApiChallengeCondition[]; }
+export interface ApiDeliveryRubricCriterion { title: string; description: string | null; maxPoints: number | string; }
+export interface ApiDeliveryOption { course_id:string; course_title:string; lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; challenges:ApiDeliveryChallenge[]; rubric?:ApiDeliveryRubricCriterion[]; }
 export interface ApiEnrollment { id: string; course_id: string; classroom_id: string | null; status: string; enrolled_at?: string; completed_at?: string | null; }
 export interface ApiClassroomAssignment { id: string; classroom_id: string; assignment_id: string; lesson_id: string; lesson_title?:string; challenge_id: string | null; challenge_title?:string|null; title: string; instructions: string | null; allowed_blocks?: unknown; constraints?: unknown; status: string; available_from?:string|null; due_at?:string|null; close_at?:string|null; max_attempts?:number|null; published_by?:string|null; }
 export interface ApiPublishedQuiz { canonical_assignment_id: string; quiz_title: string; instructions: string; lesson_id: string; lesson_title: string; course_id: string; course_title: string; course_status: string; pass_percent: number; question_count: number; already_assigned: boolean; }

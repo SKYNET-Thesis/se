@@ -424,7 +424,9 @@ export class LearningService {
       SELECT co.id AS course_id,co.title AS course_title,l.id AS lesson_id,l.title AS lesson_title,
         COALESCE(template.title,l.title) AS title,COALESCE(template.instructions,'') AS instructions,template.challenge_id,
         COALESCE((
-          SELECT jsonb_agg(jsonb_build_object('id',ch.id,'title',ch.title) ORDER BY ch.title)
+          SELECT jsonb_agg(jsonb_build_object('id',ch.id,'title',ch.title,'description',ch.description,
+            'conditions',COALESCE((SELECT jsonb_agg(jsonb_build_object('type',cc2.condition_type,'description',cc2.description,'ruleKey',cc2.rule_key) ORDER BY cc2.ordinal)
+              FROM public.learning_challenge_conditions cc2 WHERE cc2.challenge_id=ch.id),'[]'::jsonb)) ORDER BY ch.title)
           FROM public.learning_challenges ch
           WHERE ch.status='published'
             AND (ch.organization_id IS NULL OR ch.organization_id=c.organization_id)
@@ -433,7 +435,11 @@ export class LearningService {
               SELECT 1 FROM public.learning_challenge_conditions cc
               WHERE cc.challenge_id=ch.id AND cc.condition_type='success'
             )
-        ),'[]'::jsonb) AS challenges
+        ),'[]'::jsonb) AS challenges,
+        COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('title',rc.title,'description',rc.description,'maxPoints',rc.max_points) ORDER BY rc.ordinal)
+          FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=rubric_source.id
+        ),'[]'::jsonb) AS rubric
       FROM public.learning_classrooms c
       JOIN public.learning_course_offerings o ON o.id=c.offering_id
       JOIN public.learning_courses co ON co.id=o.course_id
@@ -445,6 +451,14 @@ export class LearningService {
         WHERE a.lesson_id=l.id AND source.organization_id=c.organization_id
         ORDER BY ca.created_at DESC LIMIT 1
       ) template ON true
+      LEFT JOIN LATERAL (
+        SELECT a.id FROM public.learning_assignments a
+        JOIN public.learning_classroom_assignments ca ON ca.assignment_id=a.id
+        JOIN public.learning_classrooms source ON source.id=ca.classroom_id
+        WHERE a.lesson_id=l.id AND source.organization_id=c.organization_id
+          AND EXISTS (SELECT 1 FROM public.learning_rubric_criteria rc0 WHERE rc0.assignment_id=a.id)
+        ORDER BY ca.created_at DESC LIMIT 1
+      ) rubric_source ON true
       WHERE c.id=${classroomId}::uuid ORDER BY l.ordinal`;
   }
   async publishedQuizzes(user: AuthenticatedUser, classroomId: string) {
@@ -530,9 +544,26 @@ export class LearningService {
       if(!challenges[0]) throw new NotFoundException("Challenge was not found.");
     }
     return this.prisma.$transaction(async(tx)=>{
+      // The rubric is persisted per assignment and there is no authoring API for it: a new Blockly assignment inherits
+      // the criteria of the most recent assignment of the same lesson in the same organization (the same template that
+      // pre-fills the title/instructions). Quizzes are machine-graded and never inherit a rubric. One statement, so the
+      // content, its rubric and (below) the delivery are created or rolled back together.
       const assignments=await tx.$queryRaw<{id:string}[]>`
-        INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions,constraints)
-        VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""},${JSON.stringify(dto.quizPassPercent === undefined ? {} : { kind: 'knowledge_check', passPercent: dto.quizPassPercent })}::jsonb) RETURNING id`;
+        WITH created AS (
+          INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions,constraints)
+          VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""},${JSON.stringify(dto.quizPassPercent === undefined ? {} : { kind: 'knowledge_check', passPercent: dto.quizPassPercent })}::jsonb) RETURNING id
+        ), copied AS (
+          INSERT INTO public.learning_rubric_criteria(assignment_id,ordinal,title,description,max_points)
+          SELECT (SELECT id FROM created),rc.ordinal,rc.title,rc.description,rc.max_points
+          FROM public.learning_rubric_criteria rc
+          WHERE ${dto.quizPassPercent === undefined} AND rc.assignment_id=(
+            SELECT a.id FROM public.learning_assignments a
+            JOIN public.learning_classroom_assignments ca ON ca.assignment_id=a.id
+            JOIN public.learning_classrooms source ON source.id=ca.classroom_id
+            WHERE a.lesson_id=${dto.lessonId}::uuid AND source.organization_id=${lessons[0].organization_id}::uuid
+              AND EXISTS (SELECT 1 FROM public.learning_rubric_criteria rc0 WHERE rc0.assignment_id=a.id)
+            ORDER BY ca.created_at DESC LIMIT 1)
+        ) SELECT id FROM created`;
       const deliveries=await tx.$queryRaw<Record<string,unknown>[]>`
         INSERT INTO public.learning_classroom_assignments(classroom_id,assignment_id,status)
         VALUES(${classroomId}::uuid,${assignments[0].id}::uuid,'draft')
