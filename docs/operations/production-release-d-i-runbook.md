@@ -28,7 +28,7 @@ have no unmet dependency; I creates `learning_submission_files`/audit/functions 
 
 | Check | Result |
 |---|---|
-| Identity | pooler host, user `postgres.ovijutkvaaxohauvuxbj`, `SUPABASE_URL` project ref matches; server PostgreSQL 17.6, not in recovery |
+| Identity | (2026-11-12, with the then-used owner URL) pooler host, user `postgres.ovijutkvaaxohauvuxbj`, `SUPABASE_URL` project ref matches; since the role-separation change the read-only path requires `vista_backup_reader.ovijutkvaaxohauvuxbj` and only apply uses `postgres.…`; server PostgreSQL 17.6, not in recovery |
 | Baseline | 88 tables, 46 RLS-enabled, 0 policies, 19 triggers, 12 functions = baseline (after D–I: 91 tables, 49 RLS-enabled, 21 triggers, 14 functions, as pinned in `dev-schema-expectation.json` for a database that has D–I) |
 | Ledger | `vista_schema_migrations` columns and primary key as the runner expects; 7 earlier `executed` versions; `_prisma_migrations` 14 rows (legacy, untouched) |
 | Prerequisites | present; no object that D–I create exists yet |
@@ -113,7 +113,7 @@ creation until it is done; the gate does not require J because J is never in the
 
 1. Environment **`production-database-preflight`**: branch policy `main` only; no reviewers; secrets `PRODUCTION_DATABASE_READONLY_URL`,
    `PRODUCTION_SUPABASE_URL`, `SUPABASE_ACCESS_TOKEN` (Supabase personal access token able to read backups of this project only). Create a dedicated
-   PostgreSQL role with `USAGE` on schema `public`, `SELECT` on every `public` table **and sequence**, **and `BYPASSRLS`** (or table ownership) and use its URL (session pooler,
+   PostgreSQL role with `USAGE` on schema `public`, `SELECT` on every `public` table **and sequence**, **and `BYPASSRLS`** (or table ownership) and name it **`vista_backup_reader`** (the tooling accepts no other read-only role; pooler user `vista_backup_reader.ovijutkvaaxohauvuxbj`, see [connection strings](production-db-logical-backup.md#connection-strings-and-role-separation-enforced-in-code)); use its URL (session pooler,
    `sslmode=require`); the tooling also wraps every read in `BEGIN READ ONLY`. `SELECT` alone is **not enough**: all 46 RLS tables have RLS enabled, so such a role reads 0 rows
    (`count(*)` silently returns 0, `pg_dump` aborts). `snapshot` and the logical backup now refuse a role that RLS would blind (tested). Supabase documents this role recipe and `postgres` could create it on Supabase's own PostgreSQL 17.11 image (disposable container); that it also works on the hosted Free project is
    the one remaining unverified point (see production-db-readiness-20261113.md §10). Exact SQL: [production-db-logical-backup.md](production-db-logical-backup.md#reader-role).

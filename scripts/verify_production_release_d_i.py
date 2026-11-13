@@ -19,7 +19,12 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
+
+try:
+    from scripts import supabase_identity
+except ModuleNotFoundError:  # executed as a script from the repository root
+    import supabase_identity  # type: ignore
 
 ROOT = Path(__file__).resolve().parents[1]
 PROD_REF = "ovijutkvaaxohauvuxbj"
@@ -33,15 +38,20 @@ COUNT_TABLES = ["learning_submissions", "learning_assessments", "learning_assess
                 "learning_questions", "learning_activities", "learning_activity_progress", "learning_enrollments", "users"]
 
 
-def _identity(url: str) -> None:
+def _identity(url: str, operation: str) -> None:
+    """Loopback vista_test_* database, or the Production project with a role permitted for `operation` (supabase_identity):
+    --snapshot is a read operation (backup reader role), --verify runs after the apply with the apply role."""
     parsed = urlsplit(url)
     host = (parsed.hostname or "").lower()
     database = parsed.path.lstrip("/")
     if host in {"127.0.0.1", "localhost", "::1"}:
         if not database.startswith("vista_test_"):
             raise SystemExit("Loopback targets must be vista_test_* databases")
-    elif not (host.endswith(".pooler.supabase.com") and (parsed.username or "") == f"postgres.{PROD_REF}") and host not in {f"db.{PROD_REF}.supabase.co", f"{PROD_REF}.supabase.co"}:
-        raise SystemExit("DATABASE_URL does not identify the Production project or a local test database")
+        return
+    try:
+        supabase_identity.validate_hosted_role(host, unquote(parsed.username or ""), PROD_REF, operation)
+    except supabase_identity.IdentityError as exc:
+        raise SystemExit(f"DATABASE_URL does not identify the Production project with an approved {operation} role: {exc}") from None
 
 
 def query(url: str, sql: str):
@@ -173,7 +183,7 @@ def main() -> int:
     url = os.environ.get("DATABASE_URL", "")
     if not url:
         raise SystemExit("DATABASE_URL is required")
-    _identity(url)
+    _identity(url, "read" if args.snapshot else "apply")
     if args.snapshot:
         data = snapshot(url)
         args.snapshot.write_text(json.dumps(data, indent=2))
