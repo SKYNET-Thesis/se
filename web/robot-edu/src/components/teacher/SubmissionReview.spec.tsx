@@ -21,7 +21,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
   };
 });
 
-import { SubmissionReviewDetail } from './SubmissionReviewDetail';
+import { SubmissionReviewDetail, formatStepParameters } from './SubmissionReviewDetail';
 import { TeacherSubmissions } from '../../pages/teacher/TeacherSubmissions';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,6 +60,27 @@ describe('SubmissionReviewDetail', () => {
     await flush();
     expect(mocks.assess).toHaveBeenCalledWith('sub-1', 'tok', { overallFeedback: undefined, scores: [{ criterionId: 'c1', awardedPoints: 8, comment: undefined }] });
     expect(mocks.release).not.toHaveBeenCalled(); // saving never releases
+  });
+
+  it('shows every submitted parameter (including nested ones), the version details and the frozen-copy source', async () => {
+    mocks.submission.mockResolvedValue(detail({ program_version: { id: 'abcdef12-0000-4000-8000-000000000000', versionNumber: 7, snapshotSource: 'submission', workspaceJson: { blocks: {} }, robotProgram: { steps: [{ type: 'arm.select', arm: 'left' }, { type: 'preview.move_xyz', arm: 'left', position: { x: 240, y: 220, z: 120 } }, { type: 'wait', durationMs: 1000 }] }, validationResult: { valid: true }, changeSummary: 'checkpoint', createdAt: '2026-11-13T00:50:00Z' } }));
+    await mount(<SubmissionReviewDetail submissionId="sub-1" token="tok" classroomId="c1" allSubmissions={[]} onSelect={() => undefined} />);
+    const steps = container.querySelector('[aria-label="Program steps and parameters"]')!.textContent!;
+    expect(steps).toContain('arm: left'); expect(steps).toContain('position: {x: 240, y: 220, z: 120}'); expect(steps).toContain('durationMs: 1000');
+    const meta = container.querySelector('[aria-label="Program version details"]')!.textContent!;
+    expect(meta).toContain('#7'); expect(meta).toContain('abcdef12'); expect(meta).toContain('Valid'); expect(meta).toContain('checkpoint');
+    expect(container.textContent).toContain('frozen on the submission'); expect(container.textContent).toContain('Frozen at submission');
+  });
+
+  it('is honest when an older submission only has the saved version, and when nothing was recorded', async () => {
+    mocks.submission.mockResolvedValue(detail());
+    await mount(<SubmissionReviewDetail submissionId="sub-1" token="tok" classroomId="c1" allSubmissions={[]} onSelect={() => undefined} />);
+    expect(container.textContent).toContain('no frozen copy');
+    expect(formatStepParameters({ type: 'wait', durationMs: 100 })).toBe('durationMs: 100'); expect(formatStepParameters({ type: 'home' })).toBe('');
+    mocks.submission.mockResolvedValue(detail({ program_version: null }));
+    await act(async () => root.unmount()); root = createRoot(container);
+    await mount(<SubmissionReviewDetail submissionId="sub-2" token="tok" classroomId="c1" allSubmissions={[]} onSelect={() => undefined} />);
+    expect(container.textContent).toContain('No ProgramVersion was recorded'); expect(container.querySelector('[data-testid="readonly-blockly"]')).toBeNull();
   });
 
   it('enables release only after an assessment exists, asks for confirmation, then calls the release endpoint once', async () => {

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DownloadIcon, LockIcon } from 'lucide-react';
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
-import { ApiError, instructorApi, type ApiInstructorSubmission, type ApiInstructorSubmissionDetail } from '../../lib/api';
+import { ApiError, instructorApi, type ApiInstructorSubmission } from '../../lib/api';
 import { attemptHistory, criterionError, formatDateTime, scoreTotals, stageLabel, submissionStage } from '../../queries/teacherSubmissionsModel';
 import { buildAssessmentScores, evaluationPresentation } from '../../queries/teacherSubmissionReview';
 import { teacherLearningKeys, teacherReviewInvalidations } from '../../queries/teacherLearningQueries';
@@ -23,19 +23,30 @@ const Card = ({ title, aside, children }: { title: string; aside?: ReactNode; ch
   </section>
 );
 
+/** `key: value` for scalars; nested parameters (for example a position) are spelled out instead of being hidden. */
+export function formatStepParameters(step: Record<string, unknown>): string {
+  const show = (value: unknown): string => (value && typeof value === 'object' ? `{${Object.entries(value as Record<string, unknown>).map(([key, item]) => `${key}: ${show(item)}`).join(', ')}}` : String(value));
+  return Object.entries(step).filter(([key]) => key !== 'type').map(([key, value]) => `${key}: ${show(value)}`).join(' · ');
+}
+
 /** Steps of the persisted RobotProgram as a plain list (the canonical, immutable submitted content). */
 function ProgramSteps({ robotProgram }: { robotProgram: Record<string, unknown> }) {
   const steps = Array.isArray(robotProgram.steps) ? (robotProgram.steps as Array<Record<string, unknown>>) : null;
   if (!steps) return <pre className="max-h-56 overflow-auto rounded bg-sunken p-3 text-xs">{JSON.stringify(robotProgram, null, 2)}</pre>;
   return (
-    <ol className="max-h-56 list-decimal space-y-1 overflow-auto rounded bg-sunken/60 p-3 pl-8 text-sm text-ink">
+    <ol aria-label="Program steps and parameters" className="max-h-56 list-decimal space-y-1 overflow-auto rounded bg-sunken/60 p-3 pl-8 text-sm text-ink">
       {steps.map((step, index) => {
-        const { type, ...rest } = step;
-        const detail = Object.entries(rest).filter(([, value]) => typeof value !== 'object').map(([key, value]) => `${key}: ${String(value)}`).join(' · ');
-        return <li key={index}><span className="font-medium">{String(type ?? 'step')}</span>{detail && <span className="text-ink-muted"> — {detail}</span>}</li>;
+        const detail = formatStepParameters(step);
+        return <li key={index}><span className="font-medium">{String(step.type ?? 'step')}</span>{detail && <span className="text-ink-muted"> — {detail}</span>}</li>;
       })}
     </ol>
   );
+}
+
+function validationSummary(result: Record<string, unknown> | undefined): string {
+  if (!result) return 'Not recorded';
+  const problems = Array.isArray(result.problems) ? result.problems.length : Array.isArray(result.errors) ? result.errors.length : 0;
+  return result.valid === false || problems > 0 ? `${problems || 'Some'} issue${problems === 1 ? '' : 's'} recorded` : result.valid === true ? 'Valid' : 'Recorded';
 }
 
 interface Props { submissionId: string; token: string; allSubmissions: ApiInstructorSubmission[]; classroomId: string; onSelect: (id: string) => void }
@@ -116,13 +127,19 @@ export function SubmissionReviewDetail({ submissionId, token, allSubmissions, cl
           {item.origin === 'reconstructed' && <p className="mt-3 text-xs text-ink-muted">This submission was rebuilt from attempt history; no grade or feedback was invented for it.</p>}
         </Card>
 
-        <Card title="Submitted program" aside={item.program_version && <span className="text-xs text-ink-subtle">Immutable snapshot · saved {formatDateTime(item.program_version.createdAt)}</span>}>
+        <Card title="Submitted program" aside={item.program_version && <span className="text-xs text-ink-subtle">{item.program_version.snapshotSource === 'submission' ? 'Frozen at submission' : 'Saved version'} · version saved {formatDateTime(item.program_version.createdAt)}</span>}>
           {item.program_version ? (
             <>
-              <p className="mb-3 text-[13px] text-ink-muted">This is the exact ProgramVersion the student submitted — not their latest editable draft.</p>
-              <div className="relative h-72 overflow-hidden rounded-md border border-line" data-testid="readonly-blockly">
+              <p className="mb-3 text-[13px] text-ink-muted">This is the exact program the student submitted — not their latest editable draft. {item.program_version.snapshotSource === 'submission' ? 'It is the copy frozen on the submission when it was submitted.' : 'This older submission has no frozen copy, so the saved program version is shown.'}</p>
+              <dl className="mb-3 grid gap-3 sm:grid-cols-4" aria-label="Program version details">
+                <Meta plain label="Version" value={`#${item.program_version.versionNumber}`} />
+                <Meta plain label="Version ID" value={item.program_version.id.slice(0, 8)} />
+                <Meta plain label="Validation" value={validationSummary(item.program_version.validationResult)} />
+                <Meta plain label="Change note" value={item.program_version.changeSummary?.trim() || '—'} />
+              </dl>
+              <div className="relative h-96 overflow-hidden rounded-md border border-line" data-testid="readonly-blockly">
                 <Suspense fallback={<p className="p-4 text-sm text-ink-muted">Loading workspace…</p>}>
-                  <BlocklyCanvas key={item.program_version.id} initialState={item.program_version.workspaceJson} readOnly onLoadError={setWorkspaceError} />
+                  <BlocklyCanvas key={item.program_version.id} initialState={item.program_version.workspaceJson} readOnly onLoadError={setWorkspaceError} onReady={(workspace) => { const fit = workspace as unknown as { zoomToFit?: () => void }; window.setTimeout(() => fit.zoomToFit?.(), 0); }} />
                 </Suspense>
               </div>
               {workspaceError && <p role="status" className="mt-2 text-xs text-warn">The block workspace could not be drawn ({workspaceError}). The program steps below are the authoritative content.</p>}

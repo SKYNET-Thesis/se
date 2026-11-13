@@ -89,6 +89,16 @@ describeDb('real PostgreSQL instructor assignment management', () => {
     expect(own.student_count).toBe(2); expect(own.enrolled_student_count).toBe(1);
   });
 
+  it('shows the instructor the frozen submitted program even if the program version row is later altered', async () => {
+    const f = await fixture(); const { submission } = await submit(f);
+    const before = (await assessment.instructorSubmission(f.teacher, submission.id) as Record<string, any>).program_version;
+    expect(before.snapshotSource).toBe('submission'); expect(before.robotProgram).toEqual(program);
+    // Simulate an out-of-band change of the (non-frozen) program version: the instructor must still see what was submitted.
+    await db.$executeRaw`UPDATE public.learning_program_versions SET robot_program='{"schemaVersion":1,"kind":"robot_program","steps":[{"type":"home"}]}'::jsonb, workspace_json='{"tampered":true}'::jsonb WHERE id=${before.id}::uuid`;
+    const after = (await assessment.instructorSubmission(f.teacher, submission.id) as Record<string, any>).program_version;
+    expect(after.robotProgram).toEqual(program); expect(after.workspaceJson).toEqual(before.workspaceJson); expect(after.versionNumber).toBe(before.versionNumber);
+  });
+
   it('copies the lesson rubric into a newly created assignment (and the template stays untouched)', async () => {
     const f = await fixture();
     const created = await learning.createAssignment(f.teacher, f.x.room.id, { lessonId: f.x.lesson.id, title: 'Second gripper task' } as never) as { assignment_id: string };
