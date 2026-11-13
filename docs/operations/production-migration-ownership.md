@@ -62,11 +62,17 @@ that the schema fingerprint is stable. It does not replace steps 4–5 or any Pr
   SQL runner execution commands inside GitHub Actions workflows. The API and
   web Production deploy jobs require the `database-safety` job to succeed
   first; this gate validates inventory but never applies migrations.
-- CI does not deploy a database migration. A future production release job may
-  only be introduced after a separately approved design adds a protected
-  GitHub environment with required reviewers, least-privilege credentials,
-  immutable artifact selection, preflight/lock/ledger checks, and a documented
-  operator approval. Until then, no automatic Production migration path exists.
+- CI never deploys a database migration implicitly. The only permitted path is
+  the dedicated, manual, approval-gated `production-database-release.yml`
+  (protected environments with required reviewers, read-only preflight
+  credentials separate from the privileged apply credential, plan-hash
+  revalidation, backup/PITR evidence, serialized runs); see
+  [`production-release-d-i-runbook.md`](production-release-d-i-runbook.md).
+  `check_database_workflow_safety.py` rejects every other workflow that could
+  apply migrations and verifies the release workflow's structure. **That design
+  is implemented in source but not enabled: it needs owner approval and the
+  GitHub settings in the runbook; until both exist no automatic Production
+  migration path exists.**
 - Run `python scripts/sql_migration_runner.py` without a mode for local
   manifest validation. `--dry-run --expected-project-ref <ref>` performs only
   read-only identity and ledger checks. `--apply` requires an operator ID and

@@ -1,0 +1,73 @@
+{
+  "_source": "https://api.supabase.com/api/v1-json  components.schemas.V1BackupsResponse_Output (GET /v1/projects/{ref}/database/backups), captured 2026-11-12",
+  "type": "object",
+  "properties": {
+    "region": {
+      "type": "string"
+    },
+    "walg_enabled": {
+      "type": "boolean"
+    },
+    "pitr_enabled": {
+      "type": "boolean"
+    },
+    "backups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "is_physical_backup": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "COMPLETED",
+              "FAILED",
+              "PENDING",
+              "REMOVED",
+              "ARCHIVED",
+              "CANCELLED"
+            ]
+          },
+          "inserted_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "is_physical_backup",
+          "status",
+          "inserted_at"
+        ]
+      }
+    },
+    "physical_backup_data": {
+      "type": "object",
+      "properties": {
+        "earliest_physical_backup_date_unix": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "latest_physical_backup_date_unix": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      }
+    }
+  },
+  "required": [
+    "region",
+    "walg_enabled",
+    "pitr_enabled",
+    "backups",
+    "physical_backup_data"
+  ]
+}

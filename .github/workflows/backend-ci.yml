@@ -112,9 +112,35 @@ jobs:
           echo "api=$api" >> "$GITHUB_OUTPUT"
           echo "web=$web" >> "$GITHUB_OUTPUT"
           echo "Production targets: API=$api web=$web"
+  schema-gate:
+    # The API/Web build must never reach EC2 while the Production database lacks a migration the build requires: a schema-incompatible
+    # image crash-loops, and the deploy script stops the healthy container before it starts the new one. This read-only gate runs
+    # BEFORE any SSM command, so a blocked deployment leaves the running API untouched. Rollback to the previous image is not gated.
+    if: github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ENABLED == 'true' && needs.changes.result == 'success' && (needs.changes.outputs.api == 'true' || needs.changes.outputs.web == 'true') && !(github.event_name == 'workflow_dispatch' && inputs.action == 'rollback')
+    needs: [changes]
+    runs-on: ubuntu-latest
+    environment: production-database-preflight
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Verify the Production schema satisfies this build (read-only)
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_READONLY_URL }}
+          SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
+        run: |
+          test -n "$DATABASE_URL" && test -n "$SUPABASE_URL" || { echo 'Read-only Production database secrets are not configured in the production-database-preflight environment; refusing to deploy (fail closed)' >&2; exit 1; }
+          python scripts/production_db_release.py compat --expected-project-ref ovijutkvaaxohauvuxbj
   deploy-api:
-    if: always() && vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.database-safety.result == 'success' && needs.changes.result == 'success' && needs.changes.outputs.api == 'true' && ((github.event_name == 'workflow_dispatch' && inputs.action == 'rollback') || (needs.api.result == 'success' && needs.web.result == 'success' && needs.docker.result == 'success'))
-    needs: [api, web, docker, changes, database-safety]
+    if: always() && vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.database-safety.result == 'success' && needs.changes.result == 'success' && needs.changes.outputs.api == 'true' && (needs.schema-gate.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.action == 'rollback')) && ((github.event_name == 'workflow_dispatch' && inputs.action == 'rollback') || (needs.api.result == 'success' && needs.web.result == 'success' && needs.docker.result == 'success'))
+    needs: [api, web, docker, changes, database-safety, schema-gate]
     runs-on: ubuntu-latest
     permissions: { contents: read, id-token: write }
     environment: aws-demo
@@ -189,8 +215,8 @@ jobs:
           curl --fail --silent --show-error --retry 6 --retry-delay 5 https://api.skynex.best/api/v1/health >/dev/null
           curl --fail --silent --show-error --retry 6 --retry-delay 5 https://skynex.best/api/v1/health >/dev/null
   deploy-web:
-    if: always() && vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.database-safety.result == 'success' && needs.changes.result == 'success' && needs.changes.outputs.web == 'true' && needs.api.result == 'success' && needs.web.result == 'success' && (needs.deploy-api.result == 'success' || (needs.deploy-api.result == 'skipped' && needs.changes.outputs.api != 'true'))
-    needs: [api, web, changes, deploy-api, database-safety]
+    if: always() && vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.database-safety.result == 'success' && needs.changes.result == 'success' && needs.changes.outputs.web == 'true' && needs.schema-gate.result == 'success' && needs.api.result == 'success' && needs.web.result == 'success' && (needs.deploy-api.result == 'success' || (needs.deploy-api.result == 'skipped' && needs.changes.outputs.api != 'true'))
+    needs: [api, web, changes, deploy-api, database-safety, schema-gate]
     runs-on: ubuntu-latest
     permissions: { contents: read, id-token: write }
     environment: aws-demo
