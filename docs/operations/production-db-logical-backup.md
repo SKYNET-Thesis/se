@@ -1,6 +1,6 @@
 # Production database release: logical backup mode (Supabase Free)
 
-Status: **implemented, not executed.** No backup, restore or migration has been run against Production. Stage J stays excluded.
+Status (2026-11-13): **implemented and provisioned; no backup, restore or migration has been run against Production.** The AWS destination, the GitHub variables, the Supabase reader role and the preflight read-only secret exist (details below). The first real dump, the first restore test and the migrations D-I are still to be run through the approval-gated workflow. Stage J stays excluded.
 
 Supabase Free has no managed backups and no PITR. `backup_mode=logical` of `production-database-release.yml` replaces the managed-backup
 check with a verified `pg_dump` backup. `backup_mode=managed` (default) is unchanged: it still requires PITR or a COMPLETED backup
@@ -21,34 +21,37 @@ check with a verified `pg_dump` backup. `backup_mode=managed` (default) is uncha
 
 Evidence binds: `projectRef`, `scope`, `planHash`, `manifestSha256`, `releaseCommit` (the reviewed main SHA), `sourceCommit`, run id, dump SHA-256, object version. A backup from another project, scope, manifest, commit or plan is rejected. Missing evidence, restore failure, a missing role/bucket/key variable, stale evidence or a mode/evidence-kind mismatch all fail closed.
 
-## One-time configuration (not done by this change)
+## One-time configuration (status 2026-11-13)
+
+| Item | State |
+|---|---|
+| AWS bucket, KMS key + alias, writer and reader roles (13 Terraform resources, `infra/terraform/db-backup.tf`) | **provisioned** 2026-11-13 by a reviewed, targeted apply (13 added, 0 changed, 0 destroyed) and verified against AWS |
+| GitHub environment **variables** (6) | **set** (below) |
+| Supabase role `vista_backup_reader` | **created** 2026-11-13, verified (see [Reader role](#reader-role)) |
+| `PRODUCTION_DATABASE_READONLY_URL` (`production-database-preflight`) | **set** 2026-11-13 to the reader's session-pooler URL (value never stored anywhere else) |
+| `PRODUCTION_SUPABASE_URL` (both environments) | **reset** 2026-11-13 from `https://ovijutkvaaxohauvuxbj.supabase.co`; a secret cannot be read back, the first run that uses it is its proof |
+| Branch protection on `main` (5 required checks, no force-push or deletion, no review requirement), `production-database-apply` (reviewer `leduc121`, self-review allowed, `main` only), CODEOWNERS (`@leduc121`) | **applied** 2026-11-13 under the solo-maintainer policy (readiness record, section 16) |
+| First `pg_dump` through the session pooler, first restore test, first S3/KMS upload | **not yet exercised** |
 
 GitHub environment **variables** (not secrets) in `production-database-preflight`: `DB_BACKUP_WRITE_ROLE_ARN`, `DB_BACKUP_BUCKET`, `DB_BACKUP_KMS_KEY_ARN`.
 In `production-database-apply`: `DB_BACKUP_READ_ROLE_ARN`, `DB_BACKUP_BUCKET`, `DB_BACKUP_KMS_KEY_ARN`. Existing secrets stay as they are; no AWS keys are stored in GitHub.
 
 The read-only Production role (`PRODUCTION_DATABASE_READONLY_URL`) needs `USAGE` on `public`, `SELECT` on every `public` table and sequence **and `BYPASSRLS` (or ownership)**: Production tables have RLS enabled with no policies, so a plain `SELECT` role gets `pg_dump` aborted (`query would be affected by row-level security policy`) and `count(*)` = 0; `--enable-row-security` would instead silently dump zero rows (verified on PostgreSQL 17). `production_db_backup.py` checks all of this before dumping (`reader_access_gaps`, names only) and `pg_dump` must run through the session pooler (5432) or direct connection. See [Reader role](#reader-role) for the exact (not yet executed) SQL and the verification status.
 
-AWS (account 157098813811, ap-southeast-1) — **proposal, needs separate approval; nothing was created** (read-only check 2026-11-13: the GitHub OIDC provider exists, no backup bucket, alias or roles). The proposal is now written as `infra/terraform/db-backup.tf` (validated; read-only targeted plan: 13 additions, 0 changes, 0 destroys, no `aws_instance`; reproduce with `infra/terraform/scripts/plan-db-backup.sh`). **Do not run a plain `terraform apply`**: the same plan also wants to replace `aws_instance.api` (newer AMI + user-data drift) and change 11 other resources; apply only with reviewed `-target` for the `db_backup` resources, or after that drift is resolved.
-* S3 bucket, e.g. `vista-prod-db-backups-157098813811`: Block Public Access all on, versioning on, default SSE-KMS with a dedicated CMK (rotation on), bucket policy denying non-TLS requests and `PutObject` without `aws:kms`, lifecycle: expire current/non-current versions after 90 days (matches `retentionDays`), optionally Object Lock (governance) for tamper resistance.
-* IAM OIDC provider `token.actions.githubusercontent.com` (if absent) and two roles:
+AWS (account 157098813811, ap-southeast-1) — **provisioned 2026-11-13** from `infra/terraform/db-backup.tf` (reviewed targeted plan: 13 add / 0 change / 0 destroy; no `aws_instance`; state `vista/demo/terraform.tfstate`). **Do not run a plain `terraform apply`**: a full plan still wants to replace `aws_instance.api` (`most_recent` AMI + `user_data_replace_on_change`) and change 11 other resources; use `infra/terraform/scripts/plan-db-backup.sh` and reviewed `-target` applies only. Names:
+* S3 bucket `vista-prod-db-backups-157098813811` (KMS alias `alias/vista-prod-db-backups`, roles `vista-prod-db-backup-writer` / `-reader`; the key ARN and role ARNs are the Terraform outputs and the GitHub variables): Block Public Access all on, versioning on, default SSE-KMS with a dedicated CMK (rotation on), bucket policy denying non-TLS requests and `PutObject` without `aws:kms`, lifecycle: expire current/non-current versions after 90 days (matches `retentionDays`), optionally Object Lock (governance) for tamper resistance.
+* IAM OIDC provider `token.actions.githubusercontent.com` (already existed) and the two roles:
   * write role — trust `repo:<org>/<repo>:environment:production-database-preflight` (+ `aud sts.amazonaws.com`); permissions `s3:PutObject` on `production/ovijutkvaaxohauvuxbj/*`, `s3:GetObject`/`HeadObject` on the same prefix, `kms:GenerateDataKey`/`kms:Encrypt`/`kms:Decrypt` on the key. No delete.
   * read role — trust `...:environment:production-database-apply`; `s3:GetObject`/`HeadObject` on the prefix and `kms:Decrypt`. No write.
   * restoring a dump during recovery is a human operation with a separately approved break-glass role.
 
 ## Reader role
 
-Supabase documents the pattern ([troubleshooting](https://supabase.com/kb/troubleshooting/pg_dump-fails-with-query-would-be-affected-by-row-level-security-policy), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)). **Proposed SQL, NOT executed; run by the database owner after approval, as `postgres`, once:**
+Supabase documents the pattern ([troubleshooting](https://supabase.com/kb/troubleshooting/pg_dump-fails-with-query-would-be-affected-by-row-level-security-policy), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security)). **Created on the hosted project on 2026-11-13** by the database owner as `postgres`, once, in a single transaction (guards and in-transaction verification roll everything back on any surprise), with the reviewed script [production-db-reader-role-sql.md](production-db-reader-role-sql.md); recovery script [the same page](production-db-reader-role-sql.md#recovery-remove-the-role-as-postgres) (explicit `REVOKE`s then `DROP ROLE`; `DROP OWNED BY` is not usable because `postgres` holds only `ADMIN`, not `INHERIT`, on the role it creates). The password is passed as a psql variable (`-v reader_password=...` through a `0600` file), generated randomly, and lives only in the GitHub secret; to rotate: `ALTER ROLE vista_backup_reader PASSWORD ...` as `postgres`, then set the secret again.
 
-```sql
-CREATE ROLE vista_backup_reader LOGIN PASSWORD '<generated, stored only in the GitHub environment secret>' BYPASSRLS;
-ALTER ROLE vista_backup_reader SET default_transaction_read_only = on;
-GRANT USAGE ON SCHEMA public TO vista_backup_reader;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO vista_backup_reader;
-GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO vista_backup_reader;
--- tables created later (D-I creates 4) must be readable too, otherwise the next backup fails closed:
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON TABLES TO vista_backup_reader;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT ON SEQUENCES TO vista_backup_reader;
-```
+What the script does: `LOGIN BYPASSRLS` (no superuser/createrole/createdb/replication, connection limit 5, role defaults `default_transaction_read_only=on`, `statement_timeout=10min`, `idle_in_transaction_session_timeout=10min`); `USAGE` on `public`; `SELECT` on all tables and sequences of `public`; two `ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public ... GRANT SELECT` so tables created later (D-I creates 4) stay readable. Guards refuse to run if the role exists or if `PUBLIC` holds write privileges or `CREATE` on `public`.
+
+Hosted verification (2026-11-13, read-only queries, then a session-pooler connection as the reader): 88/88 tables and the sequence readable; 0 writable tables; `USAGE` but no `CREATE` on `public`; no access to `auth`, `storage`, `vault`, `realtime`; no role memberships; 2 default ACLs; `PUBLIC` still holds 0 grants on public tables; strict `reader_access_gaps` = `[]`; row counts through the reader equal the owner's on all 88 tables (369 rows, so `BYPASSRLS` is effective); `INSERT`, `DELETE`, `CREATE TABLE` and a read of `auth.users` denied by privileges even with the read-only default switched off. A `pg_dump` through the pooler has **not** been run yet.
 
 ### Connection strings and role separation (enforced in code)
 
@@ -76,9 +79,9 @@ postgresql://vista_backup_reader.ovijutkvaaxohauvuxbj:<URL-encoded password>@<po
 
 `SUPABASE_URL` (`PRODUCTION_SUPABASE_URL`) stays `https://ovijutkvaaxohauvuxbj.supabase.co` and must carry the same reference. Error messages never contain the user name, host, reference or password supplied.
 
-Deliberately **not** `pg_read_all_data` (reads `auth`/`storage` too and still does not bypass RLS). RLS stays enabled everywhere; no application role, policy or grant changes. `BYPASSRLS` gives this one login read access to every row, so its URL is a secret of `production-database-preflight` only and rotates after use; `default_transaction_read_only` is only a default (a session can switch it off) and the tooling wraps its reads in `BEGIN READ ONLY`.
+Deliberately **not** `pg_read_all_data` (reads `auth`/`storage` too and still does not bypass RLS). RLS stays enabled everywhere; no application role, policy or grant changes. `BYPASSRLS` gives this one login read access to every row, so its URL is a secret of `production-database-preflight` only and rotates after use; `default_transaction_read_only` is only a default (a session can switch it off; the privileges are what block writes, as tested) and the tooling wraps its reads in `BEGIN READ ONLY`.
 
-Evidence (disposable container of `public.ecr.aws/supabase/postgres:17.11.0.011`, 2026-11-13; the hosted Free project was **not** touched): `postgres` (`rolsuper=f`, `rolcreaterole=t`, `rolbypassrls=t`) created the role; `pg_dump --schema=public` returned all rows (also with `FORCE ROW LEVEL SECURITY`); `pg_read_all_data` alone failed with the RLS error; `GRANT postgres TO role` was refused (no ADMIN option); `SELECT`-only failed. PostgreSQL itself only lets a role that holds `BYPASSRLS` grant it, which `postgres` does on Supabase. **Remaining uncertainty:** the hosted Free project's `postgres` role attributes were not inspected (a read-only `SELECT rolcreaterole, rolbypassrls FROM pg_roles WHERE rolname='postgres'` under the preflight approval answers it). Fallbacks if it were refused: Supabase support request, or the Supabase-hosted logical backup via the dashboard/CLI (still not PITR); do not use the `postgres` owner URL for the backup job.
+Evidence (disposable container of `public.ecr.aws/supabase/postgres:17.11.0.011`, 2026-11-13; the hosted Free project was **not** touched): `postgres` (`rolsuper=f`, `rolcreaterole=t`, `rolbypassrls=t`) created the role; `pg_dump --schema=public` returned all rows (also with `FORCE ROW LEVEL SECURITY`); `pg_read_all_data` alone failed with the RLS error; `GRANT postgres TO role` was refused (no ADMIN option); `SELECT`-only failed. PostgreSQL itself only lets a role that holds `BYPASSRLS` grant it, which `postgres` does on Supabase. **Resolved on the hosted project:** `postgres` there is `rolcreaterole=t`, `rolbypassrls=t`, `rolsuper=f` and created the role. Fallbacks that would have applied otherwise: Supabase support request, or the Supabase-hosted logical backup via the dashboard/CLI (still not PITR); do not use the `postgres` owner URL for the backup job.
 
 ## Restoring (recovery; needs approval)
 

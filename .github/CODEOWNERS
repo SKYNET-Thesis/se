@@ -26,3 +26,30 @@
 
 # Kiểm thử tích hợp toàn hệ thống
 /tests/end-to-end/ @leduc121 @vuanhtuan1805 @ttjendatgit @Loiprofpt
+
+# Production database release, migrations, logical backup and role separation.
+# Last matching pattern wins, so these come after the broad /infra/ and /.github/workflows/ rules.
+# Sole maintainer: @leduc121 owns everything. Code-owner review is intentionally NOT required by branch protection (a sole maintainer cannot
+# approve their own pull request); this file documents ownership and takes effect if a second maintainer and the review rule are added.
+/database/                                          @leduc121
+/tests/database/                                    @leduc121
+/scripts/sql_migration_runner.py                    @leduc121
+/scripts/production_db_release.py                   @leduc121
+/scripts/production_db_backup.py                    @leduc121
+/scripts/supabase_identity.py                       @leduc121
+/scripts/verify_production_release_d_i.py           @leduc121
+/scripts/verify_production_catalog_parity.py        @leduc121
+/scripts/check_database_workflow_safety.py          @leduc121
+/scripts/validate_database_migration_manifest.py    @leduc121
+/scripts/run_database_safety_tests.py               @leduc121
+/.github/workflows/production-database-release.yml  @leduc121
+/.github/workflows/database-bootstrap.yml           @leduc121
+/.github/workflows/database-migration-safety.yml    @leduc121
+/.github/workflows/backend-ci.yml                   @leduc121
+/infra/terraform/db-backup.tf                       @leduc121
+/infra/terraform/github-oidc.tf                     @leduc121
+/infra/terraform/scripts/plan-db-backup.sh          @leduc121
+/docs/operations/production-*.md                    @leduc121
+
+# CODEOWNERS itself (supersedes the earlier entry for the same path).
+/.github/CODEOWNERS                                 @leduc121

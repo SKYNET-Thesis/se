@@ -145,3 +145,33 @@ Next approval gates (none performed): 1) commit/PR/merge to `develop`; 2) target
 Found by the hosted-Supabase inspection: every identity check accepted a pooler user only if it was literally `postgres.<ref>`, so a dedicated reader (`<role>.<ref>`) was rejected, and direct hosts are IPv6-only. Fix: `scripts/supabase_identity.py` (single source of truth) used by `sql_migration_runner.py`, `production_db_release.py`, `production_db_backup.py` and `verify_production_release_d_i.py`; operation `read` accepts only `vista_backup_reader`, `apply` only `postgres`, exact project reference, two host shapes, no input echoed in errors. Tests: `tests/database/test_supabase_identity.py` (28) plus the adjusted backup identity test. Not applied anywhere; the reader role and the secret switch are still open approval gates.
 
 Round 2 of the same change: the shared `READER_ACCESS_SQL` / `reader_access_gaps(info, strict=True)` (in `supabase_identity.py`) is now run server-side by `plan`, `snapshot`, `compat` and the backup (`dump`), and `apply` confirms `current_user = postgres`; tests: server-side evaluator (pure), mocked-server release entry points, and real PostgreSQL with a role named `vista_backup_reader` (write grant, CREATE, NOBYPASSRLS, SUPERUSER each detected). Schema gate compatibility: it runs `compat` with the read-only secret, needs only `psql` and SELECT on the ledger, which the strict check verifies; until `PRODUCTION_DATABASE_READONLY_URL` is switched to the reader the gate stays red (fail closed), as it already is while D-I is pending.
+
+## 16. Final CI readiness, solo maintainer (2026-11-13, evening) — supersedes sections 5, 6 and 14 where they differ
+
+Provisioned and verified: AWS backup destination (13 resources), the six GitHub variables, the Supabase role `vista_backup_reader` ([production-db-logical-backup.md](production-db-logical-backup.md#reader-role)), `PRODUCTION_DATABASE_READONLY_URL`, and (below) branch protection, the apply environment and `PRODUCTION_SUPABASE_URL`. **Not done:** the first `pg_dump` through the pooler, the restore test, the S3/KMS upload, and everything D-I (migrations, release, deployment). Verdict for the release itself: **not approved yet**.
+
+**Policy decision (owner: `leduc121`, sole maintainer):** no pull-request approvals and no code-owner reviews are required anywhere, because nobody else can approve. The controls that remain are the required CI checks, no force-push or deletion on `main`, the `main`-only deployment policy and the reviewer gate on the apply environment. Consequence to accept knowingly: a single account can merge a change to the release tooling and then approve its own production apply; the only independent barriers are CI and the plan-hash and evidence checks inside the workflow.
+
+### Branch protection on `main` (APPLIED 2026-11-13, read back)
+
+Required status checks (GitHub Actions app): `api`, `web`, `docker`, `database-safety`, `validate-inventory`; `strict` false; `enforce_admins` true (administrators are bound by the checks); pull-request reviews **not** required (so no approvals, code-owner or last-push rules); force pushes and deletions blocked; no conversation-resolution or linear-history rule. **`fresh-bootstrap` is deliberately not required**: its workflow is path-filtered and would block pull requests that touch none of its paths. Because status checks are required, changes reach `main` through a pull request whose checks pass; to change these rules an administrator edits the protection (settings page or the branch-protection API).
+
+### `production-database-apply` (APPLIED 2026-11-13, read back)
+
+Reviewer: `leduc121` only. **Self-review is allowed** (`prevent_self_review: false`), so the dispatcher can approve their own run; GitHub supports this, so there is no limitation to report. Deployment is restricted to branch `main` (custom branch policy, unchanged). Administrator bypass stays off (`can_admins_bypass: false`) and the environment protection remains enabled. `production-database-preflight` is unchanged (`main` only, no reviewers, as designed).
+
+### Secrets and variables (verified by name and timestamp; values are never readable)
+
+- `production-database-preflight`: variables `DB_BACKUP_WRITE_ROLE_ARN`, `DB_BACKUP_BUCKET`, `DB_BACKUP_KMS_KEY_ARN`; secrets `PRODUCTION_DATABASE_READONLY_URL`, `PRODUCTION_SUPABASE_URL`, `SUPABASE_ACCESS_TOKEN`.
+- `production-database-apply`: variables `DB_BACKUP_READ_ROLE_ARN`, `DB_BACKUP_BUCKET`, `DB_BACKUP_KMS_KEY_ARN`; secrets `PRODUCTION_DATABASE_APPLY_URL`, `PRODUCTION_SUPABASE_URL`, `SUPABASE_ACCESS_TOKEN`.
+- No repository-level secrets; the only repository variable is `AWS_DEPLOY_ENABLED`.
+- `PRODUCTION_SUPABASE_URL` was **reset in both environments on 2026-11-13 (06:01Z)** from the exact value `https://ovijutkvaaxohauvuxbj.supabase.co` (it passes the repo validator). A stored secret still cannot be read back, so the first run that uses it is its real proof.
+- `SUPABASE_ACCESS_TOKEN` is only used in `backup_mode=managed`.
+
+### CODEOWNERS
+
+`.github/CODEOWNERS` (the only copy GitHub reads) now lists, after the broad rules, the database, migration, backup, identity, verifier, safety-checker and manifest scripts, `tests/database`, the DB-related workflows and `backend-ci.yml`, the Terraform backup files and `docs/operations/production-*.md`, **all owned by `@leduc121` only**. It documents ownership; it is not enforced (there is no code-owner review rule). Pre-existing entries for other people are untouched; `/services/backend/` is a stale pre-existing path (the API lives in `services/education-api/`).
+
+### Validating `pg_dump` 17 through the Session Pooler (still open)
+
+The reader's password exists only in the GitHub secret. Options: (1) the real validation is the release workflow's `backup` job (PG17 client, session pooler, restore test, S3/KMS upload); `apply` then waits for the reviewer and declining it applies nothing; (2) a local PG17 `pg_dump` piped to `sha256sum` after rotating the reader password (a read-only dump of Production data, nothing stored); (3) a dedicated smoke workflow would need a carve-out in `check_database_workflow_safety.py` and is not recommended. Either of the first two needs a separate approval.
