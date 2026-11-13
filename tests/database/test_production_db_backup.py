@@ -209,6 +209,82 @@ class CompletenessTests(unittest.TestCase):
         self.assertIn("dump_not_empty", bk.REQUIRED_RESTORE_CHECKS)
 
 
+class RestoreTargetTests(unittest.TestCase):
+    """Regression: the 2026-11-13 production backup failed with "could not create the disposable restore database"."""
+
+    def test_the_passfile_matches_any_database_of_the_server(self):
+        """The restore code connects to `postgres` to CREATE DATABASE while the URL names another database (the CI service container's
+        POSTGRES_DB). A passfile line bound to the URL's database left that connection without a password."""
+        target = bk.Target("postgresql://vista_test:s3cr3t-pw@127.0.0.1:55433/vista_test_restore_admin")
+        with target.env() as env:
+            line = Path(env["PGPASSFILE"]).read_text().strip()
+            fields = re.split(r"(?<!\\):", line)
+            self.assertEqual(fields[:2], ["127.0.0.1", "55433"])
+            self.assertEqual(fields[2], "*", "database field must be the libpq wildcard")
+            self.assertEqual(fields[3], "vista_test")
+            self.assertEqual(oct(os.stat(env["PGPASSFILE"]).st_mode & 0o777), "0o600")
+            self.assertNotIn("s3cr3t-pw", " ".join(f"{k}={v}" for k, v in env.items()))  # the password is never in the environment
+        self.assertFalse(Path(env["PGPASSFILE"]).exists(), "the passfile is removed afterwards")
+
+    def test_passfile_escapes_special_characters(self):
+        target = bk.Target("postgresql://u%3Aser:pa%3Ass%5Cw@127.0.0.1:5432/db")
+        with target.env() as env:
+            line = Path(env["PGPASSFILE"]).read_text().strip()
+        self.assertEqual(line, "127.0.0.1:5432:*:u\\:ser:pa\\:ss\\\\w")
+
+    def test_database_programs_never_prompt_for_a_password(self):
+        seen = []
+        target = bk.Target("postgresql://u:pw@127.0.0.1:5432/vista_test_x")
+        with mock.patch.object(bk.subprocess, "run", side_effect=lambda cmd, **kw: seen.append(cmd) or mock.Mock(returncode=0, stdout="", stderr="")):
+            with target.env() as env:
+                for program in ("psql", "pg_dump", "pg_restore"):
+                    bk._run([program, "--version"], target, env)
+        self.assertEqual([c[:2] for c in seen], [["psql", "-w"], ["pg_dump", "-w"], ["pg_restore", "-w"]])
+
+    def test_the_workflow_restore_url_matches_its_service_container(self):
+        """Host, port, user, password and database in --restore-admin-url must equal the postgres:17 service container the job starts."""
+        text = RELEASE_YML.read_text()
+        service = text[text.index("      restore-target:"):text.index("    steps:", text.index("      restore-target:"))]
+        self.assertIn("image: postgres:17", service)
+        user, password, database = (re.search(rf"POSTGRES_{k}: (\S+)", service).group(1) for k in ("USER", "PASSWORD", "DB"))
+        host_port = re.search(r"- (\d+):5432", service).group(1)
+        url = re.search(r'--restore-admin-url "([^"]+)"', text).group(1)
+        self.assertEqual(url, f"postgresql://{user}:{password}@127.0.0.1:{host_port}/{database}")
+        self.assertIn(f'--health-cmd "pg_isready -U {user} -d {database}"', service)
+
+    def test_the_restore_server_is_disposable_loopback_postgres_17_never_production(self):
+        text = RELEASE_YML.read_text()
+        url = re.search(r'--restore-admin-url "([^"]+)"', text).group(1)
+        target = bk.Target(url)
+        self.assertTrue(target.local)
+        self.assertTrue(target.database.startswith("vista_test_"))
+        self.assertNotIn("supabase", url)
+        self.assertNotIn("secrets.", url)
+        self.assertNotIn(bk.PRODUCTION_REF, url)
+        self.assertEqual(bk.PRODUCTION_REF, "ovijutkvaaxohauvuxbj")
+
+    def test_restore_refuses_every_non_loopback_admin_before_running_anything(self):
+        urls = ("postgresql://vista_backup_reader.ovijutkvaaxohauvuxbj:pw@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres",
+                "postgresql://postgres:pw@db.ovijutkvaaxohauvuxbj.supabase.co:5432/postgres", "postgresql://u:pw@10.0.0.5:5432/vista_test_x",
+                "postgresql://u:pw@localhost.evil.example:5432/vista_test_x", "postgresql://u:pw@example.com/postgres")
+        for url in urls:
+            with mock.patch.object(bk.subprocess, "run", side_effect=AssertionError("must not run any program")), self.assertRaises(bk.BackupError, msg=url):
+                bk.restore_test(Path("/nonexistent"), {"sha256": "0" * 64}, url)
+
+    def test_stub_roles_cover_every_role_the_dump_names(self):
+        roles = bk.restore_stub_roles(["postgres", "vista_backup_reader", "supabase_admin", "anon", "custom_role"], restore_user="vista_test")
+        for needed in ("postgres", "vista_backup_reader", "custom_role", *bk.SUPABASE_ROLES):
+            self.assertIn(needed, roles)
+        self.assertEqual(roles, sorted(set(roles)), "sorted and de-duplicated")
+        self.assertNotIn("vista_test", bk.restore_stub_roles(["vista_test", "x"], restore_user="vista_test"))
+        self.assertEqual(set(bk.restore_stub_roles(None, "u")), set(bk.SUPABASE_ROLES))
+
+    def test_unexpected_role_names_fail_closed(self):
+        for bad in ('x"; DROP DATABASE postgres; --', "a b", "", "x" * 80, "ro\nle", "1abc", "role;", "ro'le"):
+            with self.assertRaises(bk.BackupError, msg=repr(bad)):
+                bk.restore_stub_roles([bad], "u")
+
+
 class WorkflowSafetyTests(unittest.TestCase):
     def variant(self, mutate):
         return release_workflow_problems(mutate(RELEASE_YML.read_text()))
@@ -492,7 +568,7 @@ class BackupFlowTests(unittest.TestCase):
         """Production mode asks the server: the connection must really be vista_backup_reader, with BYPASSRLS and no write path."""
         role = "vista_backup_reader"
         self._psql("postgres", f"DO $$ BEGIN CREATE ROLE {role} LOGIN PASSWORD 'rd-strict-1'; EXCEPTION WHEN duplicate_object THEN NULL; END $$")
-        self._psql("postgres", f"ALTER ROLE {role} NOSUPERUSER BYPASSRLS PASSWORD 'rd-strict-1'")
+        self._psql("postgres", f"ALTER ROLE {role} LOGIN NOSUPERUSER BYPASSRLS PASSWORD 'rd-strict-1'")  # LOGIN explicit: a restore test may have left a NOLOGIN stub of this name
         self._psql(self.db, f"REVOKE ALL ON ALL TABLES IN SCHEMA public FROM {role}; REVOKE ALL ON SCHEMA public FROM {role}; GRANT USAGE ON SCHEMA public TO {role}; "
                             f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {role}; GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}")
         reader = bk.Target(f"postgresql://{role}:rd-strict-1@{self.target.hostname}:{self.target.port}/{self.db}")
@@ -526,9 +602,84 @@ class BackupFlowTests(unittest.TestCase):
         self.assertTrue(any("superuser" in g for g in gaps))
         self.assertTrue(any("read-only" in g for g in gaps))
 
+    def _admin_url_for(self, database):
+        self._psql("postgres", f'CREATE DATABASE "{database}"')
+        self.addCleanup(lambda: self._psql("postgres", f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)', check=False))
+        return self._db_url(database)
+
+    def test_restore_works_when_the_admin_url_names_a_database_other_than_postgres(self):
+        """CI shape: the service container's POSTGRES_DB (vista_test_restore_admin) is the URL's database, password authentication over TCP."""
+        admin_url = self._admin_url_for(f"vista_test_restore_admin_{uuid.uuid4().hex[:8]}")
+        out, err = io.StringIO(), io.StringIO()
+        code, stdout, stderr = self.run_cli("run", "--expected-project-ref", LABEL, "--plan", str(self.tmp / "plan.json"), "--allow-local-test-database", "--storage-dir", str(self.store),
+                                             "--restore-admin-url", admin_url, "--run-id", "ci-1", "--output", str(self.tmp / "result.json"))
+        self.assertEqual(code, 0, stderr)
+        self.assertTrue(json.loads((self.tmp / "result.json").read_text())["restoreTestPassed"])
+
+    def test_the_old_database_bound_passfile_would_have_failed_this_scenario(self):
+        """Mutation check: with the database field bound to the URL (the old behaviour) the same scenario fails exactly as in CI."""
+        admin_url = self._admin_url_for(f"vista_test_restore_admin_{uuid.uuid4().hex[:8]}")
+        real_env = bk.Target.env
+
+        def old_env(target):
+            @contextlib.contextmanager
+            def manager():
+                with real_env(target) as env:
+                    fields = Path(env["PGPASSFILE"]).read_text().rstrip("\n").split(":")
+                    fields[2] = target.database
+                    Path(env["PGPASSFILE"]).write_text(":".join(fields) + "\n")
+                    yield env
+            return manager()
+
+        source = bk.Target(self._db_url(self.db))
+        manifest = bk.dump(source, self.tmp, allow_local=True)
+        with mock.patch.object(bk.Target, "env", old_env):
+            result = bk.restore_test(self.tmp / "backup.dump", manifest, admin_url)
+        self.assertFalse(result["passed"])
+        self.assertIn("could not create the disposable restore database", " ".join(c["detail"] for c in result["checks"]))
+
+    def test_a_failed_create_database_reports_a_scrubbed_reason(self):
+        bad = bk.Target(self._db_url("postgres")).url.replace(bk.Target(self._db_url("postgres")).password, "definitely-wrong-pw")
+        source = bk.Target(self._db_url(self.db))
+        manifest = bk.dump(source, self.tmp, allow_local=True)
+        result = bk.restore_test(self.tmp / "backup.dump", manifest, bad)
+        self.assertFalse(result["passed"])
+        detail = next(c["detail"] for c in result["checks"] if c["name"] == "restore_environment")
+        self.assertTrue(detail.startswith("could not create the disposable restore database"), detail)
+        for secret in ("definitely-wrong-pw", bad, self.target.hostname, self.target.username or "vista_test"):
+            self.assertNotIn(secret, detail)
+
+    def test_restore_creates_stub_roles_for_acl_roles_missing_on_the_restore_server(self):
+        """Regression (second CI failure behind the first): production ACLs name roles (postgres, supabase_admin, vista_backup_reader, ...) that
+        do not exist on the disposable server; `pg_restore --exit-on-error` died on `GRANT ... TO <missing role>`."""
+        role = f"vista_test_acl_{uuid.uuid4().hex[:8]}"
+        self._psql("postgres", f"CREATE ROLE {role} NOLOGIN")
+        self.addCleanup(lambda: self._psql("postgres", f"DROP ROLE IF EXISTS {role}", check=False))
+        table = self._psql(self.db, "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND relkind='r' ORDER BY 1 LIMIT 1").stdout.strip()
+        self._psql(self.db, f'GRANT SELECT ON public."{table}" TO {role}; GRANT USAGE ON SCHEMA public TO {role}; '
+                            f"ALTER DEFAULT PRIVILEGES FOR ROLE vista_test IN SCHEMA public GRANT SELECT ON TABLES TO {role}")
+        manifest = bk.dump(bk.Target(self._db_url(self.db)), self.tmp, allow_local=True)
+        self.assertIn(role, manifest["aclRoles"])
+        self._psql(self.db, f'REVOKE ALL ON public."{table}" FROM {role}; REVOKE ALL ON SCHEMA public FROM {role}; '
+                            f"ALTER DEFAULT PRIVILEGES FOR ROLE vista_test IN SCHEMA public REVOKE SELECT ON TABLES FROM {role}")
+        self._psql("postgres", f"DROP ROLE {role}")  # the restore server no longer knows the role the archive grants to
+        without = bk.restore_test(self.tmp / "backup.dump", {**manifest, "aclRoles": []}, self._db_url("postgres"))
+        self.assertFalse(without["passed"], "without the stubs the restore must fail (proves the test bites)")
+        self.assertTrue(any("does not exist" in c["detail"] for c in without["checks"]), without["checks"])
+        self._psql("postgres", f"DROP ROLE IF EXISTS {role}", check=False)
+        result = bk.restore_test(self.tmp / "backup.dump", manifest, self._db_url("postgres"))
+        self.assertTrue(result["passed"], result["checks"])
+        self.assertNotIn(role, json.dumps(json.loads(json.dumps({k: v for k, v in manifest.items() if k not in ("production", "aclRoles", "allowEmpty")}))), "role names stay out of the evidence")
+
+    def test_evidence_does_not_carry_the_role_list(self):
+        code, _, err = self.backup()
+        self.assertEqual(code, 0, err)
+        evidence = json.loads(next(self.store.rglob("evidence.json")).read_text())
+        self.assertNotIn("aclRoles", evidence["dump"])
+
     def test_restore_databases_are_dropped(self):
         self.assertEqual(self.backup()[0], 0)
-        leftover = self._psql("postgres", "SELECT count(*) FROM pg_database WHERE datname LIKE 'vista_test_restore_%'").stdout.strip()
+        leftover = self._psql("postgres", "SELECT count(*) FROM pg_database WHERE datname ~ '^vista_test_restore_[0-9a-f]{10}$'").stdout.strip()
         self.assertEqual(leftover, "0")
 
 
