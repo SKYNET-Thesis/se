@@ -6,20 +6,22 @@ import { ChallengeConditionInput, NormalizedRuleSetV1, canonicalJson, sha256 } f
 import { SchematicOutputV1, SymbolicRuleEvaluatorService } from "./symbolic-rule-evaluator.service";
 import { SymbolicRuleCompilerService } from "./symbolic-rule-compiler.service";
 
-export const SYMBOLIC_EVALUATOR_VERSION = "vista-symbolic-evaluator-1";
+export const SYMBOLIC_EVALUATOR_VERSION = "vista-symbolic-evaluator-2";
 
 interface EvaluationChainRow {
   attempt_id: string;
   experiment_id: string; learner_user_id: string; status: string; execution_mode: string;
   input_snapshot: unknown; output_snapshot: unknown; submission_id: string; submission_status: string;
   assignment_id: string; program_version_id: string; challenge_id: string | null;
-  classroom_id: string; robot_program: unknown; version_number: number;
+  classroom_id: string; robot_program: unknown; version_number: number; assignment_kind: string | null;
 }
 
 export interface PreparedSymbolicEvaluation {
   attemptId: string; experimentId: string; submissionId: string; submissionStatus: string; programVersionId: string; requestedByUserId: string;
   /** The learner-facing number of the evaluated immutable ProgramVersion (learning_program_versions.version_number). */
   versionNumber: number;
+  /** `learning_assignments.constraints->>'kind'`: only `symbolic_program` (curriculum) assignments project a PASS to lesson progression. */
+  assignmentKind: string | null;
   schematic: SchematicOutputV1; ruleSet: NormalizedRuleSetV1;
   evaluatorVersion: typeof SYMBOLIC_EVALUATOR_VERSION; programHash: string;
   outputSnapshotHash: string; fingerprint: string;
@@ -42,7 +44,7 @@ export class SymbolicEvaluationPreparationService {
     this.requireCapability(user);
     const rows = await this.prisma.$queryRaw<EvaluationChainRow[]>`
       SELECT a.id AS attempt_id,e.id AS experiment_id,e.learner_user_id,e.status,e.execution_mode,e.input_snapshot,e.output_snapshot,
-             s.id AS submission_id,s.status AS submission_status,s.assignment_id,s.program_version_id,la.challenge_id,ca.classroom_id,pv.robot_program,pv.version_number
+             s.id AS submission_id,s.status AS submission_status,s.assignment_id,s.program_version_id,la.challenge_id,ca.classroom_id,pv.robot_program,pv.version_number,la.constraints->>'kind' AS assignment_kind
       FROM public.learning_experiments e
       JOIN public.learning_submissions s ON s.id=e.submission_id AND s.learner_user_id=e.learner_user_id
       JOIN public.learning_assignments la ON la.id=s.assignment_id
@@ -70,7 +72,7 @@ export class SymbolicEvaluationPreparationService {
     const fingerprint = sha256(canonicalJson({ experimentId: row.experiment_id, programHash, outputSnapshotHash,
       schematicSchemaVersion: output.schemaVersion, schematicEngineVersion: output.engineVersion,
       evaluatorVersion: SYMBOLIC_EVALUATOR_VERSION, ruleSetSchemaVersion: ruleSet.schemaVersion, ruleSetHash: ruleSet.ruleSetHash }));
-    return { attemptId: row.attempt_id, experimentId: row.experiment_id, submissionId: row.submission_id, submissionStatus: row.submission_status, programVersionId: row.program_version_id, versionNumber: row.version_number,
+    return { attemptId: row.attempt_id, experimentId: row.experiment_id, submissionId: row.submission_id, submissionStatus: row.submission_status, programVersionId: row.program_version_id, versionNumber: row.version_number, assignmentKind: row.assignment_kind ?? null,
       requestedByUserId: user.vistaUserId, schematic: output, ruleSet, evaluatorVersion: SYMBOLIC_EVALUATOR_VERSION,
       programHash, outputSnapshotHash, fingerprint };
   }
