@@ -38,6 +38,7 @@ export interface SchematicOutputV1 {
   warnings: string[];
 }
 export interface EvaluatedRule { ordinal: number; type: string; passed: boolean; expected: Record<string, unknown>; observed: Record<string, unknown>; evidence: Array<{ timelineIndex?: number }>; reason: string; code?: string; message?: string; }
+type ObjectRule = Extract<NormalizedRuleSetV1["rules"][number], { type: "object_grasped" | "object_lifted" | "object_released" | "object_in_target_zone" }>;
 export interface SymbolicEvaluationPreview { verdict: "passed" | "failed"; rules: EvaluatedRule[]; metrics: { ruleCount: number; passedRuleCount: number }; }
 
 /** Pure in-memory preview only. It performs no persistence, routing or
@@ -125,190 +126,8 @@ export class SymbolicRuleEvaluatorService {
           : "The robot did not reach Target A.";
       return { ordinal: rule.ordinal, type: rule.type, passed, expected: { frame: rule.frame, arm: rule.arm, position: target }, observed: { learningPreviewPosition: observed, delta }, evidence, reason: passed ? "learning preview target matches" : "learning preview target differs", code, message };
     }
-    if (rule.type === "object_grasped") {
-      const manip = output.finalState.manipulation;
-      const passed = Boolean(manip?.wasGrasped);
-      const evidence = output.timeline
-        .map((event, index) => ({ event, index }))
-        .filter(({ event }) => event.grasped === true)
-        .map(({ index }) => ({ timelineIndex: index }));
-      const code = passed
-        ? "OBJECT_GRASPED"
-        : (manip?.graspAttempts ?? 0) > 0
-          ? "GRASP_NOT_ESTABLISHED"
-          : "OBJECT_NOT_APPROACHED";
-      const message = passed
-        ? "The object was successfully grasped."
-        : (manip?.graspAttempts ?? 0) > 0
-          ? "The gripper closed, but the object was not grasped. Move closer to the object before closing the gripper."
-          : "Move the gripper closer to the object before closing it.";
-      return {
-        ordinal: rule.ordinal,
-        type: rule.type,
-        passed,
-        expected: { arm: rule.arm ?? "any", objectId: rule.objectId ?? "cube-red" },
-        observed: { wasGrasped: passed, graspAttempts: manip?.graspAttempts ?? 0 },
-        evidence,
-        reason: passed
-          ? "object grasp established"
-          : (manip?.graspAttempts ?? 0) > 0
-            ? "gripper closed outside grasp threshold"
-            : "gripper did not close on object",
-        code,
-        message,
-      };
-    }
-    if (rule.type === "object_lifted") {
-      const manip = output.finalState.manipulation;
-      const passed = Boolean(manip?.wasLifted);
-      const minZ = rule.minZ ?? 70;
-      const evidence = output.timeline
-        .map((event, index) => ({ event, index }))
-        .filter(({ event }) => {
-          const objState = event.objectState as { state?: string } | undefined;
-          return objState?.state === "carried";
-        })
-        .map(({ index }) => ({ timelineIndex: index }));
-      const code = passed
-        ? "OBJECT_LIFTED"
-        : !manip?.wasGrasped
-          ? "OBJECT_NOT_GRASPED"
-          : "OBJECT_NOT_LIFTED";
-      const message = passed
-        ? "The object was lifted after being grasped."
-        : !manip?.wasGrasped
-          ? "Grasp the object before attempting to lift it."
-          : "The object was grasped but was not lifted.";
-      return {
-        ordinal: rule.ordinal,
-        type: rule.type,
-        passed,
-        expected: { minZ, objectId: rule.objectId ?? "cube-red" },
-        observed: { wasLifted: passed, wasGrasped: Boolean(manip?.wasGrasped) },
-        evidence,
-        reason: passed
-          ? "object was lifted above minimum clearance height"
-          : !manip?.wasGrasped
-            ? "cannot lift ungrasped object"
-            : "object remained at or below grasp height",
-        code,
-        message,
-      };
-    }
-    if (rule.type === "object_released") {
-      const manip = output.finalState.manipulation;
-      const passed = Boolean(manip?.wasReleased);
-      const evidence = output.timeline
-        .map((event, index) => ({ event, index }))
-        .filter(({ event }) => event.released === true)
-        .map(({ index }) => ({ timelineIndex: index }));
-      const code = passed ? "OBJECT_RELEASED" : "OBJECT_NOT_RELEASED";
-      const message = passed
-        ? "The object was released."
-        : "Open the gripper to release the object.";
-      return {
-        ordinal: rule.ordinal,
-        type: rule.type,
-        passed,
-        expected: { state: "released", objectId: rule.objectId ?? "cube-red" },
-        observed: { wasReleased: passed },
-        evidence,
-        reason: passed ? "object was released from gripper" : "object was not released",
-        code,
-        message,
-      };
-    }
-    if (rule.type === "object_in_target_zone") {
-      const manip = output.finalState.manipulation;
-      const objState = output.finalState.objectState;
-      const zoneId = rule.zoneId ?? "A";
-      const bounds = rule.bounds ?? { x: 60, y: 280, w: 120, h: 90 };
-      const releasePos = manip?.releasePosition ?? (objState?.state === "released" ? objState.position : null);
-
-      if (!manip?.wasGrasped) {
-        return {
-          ordinal: rule.ordinal,
-          type: rule.type,
-          passed: false,
-          expected: { zoneId, bounds, objectId: rule.objectId ?? "cube-red" },
-          observed: { wasGrasped: false, placedInTargetZone: false },
-          evidence: [],
-          reason: "object was never grasped",
-          code: (manip?.graspAttempts ?? 0) > 0 ? "GRASP_NOT_ESTABLISHED" : "OBJECT_NEVER_GRASPED",
-          message: (manip?.graspAttempts ?? 0) > 0
-            ? "The gripper closed, but the object was not grasped."
-            : "Move closer to the object and close the gripper before moving to the target zone.",
-        };
-      }
-
-      if (!manip?.wasLifted) {
-        return {
-          ordinal: rule.ordinal,
-          type: rule.type,
-          passed: false,
-          expected: { zoneId, bounds, objectId: rule.objectId ?? "cube-red" },
-          observed: { wasGrasped: true, wasLifted: false, placedInTargetZone: false },
-          evidence: [],
-          reason: "object was not lifted before transfer",
-          code: "OBJECT_NOT_LIFTED",
-          message: "Lift the object before moving toward the target.",
-        };
-      }
-
-      if (!manip?.wasReleased || objState?.state !== "released" || !releasePos) {
-        return {
-          ordinal: rule.ordinal,
-          type: rule.type,
-          passed: false,
-          expected: { zoneId, bounds, objectId: rule.objectId ?? "cube-red" },
-          observed: { wasGrasped: true, wasLifted: true, wasReleased: Boolean(manip?.wasReleased), placedInTargetZone: false },
-          evidence: [],
-          reason: "object was not released in target zone",
-          code: "OBJECT_NOT_RELEASED",
-          message: "Open the gripper to place the object.",
-        };
-      }
-
-      const inside =
-        releasePos.x >= bounds.x &&
-        releasePos.x <= bounds.x + bounds.w &&
-        releasePos.y >= bounds.y &&
-        releasePos.y <= bounds.y + bounds.h;
-
-      const evidence = output.timeline
-        .map((event, index) => ({ event, index }))
-        .filter(({ event }) => event.released === true)
-        .map(({ index }) => ({ timelineIndex: index }));
-
-      if (inside) {
-        return {
-          ordinal: rule.ordinal,
-          type: rule.type,
-          passed: true,
-          expected: { zoneId, bounds, objectId: rule.objectId ?? "cube-red" },
-          observed: { releasePosition: releasePos, placedInTargetZone: true, zoneId },
-          evidence,
-          reason: `Object released inside target zone at (${releasePos.x}, ${releasePos.y}, ${releasePos.z}).`,
-          code: "OBJECT_PLACED_IN_TARGET_ZONE",
-          message: "The object was successfully placed inside the target zone.",
-        };
-      }
-
-      const dx = Math.max(0, bounds.x - releasePos.x, releasePos.x - (bounds.x + bounds.w));
-      const dy = Math.max(0, bounds.y - releasePos.y, releasePos.y - (bounds.y + bounds.h));
-      const dist = Math.round(Math.hypot(dx, dy));
-
-      return {
-        ordinal: rule.ordinal,
-        type: rule.type,
-        passed: false,
-        expected: { zoneId, bounds, objectId: rule.objectId ?? "cube-red" },
-        observed: { releasePosition: releasePos, placedInTargetZone: false, targetZoneDistance: dist },
-        evidence,
-        reason: `The object was released ${dist} mm outside the target area. Move the object farther into the target area before opening the gripper.`,
-        code: "OBJECT_RELEASED_OUTSIDE_TARGET",
-        message: "The object was released outside the target zone.",
-      };
+    if (rule.type === "object_grasped" || rule.type === "object_lifted" || rule.type === "object_released" || rule.type === "object_in_target_zone") {
+      return this.evaluateObjectRule(rule, output);
     }
     const waits = output.timeline.map((event, index) => ({ event, index })).filter(({ event }) => event.type === "wait" && Number.isInteger(event.durationMs)).map(({ event, index }) => ({ durationMs: event.durationMs as number, index }));
     const durationMs = waits.reduce((total, wait) => total + wait.durationMs, 0);
@@ -317,6 +136,111 @@ export class SymbolicRuleEvaluatorService {
     const message = passed ? `Wait duration was sufficient (${durationMs}ms).` : `Wait duration must be at least ${rule.durationMs}ms (observed ${durationMs}ms).`;
     return { ordinal: rule.ordinal, type: rule.type, passed, expected: { comparator: rule.comparator, durationMs: rule.durationMs }, observed: { durationMs }, evidence: waits.map(({ index }) => ({ timelineIndex: index })), reason: passed ? "symbolic wait duration matches" : "symbolic wait duration does not match", code, message };
   }
+  /**
+   * Object-manipulation rules. Every rule parameter is enforced against the persisted engine evidence (timeline + finalState)
+   * and is never merely echoed into `expected`:
+   *  - `arm`      the arm that performed the successful grasp (a `gripper.close` event with `grasped: true`);
+   *  - `minZ`     the highest tool height reached while that arm held the object (`preview.move_xyz` events), in
+   *               learning_preview_v1 millimetres. It can only tighten the engine's own lift threshold, never relax it;
+   *  - `objectId` the object the engine actually simulated: a rule naming any other object FAILS (OBJECT_NOT_FOUND);
+   *  - `zoneId`   resolved to the challenge's target zone geometry recorded in the persisted output (`finalState.targetZones`),
+   *               unless the rule carries explicit `bounds`. An unknown zone FAILS (TARGET_ZONE_UNKNOWN).
+   * Rules that omit a parameter keep their previous meaning (any arm / the simulated object / zone "A").
+   */
+  private evaluateObjectRule(rule: ObjectRule, output: SchematicOutputV1): EvaluatedRule {
+    const manip = output.finalState.manipulation;
+    const objState = output.finalState.objectState;
+    const actualObjectId = objState?.objectId ?? null;
+    const expectedObjectId = rule.objectId ?? "cube-red";
+    const events = output.timeline.map((event, index) => ({ event, index }));
+    const indexes = (list: typeof events) => list.map(({ index }) => ({ timelineIndex: index }));
+    const releaseEvidence = indexes(events.filter(({ event }) => event.released === true));
+    const wasGrasped = Boolean(manip?.wasGrasped);
+    const heldMoves = events.filter(({ event }) => event.type === "preview.move_xyz"
+      && (event.objectState as { graspedBy?: string | null } | undefined)?.graspedBy === event.arm
+      && Number.isFinite((event.position as { z?: number } | undefined)?.z));
+    const maxCarryZ = heldMoves.length ? Math.max(...heldMoves.map(({ event }) => (event.position as { z: number }).z)) : null;
+
+    let zoneId: string | undefined; let zone: { x: number; y: number; w: number; h: number } | null = null;
+    if (rule.type === "object_in_target_zone") {
+      zoneId = rule.zoneId ?? "A";
+      if (rule.bounds) zone = rule.bounds;
+      else {
+        const zones = output.finalState.targetZones;
+        const found = zones?.find((candidate) => candidate.zoneId === zoneId);
+        if (found) zone = { x: found.x, y: found.y, w: found.w, h: found.h };
+        else if (!zones && zoneId === "A") zone = { x: 60, y: 280, w: 120, h: 90 }; // outputs persisted before zones were recorded
+      }
+    }
+    const expected: Record<string, unknown> = rule.type === "object_grasped" ? { arm: rule.arm ?? "any", objectId: expectedObjectId }
+      : rule.type === "object_lifted" ? { minZ: rule.minZ ?? 70, objectId: expectedObjectId }
+      : rule.type === "object_released" ? { state: "released", objectId: expectedObjectId }
+      : { zoneId, bounds: zone, objectId: expectedObjectId };
+    const fail = (observed: Record<string, unknown>, reason: string, code: string, message: string, evidence: Array<{ timelineIndex?: number }> = []): EvaluatedRule =>
+      ({ ordinal: rule.ordinal, type: rule.type, passed: false, expected, observed, evidence, reason, code, message });
+
+    if (rule.objectId !== undefined && rule.objectId !== actualObjectId) {
+      return fail({ objectId: actualObjectId }, `rule references object '${rule.objectId}' but the simulated object is '${actualObjectId ?? "none"}'`, "OBJECT_NOT_FOUND", `Object '${rule.objectId}' is not part of this challenge.`);
+    }
+
+    if (rule.type === "object_grasped") {
+      const graspEvents = events.filter(({ event }) => event.type === "gripper.close" && event.grasped === true);
+      const graspedByArms = [...new Set(graspEvents.map(({ event }) => event.arm))];
+      const byRequiredArm = rule.arm ? graspEvents.filter(({ event }) => event.arm === rule.arm) : graspEvents;
+      const passed = wasGrasped && byRequiredArm.length > 0;
+      const attempts = manip?.graspAttempts ?? 0;
+      const observed = { wasGrasped, graspAttempts: attempts, graspedByArms };
+      if (passed) return { ordinal: rule.ordinal, type: rule.type, passed, expected, observed, evidence: indexes(byRequiredArm), reason: "object grasp established", code: "OBJECT_GRASPED", message: "The object was successfully grasped." };
+      if (wasGrasped) return fail(observed, `object was grasped by the ${graspedByArms.join("/")} arm, not the required ${rule.arm} arm`, "OBJECT_GRASPED_BY_OTHER_ARM", `The object was grasped with the ${graspedByArms.join("/")} arm, but this task requires the ${rule.arm} arm.`, indexes(graspEvents));
+      return attempts > 0
+        ? fail(observed, "gripper closed outside grasp threshold", "GRASP_NOT_ESTABLISHED", "The gripper closed, but the object was not grasped. Move closer to the object before closing the gripper.", indexes(graspEvents))
+        : fail(observed, "gripper did not close on object", "OBJECT_NOT_APPROACHED", "Move the gripper closer to the object before closing it.", indexes(graspEvents));
+    }
+
+    if (rule.type === "object_lifted") {
+      const wasLifted = Boolean(manip?.wasLifted);
+      const highEnough = rule.minZ === undefined || (maxCarryZ !== null && maxCarryZ >= rule.minZ);
+      const observed = { wasLifted, wasGrasped, maxCarryZ };
+      const carried = indexes(events.filter(({ event }) => (event.objectState as { state?: string } | undefined)?.state === "carried"));
+      if (wasLifted && highEnough) return { ordinal: rule.ordinal, type: rule.type, passed: true, expected, observed, evidence: carried, reason: "object was lifted above minimum clearance height", code: "OBJECT_LIFTED", message: "The object was lifted after being grasped." };
+      if (!wasGrasped) return fail(observed, "cannot lift ungrasped object", "OBJECT_NOT_GRASPED", "Grasp the object before attempting to lift it.", carried);
+      if (!wasLifted) return fail(observed, "object remained at or below grasp height", "OBJECT_NOT_LIFTED", "The object was grasped but was not lifted.", carried);
+      return fail(observed, `object was carried to z=${maxCarryZ} but the rule requires at least z=${rule.minZ}`, "LIFT_HEIGHT_INSUFFICIENT", `Lift the object to at least z=${rule.minZ}; the highest carry height was z=${maxCarryZ}.`, carried);
+    }
+
+    if (rule.type === "object_released") {
+      const passed = Boolean(manip?.wasReleased);
+      return { ordinal: rule.ordinal, type: rule.type, passed, expected, observed: { wasReleased: passed }, evidence: releaseEvidence,
+        reason: passed ? "object was released from gripper" : "object was not released", code: passed ? "OBJECT_RELEASED" : "OBJECT_NOT_RELEASED",
+        message: passed ? "The object was released." : "Open the gripper to release the object." };
+    }
+
+    // object_in_target_zone
+    const releasePos = manip?.releasePosition ?? (objState?.state === "released" ? objState.position : null);
+    if (!zone) {
+      return fail({ placedInTargetZone: false, placedInZoneId: manip?.placedInZoneId ?? null }, `target zone '${zoneId}' is not defined by the challenge`, "TARGET_ZONE_UNKNOWN", `Target zone '${zoneId}' is not defined for this challenge.`);
+    }
+    if (!wasGrasped) {
+      const attempts = manip?.graspAttempts ?? 0;
+      return fail({ wasGrasped: false, placedInTargetZone: false }, "object was never grasped", attempts > 0 ? "GRASP_NOT_ESTABLISHED" : "OBJECT_NEVER_GRASPED",
+        attempts > 0 ? "The gripper closed, but the object was not grasped." : "Move closer to the object and close the gripper before moving to the target zone.");
+    }
+    if (!manip?.wasLifted) return fail({ wasGrasped: true, wasLifted: false, placedInTargetZone: false }, "object was not lifted before transfer", "OBJECT_NOT_LIFTED", "Lift the object before moving toward the target.");
+    if (!manip?.wasReleased || objState?.state !== "released" || !releasePos) {
+      return fail({ wasGrasped: true, wasLifted: true, wasReleased: Boolean(manip?.wasReleased), placedInTargetZone: false }, "object was not released in target zone", "OBJECT_NOT_RELEASED", "Open the gripper to place the object.");
+    }
+    const inside = releasePos.x >= zone.x && releasePos.x <= zone.x + zone.w && releasePos.y >= zone.y && releasePos.y <= zone.y + zone.h;
+    if (inside) {
+      return { ordinal: rule.ordinal, type: rule.type, passed: true, expected, observed: { releasePosition: releasePos, placedInTargetZone: true, zoneId, placedInZoneId: manip?.placedInZoneId ?? null }, evidence: releaseEvidence,
+        reason: `Object released inside target zone at (${releasePos.x}, ${releasePos.y}, ${releasePos.z}).`, code: "OBJECT_PLACED_IN_TARGET_ZONE", message: "The object was successfully placed inside the target zone." };
+    }
+    const dx = Math.max(0, zone.x - releasePos.x, releasePos.x - (zone.x + zone.w));
+    const dy = Math.max(0, zone.y - releasePos.y, releasePos.y - (zone.y + zone.h));
+    const dist = Math.round(Math.hypot(dx, dy));
+    return fail({ releasePosition: releasePos, placedInTargetZone: false, targetZoneDistance: dist, placedInZoneId: manip?.placedInZoneId ?? null },
+      `The object was released ${dist} mm outside the target area. Move the object farther into the target area before opening the gripper.`, "OBJECT_RELEASED_OUTSIDE_TARGET", "The object was released outside the target zone.", releaseEvidence);
+  }
+
   /** Validates only the persisted v1 symbolic-engine representation. */
   assertSupportedOutput(output: unknown): asserts output is SchematicOutputV1 {
     const value = output as Partial<SchematicOutputV1> | null;

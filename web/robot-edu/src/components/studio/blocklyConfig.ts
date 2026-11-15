@@ -31,7 +31,8 @@ const BLOCKS = [
 {
   type: 'robot_move_to',
   message0: 'move to x %1 y %2 z %3',
-  args0: [num('X', 300), num('Y', 200), num('Z', 120)],
+  // Whole millimetres inside the table / learning_preview_v1 bounds that the server validates.
+  args0: [num('X', 300, { min: 0, max: 600, precision: 1 }), num('Y', 200, { min: 0, max: 400, precision: 1 }), num('Z', 120, { min: 10, max: 300, precision: 1 })],
   message1: 'speed %1 %%',
   args1: [num('SPEED', 60, { min: 10, max: 100, precision: 1 })],
   previousStatement: null,

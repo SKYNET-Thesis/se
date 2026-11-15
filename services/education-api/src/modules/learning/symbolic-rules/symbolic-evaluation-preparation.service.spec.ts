@@ -17,9 +17,23 @@ describe("SymbolicEvaluationPreparationService", () => {
   it("loads only an own successful schematic chain and creates deterministic immutable preparation", async () => {
     const prepared = await prepare();
     expect(assertStudentClassroomAccess).toHaveBeenCalledWith(user, "classroom-1", { requireActiveEnrollment: true });
-    expect(prepared).toMatchObject({ experimentId: "experiment-1", submissionId: "submission-1", programVersionId: "version-1", requestedByUserId: "student-1", evaluatorVersion: "vista-symbolic-evaluator-1" });
+    expect(prepared).toMatchObject({ experimentId: "experiment-1", submissionId: "submission-1", programVersionId: "version-1", requestedByUserId: "student-1", evaluatorVersion: "vista-symbolic-evaluator-2" });
     expect(prepared.ruleSet.ruleSetHash).toMatch(/^[a-f0-9]{64}$/);
     expect(prepared.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("carries the evaluated ProgramVersion number from the persisted chain", async () => {
+    const prepared = await prepare(chain({ version_number: 3 }));
+    expect(prepared.versionNumber).toBe(3);
+    const [query] = queryRaw.mock.calls[0] as [TemplateStringsArray];
+    expect(query.join("")).toContain("pv.version_number");
+  });
+
+  it("carries the assignment kind so only curriculum (symbolic_program) work projects lesson progression", async () => {
+    expect((await prepare(chain({ assignment_kind: "symbolic_program" }))).assignmentKind).toBe("symbolic_program");
+    expect((await prepare(chain({ assignment_kind: null }))).assignmentKind).toBeNull(); // teacher-created assignment: constraints = {}
+    const [query] = queryRaw.mock.calls[0] as [TemplateStringsArray];
+    expect(query.join("")).toContain("la.constraints->>'kind'");
   });
 
   it("does not disclose another learner experiment", async () => { queryRaw.mockResolvedValueOnce([]); await expect(service.prepareForOwnExperiment(user, "other-experiment")).rejects.toBeInstanceOf(NotFoundException); });

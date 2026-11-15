@@ -76,7 +76,7 @@ export class SymbolicEvaluationService {
           : (failedRules[0]?.message || "The robot program did not complete the required task."),
         messages: (preview.rules || []).map((rule) => rule.message || rule.reason),
       };
-      const versionNumber = (prepared as any).versionNumber ?? 1;
+      const versionNumber = prepared.versionNumber;
       const resultEvidence = {
         experimentId: prepared.experimentId,
         evaluationId: response.id,
@@ -93,12 +93,17 @@ export class SymbolicEvaluationService {
       }
       const finalized=await tx.$queryRaw<{id:string}[]>`UPDATE public.learning_assignment_attempts SET status='evaluated',result_snapshot=${resultSnapshot}::jsonb WHERE id=${prepared.attemptId}::uuid AND learner_user_id=${user.vistaUserId}::uuid AND status IN ('submitted','evaluated') RETURNING id`;
       if(!finalized[0])throw new ConflictException("Attempt could not be finalized after evaluation.");
-      const progression = await this.progression.projectSymbolicPass(tx, user, {
-        evaluationId: response.id,
-        attemptId: prepared.attemptId,
-        programVersionId: response.programVersionId,
-        verdict: response.verdict,
-      });
+      // Lesson progression is a curriculum contract (`constraints.kind = symbolic_program`), exactly as in ProgrammingService.submit().
+      // Evaluating the submitted version of a teacher-created assignment still records evidence and finalizes the attempt,
+      // but completes no curriculum lesson (it must not fail with a 409 provenance error and roll the evidence back).
+      const progression = prepared.assignmentKind === "symbolic_program"
+        ? await this.progression.projectSymbolicPass(tx, user, {
+          evaluationId: response.id,
+          attemptId: prepared.attemptId,
+          programVersionId: response.programVersionId,
+          verdict: response.verdict,
+        })
+        : { completedLessonId: null, newlyUnlockedLessonIds: [] };
       return { ...response, versionNumber, attemptId: prepared.attemptId, status, taskState, robotState, objectState, feedback, evidence: resultEvidence, progression };
     });
   }
