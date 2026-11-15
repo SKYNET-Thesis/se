@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileUpIcon, PlusIcon, UsersIcon } from 'lucide-react';
+import { FileUpIcon, PlusIcon } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { educationAdminApi } from '../../lib/api';
@@ -43,6 +43,25 @@ export function ClassroomMembersSection({ organizationId, classroomId, classroom
   </>;
 }
 
-function TableSkeleton(){return <div aria-label="Loading school data" className="mt-6 space-y-3 animate-pulse">{[1,2,3,4].map(item=><div key={item} className="h-12 rounded bg-sunken"/>)}</div>;}
-function MembersPanel({roster,loading,onAdd,onImport,onRemoveStudent}:{roster:Record<string,unknown>[];loading:boolean;onAdd:()=>void;onImport:()=>void;onRemoveStudent:(studentId:string,name:string)=>void}){const students=roster.filter(member=>member.classroom_role==='student');const staff=roster.filter(member=>member.classroom_role!=='student');return <section className="rounded-xl border border-line bg-surface p-5 sm:p-6"><div className="flex items-start justify-between gap-3"><div><h3 className="text-lg font-semibold text-ink">Members</h3><p className="mt-1 text-sm text-ink-muted">People with access to this classroom.</p></div><UsersIcon className="mt-1 h-5 w-5 text-accent"/></div>{loading?<TableSkeleton/>:roster.length===0?<div className="mt-6 rounded-lg border border-dashed border-line-strong px-4 py-8 text-center text-sm text-ink-muted">No members have been added to this classroom.</div>:<div className="mt-6 space-y-6"><MemberGroup title="Students" members={students} onRemove={onRemoveStudent}/><MemberGroup title="Teaching staff" members={staff}/></div>}<div className="mt-6 flex flex-wrap gap-2"><Button variant="secondary" onClick={onAdd} icon={<PlusIcon className="h-4 w-4"/>}>Add member</Button><Button variant="secondary" onClick={onImport} icon={<FileUpIcon className="h-4 w-4"/>}>Import students</Button></div></section>;}
-function MemberGroup({title,members,onRemove}:{title:string;members:Record<string,unknown>[];onRemove?:(studentId:string,name:string)=>void}){return <div><div className="mb-2 flex items-center justify-between"><p className="text-sm font-semibold text-ink">{title}</p><span className="text-xs text-ink-muted">{members.length}</span></div>{members.length?<div className="divide-y divide-line rounded-md border border-line">{members.map(member=><div key={String(member.id)} className="flex items-center justify-between gap-3 px-3 py-3"><p className="truncate text-sm font-medium text-ink">{String(member.full_name??'School member')}</p><div className="flex items-center gap-2"><span className="rounded-full bg-sunken px-2 py-0.5 text-xs text-ink-muted">{String(member.classroom_role)}</span>{onRemove&&<button type="button" className="text-xs font-medium text-danger hover:underline" aria-label={`Remove ${String(member.full_name??'student')}`} onClick={()=>onRemove(String(member.user_id),String(member.full_name??'this student'))}>Remove</button>}</div></div>)}</div>:<p className="text-sm text-ink-muted">No {title.toLowerCase()} yet.</p>}</div>;}
+function TableSkeleton(){return <div aria-label="Loading school data" className="space-y-3 animate-pulse">{[1,2,3,4].map(item=><div key={item} className="h-12 rounded bg-sunken"/>)}</div>;}
+function MembersPanel({roster,loading,onAdd,onImport,onRemoveStudent}:{roster:Record<string,unknown>[];loading:boolean;onAdd:()=>void;onImport:()=>void;onRemoveStudent:(studentId:string,name:string)=>void}){
+  const students=roster.filter(member=>member.classroom_role==='student');const staff=roster.filter(member=>member.classroom_role!=='student');
+  return <section aria-labelledby="classroom-members" className="rounded-[10px] border border-line bg-surface">
+    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+      <h2 id="classroom-members" className="text-base font-semibold text-ink">Members</h2>
+      <div className="flex flex-wrap gap-2"><Button size="sm" variant="secondary" onClick={onAdd} icon={<PlusIcon className="h-4 w-4" aria-hidden/>}>Add member</Button><Button size="sm" variant="secondary" onClick={onImport} icon={<FileUpIcon className="h-4 w-4" aria-hidden/>}>Import students</Button></div>
+    </div>
+    <div className="px-5 pb-5 pt-4">
+      {loading?<TableSkeleton/>:roster.length===0?<p className="rounded-md border border-dashed border-line-strong px-4 py-6 text-center text-sm text-ink-muted">No members yet. Add teachers and students, or import a class list.</p>:<div className="space-y-5"><MemberGroup title="Students" members={students} onRemove={onRemoveStudent}/><MemberGroup title="Teachers" members={staff}/></div>}
+    </div>
+  </section>;
+}
+function MemberGroup({title,members,onRemove}:{title:string;members:Record<string,unknown>[];onRemove?:(studentId:string,name:string)=>void}){
+  return <div>
+    <h3 className="mb-2 flex items-baseline gap-2 text-[13px] font-semibold text-ink">{title}<span className="font-normal tabular-nums text-ink-muted">{members.length}</span></h3>
+    {members.length?<ul className="divide-y divide-line rounded-md border border-line">{members.map(member=><li key={String(member.id)} className="flex min-h-11 items-center justify-between gap-3 px-3 py-1.5">
+      <p className="min-w-0 truncate text-sm font-medium text-ink">{String(member.full_name??'School member')}</p>
+      {onRemove&&<button type="button" className="-mr-1 shrink-0 rounded-md px-2 py-1.5 text-[13px] font-medium text-ink-muted hover:bg-danger-soft hover:text-danger focus-visible:text-danger" aria-label={`Remove ${String(member.full_name??'student')}`} onClick={()=>onRemove(String(member.user_id),String(member.full_name??'this student'))}>Remove</button>}
+    </li>)}</ul>:<p className="text-sm text-ink-muted">No {title.toLowerCase()} yet.</p>}
+  </div>;
+}

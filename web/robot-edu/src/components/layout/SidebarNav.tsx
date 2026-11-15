@@ -32,7 +32,7 @@ export function SidebarNav({ collapsed = false, onNavigate }: SidebarNavProps) {
               cn(
                 'group flex h-9 items-center gap-2.5 rounded-md text-sm font-medium transition-colors duration-150',
                 collapsed ? 'justify-center px-0' : 'px-2.5',
-                isActive ? 'bg-accent-soft text-accent-ink' : 'text-ink-muted hover:bg-sunken hover:text-ink'
+                isActive ? 'vista-nav-active bg-accent-soft text-accent-ink' : 'text-ink-muted hover:bg-sunken hover:text-ink'
               )
               }>
               

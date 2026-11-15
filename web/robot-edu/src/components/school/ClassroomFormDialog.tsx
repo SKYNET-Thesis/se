@@ -84,7 +84,7 @@ export function ClassroomFormDialog({ open, mode, scope, classroom, pending, onS
     <Dialog open={open} onClose={requestClose} className="vista-school"
       title={mode === 'create' ? 'Create classroom' : 'Edit classroom'}
       description={mode === 'create'
-        ? 'Choose a published course. VISTA creates a school offering for it and assigns it to this classroom.'
+        ? 'Choose a course from the VISTA catalog. VISTA sets it up for your school and links it to this classroom.'
         : <span className="inline-flex flex-wrap items-center gap-2">{classroom && <ClassroomCodeTag code={classroom.code} />}Changes keep members, enrollments and learning history.</span>}
       footer={confirmDiscard ? (
         <div className="flex w-full flex-wrap items-center justify-between gap-2" role="alertdialog" aria-label="Discard unsaved changes?">
@@ -107,7 +107,7 @@ export function ClassroomFormDialog({ open, mode, scope, classroom, pending, onS
         )}
         {coursesFailed && (
           <div role="alert" className="flex flex-wrap items-center justify-between gap-2 border-l-4 border-danger bg-danger-soft p-3 text-sm text-danger">
-            <p>Published courses could not be loaded. Classroom creation needs this list.</p>
+            <p>The course catalog couldn’t be loaded. You need it to create a classroom.</p>
             <Button size="sm" variant="secondary" onClick={() => void courses.refetch()} loading={courses.isFetching}>Try again</Button>
           </div>
         )}
@@ -119,14 +119,14 @@ export function ClassroomFormDialog({ open, mode, scope, classroom, pending, onS
           <fieldset className="rounded-md border border-line px-4 pb-4 pt-2">
             <legend className="px-1 text-[13px] font-medium text-ink">Course</legend>
             <div className="space-y-4">
-            <Field label="Published course" error={shown('courseId')}>
+            <Field label="Catalog course" error={shown('courseId')}>
               {(props) => <select {...props} name="courseId" value={values.courseId} onChange={change('courseId')} onBlur={blur('courseId')} aria-required disabled={courses.isPending || noCourses || coursesFailed} className={`${inputClasses} h-10`}>
-                <option value="">{courses.isPending ? 'Loading published courses…' : 'Choose a course'}</option>
+                <option value="">{courses.isPending ? 'Loading catalog courses…' : 'Choose a course'}</option>
                 {courses.data?.map((course) => <option key={course.id} value={course.id}>{course.title}</option>)}
               </select>}
             </Field>
             <div className="grid gap-4 sm:grid-cols-[200px_1fr]">
-              {textInput('offeringCode', 'Offering code', { required: true, placeholder: 'e.g. ROB-2026-8A', code: true })}
+              {textInput('offeringCode', 'Offering code', { required: true, placeholder: 'e.g. ROB-2026-8A', code: true, hint: 'Your school’s code for this course.' })}
               {textInput('offeringTitle', 'Offering title', { placeholder: 'Defaults to the course title' })}
             </div>
             </div>

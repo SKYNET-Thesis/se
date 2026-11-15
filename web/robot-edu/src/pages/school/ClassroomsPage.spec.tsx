@@ -45,6 +45,18 @@ const type = async (element: HTMLInputElement | HTMLTextAreaElement | HTMLSelect
   await act(async () => { setValue?.call(element, value); element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true })); });
 };
 const click = async (element: Element) => { await act(async () => { (element as HTMLElement).click(); }); await flush(); };
+const moreActions = () => document.body.querySelector<HTMLButtonElement>('button[aria-label="More actions"]');
+/** Archive sits in the More actions menu: open it, check the menu semantics, choose the item. */
+const openArchiveFromMenu = async () => {
+  const trigger = moreActions() as HTMLButtonElement;
+  expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
+  await click(trigger);
+  expect(trigger.getAttribute('aria-expanded')).toBe('true');
+  const item = document.body.querySelector('[role="menu"] [role="menuitem"]') as HTMLElement;
+  expect(item.textContent).toBe('Archive classroom');
+  expect(document.activeElement).toBe(item);
+  await click(item);
+};
 const room = (over: Record<string, unknown>) => ({ id: 'c1', organization_id: 'org1', offering_id: 'f1', name: 'Robotics 8A', code: 'ROB-8A', description: null, capacity: 30, status: 'active', offering_title: 'Robotics Foundations', student_count: 12, teaching_staff_count: 1, allocated_robot: null, ...over });
 
 beforeEach(() => {
@@ -112,7 +124,7 @@ describe('Create classroom', () => {
     await flush();
     expect(mocks.createCourseOffering).not.toHaveBeenCalled();
     expect(dialog().textContent).toContain('Enter a classroom name.');
-    expect(dialog().textContent).toContain('Choose a published course.');
+    expect(dialog().textContent).toContain('Choose a catalog course.');
     expect(document.activeElement?.getAttribute('name')).toBe('name');
     expect((dialog().querySelector('[name="name"]') as HTMLInputElement).getAttribute('aria-invalid')).toBe('true');
   });
@@ -175,7 +187,7 @@ describe('Create classroom', () => {
     await mount('/school/classrooms');
     await click(button('Create classroom'));
     const alert = dialog().querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('Published courses could not be loaded.');
+    expect(alert?.textContent).toContain('The course catalog couldn’t be loaded.');
     expect(dialog().querySelector('[role="status"]')).toBeNull();
     expect((dialog().querySelector('[name="courseId"]') as HTMLSelectElement).disabled).toBe(true);
     const submit = () => [...dialog().querySelectorAll('button')].find((item) => item.textContent?.trim() === 'Create classroom') as HTMLButtonElement;
@@ -213,8 +225,10 @@ describe('Classroom detail', () => {
     mocks.role.loading = false; mocks.role.memberships = [{ id: 'm1', organizationId: 'org1', roleCode: 'school_admin', status: 'active' }];
     await mount('/school/classrooms/c1');
     expect(document.body.querySelector('h1')?.textContent).toBe('Robotics 8A');
-    expect(text()).toContain('12 / 30');
-    expect(document.body.querySelector('a[href="/school/quizzes?classroomId=c1"]')).not.toBeNull();
+    expect(text()).toContain('12 of 30');
+    expect(document.body.querySelector('[aria-hidden="true"] > [style*="width: 40%"]')).not.toBeNull();
+    expect(button('Edit details').className).toContain('bg-accent');
+    expect(document.body.querySelector('a[href="/school/quizzes?classroomId=c1"]')?.textContent).toBe('Open quizzes');
     expect(mocks.members).toHaveBeenCalledWith('org1', 'c1', 'tok');
   });
 
@@ -226,17 +240,17 @@ describe('Classroom detail', () => {
 
   it('explains why an archived classroom cannot change course and offers Reactivate', async () => {
     await mount('/school/classrooms/c2');
-    const reassign = button('Reassign course');
+    const reassign = button('Change course');
     expect(reassign.disabled).toBe(true);
-    expect(document.getElementById(reassign.getAttribute('aria-describedby') ?? '')?.textContent).toContain('Reactivate it before changing its course offering');
-    expect(button('Reactivate')).toBeDefined();
-    expect(button('Archive')).toBeUndefined();
+    expect(document.getElementById(reassign.getAttribute('aria-describedby') ?? '')?.textContent).toContain('Reactivate it to change the course');
+    expect(button('Reactivate').className).toContain('bg-accent');
+    expect(moreActions()).toBeNull();
   });
 
   it('archives only after confirmation and reports success after the server answers', async () => {
     mocks.archiveClassroom.mockResolvedValue({ id: 'c1', status: 'archived' });
     await mount('/school/classrooms/c1');
-    await click(button('Archive'));
+    await openArchiveFromMenu();
     expect(dialog().textContent).toContain('Archive classroom?');
     expect(mocks.archiveClassroom).not.toHaveBeenCalled();
     await click(button('Archive classroom'));
@@ -247,7 +261,7 @@ describe('Classroom detail', () => {
   it('keeps the archive dialog open with the server error when archiving fails', async () => {
     mocks.archiveClassroom.mockRejectedValue(new ApiError(409, 'Only active classrooms can be archived.'));
     await mount('/school/classrooms/c1');
-    await click(button('Archive'));
+    await openArchiveFromMenu();
     await click(button('Archive classroom'));
     expect(dialog().querySelector('[role="alert"]')?.textContent).toBe('Only active classrooms can be archived.');
     expect(mocks.toast).not.toHaveBeenCalled();
@@ -257,6 +271,7 @@ describe('Classroom detail', () => {
     mocks.classrooms.mockResolvedValue([room({ description: 'Tuesday lab group', capacity: null })]);
     mocks.updateClassroom.mockResolvedValue(room({}));
     await mount('/school/classrooms/c1');
+    expect(document.body.querySelector('[style*="width:"]')).toBeNull(); // no capacity, no invented bar
     await click(button('Edit details'));
     await type(dialog().querySelector('[name="description"]') as HTMLTextAreaElement, '');
     await act(async () => { (dialog().querySelector('form') as HTMLFormElement).requestSubmit(); });

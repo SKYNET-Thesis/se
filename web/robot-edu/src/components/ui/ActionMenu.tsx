@@ -11,7 +11,7 @@ export type ActionMenuItem =
  * Row action menu following the WAI-ARIA menu-button pattern: Enter/Space/ArrowDown opens, Arrow keys/Home/End move,
  * Escape closes and returns focus to the trigger, Tab or an outside click closes.
  */
-export function ActionMenu({ label, items }: { label: string; items: ActionMenuItem[] }) {
+export function ActionMenu({ label, items, triggerClassName }: { label: string; items: ActionMenuItem[]; /** Replaces the default 32px icon-button look, e.g. to match a 36px toolbar. */ triggerClassName?: string }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -47,11 +47,11 @@ export function ActionMenu({ label, items }: { label: string; items: ActionMenuI
         ref={triggerRef} type="button" aria-label={label} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((value) => !value)}
         onKeyDown={(event) => { if (event.key === 'ArrowDown' && !open) { event.preventDefault(); setOpen(true); } }}
-        className="grid h-8 w-8 place-items-center rounded-md text-ink-muted hover:bg-sunken hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+        className={cn('grid place-items-center rounded-md text-ink-muted hover:bg-sunken hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent', triggerClassName ?? 'h-8 w-8')}>
         <MoreHorizontalIcon className="h-4 w-4" aria-hidden />
       </button>
       {open && (
-        <div id={menuId} role="menu" aria-label={label} onKeyDown={onMenuKeyDown} className="absolute right-0 top-9 z-30 min-w-[190px] rounded-md border border-line bg-surface p-1 shadow-pop">
+        <div id={menuId} role="menu" aria-label={label} onKeyDown={onMenuKeyDown} className="absolute right-0 top-full z-30 mt-1 min-w-[190px] rounded-md border border-line bg-surface p-1 shadow-pop">
           {items.map((item) => item.kind === 'link' ? (
             <Link key={item.label} role="menuitem" tabIndex={-1} to={item.to} onClick={() => setOpen(false)} className={itemClass}>{item.icon}{item.label}</Link>
           ) : (

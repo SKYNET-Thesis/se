@@ -30,11 +30,11 @@ export function ClassroomLifecycleDialog({ action, classroom, pending, onConfirm
       <div className="space-y-3 text-sm text-ink-muted">
         {archive ? (
           <>
-            <p>Active enrollments through this classroom are revoked. A student keeps course access through any other active classroom.</p>
-            <p>Progress, submissions, grades, program versions and evidence stay intact. You can reactivate the classroom later.</p>
+            <p>Students lose the course access this classroom gives them. Anyone who is also in another active classroom keeps access through that one.</p>
+            <p>Progress, submissions, grades, saved programs and robot run records are kept. You can reactivate the classroom later.</p>
           </>
         ) : (
-          <p>The classroom becomes active again, so you can change its course offering and manage it as before.</p>
+          <p>The classroom becomes active again, so you can change its course and manage it as before.</p>
         )}
         {error && <p role="alert" className="border-l-4 border-danger bg-danger-soft p-3 text-danger">{error}</p>}
       </div>

@@ -24,7 +24,7 @@ export function MemberCandidatePicker({ candidates, total, page, pageSize, selec
         : <fieldset className="mt-2 divide-y divide-line overflow-hidden rounded-md border border-line">
           <legend className="sr-only">Select an eligible member</legend>
           {candidates.map(candidate => <label key={candidate.userId} className={selectedUserId === candidate.userId ? 'flex cursor-pointer gap-3 bg-accent-soft px-4 py-3' : 'flex cursor-pointer gap-3 bg-surface px-4 py-3 hover:bg-sunken'}>
-            <input type="radio" name="classroom-member" value={candidate.userId} checked={selectedUserId === candidate.userId} onChange={() => onSelect(candidate.userId)} className="mt-1 h-4 w-4 accent-[#176255]" />
+            <input type="radio" name="classroom-member" value={candidate.userId} checked={selectedUserId === candidate.userId} onChange={() => onSelect(candidate.userId)} className="mt-1 h-4 w-4 accent-accent" />
             <span className="min-w-0">
               <span className="block font-medium text-ink">{candidate.displayName}</span>
               <span className="mt-0.5 block text-xs text-ink-muted">{candidate.schoolCode ?? 'No school code'} · {candidate.organizationRole === 'instructor' ? 'Teacher' : 'Student'}</span>

@@ -28,14 +28,38 @@
   --danger: 182 44 44;
   --danger-soft: 251 233 231;
 }
-/* VISTA brand scope for School Administration (A01). It only re-points the accent tokens, so components inside keep
-   their structure but take Brilliant Blue / Deep Navy / Ocean Water. Semantic ok/warn/danger stay global. */
+/* VISTA brand scope for School Administration. AppShell puts it on <body> while the active role is school_admin, so the
+   shell, pages, portalled dialogs and toasts share it; other roles keep :root. It re-points the neutral and accent
+   tokens only. Semantic ok/warn/danger stay global. Contrast figures are against white unless noted. */
 .vista-school {
-  --accent: 37 60 150; /* Brilliant Blue #253C96, 9.7:1 on white */
+  --canvas: 244 246 250; /* cool paper, navy-tinted, replaces the warm grey */
+  --sunken: 236 240 246;
+  --ink: 25 36 78; /* Deep Navy #19244E, 15.0:1 */
+  --ink-muted: 72 82 110; /* 7.8:1 */
+  --ink-subtle: 96 105 132; /* 5.5:1, 4.8:1 on sunken */
+  --line: 225 230 239;
+  --line-strong: 196 204 219;
+  --accent: 37 60 150; /* Brilliant Blue #253C96, 9.7:1: primary actions, links, focus ring */
   --accent-hover: 25 36 78; /* Deep Navy #19244E */
-  --accent-soft: 196 231 229; /* Ocean Water #C4E7E5 */
+  --accent-soft: 196 231 229; /* Ocean Water #C4E7E5: selected/active plates */
   --accent-ink: 25 36 78; /* Deep Navy, 11.3:1 on Ocean Water */
   --vista-signal: 243 107 46; /* Sunset Orange #F36B2E: non-text marks only (3.0:1) */
+  --vista-mango: 245 154 30; /* Mango #F59A1E: non-text marks only, always paired with text */
+}
+/* The active navigation item carries the same Sunset Orange notch as the classroom code tag. Outside the scope the
+   class is inert, so other roles' navigation is unchanged. */
+.vista-school .vista-nav-active {
+  position: relative;
+}
+.vista-school .vista-nav-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: rgb(var(--vista-signal));
 }
 html,
 body,

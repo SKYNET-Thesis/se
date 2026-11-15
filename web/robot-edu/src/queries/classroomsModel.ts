@@ -78,7 +78,7 @@ export function validateClassroomForm(values: ClassroomFormValues, mode: Classro
     errors.capacity = 'Capacity can’t be removed yet. Enter a number from 1 to 10,000.';
   }
   if (mode === 'create') {
-    if (!values.courseId) errors.courseId = 'Choose a published course.';
+    if (!values.courseId) errors.courseId = 'Choose a catalog course.';
     required('offeringCode', 'school offering code', CLASSROOM_LIMITS.offeringCode);
     if (values.offeringTitle.trim().length > CLASSROOM_LIMITS.offeringTitle) errors.offeringTitle = `Use ${CLASSROOM_LIMITS.offeringTitle} characters or fewer.`;
   }
