@@ -32,6 +32,12 @@ describe('toCanonicalNestRobotProgram', () => {
     expect(result).toEqual({ ok: true, program: { kind: 'robot_program', schemaVersion: 1, steps: [{ type: 'arm.select', arm: 'left' }, { type: 'preview.move_xyz', mode: 'learning_preview', frame: 'learning_preview_v1', arm: 'left', position: { x: 240, y: 220, z: 120 } }] } });
   });
 
+  it('rejects fractional learning-preview coordinates with a block-level message instead of letting the server refuse the save', () => {
+    const result = toCanonicalNestRobotProgram(base([{ op: 'arm_select', blockId: 'select', arm: 'left' }, { op: 'move_to', blockId: 'move', arm: 'left', target: { x: 240.5, y: 220, z: 120 }, speed: 60 }]), { allowLearningPreviewMove: true });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.issues[0]).toMatchObject({ blockId: 'move', command: 'move_to', message: expect.stringContaining('whole millimetres') });
+  });
+
   it('rejects a gripper command without an explicit selected-arm context', () => {
     const result = toCanonicalNestRobotProgram(base([{ op: 'gripper', blockId: 'open', arm: 'right', action: 'open' }]));
     expect(result.ok).toBe(false);

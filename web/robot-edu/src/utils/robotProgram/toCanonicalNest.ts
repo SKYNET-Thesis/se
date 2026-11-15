@@ -33,6 +33,9 @@ export function toCanonicalNestRobotProgram(source: RobotProgram, options: { all
       case 'move_to':
         if (!options.allowLearningPreviewMove) unsupported(command, 'Cartesian movement has no canonical backend movement semantics.');
         else if (!selectedArm) unsupported(command, 'Learning preview movement requires an explicit selected-arm context.');
+        // The server accepts only integer learning_preview_v1 coordinates; reject here so the block is highlighted
+        // and the autosave still stores the workspace instead of the whole request being refused.
+        else if (![command.target.x, command.target.y, command.target.z].every(Number.isInteger)) unsupported(command, 'Learning preview coordinates must be whole millimetres (no decimals).');
         else steps.push({ type: 'preview.move_xyz', mode: 'learning_preview', frame: 'learning_preview_v1', arm: selectedArm, position: { x: command.target.x, y: command.target.y, z: command.target.z } });
         break;
       case 'move_joint': unsupported(command, 'Joint movement has no canonical backend movement semantics.'); break;
