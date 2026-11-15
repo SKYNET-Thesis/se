@@ -5,10 +5,10 @@ import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { educationAdminApi, type ApiClassroomStudentImportResult, type ApiClassroomStudentPreview } from '../../lib/api';
 import { cn } from '../../utils/cn';
-import { parseSchoolCsv, template, type ImportRow } from '../../utils/schoolImport';
+import { template, type ImportRow } from '../../utils/schoolImport';
 import {
-  MAX_IMPORT_ROWS, PREVIEW_FILTERS, STUDENT_CSV_COLUMNS, addedCount, csvProblemMessage, failedRowsCsv, importableCount, previewGroup, previewStatusLabel,
-  studentCsvProblem, toClassroomStudentRows, type PreviewGroup,
+  MAX_IMPORT_ROWS, PREVIEW_FILTERS, STUDENT_CSV_COLUMNS, addedCount, failedRowsCsv, importableCount, previewGroup, previewStatusLabel,
+  readStudentCsv, toClassroomStudentRows, type PreviewGroup,
 } from './classroomStudentImport';
 
 interface Props {
@@ -72,9 +72,9 @@ export function ClassroomStudentImport({ open, onClose, organizationId, classroo
     setBusy('checking');
     try {
       const source = await file.text();
-      const problem = studentCsvProblem(source);
-      if (problem) { showError(csvProblemMessage(problem)); return; }
-      const parsed = parseSchoolCsv('students', source);
+      const csv = readStudentCsv(source);
+      if (!csv.ok) { showError(csv.message); return; }
+      const parsed = csv.rows;
       setRows(parsed);
       setPreview(await educationAdminApi.previewClassroomStudentImport(organizationId, classroomId, token, { rows: toClassroomStudentRows(parsed) }));
     } catch (cause) {
@@ -131,7 +131,7 @@ export function ClassroomStudentImport({ open, onClose, organizationId, classroo
             <p className="font-medium text-ink">What the file needs</p>
             <p className="flex flex-wrap items-center gap-1.5 text-ink-muted">Required: {STUDENT_CSV_COLUMNS.required.map(column => <code key={column} className="rounded bg-sunken px-1.5 py-0.5 text-xs text-ink">{column}</code>)}</p>
             <p className="flex flex-wrap items-center gap-1.5 text-ink-muted">Optional: {STUDENT_CSV_COLUMNS.optional.map(column => <code key={column} className="rounded bg-sunken px-1.5 py-0.5 text-xs text-ink">{column}</code>)}</p>
-            <p className="text-ink-muted">Values can’t contain commas or quotation marks.</p>
+            <p className="text-ink-muted">Save it as CSV from your spreadsheet. Values that contain commas or quotation marks are fine.</p>
             <p className="text-ink-muted">Students already in your school are matched by student code. Anyone new gets a school account and joins this classroom. You can review every row before anything is saved.</p>
           </div>
           <Button size="sm" variant="secondary" onClick={() => downloadText('vista-classroom-students-template.csv', template('students'))} icon={<DownloadIcon className="h-4 w-4" aria-hidden />}>Download template</Button>

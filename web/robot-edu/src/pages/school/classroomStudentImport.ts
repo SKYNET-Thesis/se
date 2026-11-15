@@ -1,4 +1,4 @@
-import type { ImportRow } from '../../utils/schoolImport';
+import { readSchoolCsv, type ImportRow } from '../../utils/schoolImport';
 
 export interface ClassroomStudentPreview {
   processed: number;
@@ -40,57 +40,34 @@ export function toClassroomStudentRows(rows: ImportRow[]) {
   }));
 }
 
-/** Columns the classroom student import reads (utils/schoolImport `parseSchoolCsv('students')`). */
+/** Columns the classroom student import reads (utils/schoolImport `readSchoolCsv('students')`). */
 export const STUDENT_CSV_COLUMNS = { required: ['first_name', 'last_name', 'student_code', 'grade_level'], optional: ['email', 'guardian_email'] } as const;
-
-export type StudentCsvProblem =
-  | { kind: 'empty' } | { kind: 'missing-columns'; columns: string[] } | { kind: 'no-rows' } | { kind: 'too-many'; rows: number }
-  | { kind: 'quoted-values'; rows: number[] } | { kind: 'column-count'; rows: number[]; columns: number };
-
-/**
- * File-level problems, checked before anything is sent. Uses the same splitting rules as parseSchoolCsv so the two
- * never disagree.
- *
- * The shared parser splits every line on commas and does not understand CSV quoting, so `"Nguyen, Van",An,…` would be
- * read as shifted columns and could import a wrong name, code or grade without any error. Until that parser supports
- * quoting, this import refuses (a) any quotation mark, which is how spreadsheets wrap values containing commas, and
- * (b) any row whose number of values differs from the header's, since a bare comma inside a value always adds one.
- * Spreadsheet exports write every column on every row, so valid files pass. Either way the whole file is stopped with
- * the row numbers before anything reaches the preview or the server.
- *
- * Residual case: a hand-written row that both omits a column and contains a bare comma keeps the right count. Only
- * proper CSV quoting support in parseSchoolCsv removes it; until then it is a known limitation.
- */
-export function studentCsvProblem(source: string): StudentCsvProblem | null {
-  const lines = source.split(/\r?\n/).filter(Boolean);
-  if (lines.length === 0) return { kind: 'empty' };
-  const headers = lines[0].split(',').map((value) => value.trim());
-  const missing = STUDENT_CSV_COLUMNS.required.filter((column) => !headers.includes(column));
-  if (missing.length) return { kind: 'missing-columns', columns: missing };
-  if (lines.length === 1) return { kind: 'no-rows' };
-  if (lines.length - 1 > MAX_IMPORT_ROWS) return { kind: 'too-many', rows: lines.length - 1 };
-  const fileRow = (index: number) => index + 1; // line 1 is the header, as in the preview's row numbers
-  const quoted = lines.map((line, index) => (line.includes('"') ? fileRow(index) : 0)).filter(Boolean);
-  if (quoted.length) return { kind: 'quoted-values', rows: quoted };
-  const misaligned = lines.slice(1).map((line, index) => (line.split(',').length !== headers.length ? fileRow(index + 1) : 0)).filter(Boolean);
-  if (misaligned.length) return { kind: 'column-count', rows: misaligned, columns: headers.length };
-  return null;
-}
-
-const rowList = (rows: number[]) => `${rows.length === 1 ? 'row' : 'rows'} ${rows.length > 5 ? `${rows.slice(0, 5).join(', ')} and ${rows.length - 5} more` : rows.join(', ')}`;
 
 /** ImportClassroomStudentsDto: @ArrayMaxSize(500). */
 export const MAX_IMPORT_ROWS = 500;
 
-export function csvProblemMessage(problem: StudentCsvProblem) {
-  switch (problem.kind) {
-    case 'empty': return 'This file is empty. Choose a CSV with a header row and one student per row.';
-    case 'missing-columns': return `This file is missing ${problem.columns.length === 1 ? 'a required column' : 'required columns'}: ${problem.columns.join(', ')}. Download the template to see the expected header.`;
-    case 'no-rows': return 'This file has a header but no students. Add one student per row and try again.';
-    case 'too-many': return `This file has ${problem.rows} students. Import up to ${MAX_IMPORT_ROWS} at a time by splitting it into smaller files.`;
-    case 'quoted-values': return `Quotation marks aren’t supported yet (${rowList(problem.rows)}). Spreadsheets add them around values that contain commas. Remove the commas and quotation marks from those values, then choose the file again.`;
-    case 'column-count': return `${rowList(problem.rows).replace(/^r/, 'R')} ${problem.rows.length === 1 ? 'doesn’t' : 'don’t'} have ${problem.columns} values like the header. Usually a value contains a comma or a column is missing. Fix ${problem.rows.length === 1 ? 'it' : 'them'}, then choose the file again.`;
+const rowList = (rows: number[]) => `${rows.length === 1 ? 'row' : 'rows'} ${rows.length > 5 ? `${rows.slice(0, 5).join(', ')} and ${rows.length - 5} more` : rows.join(', ')}`;
+
+/**
+ * Reads the classroom student file with the shared RFC 4180 reader and stops before anything is sent when the file
+ * can't be read exactly: CSV syntax errors, an empty file, missing or repeated columns, no student rows, more rows than
+ * the request accepts, or any row whose value count differs from the header. The server only checks values, so a row
+ * read into the wrong columns could pass it; such rows are refused here instead of being skipped silently.
+ */
+export function readStudentCsv(source: string): { ok: true; rows: ImportRow[] } | { ok: false; message: string } {
+  const file = readSchoolCsv('students', source);
+  if (!file.ok) {
+    if (file.kind === 'missing-columns' && file.columns) return { ok: false, message: `This file is missing ${file.columns.length === 1 ? 'a required column' : 'required columns'}: ${file.columns.join(', ')}. Download the template to see the expected header.` };
+    if (file.kind === 'empty') return { ok: false, message: 'This file is empty. Choose a CSV with a header row and one student per row.' };
+    return { ok: false, message: file.message };
   }
+  if (file.rows.length === 0) return { ok: false, message: 'This file has a header but no students. Add one student per row and try again.' };
+  if (file.rows.length > MAX_IMPORT_ROWS) return { ok: false, message: `This file has ${file.rows.length} students. Import up to ${MAX_IMPORT_ROWS} at a time by splitting it into smaller files.` };
+  if (file.misalignedRows.length) {
+    const rows = file.misalignedRows;
+    return { ok: false, message: `${rowList(rows).replace(/^r/, 'R')} ${rows.length === 1 ? 'doesn’t' : 'don’t'} have one value for each column in the header, so ${rows.length === 1 ? 'its' : 'their'} values can’t be matched to columns. Check for a missing value or a comma outside quotation marks, then choose the file again.` };
+  }
+  return { ok: true, rows: file.rows };
 }
 
 export type PreviewGroup = 'add' | 'already' | 'fix';

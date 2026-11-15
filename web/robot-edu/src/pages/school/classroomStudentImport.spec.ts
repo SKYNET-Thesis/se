@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { template } from '../../utils/schoolImport';
-import { addedCount, csvProblemMessage, failedRowsCsv, importableCount, previewGroup, studentCsvProblem, toClassroomStudentRows } from './classroomStudentImport';
+import { addedCount, failedRowsCsv, importableCount, previewGroup, readStudentCsv, toClassroomStudentRows } from './classroomStudentImport';
 
 describe('classroom student import view model', () => {
   it('sends only normalized Student contract fields and never preview status or classroom role', () => {
@@ -11,38 +11,37 @@ describe('classroom student import view model', () => {
   });
 
   it('reports file-level problems before anything is sent, including the 500-row request limit', () => {
-    expect(studentCsvProblem('')).toEqual({ kind: 'empty' });
-    expect(studentCsvProblem('first_name,last_name\nAn,Le')).toEqual({ kind: 'missing-columns', columns: ['student_code', 'grade_level'] });
-    expect(studentCsvProblem('first_name,last_name,student_code,grade_level\n')).toEqual({ kind: 'no-rows' });
+    const message = (source: string) => { const result = readStudentCsv(source); return result.ok ? null : result.message; };
+    expect(message('')).toContain('This file is empty');
+    expect(message('first_name,last_name\nAn,Le')).toContain('missing required columns: student_code, grade_level');
+    expect(message('first_name,last_name,student_code,grade_level\n\n,,,\n')).toContain('has a header but no students');
     const big = ['first_name,last_name,student_code,grade_level', ...Array.from({ length: 501 }, (_, i) => `A,B,S${i},8`)].join('\n');
-    expect(studentCsvProblem(big)).toEqual({ kind: 'too-many', rows: 501 });
-    expect(studentCsvProblem('first_name,last_name,student_code,grade_level\nAn,Le,S1,8')).toBeNull();
-    expect(csvProblemMessage({ kind: 'missing-columns', columns: ['grade_level'] })).toContain('missing a required column: grade_level');
+    expect(message(big)).toContain('This file has 501 students');
+    expect(message('first_name,last_name,student_code,grade_level\n"Nguyen, An,S1,8')).toContain('never closed');
+    expect(message('first_name,first_name,last_name,student_code,grade_level\nA,B,C,S1,8')).toContain('more than once');
   });
 
-  it('refuses files the comma-splitting parser would read as shifted columns, so no misaligned data is imported', () => {
+  it('reads quoted values exactly, including commas, doubled quotes and CRLF line endings', () => {
     const header = 'first_name,last_name,student_code,grade_level,email,guardian_email';
-    // A spreadsheet wraps a value containing a comma in quotes; split on commas it would shift every later column.
-    expect(studentCsvProblem(`${header}\nAn,Le,S1,8,,\n"Nguyen, Van",An,S2,8,,\nBao,Tran,S3,8,,`)).toEqual({ kind: 'quoted-values', rows: [3] });
-    expect(studentCsvProblem(`${header}\n"An",Le,S1,8,,`)).toEqual({ kind: 'quoted-values', rows: [2] });
-    // A bare comma always changes the value count, even when the shifted cell is empty.
+    const result = readStudentCsv(`${header}\r\n"Nguyen, Van",An,S2,Grade 8,,\r\nLe,"Han ""Bee""",S3,"Grade 8, room B2",han@example.test,\r\n`);
+    expect(result.ok && result.rows.map(({ row, firstName, lastName, studentCode, gradeLevel, email }) => ({ row, firstName, lastName, studentCode, gradeLevel, email }))).toEqual([
+      { row: 2, firstName: 'Nguyen, Van', lastName: 'An', studentCode: 'S2', gradeLevel: 'Grade 8', email: '' },
+      { row: 3, firstName: 'Le', lastName: 'Han "Bee"', studentCode: 'S3', gradeLevel: 'Grade 8, room B2', email: 'han@example.test' },
+    ]);
+  });
+
+  it('refuses rows that can’t be matched to columns instead of importing shifted values', () => {
     const four = 'first_name,last_name,student_code,grade_level';
-    expect(studentCsvProblem(`${four}\nAn,Le,S1,8\nNguyen, Van,An,S2,8`)).toEqual({ kind: 'column-count', rows: [3], columns: 4 });
-    expect(studentCsvProblem(`${four}\nNguyen, Van,An,S2,`)).toEqual({ kind: 'column-count', rows: [2], columns: 4 }); // otherwise 4 plausible, wrong values
-    expect(studentCsvProblem(`${header}\nAn,Le,S1,8,,,\nBao,Tran,S2,8`)).toEqual({ kind: 'column-count', rows: [2, 3], columns: 6 });
-    // Spreadsheet exports keep every column, including empty optional ones, and pass.
-    expect(studentCsvProblem(`${header}\nAn,Le,S1,8,,\nBao,Tran,S2,8,bao@example.test,`)).toBeNull();
-    expect(csvProblemMessage({ kind: 'quoted-values', rows: [3] })).toContain('(row 3)');
-    expect(csvProblemMessage({ kind: 'column-count', rows: [3, 4, 5, 6, 7, 8, 9], columns: 6 })).toBe('Rows 3, 4, 5, 6, 7 and 2 more don’t have 6 values like the header. Usually a value contains a comma or a column is missing. Fix them, then choose the file again.');
+    // A bare comma outside quotes adds a value; without this check "Van" would be read as the last name.
+    const shifted = readStudentCsv(`${four}\nAn,Le,S1,8\nNguyen, Van,An,S2,8\nBao,Tran,S3`);
+    expect(shifted).toEqual({ ok: false, message: expect.stringContaining('Rows 3, 4 don’t have one value for each column') });
+    // Extra empty values at the end of a row are harmless and accepted.
+    expect(readStudentCsv(`${four}\nAn,Le,S1,8,,`).ok).toBe(true);
   });
 
-  it('accepts the downloadable student template as is', () => {
-    expect(studentCsvProblem(template('students'))).toBeNull();
-  });
-
-  it('accepts a spreadsheet byte-order mark before the header (trim removes it, as in parseSchoolCsv)', () => {
-    const withMark = String.fromCharCode(0xfeff) + 'first_name,last_name,student_code,grade_level\nAn,Le,S1,8';
-    expect(studentCsvProblem(withMark)).toBeNull();
+  it('accepts the downloadable student template and a spreadsheet byte-order mark', () => {
+    expect(readStudentCsv(template('students')).ok).toBe(true);
+    expect(readStudentCsv(String.fromCharCode(0xfeff) + 'first_name,last_name,student_code,grade_level\nAn,Le,S1,8').ok).toBe(true);
   });
 
   it('counts only rows the service will add, and groups preview statuses for review', () => {

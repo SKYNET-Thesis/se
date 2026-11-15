@@ -213,13 +213,24 @@ describe('CSV import', () => {
     expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('missing required columns: student_code, grade_level');
   });
 
-  it('stops a file with quoted values before preview, so shifted columns are never sent or imported', async () => {
+  it('sends quoted values intact to the server preview', async () => {
+    api.previewClassroomStudentImport.mockResolvedValue(preview);
     await mount();
     await click(button('Import students'));
-    await chooseFile('first_name,last_name,student_code,grade_level\n"Nguyen, Van",An,S2,8\n');
+    await chooseFile('first_name,last_name,student_code,grade_level\r\n"Nguyen, Van",An,S2,"Grade 8, room B2"\r\n');
+    expect(api.previewClassroomStudentImport.mock.calls[0][3]).toEqual({ rows: [{ firstName: 'Nguyen, Van', lastName: 'An', studentCode: 'S2', gradeLevel: 'Grade 8, room B2', email: undefined, guardianEmail: undefined }] });
+  });
+
+  it('stops a file whose rows can’t be matched to columns before preview, so shifted values are never sent', async () => {
+    await mount();
+    await click(button('Import students'));
+    await chooseFile('first_name,last_name,student_code,grade_level\nNguyen, Van,An,S2,8\n');
     expect(api.previewClassroomStudentImport).not.toHaveBeenCalled();
     expect(api.confirmClassroomStudentImport).not.toHaveBeenCalled();
-    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('Quotation marks aren’t supported yet (row 2)');
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('Row 2 doesn’t have one value for each column');
+    await chooseFile('first_name,last_name,student_code,grade_level\n"Nguyen, Van,An,S2,8\n');
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('starts on line 2 is never closed');
+    expect(api.previewClassroomStudentImport).not.toHaveBeenCalled();
   });
 
   it('cannot import when no row can be added', async () => {
