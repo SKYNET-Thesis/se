@@ -470,7 +470,9 @@ export const educationAdminApi = {
   confirmClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentImportResult>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports`,token,'POST',body),
   upsertMember: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`,token,'POST',body),
   revokeMember: (organizationId:string,classroomId:string,studentId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members/${studentId}`,token,'DELETE'),
+  removeStaff: (organizationId:string,classroomId:string,staffUserId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/staff/${staffUserId}`,token,'DELETE'),
   eligibleRobots: (classroomId:string,token:string) => apiGet<ApiRobotResource[]>(`/education-admin/classrooms/${classroomId}/eligible-robots`,token),
+
   allocateRobot: (classroomId:string,token:string,robotId:string) => apiRequest<ApiRecord>(`/education-admin/classrooms/${classroomId}/robot-allocation`,token,'PUT',{robotId}),
 };
 export const catalogApi = {

@@ -132,7 +132,7 @@ describe("EducationAdminService role derivation and provisioning scope", () => {
 
   beforeEach(() => { findMembership.mockReset(); upsert.mockReset().mockResolvedValue({ id: "cm-1" }); queryRaw.mockReset(); findOrganization.mockReset().mockResolvedValue({ school_code: "VST-SCHOOL" }); invite.mockReset(); });
 
-  it.each([["student", "student"], ["instructor", "teacher"]])("derives %s membership as classroom role %s", async (organizationRole, classroomRole) => {
+  it.each([["student", "student"], ["instructor", "teacher"], ["teaching_assistant", "teaching_assistant"]])("derives %s membership as classroom role %s", async (organizationRole, classroomRole) => {
     findMembership.mockResolvedValue({ id: "membership-a", status: "active", roles: { code: organizationRole } });
     await service.upsertClassroomMember(schoolAdmin, "school-a", "class-a", { userId: "00000000-0000-4000-8000-000000000001" });
     expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ create: expect.objectContaining({ classroom_role: classroomRole }), update: expect.objectContaining({ classroom_role: classroomRole }) }));
@@ -198,6 +198,53 @@ describe("EducationAdminService role derivation and provisioning scope", () => {
     findMembership.mockResolvedValue({ id: "membership-a", status: "active", roles: { code: "student" } });
     await service.upsertClassroomMember(schoolAdmin, "school-a", "class-a", { userId: "00000000-0000-4000-8000-000000000001" });
     expect(synchronizeIfDeliverable).toHaveBeenCalledWith(expect.anything(), "class-a");
+  });
+
+  describe("EducationAdminService removeClassroomStaff", () => {
+    const findMemberForStaff = jest.fn();
+    const updateMember = jest.fn().mockResolvedValue({ id: "cm-staff-1" });
+    const lockClassroom = jest.fn().mockResolvedValue({ id: "class-a", organization_id: "school-a", offering_id: "offering-a", status: "active" });
+    const releaseIn = jest.fn();
+    const staffService = new EducationAdminService(
+      { $queryRaw: jest.fn(), learning_classrooms: { findFirst: jest.fn() }, memberships: { findFirst: jest.fn() }, learning_classroom_members: { findFirst: findMemberForStaff, update: updateMember }, $transaction: jest.fn(async (work: (tx: unknown) => unknown) => work({ learning_classroom_members: { findFirst: findMemberForStaff, update: updateMember } })) } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(false) } as never,
+      {} as never, {} as never,
+      { lockClassroomIn: lockClassroom, releaseIn } as never,
+    );
+    const admin = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.classroom.members.manage"] }] };
+    const taOnly = { ...baseUser, memberships: [{ id: "m-2", organizationId: "school-a", roleCode: "teaching_assistant", status: "active", permissions: ["learning.delivery.manage"] }] };
+
+    beforeEach(() => { findMemberForStaff.mockReset(); updateMember.mockReset().mockResolvedValue({ id: "cm-staff-1" }); releaseIn.mockReset(); });
+
+    it("removes an active teacher from the classroom and returns { removed: true }", async () => {
+      findMemberForStaff.mockResolvedValue({ id: "cm-staff-1" });
+      await expect(staffService.removeClassroomStaff(admin, "school-a", "class-a", "00000000-0000-4000-8000-000000000002")).resolves.toEqual({ removed: true });
+      expect(updateMember).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "cm-staff-1" }, data: expect.objectContaining({ status: "removed" }) }));
+    });
+
+    it("removes an active teaching assistant from the classroom", async () => {
+      findMemberForStaff.mockResolvedValue({ id: "cm-staff-2" });
+      await expect(staffService.removeClassroomStaff(admin, "school-a", "class-a", "00000000-0000-4000-8000-000000000003")).resolves.toEqual({ removed: true });
+      expect(updateMember).toHaveBeenCalledTimes(1);
+    });
+
+    it("throws NotFoundException when the target is not an active staff member", async () => {
+      findMemberForStaff.mockResolvedValue(null);
+      await expect(staffService.removeClassroomStaff(admin, "school-a", "class-a", "00000000-0000-4000-8000-000000000004")).rejects.toBeInstanceOf(NotFoundException);
+      expect(updateMember).not.toHaveBeenCalled();
+    });
+
+    it("rejects a caller without education.classroom.members.manage before touching the DB", async () => {
+      await expect(staffService.removeClassroomStaff(taOnly, "school-a", "class-a", "00000000-0000-4000-8000-000000000002")).rejects.toBeInstanceOf(NotFoundException);
+      expect(findMemberForStaff).not.toHaveBeenCalled();
+      expect(updateMember).not.toHaveBeenCalled();
+    });
+
+    it("does not release enrollments when removing staff", async () => {
+      findMemberForStaff.mockResolvedValue({ id: "cm-staff-1" });
+      await staffService.removeClassroomStaff(admin, "school-a", "class-a", "00000000-0000-4000-8000-000000000002");
+      expect(releaseIn).not.toHaveBeenCalled();
+    });
   });
 
   it('edits only supported classroom metadata within the administrator school', async () => {

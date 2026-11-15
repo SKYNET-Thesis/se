@@ -205,7 +205,11 @@ export class EducationAdminService {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.members.manage");
     const membership = await this.prisma.memberships.findFirst({ where: { user_id: dto.userId, organization_id: organizationId }, select: { id: true, status: true, roles: { select: { code: true } } } });
     if (!membership || membership.status !== "active") throw new NotFoundException("An active organization membership was not found.");
-    const classroomRole = membership.roles.code === "student" ? "student" : membership.roles.code === "instructor" ? "teacher" : null;
+    const classroomRole =
+      membership.roles.code === "student" ? "student"
+      : membership.roles.code === "instructor" ? "teacher"
+      : membership.roles.code === "teaching_assistant" ? "teaching_assistant"
+      : null;
     if (!classroomRole) throw new ConflictException("This organization role is not eligible for classroom membership.");
     // Membership and enrollment change together under the classroom lock: a synchronization failure must not
     // leave a half-added student, and a concurrent archive/removal cannot be overtaken by this enrollment.
@@ -284,6 +288,21 @@ export class EducationAdminService {
       // Only this classroom's enrollment is released; other classrooms of the same course keep their own rows.
       const released = await this.enrollments.releaseIn(tx, classroom.id, studentId);
       return { removed: true, enrollment: released[0] ?? null };
+    });
+  }
+
+  async removeClassroomStaff(user: AuthenticatedUser, organizationId: string, classroomId: string, staffUserId: string) {
+    await this.assertOrganizationPermission(user, organizationId, "education.classroom.members.manage");
+    return this.prisma.$transaction(async (tx) => {
+      const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
+      // Teachers and TAs hold no learning_enrollments, so no enrollment release is needed.
+      const member = await tx.learning_classroom_members.findFirst({
+        where: { classroom_id: classroom.id, user_id: staffUserId, classroom_role: { in: ["teacher", "teaching_assistant"] }, status: "active" },
+        select: { id: true },
+      });
+      if (!member) throw new NotFoundException("Classroom staff member was not found.");
+      await tx.learning_classroom_members.update({ where: { id: member.id }, data: { status: "removed", left_at: new Date() } });
+      return { removed: true };
     });
   }
 
