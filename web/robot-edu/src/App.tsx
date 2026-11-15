@@ -48,6 +48,7 @@ import { StudentAssignments } from './pages/StudentAssignments';
 import { TeacherSubmissionReview } from './pages/teacher/TeacherSubmissionReview';
 
 import { SchoolCourses } from './pages/school/SchoolCourses';
+import { SchoolOfferings } from './pages/school/SchoolOfferings';
 /** Heavy routes (Blockly, Three.js, course builder) load on demand so every other page starts from a much smaller bundle. */
 const RouteFallback = () => <div role="status" aria-live="polite" className="mx-auto max-w-[1060px] px-4 py-10 text-sm text-ink-muted md:px-8">Loading…</div>;
 
@@ -103,6 +104,7 @@ export function App() {
                   <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />
  <Route path="school/quizzes" element={<RequireRole roles={['school_admin']}><QuizDeliveries audience="school" /></RequireRole>} />
                   <Route path="school/courses" element={<RequireRole roles={['school_admin']}><SchoolCourses /></RequireRole>} />
+                  <Route path="school/offerings" element={<RequireRole roles={['school_admin']}><SchoolOfferings /></RequireRole>} />
                   <Route path="school/import" element={<RequireRole roles={['school_admin']}><SchoolImportUsers /></RequireRole>} />
                   <Route path="*" element={<NotFound />} />
                 </Route>
