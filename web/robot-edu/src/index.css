@@ -28,6 +28,15 @@
   --danger: 182 44 44;
   --danger-soft: 251 233 231;
 }
+/* VISTA brand scope for School Administration (A01). It only re-points the accent tokens, so components inside keep
+   their structure but take Brilliant Blue / Deep Navy / Ocean Water. Semantic ok/warn/danger stay global. */
+.vista-school {
+  --accent: 37 60 150; /* Brilliant Blue #253C96, 9.7:1 on white */
+  --accent-hover: 25 36 78; /* Deep Navy #19244E */
+  --accent-soft: 196 231 229; /* Ocean Water #C4E7E5 */
+  --accent-ink: 25 36 78; /* Deep Navy, 11.3:1 on Ocean Water */
+  --vista-signal: 243 107 46; /* Sunset Orange #F36B2E: non-text marks only (3.0:1) */
+}
 html,
 body,
 #root {

@@ -35,6 +35,8 @@ import { MyLearning } from './pages/MyLearning';
 import { TeacherClasses } from './pages/teacher/TeacherClasses';
 import { TeacherClassDetail } from './pages/teacher/TeacherClassDetail';
 import { SchoolManagement } from './pages/school/SchoolManagement';
+import { ClassroomsPage } from './pages/school/ClassroomsPage';
+import { ClassroomDetailPage } from './pages/school/ClassroomDetailPage';
 import { SupabaseSessionProvider } from './contexts/SupabaseSessionContext';
 import { RequireSession } from './components/auth/RequireSession';
 import { RequireRole } from './components/auth/RequireRole';
@@ -98,7 +100,8 @@ export function App() {
                   <Route path="admin/courses" element={<RequireRole roles={['admin']}><AdminCourses /></RequireRole>} />
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />
                   <Route path="school/users" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="users" /></RequireRole>} />
-                  <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />
+                  <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><ClassroomsPage /></RequireRole>} />
+                  <Route path="school/classrooms/:classroomId" element={<RequireRole roles={['school_admin']}><ClassroomDetailPage /></RequireRole>} />
  <Route path="school/quizzes" element={<RequireRole roles={['school_admin']}><QuizDeliveries audience="school" /></RequireRole>} />
                   <Route path="school/import" element={<RequireRole roles={['school_admin']}><SchoolImportUsers /></RequireRole>} />
                   <Route path="*" element={<NotFound />} />

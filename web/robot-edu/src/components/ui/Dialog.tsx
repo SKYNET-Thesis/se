@@ -15,9 +15,12 @@ interface DialogProps {
   children?: React.ReactNode;
   footer?: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'preview';
+  /** Extra classes on the portal root, e.g. a token scope such as `vista-school`. The dialog renders into
+   *  document.body, so scopes set on the page do not reach it otherwise. */
+  className?: string;
 }
 
-export function Dialog({ open, onClose, title, description, children, footer, size = 'md' }: DialogProps) {
+export function Dialog({ open, onClose, title, description, children, footer, size = 'md', className }: DialogProps) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
@@ -77,7 +80,8 @@ export function Dialog({ open, onClose, title, description, children, footer, si
       {open &&
       <div className={cn(
         'fixed inset-0 z-50 flex justify-center',
-        size === 'preview' ? 'items-center p-3 sm:p-6' : 'items-end p-0 sm:items-center sm:p-6'
+        size === 'preview' ? 'items-center p-3 sm:p-6' : 'items-end p-0 sm:items-center sm:p-6',
+        className
       )}>
           <motion.div
           className="absolute inset-0 bg-ink/30"
