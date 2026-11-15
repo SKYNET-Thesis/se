@@ -62,11 +62,11 @@ describe('SidebarNav role-based navigation', () => {
     expect(myLearningLink?.getAttribute('href')).toBe('/my-learning');
   });
 
-  it('preserves School Admin navigation to /courses', async () => {
+  it('routes School Admin courses to the organization course manager', async () => {
     await renderNav('school_admin');
     const links = Array.from(container.querySelectorAll('a'));
-    const courseLink = links.find((l) => l.textContent?.includes('Course catalogue'));
-    expect(courseLink?.getAttribute('href')).toBe('/courses');
+    const courseLink = links.find((l) => l.textContent?.trim() === 'Courses');
+    expect(courseLink?.getAttribute('href')).toBe('/school/courses');
   });
 
   it('preserves Teacher navigation with Student catalogue pointing to /courses', async () => {

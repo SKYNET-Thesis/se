@@ -5,6 +5,7 @@ export interface CandidateFilters { page: number; pageSize: number; search: stri
 export const schoolAdminKeys = {
   root: ['school-admin'] as const,
   overview: (organizationId: string) => ['school-admin', organizationId, 'overview'] as const,
+  courses: (organizationId: string) => ['school-admin', organizationId, 'courses'] as const,
   peopleRoot: (organizationId: string) => ['school-admin', organizationId, 'people'] as const,
   people: (organizationId: string, filters: PeopleFilters) => ['school-admin', organizationId, 'people', filters] as const,
   classrooms: (organizationId: string) => ['school-admin', organizationId, 'classrooms'] as const,

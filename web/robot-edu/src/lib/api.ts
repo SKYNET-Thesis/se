@@ -442,6 +442,7 @@ export const studentAuthApi = {
   recover: (body: { schoolCode: string; studentCode: string; recoveryCode: string; password: string }) => apiPublicPost<{ status: "password_updated" }>("/auth/students/recover", body),
 };
 export const educationAdminApi = {
+  courses: (organizationId:string,token:string) => apiGet<ApiCourse[]>(`/education-admin/organizations/${organizationId}/courses`,token),
   publishedCourses: (organizationId:string,token:string) => apiGet<ApiCourse[]>(`/education-admin/organizations/${organizationId}/published-courses`,token),
   overview: (organizationId:string,token:string) => apiGet<ApiSchoolOverview>(`/education-admin/organizations/${organizationId}/overview`,token),
   people: (organizationId:string,token:string,filters:{page:number;pageSize:number;search?:string;role?:'student'|'instructor'}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);if(filters.role)query.set('role',filters.role);return apiGet<ApiPage<ApiSchoolPerson>>(`/education-admin/organizations/${organizationId}/people?${query}`,token); },
@@ -452,6 +453,7 @@ export const educationAdminApi = {
   memberCandidates: (organizationId:string,classroomId:string,token:string,filters:{page:number;pageSize:number;search?:string}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);return apiGet<ApiPage<ApiMemberCandidate>>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/member-candidates?${query}`,token); },
   createClassroom: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms`,token,'POST',body),
   updateClassroom: (organizationId:string,classroomId:string,token:string,body:{name?:string;code?:string;description?:string;capacity?:number}) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}`,token,'PATCH',body),
+  updateCourse: (organizationId:string,courseId:string,token:string,body:{title?:string;description?:string}) => apiRequest<ApiCourse>(`/education-admin/organizations/${organizationId}/courses/${courseId}`,token,'PATCH',body),
   archiveClassroom: (organizationId:string,classroomId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/archive`,token,'POST'),
   reactivateClassroom: (organizationId:string,classroomId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/reactivate`,token,'POST'),
   assignClassroomOffering: (organizationId:string,classroomId:string,offeringId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/offering`,token,'PUT',{offeringId}),

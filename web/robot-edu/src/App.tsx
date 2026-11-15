@@ -45,6 +45,7 @@ import { SchoolQueryProvider } from './queries/SchoolQueryProvider';
 import { StudentAssignmentDetail } from './pages/StudentAssignmentDetail';
 import { StudentAssignments } from './pages/StudentAssignments';
 import { TeacherSubmissionReview } from './pages/teacher/TeacherSubmissionReview';
+import { SchoolCourses } from './pages/school/SchoolCourses';
 
 export function App() {
   return (
@@ -93,6 +94,7 @@ export function App() {
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />
                   <Route path="school/users" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="users" /></RequireRole>} />
                   <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />
+                  <Route path="school/courses" element={<RequireRole roles={['school_admin']}><SchoolCourses /></RequireRole>} />
                   <Route path="school/import" element={<RequireRole roles={['school_admin']}><SchoolImportUsers /></RequireRole>} />
                   <Route path="*" element={<NotFound />} />
                 </Route>
