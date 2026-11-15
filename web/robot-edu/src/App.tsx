@@ -46,6 +46,7 @@ import { StudentAssignmentDetail } from './pages/StudentAssignmentDetail';
 import { StudentAssignments } from './pages/StudentAssignments';
 import { TeacherSubmissionReview } from './pages/teacher/TeacherSubmissionReview';
 import { SchoolCourses } from './pages/school/SchoolCourses';
+import { SchoolOfferings } from './pages/school/SchoolOfferings';
 
 export function App() {
   return (
@@ -95,6 +96,7 @@ export function App() {
                   <Route path="school/users" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="users" /></RequireRole>} />
                   <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />
                   <Route path="school/courses" element={<RequireRole roles={['school_admin']}><SchoolCourses /></RequireRole>} />
+                  <Route path="school/offerings" element={<RequireRole roles={['school_admin']}><SchoolOfferings /></RequireRole>} />
                   <Route path="school/import" element={<RequireRole roles={['school_admin']}><SchoolImportUsers /></RequireRole>} />
                   <Route path="*" element={<NotFound />} />
                 </Route>

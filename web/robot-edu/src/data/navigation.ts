@@ -4,6 +4,7 @@ import {
   ClipboardListIcon,
   Cpu,
   LayoutDashboardIcon,
+  LayersIcon,
   LibraryIcon,
   PuzzleIcon,
   Settings2Icon,
@@ -102,6 +103,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     title: 'Learning',
     items: [
     { to: '/school/courses', label: 'Courses', icon: BookOpenIcon },
+    { to: '/school/offerings', label: 'Offerings', icon: LayersIcon },
     { to: '/lab', label: 'Robot Lab', icon: Cpu }]
   }]
 
