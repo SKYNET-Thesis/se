@@ -15,6 +15,16 @@ describe("SymbolicEvaluationService", () => {
   it("rolls back when the owning attempt cannot transition",async()=>{const txQuery=jest.fn().mockResolvedValueOnce([row]).mockResolvedValueOnce([]);transaction.mockImplementation(async work=>work({$queryRaw:txQuery}));await expect(service.evaluateOwnExperiment(user,"experiment-1")).rejects.toThrow("Attempt could not be finalized");});
   it("persists a failed verdict without completing progression", async () => { evaluator.evaluate.mockReturnValue({ verdict: "failed", rules: [{ ordinal: 1, passed: false }], metrics: { ruleCount: 1, passedRuleCount: 0 } }); const tx = { $queryRaw: jest.fn().mockResolvedValueOnce([{ ...row, verdict: "failed", rule_results: [{ ordinal: 1, passed: false }], metrics: { ruleCount: 1, passedRuleCount: 0 } }]).mockResolvedValueOnce([{id:"attempt-1"}]) }; transaction.mockImplementation(async (work) => work(tx)); progression.projectSymbolicPass.mockResolvedValue({ completedLessonId:null,newlyUnlockedLessonIds:[] }); await expect(service.evaluateOwnExperiment(user, "experiment-1")).resolves.toMatchObject({ verdict: "failed", progression:{completedLessonId:null,newlyUnlockedLessonIds:[]} }); expect(progression.projectSymbolicPass).toHaveBeenCalledWith(tx,user,expect.objectContaining({verdict:"failed"})); });
   it("rolls back evidence when progression persistence fails",async()=>{const tx={ $queryRaw:jest.fn().mockResolvedValueOnce([row]).mockResolvedValueOnce([{id:"attempt-1"}])};transaction.mockImplementation(async work=>work(tx));progression.projectSymbolicPass.mockRejectedValueOnce(new Error("progress write failed"));await expect(service.evaluateOwnExperiment(user,"experiment-1")).rejects.toThrow("progress write failed");});
+  it("reports and persists the evaluated ProgramVersion number, not a fixed version 1", async () => {
+    preparation.prepareForOwnExperiment.mockResolvedValueOnce({ ...prepared, versionNumber: 3 });
+    const tx = { $queryRaw: jest.fn().mockResolvedValueOnce([row]).mockResolvedValueOnce([{ id: "attempt-1" }]) };
+    transaction.mockImplementation(async (work) => work(tx));
+    const response = await service.evaluateOwnExperiment(user, "experiment-1");
+    expect(response.versionNumber).toBe(3);
+    expect(response.evidence?.versionNumber).toBe(3);
+    const persistedSnapshot = (tx.$queryRaw.mock.calls[1] as unknown[]).find((value) => typeof value === "string" && value.includes("\"evidence\"")) as string;
+    expect(JSON.parse(persistedSnapshot).evidence.versionNumber).toBe(3);
+  });
   it("returns only owned evaluation evidence", async () => { queryRaw.mockResolvedValueOnce([row]); await expect(service.own(user, "evaluation-1")).resolves.toMatchObject({ id: "evaluation-1" }); queryRaw.mockResolvedValueOnce([]); await expect(service.own(user, "other")).rejects.toBeInstanceOf(NotFoundException); });
   it("lists only owned evidence", async () => { queryRaw.mockResolvedValueOnce([row]); await expect(service.mine(user)).resolves.toHaveLength(1); });
 });

@@ -76,7 +76,7 @@ export class SymbolicEvaluationService {
           : (failedRules[0]?.message || "The robot program did not complete the required task."),
         messages: (preview.rules || []).map((rule) => rule.message || rule.reason),
       };
-      const versionNumber = (prepared as any).versionNumber ?? 1;
+      const versionNumber = prepared.versionNumber;
       const resultEvidence = {
         experimentId: prepared.experimentId,
         evaluationId: response.id,

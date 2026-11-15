@@ -22,6 +22,13 @@ describe("SymbolicEvaluationPreparationService", () => {
     expect(prepared.fingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it("carries the evaluated ProgramVersion number from the persisted chain", async () => {
+    const prepared = await prepare(chain({ version_number: 3 }));
+    expect(prepared.versionNumber).toBe(3);
+    const [query] = queryRaw.mock.calls[0] as [TemplateStringsArray];
+    expect(query.join("")).toContain("pv.version_number");
+  });
+
   it("does not disclose another learner experiment", async () => { queryRaw.mockResolvedValueOnce([]); await expect(service.prepareForOwnExperiment(user, "other-experiment")).rejects.toBeInstanceOf(NotFoundException); });
   it("rejects inactive users before querying", async () => { await expect(service.prepareForOwnExperiment({ ...user, status: "disabled" }, "experiment-1")).rejects.toBeInstanceOf(ForbiddenException); expect(queryRaw).not.toHaveBeenCalled(); });
   it("rejects a missing execution capability or inactive classroom scope without compiling rules", async () => { await expect(service.prepareForOwnExperiment({ ...user, memberships: [{ ...user.memberships[0], permissions: ["learning.work.write"] }] }, "experiment-1")).rejects.toBeInstanceOf(NotFoundException); expect(queryRaw).not.toHaveBeenCalled(); queryRaw.mockResolvedValueOnce([chain()]); assertStudentClassroomAccess.mockRejectedValueOnce(new NotFoundException()); await expect(service.prepareForOwnExperiment(user, "experiment-1")).rejects.toBeInstanceOf(NotFoundException); });
