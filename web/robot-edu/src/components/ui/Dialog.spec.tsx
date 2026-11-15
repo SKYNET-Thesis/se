@@ -32,4 +32,21 @@ describe('Dialog', () => {
     await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps focus where the user put it when the parent re-renders with a new inline onClose', async () => {
+    const opener = document.createElement('button'); document.body.appendChild(opener); opener.focus();
+    const view = (label: string) => <Dialog open onClose={() => undefined} title="Focus"><input aria-label="first" /><input aria-label={label} /></Dialog>;
+    await render(view('second'));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    const second = document.body.querySelector('input[aria-label="second"]') as HTMLInputElement;
+    second.focus();
+    await render(view('second ')); // new props and a new onClose function
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    expect(document.activeElement).toBe(document.body.querySelector('input[aria-label="second "]'));
+    const onClose = vi.fn();
+    await render(<Dialog open onClose={onClose} title="Focus"><input aria-label="first" /></Dialog>);
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(onClose).toHaveBeenCalledTimes(1); // Escape uses the latest onClose
+    opener.remove();
+  });
 });

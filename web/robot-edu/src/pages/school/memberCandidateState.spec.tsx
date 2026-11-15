@@ -56,8 +56,10 @@ describe('MemberCandidatePicker', () => {
 
   it('shows an explicit empty state and hides pagination for zero results', () => {
     render({ candidates: [], total: 0 });
-    expect(container.textContent).toContain('No eligible members found.');
+    expect(container.textContent).toContain('Everyone in your school is already in this classroom.');
     expect(container.textContent).not.toContain('Previous');
+    render({ candidates: [], total: 0, search: 'Zed' });
+    expect(container.textContent).toContain('No one matches “Zed”.');
   });
 
   it('hides pagination for a single result page', () => {
@@ -80,8 +82,8 @@ describe('MemberCandidatePicker', () => {
     act(() => (container.querySelector('input[value="teacher-1"]') as HTMLInputElement).click());
     expect(onSelect).toHaveBeenCalledWith('teacher-1');
     render({ candidates: [teacher, student], total: 2, selectedUserId: 'teacher-1', onSelect });
-    expect(container.textContent).toContain('Classroom roleTeacher');
+    expect(container.textContent).toContain('joins as a teacher.');
     render({ candidates: [teacher, student], total: 2, selectedUserId: 'student-1', onSelect });
-    expect(container.textContent).toContain('Classroom roleStudent');
+    expect(container.textContent).toContain('joins as a student.');
   });
 });
