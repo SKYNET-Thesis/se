@@ -100,15 +100,27 @@ Kết quả `SchematicArtifact` gồm `timeline` (mỗi bước một sự kiệ
 | `home_action_present` | Có `home` cho tay | `HOME_ACTION_PRESENT` / `HOME_ACTION_MISSING` |
 | `symbolic_duration` | Tổng thời gian `wait` so với ngưỡng | `WAIT_DURATION_MATCH` / `WAIT_DURATION_MISMATCH` |
 | `preview_target_match` | Vị trí preview **cuối cùng** trùng **chính xác** toạ độ đích (đúng tay, đúng khung) | `PREVIEW_TARGET_MATCH` / `PREVIEW_TARGET_MISMATCH` |
-| `object_grasped` | Vật đã được gắp | `OBJECT_GRASPED` / `GRASP_NOT_ESTABLISHED` (đã đóng kẹp nhưng trượt), `OBJECT_NOT_APPROACHED` (chưa từng đóng kẹp) |
-| `object_lifted` | Vật đã được nâng | `OBJECT_LIFTED` / `OBJECT_NOT_LIFTED`, `OBJECT_NOT_GRASPED` (chưa gắp được nên không thể nâng) |
-| `object_released` | Vật đã được thả | `OBJECT_RELEASED` / `OBJECT_NOT_RELEASED` |
-| `object_in_target_zone` | Vị trí thả nằm trong vùng đích | `OBJECT_PLACED_IN_TARGET_ZONE` / `OBJECT_NEVER_GRASPED`, `OBJECT_NOT_LIFTED`, `OBJECT_NOT_RELEASED`, `OBJECT_RELEASED_OUTSIDE_TARGET` (kèm khoảng cách tới vùng) |
+| `object_grasped {arm?, objectId?}` | Vật đã được gắp **bởi đúng tay `arm`** (có sự kiện `gripper.close` với `grasped:true` của tay đó; không có `arm` thì tay nào cũng được) | `OBJECT_GRASPED` / `OBJECT_GRASPED_BY_OTHER_ARM` (gắp bằng tay khác), `GRASP_NOT_ESTABLISHED` (đã đóng kẹp nhưng trượt), `OBJECT_NOT_APPROACHED` (chưa từng đóng kẹp), `OBJECT_NOT_FOUND` |
+| `object_lifted {minZ?, objectId?}` | Vật đã được nâng (ngưỡng của engine) **và**, nếu có `minZ`, độ cao dụng cụ lớn nhất khi tay đang giữ vật ≥ `minZ` (mm, khung `learning_preview_v1`). `minZ` chỉ làm chặt thêm ngưỡng của engine, không nới lỏng | `OBJECT_LIFTED` / `LIFT_HEIGHT_INSUFFICIENT` (kèm độ cao đạt được), `OBJECT_NOT_LIFTED`, `OBJECT_NOT_GRASPED`, `OBJECT_NOT_FOUND` |
+| `object_released {objectId?}` | Vật đã được thả | `OBJECT_RELEASED` / `OBJECT_NOT_RELEASED`, `OBJECT_NOT_FOUND` |
+| `object_in_target_zone {zoneId?, bounds?, objectId?}` | Vị trí thả nằm trong vùng đích. Hình học vùng lấy từ `bounds` của rule nếu có, nếu không thì từ vùng `zoneId` (mặc định `A`) mà challenge đã ghi trong `finalState.targetZones` của output | `OBJECT_PLACED_IN_TARGET_ZONE` / `OBJECT_NEVER_GRASPED`, `OBJECT_NOT_LIFTED`, `OBJECT_NOT_RELEASED`, `OBJECT_RELEASED_OUTSIDE_TARGET` (kèm khoảng cách tới vùng), `TARGET_ZONE_UNKNOWN` (vùng không được challenge định nghĩa), `OBJECT_NOT_FOUND` |
 
 Compiler (`SymbolicRuleCompilerService`) **từ chối** rule sai thay vì đoán: `UNKNOWN_RULE_KEY`, `UNKNOWN_CONFIG_PROPERTY`, `INVALID_ACTION`,
 `INVALID_ARM`, `INVALID_COMPARATOR`, `INVALID_COUNT`, `EMPTY_SEQUENCE`, `DUPLICATE_ORDINAL`, `INVALID_RULE_CONFIG`.
 
 **Verdict = `passed` khi và chỉ khi mọi rule đều đạt.**
+
+**Ngữ nghĩa tham số (evaluator `vista-symbolic-evaluator-2`).** Mọi tham số được đối chiếu với evidence của engine (timeline + `finalState`), không chỉ in ra trong `expected`:
+
+| Tham số | Đối chiếu với | Khi rule không có tham số |
+| --- | --- | --- |
+| `arm` | Tay thực hiện lần gắp thành công | Tay nào cũng được |
+| `minZ` | Độ cao `z` lớn nhất của các lệnh `preview.move_xyz` **khi tay đó đang giữ vật** | Chỉ dùng ngưỡng nâng của engine (mặc định 70) |
+| `objectId` | Vật mà engine thực sự mô phỏng (`finalState.objectState.objectId`); khác thì FAIL `OBJECT_NOT_FOUND` | Vật được mô phỏng |
+| `zoneId` | Vùng trong `finalState.targetZones`; không có thì FAIL `TARGET_ZONE_UNKNOWN` | Vùng `A` |
+
+Giới hạn đã biết: engine chỉ mô phỏng **một vật** (vật đầu tiên của challenge), nên rule trỏ tới vật thứ hai luôn FAIL `OBJECT_NOT_FOUND`;
+`final_gripper_state` vẫn chỉ xét trạng thái kẹp cuối của tay được nêu (tay không dùng mặc định là `open`).
 
 ### Bộ rule của Course 1 (seed)
 
@@ -123,6 +135,10 @@ Compiler (`SymbolicRuleCompilerService`) **từ chối** rule sai thay vì đoá
 - `fingerprint = sha256(experimentId, programHash, outputSnapshotHash, schematicSchemaVersion, engineVersion, evaluatorVersion, ruleSetSchemaVersion, ruleSetHash)`.
   Cột `fingerprint` là `UNIQUE`, nên chấm lại cùng experiment sẽ trả về bản ghi đã có, không tạo trùng.
 - Nếu giáo viên sửa rule thì `ruleSetHash` đổi, fingerprint đổi, và lần chấm mới tạo bản ghi mới. Bản ghi cũ giữ nguyên.
+- **Phiên bản evaluator.** `SYMBOLIC_EVALUATOR_VERSION` nay là `vista-symbolic-evaluator-2` (ngữ nghĩa `arm`/`minZ`/`objectId`/`zoneId` đổi). Vì phiên bản nằm trong fingerprint,
+  chấm lại một experiment cũ tạo **thêm** một dòng evidence `-2` bên cạnh dòng `-1`; dòng cũ **không bị ghi đè hay chấm lại**, vẫn đọc được với `evaluatorVersion: "vista-symbolic-evaluator-1"`.
+  Cột `evaluator_version` là `text NOT NULL` không có ràng buộc giá trị, nên **không cần migration**. Kết quả PASS cũ (gồm cả PASS bằng tay sai) vẫn là PASS lịch sử và vẫn được tính cho
+  qualification L4 → L5; việc có thu hồi/chấm lại hay không là **quyết định chính sách của chủ dự án**, chưa thực hiện (xem GAP-L02-10).
 - `result_snapshot` trên attempt lưu `{evaluationId, programVersionId, verdict, ruleResults, metrics, status, taskState, robotState, objectState, feedback, evidence}`.
   Lúc nộp bài (L03), server dùng `evaluationId` + `programVersionId` trong đó để biết version nộp đã được chấm hay chưa.
 - Experiment chỉ có 3 sự kiện cố định: `created` (#0), `schematic_started` (#1), `schematic_succeeded` (#2), cộng `cancelled` nếu huỷ.
@@ -147,20 +163,22 @@ thì experiment **vẫn ở `pending`**, xem GAP-L02-04.
 | `c1-l2-task-simulation.spec.ts` | 16/16 | Đúng PASS; sai đích/thiếu bước/sai thứ tự FAIL; chỉ version bất biến được chấm; người khác/attempt khác/challenge khác bị từ chối; **verdict từ trình duyệt không ép được PASS**; lỗi transaction không tạo hoàn thành giả |
 | `c1-l3-object-simulation.spec.ts` | 23/23 | Gắp/nâng/thả tất định; trạng thái vật do client gửi bị bỏ qua; PASS mở L4, FAIL không mở |
 | `c1-l4-pick-place-simulation.spec.ts` | 15/15 | Pick & place đúng PASS; các kiểu sai đều FAIL kèm mã; L4 PASS mở L5 nhưng **không** hoàn thành L5 |
-| `symbolic-rule-compiler / -evaluation / -evaluation-preparation` | 6 + 9 + 11 | Rule chuẩn hoá ổn định; rule sai bị từ chối; evidence nguyên tử, rollback đúng; **versionNumber đúng (test mới)** |
+| `symbolic-rule-compiler / -evaluation / -evaluation-preparation` | 6 + 14 + 12 | Rule chuẩn hoá ổn định; rule sai bị từ chối; evidence nguyên tử, rollback đúng; versionNumber đúng; **chấm sau khi nộp cho bài không phải giáo trình không còn 409** |
+| `symbolic-rule-evaluator.service.spec.ts` (mới, engine + compiler + evaluator thật) | 32/32 | `arm`, `minZ`, `objectId`, `zoneId`: mỗi tham số có ca đúng và ca sai; nhiều thao tác / nhiều tay / nhiều vật; rule kết hợp L3/L4; evidence PASS/FAIL; tất định; output lịch sử không có `targetZones`. **18/32 test thất bại nếu hoàn nguyên evaluator** |
+| `programming-evaluation-regression.db.spec.ts` (mới, PostgreSQL thật) | 28/28 | Xem [L01](L01-blockly-programming-validation.md#8-bằng-chứng-kiểm-thử) và [L03](L03-programming-assignment-flow.md#5-quy-tắc-nghiệp-vụ-quan-trọng-giải-thích-được-khi-bị-hỏi); trong đó: evaluator chạy qua toàn luồng (tay phải FAIL / tay trái PASS), evidence cũ `-1` không bị đổi, retry giữ lịch sử |
 | `experiment.service.spec.ts` + `experiment-run.db.spec.ts` (PostgreSQL thật) | 17 + 6 | Vòng đời experiment; enrollment bị thu hồi / lớp archive / offering đổi đều chặn chạy |
 | `schematic-engine.service.spec.ts` | 3/3 | Tất định; IR sai bị từ chối |
 | `p08-simulation-result-handoff.spec.ts` | 19/19 | Lịch sử FAIL vẫn đọc được; xác định đúng version qualified cho L5 |
 
 Chi tiết: [evidence/2026-11-15-test-evidence.md](evidence/2026-11-15-test-evidence.md).
 
-## 9. Thay đổi đã thực hiện trong đợt này (chưa commit, chờ review)
+## 9. Thay đổi trong PR #147
 
 | File | Thay đổi | Lý do |
 | --- | --- | --- |
-| `symbolic-rules/symbolic-evaluation-preparation.service.ts` | Truy vấn thêm `pv.version_number`, trả về `versionNumber` | Trước đây response của `POST /evaluate-symbolic` **và `result_snapshot` lưu trong DB** luôn ghi `versionNumber = 1`, dù học sinh đang ở version 2, 3… (GAP-L02-01) |
-| `symbolic-rules/symbolic-evaluation.service.ts` | Bỏ `(prepared as any).versionNumber ?? 1` | Có kiểu rõ ràng, không còn giá trị mặc định sai |
-| 2 file spec tương ứng | +2 test hồi quy | Chứng minh số version được trả về và được lưu đúng |
+| `symbolic-rules/symbolic-evaluation-preparation.service.ts` | Truy vấn thêm `pv.version_number` và `la.constraints->>'kind'`; trả về `versionNumber`, `assignmentKind`; `SYMBOLIC_EVALUATOR_VERSION = vista-symbolic-evaluator-2` | `versionNumber` luôn bằng 1 trong response và `result_snapshot` (GAP-L02-01); cần biết bài có phải giáo trình để chiếu tiến độ (GAP-L02-09); ngữ nghĩa chấm đổi (GAP-L02-02/-03) |
+| `symbolic-rules/symbolic-evaluation.service.ts` | Bỏ `(prepared as any).versionNumber ?? 1`; chỉ gọi `projectSymbolicPass` khi `assignmentKind === "symbolic_program"` | Như trên; theo đúng mẫu của `ProgrammingService.submit()` (`0c818bb`) |
+| `symbolic-rules/symbolic-rule-evaluator.service.ts` | `object_grasped/lifted/released/in_target_zone` đi qua `evaluateObjectRule`: áp dụng `arm`, `minZ`, `objectId`, `zoneId`; thêm mã `OBJECT_GRASPED_BY_OTHER_ARM`, `LIFT_HEIGHT_INSUFFICIENT`, `OBJECT_NOT_FOUND`, `TARGET_ZONE_UNKNOWN` | GAP-L02-02, GAP-L02-03 |
+| Các spec | Xem §8 | Test hồi quy |
 
-Các vấn đề còn lại của L02: xem [GAP-LIST.md](GAP-LIST.md) (GAP-L02-*). Đáng chú ý nhất là evaluator chưa áp dụng tham số `arm`, `minZ`, `zoneId` của rule
-(đã tái hiện được, xem log trong evidence).
+Các vấn đề còn lại của L02: xem [GAP-LIST.md](GAP-LIST.md) (GAP-L02-*).

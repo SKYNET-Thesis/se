@@ -18,36 +18,37 @@ Ranh giới: **không** đụng MQTT, IoT, MuJoCo, Digital Twin, Physical Execut
 
 ## 2. Kết quả chính
 
-- **Test** (trên `develop` @ `a8bcae5` + PR này): API 935/960 PASS, 0 FAIL (25 skip có chủ đích), gồm các suite chạy trên PostgreSQL thật. Web 552/552 PASS.
-  Riêng domain L01–L03 có **195 test API + 82 test web**, tất cả PASS. Build API và web PASS; lint web 0 error.
-- **2 lỗi đã sửa** (có test hồi quy): `versionNumber` sai sau khi chấm (GAP-L02-01), và toạ độ thập phân làm mất nháp (GAP-L01-01).
-- **1 lỗi mới phát hiện khi đối chiếu với `develop`:** bài giáo viên tự tạo, nộp trước rồi chấm PASS thì bị 409 + rollback (GAP-L02-09). Cách sửa theo đúng mẫu `0c818bb` của Đức.
-- **4 vấn đề mức Cao cần nhóm quyết định:**
+- **Test** (trên `develop` @ `a8bcae5` + PR này, PostgreSQL 17 dùng xong bỏ): API **1001 PASS**, 1 skip (S3), và **24 FAIL đã biết** của `iot-feedback.repository.int.spec.ts` (suite cần DB IoT riêng; fail giống hệt trên `develop` khi không có PR).
+  Web **572/572 PASS** (có 1 test lệch thời gian ở `CourseContentEditor.spec.tsx` khi chạy lần đầu lạnh; chạy lại 2 lần đều đạt). `tsc` API 0 lỗi, `eslint` web 0 error, `vite build` PASS.
+  Số liệu chi tiết và lệnh: [evidence/2026-11-15-fix-sprint-evidence.md](evidence/2026-11-15-fix-sprint-evidence.md).
+- **Đã sửa (có test hồi quy, chạy trên PostgreSQL thật):**
+  - `versionNumber` sai sau khi chấm (GAP-L02-01); toạ độ thập phân/ngoài khung làm mất nháp (GAP-L01-01).
+  - Bài giáo viên tự tạo: nộp trước rồi chấm PASS bị 409 + rollback (GAP-L02-09).
+  - Evaluator bỏ qua `arm`, `minZ`, `objectId`, `zoneId` (GAP-L02-02, -03); evaluator lên `vista-symbolic-evaluator-2`, evidence cũ giữ nguyên.
+- **Vấn đề mức Cao còn mở, cần nhóm quyết định:**
   - Chưa có API giao bài lập trình xuống lớp (GAP-L03-01).
   - Chưa có API/UI soạn rule chấm, nên Course 1 phụ thuộc vào seed (GAP-L03-02).
   - Chương trình L4 không chạy được trên Robot Runtime (GAP-L03-04, thuộc Đức).
   - Production cần migration J (GAP-L03-07, thuộc Đức).
-- **2 lỗi chấm điểm đã tái hiện được:** L3/L4 PASS được bằng tay phải dù bài yêu cầu tay trái, và vùng đích bị hardcode. Cách sửa cần tăng evaluator version (GAP-L02-02, -03), nên chờ Đức duyệt.
+- **Còn mở khác:** PASS lịch sử của evaluator `-1` không bị chấm lại (GAP-L02-10, cần quyết định chính sách); **chưa có E2E trình duyệt và chưa quay video demo** (GAP-L03-06).
 
 ## 3. Thay đổi code trong đợt này
 
-Tất cả nằm trong nhánh `loi/l01-l03-programming-evaluation` (PR vào `develop`) để Đức review. Không thay đổi DB schema, API contract, runtime hay grading.
+Tất cả nằm trong nhánh `loi/l01-l03-programming-evaluation` (PR vào `develop`) để Đức review. Không thay đổi DB schema, migration, API contract, runtime/MQTT hay dữ liệu chấm đã lưu. Hành vi chấm của evaluator thay đổi (đã tăng version, xem L02 §5).
 
 | File | Thay đổi |
 | --- | --- |
-| `services/education-api/src/modules/learning/symbolic-rules/symbolic-evaluation-preparation.service.ts` | SELECT `pv.version_number`; trả về `versionNumber` |
-| `services/education-api/src/modules/learning/symbolic-rules/symbolic-evaluation.service.ts` | Dùng `prepared.versionNumber` thay cho `(prepared as any).versionNumber ?? 1` |
-| `services/education-api/src/modules/learning/symbolic-rules/symbolic-evaluation-preparation.service.spec.ts` | +1 test: version number được truy vấn và trả về |
-| `services/education-api/src/modules/learning/symbolic-rules/symbolic-evaluation.service.spec.ts` | +1 test: version number đúng trong response và trong `result_snapshot` được lưu |
-| `web/robot-edu/src/components/studio/blocklyConfig.ts` | X/Y/Z của `robot_move_to`: `precision: 1` + min/max theo khung `learning_preview_v1` |
-| `web/robot-edu/src/utils/robotProgram/toCanonicalNest.ts` | Từ chối toạ độ không nguyên, báo lỗi gắn với khối |
-| `web/robot-edu/src/utils/robotProgram/toCanonicalNest.spec.ts` | +1 test |
+| `symbolic-rules/symbolic-evaluation-preparation.service.ts` | SELECT `pv.version_number` và `la.constraints->>'kind'`; trả về `versionNumber`, `assignmentKind`; evaluator version `-2` |
+| `symbolic-rules/symbolic-evaluation.service.ts` | Dùng `prepared.versionNumber`; chỉ chiếu PASS sang tiến độ cho bài `symbolic_program` |
+| `symbolic-rules/symbolic-rule-evaluator.service.ts` | Áp dụng `arm`, `minZ`, `objectId`, `zoneId` cho 4 rule đối tượng |
+| `symbolic-rules/*.spec.ts`, `c1-l2/l3/l4-*.spec.ts` | Test mới và bổ sung `assignmentKind` vào dữ liệu giả của bài giáo trình |
+| `symbolic-rules/symbolic-rule-evaluator.service.spec.ts` (mới) | 32 test hành vi evaluator với engine/compiler/evaluator thật |
+| `programming-evaluation-regression.db.spec.ts` (mới) | 28 test PostgreSQL thật: ProgramVersion, validation, chấm/nộp theo mọi thứ tự, quyền, điểm, rollback, evaluator lịch sử |
+| `web/robot-edu/src/components/studio/blocklyConfig.ts` (+ `.spec.ts` mới) | X/Y/Z `robot_move_to`: số nguyên + giới hạn khung; test hành vi ô số |
+| `web/robot-edu/src/utils/robotProgram/toCanonicalNest.ts` (+ spec) | Từ chối toạ độ không nguyên **và ngoài khung** |
 | `docs/education/programming-evaluation/**` | Tài liệu này |
 
-PR được tách thành 3 commit để review riêng từng phần:
-1. `fix(education-api): report and persist the evaluated ProgramVersion number`
-2. `fix(web): keep learning-preview coordinates whole millimetres in Blockly`
-3. `docs(education): L01–L03 programming and evaluation domain audit`
+PR gồm các commit theo thứ tự: sửa `versionNumber`; sửa toạ độ Blockly; tài liệu audit; sửa 409 sau khi nộp; sửa evaluator + version; test hồi quy và cập nhật tài liệu.
 
 ## 4. Kịch bản demo (quay video)
 
@@ -78,10 +79,41 @@ Seed theo thứ tự: `npm run seed:demo-identities` → `npm run seed:course1` 
 
 ## 6. Việc cần trao đổi với Đức
 
-- [ ] Review và merge PR (2 bản sửa ở §3 + tài liệu).
-- [ ] GAP-L02-09: đồng ý để Lợi sửa theo mẫu `0c818bb` trong một PR tiếp theo?
-- [ ] Quyết định GAP-L02-02/-03: tăng evaluator lên `vista-symbolic-evaluator-2` để áp dụng tham số `arm`/`minZ`/`zoneId`?
+- [ ] Review và merge PR #147 (không merge tự động).
+- [x] GAP-L02-09 (409 sau khi nộp) và GAP-L02-02/-03 (evaluator `-2`): đã được chủ dự án giao sửa và đã sửa trong PR này.
+- [ ] GAP-L02-10: có rà soát/thu hồi các PASS cũ của evaluator `-1` không (hiện không đụng tới dữ liệu cũ)?
 - [ ] GAP-L03-01/-02: ai làm API giao template lập trình và chọn challenge trong Course Builder; có cần cho lần bảo vệ này không?
 - [ ] GAP-L03-04: kế hoạch cho `preview.move_xyz` trên runtime (thuộc Đức).
 - [ ] Cấp project Supabase dev để quay video E2E (GAP-L03-06).
 - [ ] Cập nhật hạn mới cho L01–L03 trong sheet (hạn cũ là 14/11).
+
+## 7. Cách chạy test
+
+Không dùng Supabase hay production. DB test là PostgreSQL 17 dùng xong bỏ, chỉ nghe trên loopback; `db-test-support.ts` từ chối mọi đích khác.
+
+```bash
+# 1) DB dùng xong bỏ (thông tin đăng nhập giống CI, chỉ dùng cục bộ)
+docker run -d --name vista-test-pg --rm -e POSTGRES_USER=vista_test -e POSTGRES_PASSWORD=ci-disposable-local-only \
+  -e POSTGRES_DB=vista_test_course_builder -p 127.0.0.1:55432:5432 postgres:17
+export PGPASSWORD=ci-disposable-local-only VISTA_DATABASE_PROJECT_REF=vista-course-builder-test
+VISTA_DEV_DATABASE_URL=postgresql://vista_test:ci-disposable-local-only@127.0.0.1:55432/vista_test_course_builder \
+  python scripts/bootstrap_dev_database.py --confirm-local-bootstrap      # cần psql 17 và DB rỗng
+
+# 2) API (unit + PostgreSQL thật)
+cd services/education-api
+export RUN_POSTGRES_INTEGRATION=1 VISTA_DATABASE_PROJECT_REF=vista-course-builder-test \
+  DATABASE_URL=postgresql://vista_test:ci-disposable-local-only@127.0.0.1:55432/vista_test_course_builder \
+  VISTA_INTEGRATION_DATABASE_URL=$DATABASE_URL
+npx jest --runInBand                                   # 24 test của iot-feedback.repository.int.spec.ts fail nếu không có DB IoT riêng (đã biết)
+npx jest --runInBand src/modules/learning/programming-evaluation-regression.db.spec.ts
+env -u DATABASE_URL -u RUN_POSTGRES_INTEGRATION npx jest src/modules/learning/symbolic-rules   # chỉ test không cần DB
+npx tsc --noEmit
+
+# 3) Web
+cd ../../web/robot-edu && npx vitest run && npx eslint . --ext .ts,.tsx && npx vite build
+
+# 4) Dọn dẹp
+docker rm -f vista-test-pg
+```
+
+Không có E2E trình duyệt trong bộ này; xem kịch bản thủ công ở §4.

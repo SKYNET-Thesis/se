@@ -48,7 +48,7 @@ stateDiagram-v2
     [*] --> in_progress: start attempt
     in_progress --> submitted: Submit (version chưa được chấm)
     in_progress --> evaluated: Submit (version đã được chấm)
-    submitted --> evaluated: Run + evaluate version đã nộp
+    submitted --> evaluated: Run + evaluate version đã nộp (mọi loại bài; bài giáo trình PASS còn hoàn thành lesson)
     in_progress --> abandoned
   }
   state "Submission (1 dòng / attempt)" as SB {
@@ -90,6 +90,9 @@ stateDiagram-v2
 | Nộp version FAIL thì sao? | Attempt `evaluated` với verdict failed, lesson **không** hoàn thành. Muốn làm lại phải bắt đầu attempt mới. |
 | Làm lại (attempt 2) có mất kết quả lần 1 không? | Không. Mỗi attempt có submission, version và evidence riêng (đã có test trên PostgreSQL thật). |
 | Bài giáo viên tự tạo (có challenge) PASS thì có hoàn thành lesson không? | Không. Từ `0c818bb` (develop), chỉ template giáo trình (`kind = symbolic_program`) mới chiếu PASS sang tiến độ. Bài giáo viên tạo vẫn nộp được, attempt `evaluated`. Trước bản sửa đó, việc nộp bị rollback do lỗi 409. |
+| Chạy thử / chấm **sau khi đã nộp** thì sao? | Được hỗ trợ có chủ đích: sau khi nộp chỉ chạy được đúng version đã nộp (`ExperimentService.attemptScope`). Chấm lại ghi evidence, đưa attempt sang `evaluated`, **không** đổi bài nộp, snapshot, điểm hay trạng thái phát hành điểm. Chỉ bài giáo trình (`symbolic_program`) mới chiếu PASS sang tiến độ; bài giáo viên tự tạo **không còn** bị 409 + rollback (đã sửa, GAP-L02-09). UI hiện khoá nút Run sau khi nộp (`Practice.tsx`), nên đường này chỉ gọi được qua API. |
+| Chấm hai lần cùng một experiment? | Trả lại đúng evidence cũ (fingerprint `UNIQUE`), không tạo thêm dòng, attempt vẫn `evaluated`. |
+| Khi nào vẫn có 409 và rollback toàn bộ? | Với bài giáo trình, nếu việc chiếu tiến độ tự xung đột (ví dụ bài tiên quyết được thêm sau khi attempt bắt đầu, GAP-L03-05): evidence **không** được lưu, attempt giữ `submitted`. Đây là hành vi hiện tại đã có test; có nên tách evidence khỏi tiến độ là quyết định chính sách chưa chốt. |
 | PASS hai lần có cộng tiến độ hai lần không? | Không. Hoàn thành bài là idempotent (khoá advisory + `ON CONFLICT`). |
 | Bị thu hồi enrollment giữa chừng? | Mọi thao tác ghi (tạo program, version, run, nộp) bị chặn. Lịch sử vẫn đọc được. |
 | Học sinh khác xem được bài của mình không? | Không. Mọi truy vấn lọc theo chủ sở hữu, và trả 404 để không tiết lộ dữ liệu tồn tại. |
@@ -120,7 +123,8 @@ Chi tiết: [evidence/2026-11-15-test-evidence.md](evidence/2026-11-15-test-evid
 
 Xem đầy đủ trong [GAP-LIST.md](GAP-LIST.md). Tóm tắt:
 
+- **Đã sửa trong PR #147:** chấm sau khi nộp bài giáo viên tự tạo không còn 409 (GAP-L02-09); evaluator áp dụng `arm`/`minZ`/`objectId`/`zoneId` (GAP-L02-02/-03).
 - **Chưa có đường sản phẩm để giáo viên/admin giao một bài lập trình có `allowed_blocks` + rule chấm tự động.** Course 1 chạy được là nhờ seed (GAP-L03-01, GAP-L03-02).
-- **Chưa có E2E qua trình duyệt với Supabase Auth thật** trong đợt này. Mọi kiểm chứng đều ở mức service/DB (unit + PostgreSQL thật).
+- **Chưa có E2E qua trình duyệt với Supabase Auth thật** trong đợt này; **chưa quay video demo**. Mọi kiểm chứng đều ở mức service/DB (unit + PostgreSQL thật).
   Video demo cần làm thủ công theo [README §4](README.md#4-kịch-bản-demo-quay-video).
 - **Chưa chạy trên robot thật.** Không claim bất kỳ kết quả phần cứng nào.

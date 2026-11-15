@@ -127,13 +127,16 @@ Toàn bộ test liên quan đều đạt; chi tiết từng test xem [evidence/2
 | `programming.service.spec.ts` | 18/18 | Lệnh lạ bị từ chối; chỉ chủ sở hữu tạo program; version của program khác bị từ chối khi nộp; enrollment bị thu hồi không ghi được nhưng vẫn đọc được; allowed-blocks; workspace sai bị chặn ở version; version bất biến khi sửa nháp |
 | `programming-assignment-authoring.db.spec.ts` (PostgreSQL thật) | 10/10 | Cấu hình bài lập trình được lưu và đọc lại đúng; khoá sửa sau khi đã giao |
 | `robot-program-limits.spec.ts` | 3/3 | Giới hạn số bước và dung lượng |
-| `toCanonicalNest.spec.ts`, `curriculumToolbox.spec.ts` (web) | đạt | Ánh xạ khối → IR; toolbox theo `allowed_blocks`; từ chối toạ độ lẻ |
+| `toCanonicalNest.spec.ts`, `curriculumToolbox.spec.ts` (web) | 18 + 5 | Ánh xạ khối → IR; toolbox theo `allowed_blocks`; **toạ độ nguyên trong khung được chấp nhận (kể cả biên 0/600, 0/400, 10/300); toạ độ lẻ và ngoài khung bị từ chối kèm thông điệp gắn với khối** |
+| `blocklyConfig.spec.ts` (web, mới) | 7/7 | Ô X/Y/Z của `robot_move_to` **thực sự** làm tròn về số nguyên mm và kẹp vào `x 0–600, y 0–400, z 10–300` (khối Blockly thật, không giả lập) |
+| `programming-evaluation-regression.db.spec.ts` (PostgreSQL thật, mới) | 28/28 | Version `1,2,3` liên tiếp; số version được chấm = số version trong DB = `result_snapshot` = `GET /me/symbolic-evaluations/:id` = danh sách; lịch sử version nhất quán và bất biến; submission đóng băng đúng version; server nhận toạ độ nguyên (gồm 2 biên) và từ chối toạ độ lẻ / ngoài khung ở từng trục bằng 400; các kiểm tra khác (lệnh lạ, schema sai, khối ngoài bài, wait âm) không bị yếu đi |
 
-## 9. Thay đổi đã thực hiện trong đợt này (chưa commit, chờ review)
+## 9. Thay đổi trong PR #147
 
 | File | Thay đổi | Lý do |
 | --- | --- | --- |
-| `web/robot-edu/src/components/studio/blocklyConfig.ts` | Ô X/Y/Z của `robot_move_to` có `precision: 1` và min/max theo khung `learning_preview_v1` | Trước đây học sinh nhập được 240.5 hoặc 900; server từ chối cả request tự động lưu → **mất bản nháp workspace** (GAP-L01-01) |
-| `web/robot-edu/src/utils/robotProgram/toCanonicalNest.ts` (+ test) | Từ chối toạ độ không nguyên, báo lỗi gắn với đúng khối | Phòng thủ cho workspace cũ đã lưu số lẻ; nháp vẫn được lưu |
+| `web/robot-edu/src/components/studio/blocklyConfig.ts` | Ô X/Y/Z của `robot_move_to` có `precision: 1` và min/max theo khung `learning_preview_v1` | Trước đây học sinh nhập được 240.5 hoặc 900; server từ chối cả request tự động lưu → **mất bản nháp** (GAP-L01-01) |
+| `web/robot-edu/src/utils/robotProgram/toCanonicalNest.ts` (+ test) | Từ chối toạ độ không nguyên **và ngoài khung** (cùng quy tắc với `ProgrammingService`), báo lỗi gắn với đúng khối | Phòng thủ cho workspace cũ đã lưu số lẻ/ngoài khung; nháp vẫn được lưu |
+| `web/robot-edu/src/components/studio/blocklyConfig.spec.ts` | Test mới cho hành vi thật của ô số | Trước đây chưa có test cho phần này |
 
 Các vấn đề còn lại của L01: xem [GAP-LIST.md](GAP-LIST.md) (GAP-L01-*).

@@ -2,7 +2,8 @@
 
 > Lập ngày 15/11/2026 bởi domain owner Phạm Viết Lợi, trên `develop` @ `a8bcae5` (audit trên `main` @ `b8ac12f`, kiểm chứng lại trên `develop`). Mỗi mục đều được xác minh bằng đọc code, test, hoặc script tái hiện.
 > Mức độ: **Cao** = chặn demo/sai nghiệp vụ · **Trung bình** = sai dữ liệu/kết quả trong tình huống cụ thể · **Thấp** = khó bảo trì, tình huống biên.
-> Trạng thái: **Đã sửa (chờ review)** = đã có code + test nhưng chưa commit · **Đề xuất** = cần Đức/nhóm quyết định trước khi sửa.
+> Trạng thái: **Đã sửa (PR #147)** = đã có code + test hồi quy, nằm trong PR #147 · **Đề xuất** = cần Đức/nhóm quyết định trước khi sửa · **Theo dõi** = biết rõ, chưa có kế hoạch sửa.
+> Cập nhật sau đợt fix sprint: GAP-L02-02, -03, -09 đã được chủ dự án giao sửa và đã sửa trong cùng PR.
 
 ## Tổng hợp
 
@@ -12,12 +13,14 @@
 | [GAP-L03-02](#gap-l03-02) | Cao | Không có API/UI soạn challenge và rule chấm; bài từ Course Builder không chấm tự động được | Đức + Lợi | Đề xuất |
 | [GAP-L03-04](#gap-l03-04) | Cao | Chương trình L4 (`preview.move_xyz`) không chạy được trên Robot Runtime | **Đức** | Đề xuất |
 | [GAP-L03-07](#gap-l03-07) | Cao (production) | Production cần migration J, nếu không nộp bài/chạy thử trả 503 | **Đức** | Theo dõi |
-| [GAP-L02-01](#gap-l02-01) | Trung bình | `versionNumber` luôn = 1 trong response chấm và trong `result_snapshot` | Lợi | **Đã sửa (chờ review)** |
-| [GAP-L01-01](#gap-l01-01) | Trung bình | Nhập toạ độ thập phân làm hỏng autosave và mất nháp workspace | Lợi | **Đã sửa (chờ review)** |
-| [GAP-L02-02](#gap-l02-02) | Trung bình | Evaluator bỏ qua `arm` / `minZ` / `objectId` của rule; L3/L4 PASS bằng tay phải | Lợi (cần Đức duyệt) | Đề xuất |
-| [GAP-L02-03](#gap-l02-03) | Trung bình | `object_in_target_zone` chấm theo vùng hardcode, bỏ qua vùng đích thật của challenge | Lợi (cần Đức duyệt) | Đề xuất |
-| [GAP-L02-09](#gap-l02-09) | Trung bình | Bài giáo viên tự tạo: nộp trước rồi mới chấm PASS thì 409 + rollback, attempt không bao giờ `evaluated` | Lợi (theo mẫu `0c818bb`) | Đề xuất |
+| [GAP-L02-01](#gap-l02-01) | Trung bình | `versionNumber` luôn = 1 trong response chấm và trong `result_snapshot` | Lợi | **Đã sửa (PR #147)** |
+| [GAP-L01-01](#gap-l01-01) | Trung bình | Nhập toạ độ thập phân làm hỏng autosave và mất nháp workspace | Lợi | **Đã sửa (PR #147)** |
+| [GAP-L02-02](#gap-l02-02) | Trung bình | Evaluator bỏ qua `arm` / `minZ` / `objectId` của rule; L3/L4 PASS bằng tay phải | Lợi (cần Đức duyệt) | **Đã sửa (PR #147)** |
+| [GAP-L02-03](#gap-l02-03) | Trung bình | `object_in_target_zone` chấm theo vùng hardcode, bỏ qua vùng đích thật của challenge | Lợi (cần Đức duyệt) | **Đã sửa (PR #147)** |
+| [GAP-L02-09](#gap-l02-09) | Trung bình | Bài giáo viên tự tạo: nộp trước rồi mới chấm PASS thì 409 + rollback, attempt không bao giờ `evaluated` | Lợi (theo mẫu `0c818bb`) | **Đã sửa (PR #147)** |
 | [GAP-L01-02](#gap-l01-02) | Thấp–TB | Lưu version không kiểm tra ngữ cảnh tay; lỗi chỉ lộ ra khi chạy thử | Lợi | Đề xuất |
+| [GAP-L02-10](#gap-l02-10) | Trung bình | Kết quả PASS cũ do evaluator `-1` (kể cả PASS bằng tay sai) không bị chấm lại và vẫn được tính cho qualification L5 | Chủ dự án quyết định | Theo dõi |
+| [GAP-L02-11](#gap-l02-11) | Thấp | Engine chỉ mô phỏng một vật; `final_gripper_state` của tay không dùng luôn là `open` | Lợi | Theo dõi |
 | [GAP-L02-04](#gap-l02-04) | Thấp | Engine lỗi thì experiment kẹt ở `pending`, không có trạng thái `failed` | Lợi | Đề xuất |
 | [GAP-L02-05](#gap-l02-05) | Thấp | Toạ độ vật không nguyên bị thay âm thầm bằng mặc định; chỉ dùng vật đầu tiên | Lợi | Đề xuất |
 | [GAP-L02-06](#gap-l02-06) | Thấp | `home` khi đang cầm vật không di chuyển vật theo | Lợi | Đề xuất |
@@ -69,7 +72,7 @@
 ## Trung bình
 
 ### GAP-L02-01
-**`versionNumber` luôn bằng 1 sau khi chấm.** — **Đã sửa (chờ review)**
+**`versionNumber` luôn bằng 1 sau khi chấm.** — **Đã sửa (PR #147)**
 - `symbolic-evaluation.service.ts` dùng `(prepared as any).versionNumber ?? 1`, trong khi `SymbolicEvaluationPreparationService` không hề truy vấn số version.
   Kết quả là response của `POST /evaluate-symbolic` **và `learning_assignment_attempts.result_snapshot.evidence.versionNumber` (lưu DB)** luôn = 1.
   Đường `GET /me/symbolic-evaluations/:id` thì đúng, vì nó tự JOIN `version_number`.
@@ -77,13 +80,14 @@
 - **Lưu ý dữ liệu cũ:** các `result_snapshot` đã ghi trước khi sửa vẫn mang `versionNumber: 1`. Không cần migration vì nguồn sự thật là `learning_program_versions`.
 
 ### GAP-L01-01
-**Toạ độ thập phân làm hỏng autosave.** — **Đã sửa (chờ review)**
+**Toạ độ thập phân làm hỏng autosave.** — **Đã sửa (PR #147)**
 - Ô X/Y/Z của khối `robot_move_to` không có `precision`/`min`/`max`. Validator ở web chỉ kiểm tra phạm vi, **không kiểm tra số nguyên**,
   trong khi server bắt buộc số nguyên. Nhập `240.5` thì `PATCH` tự động lưu bị 400 **cả request**, nên `workspaceJson` cũng không được lưu.
 - **Sửa:** `precision: 1` + min/max theo khung (x 0–600, y 0–400, z 10–300). `toCanonicalNestRobotProgram` từ chối toạ độ lẻ và báo lỗi
   gắn đúng khối, nên autosave vẫn lưu workspace. +1 test.
 
 ### GAP-L02-02
+> **Đã sửa trong PR #147.** `object_grasped` yêu cầu lần gắp thành công do đúng tay `arm` thực hiện (`OBJECT_GRASPED_BY_OTHER_ARM`); `object_lifted` đối chiếu `minZ` với độ cao dụng cụ lớn nhất khi tay đang giữ vật (`LIFT_HEIGHT_INSUFFICIENT`); `objectId` phải là vật engine thực sự mô phỏng (`OBJECT_NOT_FOUND`). `SYMBOLIC_EVALUATOR_VERSION` = `vista-symbolic-evaluator-2`. Kết quả chấm cũ **không** bị chấm lại (xem GAP-L02-10). Test: `symbolic-rule-evaluator.service.spec.ts` (32) và `programming-evaluation-regression.db.spec.ts`.
 **Evaluator không áp dụng tham số `arm`, `minZ`, `objectId` của rule `object_grasped` / `object_lifted` / `object_released`.**
 - Các giá trị này chỉ được in ra trong `expected`; kết quả đạt chỉ dựa vào `manipulation.wasGrasped/wasLifted/wasReleased`.
 - **Tái hiện** (script chạy trên bản build `dist/`, log trong evidence):
@@ -93,6 +97,7 @@
   nên phải tăng `SYMBOLIC_EVALUATOR_VERSION` lên `vista-symbolic-evaluator-2`. Fingerprint sẽ đổi, evidence cũ giữ nguyên. Cần Đức duyệt.
 
 ### GAP-L02-03
+> **Đã sửa trong PR #147.** Hình học vùng lấy từ `bounds` của rule, nếu không có thì từ vùng `zoneId` trong `finalState.targetZones` của output; vùng không tồn tại FAIL `TARGET_ZONE_UNKNOWN`. Output lịch sử không có `targetZones` vẫn chấm được vùng `A`.
 **`object_in_target_zone` chấm theo vùng hardcode.**
 - Khi rule có `zoneId` mà không có `bounds`, evaluator dùng `{x:60, y:280, w:120, h:90}` (vùng A mặc định) và **bỏ qua** `finalState.targetZones`
   cùng `manipulation.placedInZoneId` mà engine đã tính từ challenge.
@@ -101,6 +106,7 @@
 - **Đề xuất:** tra `zoneId` trong `output.finalState.targetZones` trước, rồi mới dùng mặc định. Gộp chung lần tăng evaluator version với GAP-L02-02.
 
 ### GAP-L02-09
+> **Đã sửa trong PR #147.** `SymbolicEvaluationService` chỉ gọi `projectSymbolicPass` khi `constraints.kind = symbolic_program` (cùng quy tắc với `submit()`). Chấm PASS sau khi nộp bài giáo viên tự tạo nay ghi evidence, đưa attempt sang `evaluated` và không hoàn thành lesson; không đổi bài nộp/điểm. Đã tái hiện trên PostgreSQL thật trước và sau khi sửa; UI vốn đã khoá Run sau khi nộp nên lỗi chỉ gặp khi gọi API trực tiếp.
 **Chấm sau khi nộp làm hỏng bài giáo viên tự tạo.**
 - Commit `0c818bb` (develop) đã sửa `ProgrammingService.submit()`: chỉ chiếu PASS sang tiến độ khi bài có `constraints.kind = "symbolic_program"`.
 - Nhưng nhánh "submission đã nộp" trong `SymbolicEvaluationService.evaluateOwnExperiment` **vẫn luôn gọi** `projectSymbolicPass`. Hàm đó chỉ nhận bài có
@@ -118,6 +124,17 @@
 `validateRobotProgram` không kiểm tra `gripper.*` có `arm.select` đứng trước, hay `home` có `arm`. Gọi API trực tiếp vẫn tạo được version, nhưng khi chạy thử
 engine trả 400 `gripper.close requires a preceding arm.select.` (đã tái hiện). UI không mắc lỗi này vì `toCanonicalNest` đã chặn.
 **Đề xuất:** thêm kiểm tra ngữ cảnh tay ở server, dùng đúng quy tắc của engine.
+
+### GAP-L02-10
+**Evidence lịch sử không bị chấm lại sau khi tăng evaluator version.**
+- Sau khi tăng lên `vista-symbolic-evaluator-2`, các dòng `learning_symbolic_evaluations` cũ giữ nguyên (`evaluator_version = vista-symbolic-evaluator-1`), được đọc lại đúng, và **không** có migration hay chấm lại hàng loạt (đã có test trên PostgreSQL thật).
+- Hệ quả: một học sinh từng PASS L3/L4 bằng tay phải vẫn giữ PASS đó, kể cả qualification L4 → L5 (`resolveQualifiedL4ProgramVersion`).
+- Chấm lại một experiment cũ (học sinh gọi lại evaluate) tạo thêm dòng `-2` và cập nhật `result_snapshot` của attempt theo kết quả mới.
+- **Cần chủ dự án quyết định:** có cần rà soát/thu hồi các PASS cũ hay không. Chưa thực hiện thao tác dữ liệu nào.
+
+### GAP-L02-11
+**Giới hạn của engine/evaluator (không đổi trong đợt này).** Engine chỉ mô phỏng vật đầu tiên của challenge, nên rule trỏ tới vật thứ hai luôn FAIL `OBJECT_NOT_FOUND`.
+`final_gripper_state` chỉ so sánh kẹp cuối của tay được nêu; tay không dùng mặc định là `open`, nên rule này một mình không chứng minh đúng tay.
 
 ### GAP-L02-04
 Engine ném lỗi thì `runSchematic` không đổi trạng thái, experiment **ở mãi `pending`**, và mỗi lần chạy lại đều nhận 400 giống nhau.
@@ -137,7 +154,7 @@ Nội dung bài L4 (seed) ghi *"Approach → Grasp → Lift → Transfer → Rel
 ### GAP-L03-05
 Trong `submit()`, với bài giáo trình (`kind = symbolic_program`), `projectSymbolicPass` gọi `assertPrerequisites` **bên trong transaction nộp bài**.
 Nếu admin thêm bài tiên quyết sau khi học sinh đã bắt đầu attempt, lần nộp PASS ném 409 `PREREQUISITE_NOT_COMPLETED` và **rollback toàn bộ bài nộp**.
-Tình huống hiếm, nhưng học sinh sẽ không nộp được. (Commit `0c818bb` trên `develop` đã sửa trường hợp tương tự cho bài giáo viên tự tạo, bằng cách bỏ qua
+Tình huống hiếm, nhưng học sinh sẽ không nộp được. Cùng nguyên nhân: khi chấm sau khi nộp một bài giáo trình, xung đột tiên quyết cũng rollback evidence (đã có test mô tả hành vi hiện tại). (Commit `0c818bb` trên `develop` đã sửa trường hợp tương tự cho bài giáo viên tự tạo, bằng cách bỏ qua
 bước chiếu tiến độ; riêng trường hợp tiên quyết của bài giáo trình thì chưa.)
 
 ### GAP-L03-03
