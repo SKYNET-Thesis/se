@@ -152,6 +152,16 @@ describe('educationAdminApi classroom administration', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('/education-admin/organizations/school-1/courses/course-1');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'PATCH', body: JSON.stringify({ title: 'Updated course' }) });
   });
+
+  it('activates an offering through the organization-scoped transition endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'offering-1', status: 'active' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await educationAdminApi.activateCourseOffering('school-1', 'offering-1', 'token');
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/education-admin/organizations/school-1/course-offerings/offering-1/activate');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' });
+  });
 });
 
 describe('catalog lesson authoring contract', () => {

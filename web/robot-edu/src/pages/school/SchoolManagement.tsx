@@ -46,7 +46,11 @@ export function SchoolManagement({ initialTab = 'overview' }: { initialTab?: str
   useEffect(() => { if (candidates.data) { const pages = candidatePageCount(candidates.data.total, PAGE_SIZE); if (candidatePage > pages) setCandidatePage(pages); } }, [candidatePage, candidates.data]);
 
   const createClassroom = useMutation({ mutationFn: async (body: Record<string, unknown>) => {
-    const offeringId = body.offeringId || (await educationAdminApi.createCourseOffering(organizationId, token, { courseId: body.courseId, code: body.offeringCode, title: body.offeringTitle })).id;
+    const offeringId = body.offeringId || (await (async () => {
+      const offering = await educationAdminApi.createCourseOffering(organizationId, token, { courseId: body.courseId, code: body.offeringCode, title: body.offeringTitle });
+      await educationAdminApi.activateCourseOffering(organizationId, offering.id, token);
+      return offering.id;
+    })());
     return educationAdminApi.createClassroom(organizationId, token, { name: body.name, code: body.code, offeringId });
   }, onSuccess: async created => { setSelectedId(created.id); setCreateOpen(false); await Promise.all([queryClient.invalidateQueries({ queryKey: schoolAdminKeys.classrooms(organizationId) }), queryClient.invalidateQueries({ queryKey: schoolAdminKeys.offerings(organizationId) }), queryClient.invalidateQueries({ queryKey: schoolAdminKeys.overview(organizationId) })]); }, onError: reason => setError(reason instanceof Error ? reason.message : 'Unable to create classroom.') });
   const addMember = useMutation({ mutationFn: (userId: string) => educationAdminApi.upsertMember(organizationId, selectedId, token, candidateMutationBody(userId)), onSuccess: async () => { setMemberOpen(false); setSelectedMemberId(''); await Promise.all(memberInvalidations(organizationId, selectedId).map(queryKey => queryClient.invalidateQueries({ queryKey }))); }, onError: reason => setError(reason instanceof Error ? reason.message : 'Unable to add classroom member.') });

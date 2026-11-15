@@ -16,6 +16,7 @@ import { ClassroomStudentImportService } from "./classroom-student-import.servic
 import { CreateCourseOfferingDto } from './dto/create-course-offering.dto';
 import { UpdateClassroomDto } from "./dto/update-classroom.dto";
 import { UpdateCourseDto } from "../learning/dto/course-catalog.dto";
+import { UpdateCourseOfferingDto } from "./dto/update-course-offering.dto";
 
 @ApiTags("Education administration")
 @ApiBearerAuth()
@@ -38,6 +39,8 @@ export class EducationAdminController {
   @Get("organizations/:organizationId/courses") courses(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string) { return this.educationAdmin.courses(user, organizationId); }
   @Patch("organizations/:organizationId/courses/:courseId") updateCourse(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("courseId", ParseUUIDPipe) courseId: string, @Body() dto: UpdateCourseDto) { return this.educationAdmin.updateCourse(user, organizationId, courseId, dto); }
   @Post('organizations/:organizationId/course-offerings') createCourseOffering(@CurrentUser() user: AuthenticatedUser, @Param('organizationId', ParseUUIDPipe) organizationId: string, @Body() dto: CreateCourseOfferingDto) { return this.educationAdmin.createCourseOffering(user, organizationId, dto); }
+  @Patch('organizations/:organizationId/course-offerings/:offeringId') updateCourseOffering(@CurrentUser() user: AuthenticatedUser, @Param('organizationId', ParseUUIDPipe) organizationId: string, @Param('offeringId', ParseUUIDPipe) offeringId: string, @Body() dto: UpdateCourseOfferingDto) { return this.educationAdmin.updateCourseOffering(user, organizationId, offeringId, dto); }
+  @Post('organizations/:organizationId/course-offerings/:offeringId/activate') activateCourseOffering(@CurrentUser() user: AuthenticatedUser, @Param('organizationId', ParseUUIDPipe) organizationId: string, @Param('offeringId', ParseUUIDPipe) offeringId: string) { return this.educationAdmin.activateCourseOffering(user, organizationId, offeringId); }
   @Post("organizations/:organizationId/user-imports") importUsers(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Body() dto: ImportSchoolUsersDto) { return this.educationAdmin.importUsers(user, organizationId, dto); }
   @Post("organizations/:organizationId/students/:studentId/password-recovery") issueStudentPasswordRecovery(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("studentId", ParseUUIDPipe) studentId: string) { return this.educationAdmin.issueStudentPasswordRecovery(user, organizationId, studentId); }
   @Put("organizations/:organizationId/classrooms/:classroomId/offering") changeOffering(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("classroomId", ParseUUIDPipe) classroomId: string, @Body() dto: AssignClassroomOfferingDto) { return this.educationAdmin.changeClassroomOffering(user, organizationId, classroomId, dto.offeringId); }

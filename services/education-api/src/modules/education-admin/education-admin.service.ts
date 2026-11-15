@@ -13,6 +13,8 @@ import { classifyImportError, ImportProvisioningError, type ImportErrorCode } fr
 import { StudentProvisioningService } from "./student-provisioning.service";
 import { EnrollmentDeliveryService } from "../learning/enrollment-delivery.service";
 import { UpdateClassroomDto } from "./dto/update-classroom.dto";
+import { UpdateCourseOfferingDto } from "./dto/update-course-offering.dto";
+import { runCourseSyncTransaction } from "../learning/course-sync-transaction";
 
 @Injectable()
 export class EducationAdminService {
@@ -148,12 +150,55 @@ export class EducationAdminService {
     try {
       return await this.prisma.learning_course_offerings.create({ data: {
         organization_id: organizationId, course_id: course.id, code: dto.code.trim(), title: dto.title?.trim() || course.title,
-        academic_term: dto.academicTerm?.trim(), academic_year: dto.academicYear, status: 'active', created_by: user.vistaUserId,
+        academic_term: dto.academicTerm?.trim(), academic_year: dto.academicYear, status: 'draft', created_by: user.vistaUserId,
       } });
     } catch (error: unknown) {
       if (this.isUniqueViolation(error)) throw new ConflictException('An offering with this code already exists in the organization.');
       throw error;
     }
+  }
+
+  async updateCourseOffering(user: AuthenticatedUser, organizationId: string, offeringId: string, dto: UpdateCourseOfferingDto) {
+    await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
+    const offering = await this.prisma.learning_course_offerings.findFirst({
+      where: { id: offeringId, organization_id: organizationId, learning_courses: { is: { organization_id: null, status: "published" } } },
+      select: { id: true, status: true },
+    });
+    if (!offering) throw new NotFoundException("Course offering was not found.");
+    if (offering.status !== "draft") throw new ConflictException("Only draft course offerings can be updated.");
+    try {
+      return await this.prisma.learning_course_offerings.update({
+        where: { id: offering.id },
+        data: {
+          ...(dto.code === undefined ? {} : { code: dto.code.trim() }),
+          ...(dto.title === undefined ? {} : { title: dto.title.trim() || null }),
+          ...(dto.academicTerm === undefined ? {} : { academic_term: dto.academicTerm.trim() || null }),
+          ...(dto.academicYear === undefined ? {} : { academic_year: dto.academicYear }),
+          updated_at: new Date(),
+        },
+      });
+    } catch (error: unknown) {
+      if (this.isUniqueViolation(error)) throw new ConflictException("An offering with this code already exists in the organization.");
+      throw error;
+    }
+  }
+
+  async activateCourseOffering(user: AuthenticatedUser, organizationId: string, offeringId: string) {
+    await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
+    return runCourseSyncTransaction(this.prisma, async (tx) => {
+      const offering = await tx.learning_course_offerings.findFirst({
+        where: { id: offeringId, organization_id: organizationId, learning_courses: { is: { organization_id: null, status: "published" } } },
+        select: { id: true, course_id: true, status: true },
+      });
+      if (!offering) throw new NotFoundException("Course offering was not found.");
+      if (offering.status !== "draft") throw new ConflictException("Only draft course offerings can be activated.");
+      const activated = await tx.learning_course_offerings.update({
+        where: { id: offering.id },
+        data: { status: "active", updated_at: new Date() },
+      });
+      const sync = await this.enrollments.synchronizeCourseIn(tx, offering.course_id);
+      return { ...activated, enrollmentSync: sync };
+    });
   }
 
   async upsertClassroomMember(user: AuthenticatedUser, organizationId: string, classroomId: string, dto: UpsertClassroomMemberDto) {
