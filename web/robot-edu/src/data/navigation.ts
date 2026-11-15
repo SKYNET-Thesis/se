@@ -103,7 +103,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
   {
     title: 'Learning',
     items: [
-    { to: '/courses', label: 'Course catalogue', icon: BookOpenIcon },
+    { to: '/school/courses', label: 'Courses', icon: BookOpenIcon },
     { to: '/lab', label: 'Robot Lab', icon: Cpu }]
   }]
 

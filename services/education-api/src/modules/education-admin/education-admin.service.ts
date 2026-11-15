@@ -93,9 +93,11 @@ export class EducationAdminService {
   }
 
   async updateClassroom(user: AuthenticatedUser, organizationId: string, classroomId: string, dto: UpdateClassroomDto) {
-    await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
+    await this.assertClassroomUpdatePermission(user, organizationId, classroomId);
     const classroom = await this.prisma.learning_classrooms.findFirst({ where: { id: classroomId, organization_id: organizationId }, select: { id: true } });
     if (!classroom) throw new NotFoundException("Classroom was not found.");
+    if (dto.name !== undefined && !dto.name.trim()) throw new BadRequestException("Classroom name cannot be empty.");
+    if (dto.code !== undefined && !dto.code.trim()) throw new BadRequestException("Classroom code cannot be empty.");
     try {
       return await this.prisma.learning_classrooms.update({
         where: { id: classroom.id },
@@ -110,6 +112,33 @@ export class EducationAdminService {
       if (this.isUniqueViolation(error)) throw new ConflictException("A classroom with this code already exists in the organization.");
       throw error;
     }
+  }
+
+  async updateCourse(user: AuthenticatedUser, organizationId: string, courseId: string, dto: { title?: string; description?: string }) {
+    await this.assertOrganizationCoursePermission(user, organizationId);
+    const course = await this.prisma.learning_courses.findFirst({
+      where: { id: courseId, organization_id: organizationId },
+      select: { id: true },
+    });
+    if (!course) throw new NotFoundException("Course was not found.");
+    if (dto.title !== undefined && !dto.title.trim()) throw new BadRequestException("Course title cannot be empty.");
+    return this.prisma.learning_courses.update({
+      where: { id: course.id },
+      data: {
+        ...(dto.title === undefined ? {} : { title: dto.title.trim() }),
+        ...(dto.description === undefined ? {} : { description: dto.description.trim() || null }),
+        updated_at: new Date(),
+      },
+    });
+  }
+
+  async courses(user: AuthenticatedUser, organizationId: string) {
+    await this.assertOrganizationCoursePermission(user, organizationId);
+    return this.prisma.learning_courses.findMany({
+      where: { organization_id: organizationId },
+      select: { id: true, title: true, description: true, status: true, created_at: true, updated_at: true },
+      orderBy: { updated_at: "desc" },
+    });
   }
 
   async createCourseOffering(user: AuthenticatedUser, organizationId: string, dto: { courseId: string; code: string; title?: string; academicTerm?: string; academicYear?: number }) {
@@ -344,6 +373,34 @@ export class EducationAdminService {
     if (this.scope.isSystemAdministrator(user)) return;
     const membership = user.memberships.find((item) => item.organizationId === organizationId && item.status === "active");
     if (!membership || !membership.permissions.includes(permission)) throw new NotFoundException("Organization was not found.");
+  }
+
+  private async assertOrganizationCoursePermission(user: AuthenticatedUser, organizationId: string) {
+    if (this.scope.isSystemAdministrator(user)) return;
+    const membership = user.memberships.find((item) => item.organizationId === organizationId && item.status === "active");
+    if (!membership?.permissions.includes("education.classroom.manage") && !membership?.permissions.includes("learning.delivery.manage")) {
+      throw new NotFoundException("Organization was not found.");
+    }
+  }
+
+  private async assertClassroomUpdatePermission(user: AuthenticatedUser, organizationId: string, classroomId: string) {
+    if (this.scope.isSystemAdministrator(user)) return;
+    const membership = user.memberships.find((item) => item.organizationId === organizationId && item.status === "active");
+    if (membership?.permissions.includes("education.classroom.manage")) return;
+    if (!membership?.permissions.includes("learning.delivery.manage")) throw new NotFoundException("Organization was not found.");
+    const teacherMembership = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT cm.id
+      FROM public.learning_classroom_members cm
+      WHERE cm.classroom_id=${classroomId}::uuid
+        AND cm.user_id=${user.vistaUserId}::uuid
+        AND cm.classroom_role IN ('teacher', 'teaching_assistant')
+        AND cm.status='active'
+        AND EXISTS (
+          SELECT 1 FROM public.memberships m
+          WHERE m.id=cm.membership_id AND m.organization_id=${organizationId}::uuid AND m.status='active'
+        )
+      LIMIT 1`;
+    if (!teacherMembership.length) throw new NotFoundException("Classroom was not found.");
   }
 
   private isUniqueViolation(error: unknown): error is { code: string } {
