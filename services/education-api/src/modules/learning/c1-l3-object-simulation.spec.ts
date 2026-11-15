@@ -332,6 +332,7 @@ describe("P0.6 — C1-L3 Grab & Release: Authoritative Object Task Simulation", 
       const out = overrides?.schematic ?? schematicEngine.render(validL3RobotProgram, "version-l3-pass");
       return {
         prepareForOwnExperiment: jest.fn(async (_user, expId: string) => ({
+          assignmentKind: "symbolic_program",
           attemptId: "attempt-l3-1",
           experimentId: expId,
           submissionId: "sub-l3-1",

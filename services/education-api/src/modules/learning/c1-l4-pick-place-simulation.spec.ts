@@ -395,6 +395,7 @@ describe("P0.7 — C1-L4 Pick & Place: Authoritative Target-Zone Task Simulation
       const progression = new ProgressionService(prisma as never, mockScope as never);
       const prepMock = {
         prepareForOwnExperiment: jest.fn(async () => ({
+          assignmentKind: "symbolic_program",
           fingerprint: "fp-l4-1",
           experimentId: "exp-l4-1",
           attemptId: "attempt-l4-1",
@@ -419,6 +420,7 @@ describe("P0.7 — C1-L4 Pick & Place: Authoritative Target-Zone Task Simulation
       const progression = new ProgressionService(prisma as never, mockScope as never);
       const prepMock = {
         prepareForOwnExperiment: jest.fn(async () => ({
+          assignmentKind: "symbolic_program",
           fingerprint: "fp-l4-fail",
           experimentId: "exp-l4-fail",
           attemptId: "attempt-l4-1",
@@ -454,6 +456,7 @@ describe("P0.7 — C1-L4 Pick & Place: Authoritative Target-Zone Task Simulation
       const progression = new ProgressionService(prisma as never, mockScope as never);
       const prepMock = {
         prepareForOwnExperiment: jest.fn(async () => ({
+          assignmentKind: "symbolic_program",
           fingerprint: "fp-l4-repeat",
           experimentId: "exp-l4-repeat",
           attemptId: "attempt-l4-1",
@@ -503,6 +506,7 @@ describe("P0.7 — C1-L4 Pick & Place: Authoritative Target-Zone Task Simulation
       const progression = new ProgressionService(prisma as never, mockScope as never);
       const prepMock = {
         prepareForOwnExperiment: jest.fn(async () => ({
+          assignmentKind: "symbolic_program",
           fingerprint: "fp-l4-pass-nol5",
           experimentId: "exp-l4-pass-nol5",
           attemptId: "attempt-l4-1",
@@ -532,6 +536,7 @@ describe("P0.7 — C1-L4 Pick & Place: Authoritative Target-Zone Task Simulation
       const progression = new ProgressionService(prisma as never, mockScope as never);
       const prepMock = {
         prepareForOwnExperiment: jest.fn(async () => ({
+          assignmentKind: "symbolic_program",
           fingerprint: "fp-l4-tx-fail",
           experimentId: "exp-l4-tx-fail",
           attemptId: "attempt-l4-1",
