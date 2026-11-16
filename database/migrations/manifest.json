@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "baselineSha256": "5b140ce7b5f9b71e5c013f45ec9298cde48db29ac5e6a979b78aea694c2ef962",
-  "sourceCommit": "486fc3ec009d279b59b44142bee85cb27951f7b0",
+  "sourceCommit": "4f81bddcad7b7f884fca8351c74274a3b3d670f7",
   "migrations": [
     {
       "version": "20261110_d_activity_content",
@@ -62,6 +62,12 @@
       "path": "database/migrations/20261116_m_revoke_public_temp_privilege.sql",
       "sha256": "80619e7d76e86db4eb29a819d3b9003e0684161c248a2a9b47a411b51bc39f38",
       "order": 10
+    },
+    {
+      "version": "20261117_n_wf01_robot_allocation_permission",
+      "path": "database/migrations/20261117_n_wf01_robot_allocation_permission.sql",
+      "sha256": "6aa109ea5520c76de9cd2937e24535ec3069728b45a5aa4cb64ab831127f8e7c",
+      "order": 11
     }
   ]
 }

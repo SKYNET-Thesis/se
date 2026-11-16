@@ -10,6 +10,11 @@ interface Fixture {
   classroomId: string;
   programDeliveryId: string;
   rubricCriterionId: string;
+  allocatedRobotId: string;
+  replacementRobotId: string;
+  expiredRobotId: string;
+  maintenanceRobotId: string;
+  foreignRobotId: string;
   users: Record<string, { userId: string; authUserId: string }>;
 }
 const fixturePath = process.env.VISTA_E2E_FIXTURE_FILE;
@@ -75,6 +80,45 @@ test('Cross-school classroom and roster access is denied by the real API', async
   expect([403, 404]).toContain(foreignRoster.status());
   const foreignClassroom = await page.request.get(`${apiBase}/classrooms/${fixture.otherClassroomId}`, { headers: { Authorization: `Bearer ${firstToken}` } });
   expect([403, 404]).toContain(foreignClassroom.status());
+});
+
+test('WF-01 school admin allocates an entitled available robot and the authorized instructor sees the current allocation', async ({ page }) => {
+  const adminToken = await tokenFor(page, fixture.users.schoolAdmin.authUserId);
+  const instructorToken = await tokenFor(page, fixture.users.instructor.authUserId);
+  const otherAdminToken = await tokenFor(page, fixture.users.otherSchoolAdmin.authUserId);
+  const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+  const eligiblePath = `/education-admin/classrooms/${fixture.classroomId}/eligible-robots`;
+  const allocationPath = `/education-admin/classrooms/${fixture.classroomId}/robot-allocation`;
+
+  const listed = await page.request.get(`${apiBase}${eligiblePath}`, { headers: auth(adminToken) });
+  expect(listed.status()).toBe(200);
+  const eligible = await listed.json() as Array<{ id: string }>;
+  expect(eligible.map((robot) => robot.id)).toEqual(expect.arrayContaining([fixture.allocatedRobotId, fixture.replacementRobotId]));
+  expect(eligible.map((robot) => robot.id)).not.toEqual(expect.arrayContaining([fixture.expiredRobotId, fixture.maintenanceRobotId, fixture.foreignRobotId]));
+
+  const unauthorized = await page.request.put(`${apiBase}${allocationPath}`, { headers: auth(instructorToken), data: { robotId: fixture.allocatedRobotId } });
+  expect([403, 404]).toContain(unauthorized.status());
+  for (const robotId of [fixture.expiredRobotId, fixture.maintenanceRobotId, fixture.foreignRobotId]) {
+    const rejected = await page.request.put(`${apiBase}${allocationPath}`, { headers: auth(adminToken), data: { robotId } });
+    expect([403, 404, 409]).toContain(rejected.status());
+  }
+  const foreignClassroom = await page.request.put(`${apiBase}/education-admin/classrooms/${fixture.otherClassroomId}/robot-allocation`, { headers: auth(adminToken), data: { robotId: fixture.allocatedRobotId } });
+  expect([403, 404]).toContain(foreignClassroom.status());
+  const foreignListing = await page.request.get(`${apiBase}/education-admin/classrooms/${fixture.classroomId}/eligible-robots`, { headers: auth(otherAdminToken) });
+  expect([403, 404]).toContain(foreignListing.status());
+
+  const first = await page.request.put(`${apiBase}${allocationPath}`, { headers: auth(adminToken), data: { robotId: fixture.allocatedRobotId } });
+  expect(first.status()).toBe(200);
+  const firstView = await page.request.get(`${apiBase}/classrooms/${fixture.classroomId}`, { headers: auth(instructorToken) });
+  expect(firstView.status()).toBe(200);
+  expect(await firstView.json()).toMatchObject({ allocated_robot: { id: fixture.allocatedRobotId, name: 'WF-01 entitled robot' } });
+
+  const replacement = await page.request.put(`${apiBase}${allocationPath}`, { headers: auth(adminToken), data: { robotId: fixture.replacementRobotId } });
+  expect(replacement.status()).toBe(200);
+  const afterReplacement = await page.request.get(`${apiBase}/classrooms/${fixture.classroomId}`, { headers: auth(instructorToken) });
+  expect(await afterReplacement.json()).toMatchObject({ allocated_robot: { id: fixture.replacementRobotId, name: 'WF-01 replacement robot' } });
+  const hiddenForeign = await page.request.get(`${apiBase}/classrooms/${fixture.otherClassroomId}`, { headers: auth(instructorToken) });
+  expect([403, 404]).toContain(hiddenForeign.status());
 });
 
 test('Student submits a ProgramVersion and instructor assesses and returns feedback', async ({ page }) => {

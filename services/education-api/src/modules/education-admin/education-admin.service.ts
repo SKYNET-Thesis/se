@@ -52,7 +52,10 @@ export class EducationAdminService {
              o.code AS offering_code, o.title AS offering_title,
              COUNT(cm.id) FILTER (WHERE cm.status = 'active' AND cm.classroom_role = 'student')::int AS student_count,
              COUNT(cm.id) FILTER (WHERE cm.status = 'active' AND cm.classroom_role IN ('teacher', 'teaching_assistant'))::int AS teaching_staff_count,
-             (jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name)) FILTER (WHERE r.id IS NOT NULL))->0 AS allocated_robot
+             (jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name)) FILTER (WHERE r.id IS NOT NULL AND r.status='available' AND EXISTS (
+               SELECT 1 FROM public.org_entitlements e WHERE e.robot_id=r.id AND e.organization_id=c.organization_id AND e.resource_type='robot'
+                 AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now())
+             )))->0 AS allocated_robot
       FROM public.learning_classrooms c
       JOIN public.learning_course_offerings o ON o.id = c.offering_id
       LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id = c.id
@@ -416,14 +419,22 @@ export class EducationAdminService {
 
   async eligibleRobots(user: AuthenticatedUser, classroomId: string) {
     const classroom = await this.classroomForAllocation(user, classroomId);
-    return this.prisma.$queryRaw`SELECT DISTINCT r.id,r.name,r.serial_no AS "serialNo",r.model_name AS "modelName",r.status FROM public.robots r JOIN public.org_entitlements e ON e.robot_id=r.id WHERE e.organization_id=${classroom.organization_id}::uuid AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now()) ORDER BY r.name`;
+    return this.prisma.$queryRaw`SELECT DISTINCT r.id,r.name,r.serial_no AS "serialNo",r.model_name AS "modelName",r.status FROM public.robots r JOIN public.org_entitlements e ON e.robot_id=r.id WHERE e.organization_id=${classroom.organization_id}::uuid AND e.resource_type='robot' AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now()) AND r.status='available' ORDER BY r.name`;
   }
 
   async allocateRobot(user: AuthenticatedUser, classroomId: string, dto: AllocateClassroomRobotDto) {
     const classroom = await this.classroomForAllocation(user, classroomId);
-    const eligible = await this.prisma.$queryRaw<{ id: string }[]>`SELECT r.id FROM public.robots r JOIN public.org_entitlements e ON e.robot_id=r.id WHERE r.id=${dto.robotId}::uuid AND e.organization_id=${classroom.organization_id}::uuid AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now()) LIMIT 1`;
-    if (!eligible[0]) throw new NotFoundException("Robot was not eligible for this classroom.");
-    return this.prisma.$transaction((tx) => tx.$queryRaw`INSERT INTO public.learning_classroom_robot_allocations(classroom_id,robot_id,created_by_user_id) VALUES(${classroomId}::uuid,${dto.robotId}::uuid,${user.vistaUserId}::uuid) ON CONFLICT (classroom_id) DO UPDATE SET robot_id=EXCLUDED.robot_id,created_by_user_id=EXCLUDED.created_by_user_id,created_at=now() RETURNING id,classroom_id,robot_id,created_by_user_id,created_at`);
+    return this.prisma.$transaction(async (tx) => {
+      // Recheck and lock both the resource and the entitlement in the same transaction as the upsert.
+      // Entitlement expiry/revocation or a status change before allocation must fail closed.
+      const eligible = await tx.$queryRaw<{ id: string }[]>`SELECT r.id FROM public.robots r
+        JOIN public.org_entitlements e ON e.robot_id=r.id
+        WHERE r.id=${dto.robotId}::uuid AND r.status='available' AND e.organization_id=${classroom.organization_id}::uuid
+          AND e.resource_type='robot' AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now())
+        ORDER BY e.valid_from DESC LIMIT 1 FOR UPDATE OF r,e`;
+      if (!eligible[0]) throw new NotFoundException("Robot was not eligible for this classroom.");
+      return tx.$queryRaw`INSERT INTO public.learning_classroom_robot_allocations(classroom_id,robot_id,created_by_user_id) VALUES(${classroomId}::uuid,${dto.robotId}::uuid,${user.vistaUserId}::uuid) ON CONFLICT (classroom_id) DO UPDATE SET robot_id=EXCLUDED.robot_id,created_by_user_id=EXCLUDED.created_by_user_id,created_at=now() RETURNING id,classroom_id,robot_id,created_by_user_id,created_at`;
+    });
   }
 
   private async classroomForAllocation(user: AuthenticatedUser, classroomId: string) {

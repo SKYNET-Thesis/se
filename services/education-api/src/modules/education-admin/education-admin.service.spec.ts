@@ -13,13 +13,14 @@ describe("EducationAdminService organization boundaries", () => {
   const createClassroom = jest.fn();
   const findClassroom = jest.fn();
   const transaction = jest.fn();
+  const transactionQueryRaw = jest.fn();
   const scope = { isSystemAdministrator: jest.fn() };
   const supabaseAdmin = { invite: jest.fn() };
   const studentProvisioning = { provision: jest.fn() };
   const synchronizeIfDeliverable = jest.fn().mockResolvedValue([]);
   const service = new EducationAdminService({ $queryRaw: queryRaw, $transaction: transaction, learning_course_offerings: { findFirst: findOffering }, learning_classrooms: { create: createClassroom, findFirst: findClassroom }, memberships: { findFirst: jest.fn() }, learning_classroom_members: { upsert: jest.fn() } } as never, scope as never, supabaseAdmin as never, studentProvisioning as never, { synchronizeIfDeliverable } as never);
 
-  beforeEach(() => { queryRaw.mockReset(); transaction.mockReset().mockImplementation(async (callback) => callback({ $queryRaw: jest.fn().mockResolvedValue([{ id: "allocation-a", classroom_id: "class-a", robot_id: "robot-a" }]) })); findOffering.mockReset(); createClassroom.mockReset(); findClassroom.mockReset().mockResolvedValue({ id: "class-a", organization_id: "school-a" }); scope.isSystemAdministrator.mockReset().mockReturnValue(false); });
+  beforeEach(() => { queryRaw.mockReset(); transactionQueryRaw.mockReset().mockResolvedValue([{ id: "allocation-a", classroom_id: "class-a", robot_id: "robot-a" }]); transaction.mockReset().mockImplementation(async (callback) => callback({ $queryRaw: transactionQueryRaw })); findOffering.mockReset(); createClassroom.mockReset(); findClassroom.mockReset().mockResolvedValue({ id: "class-a", organization_id: "school-a" }); scope.isSystemAdministrator.mockReset().mockReturnValue(false); });
 
   it("allows a school administrator to read members in the organization carrying the permission", async () => {
     queryRaw.mockResolvedValue([]);
@@ -86,10 +87,20 @@ describe("EducationAdminService organization boundaries", () => {
   });
 
   it("persists one allocation for an entitled robot", async () => {
-    queryRaw.mockResolvedValue([{ id: "robot-a" }]);
     const user = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.classroom.resource.allocate"] }] };
     await expect(service.allocateRobot(user, "class-a", { robotId: "robot-a" })).resolves.toMatchObject([{ robot_id: "robot-a" }]);
     expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transactionQueryRaw.mock.calls[0][0].join(" ")).toContain("r.status='available'");
+    expect(transactionQueryRaw.mock.calls[0][0].join(" ")).toContain("e.resource_type='robot'");
+    expect(transactionQueryRaw.mock.calls[0][0].join(" ")).toContain("FOR UPDATE OF r,e");
+    expect(transactionQueryRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects an entitlement revoked between listing and allocation without writing", async () => {
+    transactionQueryRaw.mockResolvedValueOnce([]);
+    const user = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.classroom.resource.allocate"] }] };
+    await expect(service.allocateRobot(user, "class-a", { robotId: "robot-a" })).rejects.toBeInstanceOf(NotFoundException);
+    expect(transactionQueryRaw).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a school administrator from another organization before mutation", async () => {
@@ -106,10 +117,11 @@ describe("EducationAdminService organization boundaries", () => {
   });
 
   it("rejects a robot without a current entitlement before mutation", async () => {
-    queryRaw.mockResolvedValue([]);
+    transactionQueryRaw.mockResolvedValueOnce([]);
     const user = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.classroom.resource.allocate"] }] };
     await expect(service.allocateRobot(user, "class-a", { robotId: "robot-a" })).rejects.toBeInstanceOf(NotFoundException);
-    expect(transaction).not.toHaveBeenCalled();
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(transactionQueryRaw).toHaveBeenCalledTimes(1);
   });
 
   it("uses the single-row upsert transaction for replacement and repeated allocation", async () => {
