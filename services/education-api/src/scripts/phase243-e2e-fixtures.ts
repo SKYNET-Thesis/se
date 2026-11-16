@@ -10,6 +10,7 @@ import { LearningMediaStorage } from '../modules/learning/learning-media.storage
 import { ConfigService } from '@nestjs/config';
 import { ProgressionService } from '../modules/learning/progression.service';
 import { QuestionBankService } from '../modules/learning/question-bank.service';
+import { matchesDisposableDatabaseTarget } from '../modules/learning/isolated-db-target';
 
 const databaseUrl = process.env.VISTA_E2E_ADMIN_DATABASE_URL ?? '';
 const fixtureName = 'VISTA Phase 2.4.3 isolated E2E fixture';
@@ -33,8 +34,8 @@ function assertIsolatedTarget(): void {
     try { const value = new URL(supabaseUrl); return value.protocol === 'http:' && value.hostname === '127.0.0.1' && ['54321', '54323'].includes(value.port) && value.pathname === '/'; }
     catch { return false; }
   })();
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || url.port !== '55433' || url.pathname !== '/vista_test_course_builder' || decodeURIComponent(url.username) !== 'vista_test' || process.env.VISTA_DATABASE_PROJECT_REF !== 'vista-course-builder-test' || !localAuthOnly) {
-    throw new Error('E2E fixture writes are restricted to vista_test_course_builder on loopback port 55433 using vista_test, with no hosted Supabase URL.');
+  if (!matchesDisposableDatabaseTarget(databaseUrl) || !localAuthOnly) {
+    throw new Error('E2E fixture writes require the exact disposable loopback target named by VISTA_TEST_DATABASE_NAME/VISTA_TEST_DATABASE_PORT and local-only auth.');
   }
 }
 

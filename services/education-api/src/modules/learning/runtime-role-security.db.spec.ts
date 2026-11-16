@@ -1,20 +1,15 @@
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { matchesDisposableDatabaseTarget } from './isolated-db-target';
 
 const enabled = process.env.RUN_RUNTIME_ROLE_SECURITY === '1';
 const configuredUrl = process.env.VISTA_RUNTIME_SECURITY_DATABASE_URL;
-const parsedUrl = configuredUrl ? new URL(configuredUrl) : undefined;
 const supabaseUrl = process.env.SUPABASE_URL;
 const localAuthOnly = !supabaseUrl || (() => {
   try { const value = new URL(supabaseUrl); return value.protocol === 'http:' && value.hostname === '127.0.0.1' && value.port === '54321' && value.pathname === '/'; }
   catch { return false; }
 })();
-const isolatedIdentity = Boolean(
-  parsedUrl && ['127.0.0.1', 'localhost', '::1'].includes(parsedUrl.hostname) &&
-  parsedUrl.port === '55433' && parsedUrl.pathname === '/vista_test_course_builder' &&
-  parsedUrl.username === 'vista_app_runtime' && process.env.VISTA_DATABASE_PROJECT_REF === 'vista-course-builder-test' &&
-  localAuthOnly,
-);
+const isolatedIdentity = matchesDisposableDatabaseTarget(configuredUrl, 'vista_app_runtime') && localAuthOnly;
 if (enabled && !isolatedIdentity) {
   throw new Error('Runtime-role security tests require vista_app_runtime on the isolated loopback Course Builder database.');
 }

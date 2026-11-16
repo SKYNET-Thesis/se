@@ -19,6 +19,7 @@ import unittest
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
+from scripts.build_d03_pristine_template import FIRST_D03_VERSION, migrations_before_d03
 
 ROOT = Path(__file__).resolve().parents[2]
 STAGE1 = ROOT / "database/migrations/20261113_i_attempt_submission_foundation.sql"
@@ -41,6 +42,14 @@ class AttemptSubmissionMigrationTests(unittest.TestCase):
         # The template is the schema BEFORE D03 Stage 1 (baseline + D-H). Build it once per server when it is missing.
         subprocess.run([sys.executable, str(ROOT / "scripts/build_d03_pristine_template.py"), "--admin-url", URL, "--template", TEMPLATE],
                        check=True, cwd=ROOT, env={**os.environ, "VISTA_DATABASE_PROJECT_REF": os.environ.get("VISTA_DATABASE_PROJECT_REF", "vista-course-builder-test")})
+
+    def test_pristine_template_includes_only_migrations_before_d03(self):
+        import json
+        manifest = json.loads((ROOT / "database/migrations/manifest.json").read_text())
+        kept = migrations_before_d03(manifest["migrations"])
+        self.assertTrue(kept)
+        self.assertTrue(all(entry["version"] < FIRST_D03_VERSION for entry in kept))
+        self.assertEqual(kept, [entry for entry in manifest["migrations"] if entry["version"] < FIRST_D03_VERSION])
 
     def setUp(self):
         self.target = _target()

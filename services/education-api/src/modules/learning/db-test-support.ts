@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import type { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
+import { isIsolatedIntegrationDatabase } from './isolated-db-target';
 
 /**
  * Shared fixtures for the PostgreSQL integration suites. The suites only run against the dedicated disposable
@@ -8,21 +9,14 @@ import type { AuthenticatedUser } from '../identity/auth/authenticated-user.inte
  */
 const requested = process.env.RUN_POSTGRES_INTEGRATION === '1';
 export const configuredUrl = process.env.VISTA_INTEGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
-const parsedUrl = configuredUrl ? new URL(configuredUrl) : undefined;
-const isolatedIdentity = Boolean(
-  parsedUrl &&
-  ['localhost', '127.0.0.1', '::1'].includes(parsedUrl.hostname) &&
-  parsedUrl.port === '55432' &&
-  parsedUrl.pathname === '/vista_test_course_builder' &&
-  parsedUrl.username === 'vista_test' &&
-  process.env.VISTA_DATABASE_PROJECT_REF === 'vista-course-builder-test' &&
-  !process.env.SUPABASE_URL,
-);
+const isolatedIdentity = isIsolatedIntegrationDatabase(configuredUrl);
 if (requested && !isolatedIdentity) {
-  throw new Error('PostgreSQL integration tests require the dedicated vista_test_course_builder target on loopback port 55432.');
+  throw new Error('PostgreSQL integration tests require the exact disposable loopback target named by VISTA_TEST_DATABASE_NAME/VISTA_TEST_DATABASE_PORT.');
 }
 export const describeDb = requested && isolatedIdentity ? describe : describe.skip;
-export const createDb = () => new PrismaClient({ datasources: { db: { url: configuredUrl } } });
+export const createDb = () => new PrismaClient({
+  datasources: { db: { url: configuredUrl ?? 'postgresql://disabled:disabled@127.0.0.1:1/disabled' } },
+});
 export type Db = ReturnType<typeof createDb>;
 
 /** A persisted system administrator (rows such as questions reference users through created_by). */

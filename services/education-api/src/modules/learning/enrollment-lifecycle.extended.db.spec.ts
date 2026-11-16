@@ -1,29 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { isIsolatedIntegrationDatabase } from './isolated-db-target';
 import { EducationAdminService } from '../education-admin/education-admin.service';
 import { EnrollmentDeliveryService } from './enrollment-delivery.service';
 
 // Same isolation guard as the other PostgreSQL suites: only the dedicated disposable loopback target.
 const requested = process.env.RUN_POSTGRES_INTEGRATION === '1';
 const configuredUrl = process.env.VISTA_INTEGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
-const parsedUrl = configuredUrl ? new URL(configuredUrl) : undefined;
-const isolatedIdentity = Boolean(
-  parsedUrl &&
-  ['localhost', '127.0.0.1', '::1'].includes(parsedUrl.hostname) &&
-  parsedUrl.port === '55433' &&
-  parsedUrl.pathname === '/vista_test_course_builder' &&
-  parsedUrl.username === 'vista_test' &&
-  process.env.VISTA_DATABASE_PROJECT_REF === 'vista-course-builder-test' &&
-  !process.env.SUPABASE_URL,
-);
+const isolatedIdentity = isIsolatedIntegrationDatabase(configuredUrl);
 if (requested && !isolatedIdentity) {
-  throw new Error('PostgreSQL integration tests require the approved vista_test_course_builder target on loopback port 55433.');
+  throw new Error('PostgreSQL integration tests require the exact disposable loopback target named by VISTA_TEST_DATABASE_NAME/VISTA_TEST_DATABASE_PORT.');
 }
 const describeDb = requested && isolatedIdentity ? describe : describe.skip;
 
 describeDb('real PostgreSQL classroom enrollment lifecycle (extended)', () => {
-  const db = new PrismaClient({ datasources: { db: { url: configuredUrl } } });
+  const db = new PrismaClient({ datasources: { db: { url: configuredUrl ?? 'postgresql://disabled:disabled@127.0.0.1:1/disabled' } } });
   let enrollments: EnrollmentDeliveryService;
   let admin: EducationAdminService;
   beforeAll(async () => {
