@@ -6,8 +6,9 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  detail: vi.fn(), students: vi.fn(), list: vi.fn(), submissions: vi.fn(), teachingClassrooms: vi.fn(), deliveryOptions: vi.fn(), publishedQuizzes: vi.fn(),
+  detail: vi.fn(), students: vi.fn(), list: vi.fn(), submissions: vi.fn(), teachingClassrooms: vi.fn(), deliveryOptions: vi.fn(), publishedQuizzes: vi.fn(), schoolClassrooms: vi.fn(),
 }));
+vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ role: 'school_admin', loading: false, error: null, memberships: [{ organizationId: 'org1', roleCode: 'school_admin', status: 'active' }] }) }));
 vi.mock('../../contexts/SupabaseSessionContext', () => ({ useSupabaseSession: () => ({ session: { access_token: 'tok', user: { id: 't1' } }, loading: false, sessionRevision: 0 }) }));
 vi.mock('../../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api')>();
@@ -16,6 +17,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
     classroomApi: { ...actual.classroomApi, detail: mocks.detail, students: mocks.students },
     instructorApi: { ...actual.instructorApi, submissions: mocks.submissions, teachingClassrooms: mocks.teachingClassrooms },
     assignmentApi: { ...actual.assignmentApi, list: mocks.list, deliveryOptions: mocks.deliveryOptions, publishedQuizzes: mocks.publishedQuizzes },
+    educationAdminApi: { ...actual.educationAdminApi, classrooms: mocks.schoolClassrooms },
   };
 });
 
@@ -46,6 +48,10 @@ beforeEach(() => {
     { id: 'd2', assignment_id: 'a2', title: 'Safety quiz', status: 'draft', constraints: { kind: 'knowledge_check' }, lesson_title: 'L1' },
   ]);
   mocks.deliveryOptions.mockResolvedValue([]); mocks.publishedQuizzes.mockResolvedValue([]);
+  mocks.schoolClassrooms.mockResolvedValue([
+    { id: 'c2', organization_id: 'org1', offering_id: 'f1', name: 'Coding 9B', code: 'COD-9B', status: 'archived', offering_title: 'Robotics Foundations', student_count: 18, teaching_staff_count: 1 },
+    { id: 'c1', organization_id: 'org1', offering_id: 'f1', name: 'Robotics Class A', code: 'RCA-1', status: 'active', offering_title: 'Robotics Foundations', student_count: 1, teaching_staff_count: 1 },
+  ]);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.clearAllMocks(); });
 
@@ -71,18 +77,93 @@ describe('Quiz and Assignment are separate workflows', () => {
 
   it('the Quizzes page owns quiz delivery, scoped to the chosen classroom, without assignment authoring', async () => {
     await mount('/teacher/quizzes?classroomId=c1');
-    expect(container.textContent).toContain('Assign a published quiz');
+    expect(container.textContent).toContain('Assign a quiz');
     expect(mocks.publishedQuizzes).toHaveBeenCalledWith('c1', 'tok');
     expect(container.textContent).toContain('Safety quiz'); // only the quiz delivery is listed here
     expect(container.textContent).not.toContain('Gripper task');
     expect(links()).toEqual(expect.arrayContaining([['Assignments', '/teacher/assignments']]));
   });
 
-  it('school administrators reach quiz delivery for a specific classroom, and are asked to choose one otherwise', async () => {
+  it('school administrators reach quiz delivery for a specific classroom, and choose from their school’s classrooms otherwise', async () => {
     await mount('/school/quizzes?classroomId=c1');
-    expect(container.textContent).toContain('Assign a published quiz'); expect(mocks.detail).toHaveBeenCalledWith('c1', 'tok');
+    expect(container.textContent).toContain('Assign a quiz'); expect(mocks.schoolClassrooms).toHaveBeenCalledWith('org1', 'tok');
+    expect(mocks.detail).not.toHaveBeenCalled(); // identity comes from the school’s authorized classroom list (shared with Classrooms)
     await act(async () => root.unmount()); root = createRoot(container);
     await mount('/school/quizzes');
-    expect(container.textContent).toContain('Choose a classroom'); expect(container.textContent).not.toContain('Assign a published quiz');
+    expect(container.querySelector('#quiz-classrooms-heading')?.textContent).toBe('Classrooms'); expect(container.textContent).not.toContain('Assign a quiz');
+  });
+});
+
+describe('Quizzes page classroom states (A04)', () => {
+  const rowLinks = () => [...container.querySelectorAll('section[aria-labelledby="quiz-classrooms-heading"] li a')] as HTMLAnchorElement[];
+  it('lists the school’s classrooms with code, course and status, active first, linking to each classroom’s quizzes', async () => {
+    await mount('/school/quizzes');
+    const rows = rowLinks();
+    expect(rows.map((row) => row.getAttribute('href'))).toEqual(['/school/quizzes?classroomId=c1', '/school/quizzes?classroomId=c2']);
+    expect(rows[0].textContent).toContain('Robotics Class AClassroom code RCA-1'); expect(rows[0].textContent).toContain('Robotics Foundations'); expect(rows[0].textContent).toContain('1 student');
+    expect(rows[1].textContent).toContain('Archived'); expect(rows[1].textContent).toContain('18 students');
+    expect(container.textContent).toContain('Archived classrooms are view-only.');
+    expect(mocks.list).not.toHaveBeenCalled(); // no quiz data is loaded or invented before a classroom is chosen
+    await act(async () => { rows[0].click(); }); await flush();
+    expect((container.querySelector('select') as HTMLSelectElement).value).toBe('c1');
+    expect(container.textContent).toContain('Assigned quizzes');
+  });
+
+  it('says when the school has no classrooms, and explains load failures with a retry', async () => {
+    mocks.schoolClassrooms.mockResolvedValueOnce([]);
+    await mount('/school/quizzes');
+    expect(container.textContent).toContain('Your school has no classrooms yet.');
+    expect(links()).toEqual(expect.arrayContaining([['Create one in Classrooms', '/school/classrooms']]));
+    await act(async () => root.unmount()); root = createRoot(container);
+    mocks.schoolClassrooms.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await mount('/school/quizzes');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('VISTA couldn’t be reached.');
+    await act(async () => { ([...container.querySelectorAll('button')].find((item) => item.textContent?.includes('Try again')) as HTMLButtonElement).click(); }); await flush();
+    expect(rowLinks()).toHaveLength(2);
+  });
+
+  it('explains a permission refusal without offering a pointless retry', async () => {
+    mocks.schoolClassrooms.mockRejectedValueOnce(new (await import('../../lib/api')).ApiError(403, 'Forbidden resource'));
+    await mount('/school/quizzes');
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe('Your account isn’t allowed to view this school’s classrooms.');
+    expect(container.querySelector('[role="alert"] button')).toBeNull();
+  });
+
+  it('shows the classroom’s identity and status from a direct link, and blocks delivery when it is archived', async () => {
+    mocks.teachingClassrooms.mockResolvedValue([{ id: 'c1', name: 'Robotics Class A', code: 'RCA-1', status: 'archived', student_count: 1 }]);
+    await mount('/teacher/quizzes?classroomId=c1');
+    const select = container.querySelector('select') as HTMLSelectElement;
+    expect(select.value).toBe('c1'); expect(select.selectedOptions[0].textContent).toBe('Robotics Class A (RCA-1), archived');
+    expect(container.querySelector('h2')?.textContent).toContain('Assigned quizzes');
+    expect(container.textContent).toContain('Archived'); expect(container.textContent).toContain('This classroom is archived');
+    expect(mocks.publishedQuizzes).not.toHaveBeenCalled();
+    expect(links()).toEqual(expect.arrayContaining([['Open classroom', '/teacher/classes/c1']]));
+  });
+
+  it('says when a linked classroom is not one the teacher teaches instead of loading its quizzes', async () => {
+    await mount('/teacher/quizzes?classroomId=gone');
+    expect(container.textContent).toContain('This classroom isn’t available');
+    expect(container.textContent).toContain('isn’t one you teach');
+    expect(links()).toEqual(expect.arrayContaining([['Choose another classroom', '/teacher/quizzes']]));
+    expect(mocks.list).not.toHaveBeenCalled(); expect(mocks.publishedQuizzes).not.toHaveBeenCalled();
+  });
+
+  it('keeps a listed classroom selected and explains missing quiz access when the quiz endpoints answer 404 (regression)', async () => {
+    const { ApiError } = await import('../../lib/api');
+    mocks.list.mockRejectedValue(new ApiError(404, 'Classroom was not found.'));
+    mocks.publishedQuizzes.mockRejectedValue(new ApiError(404, 'Classroom was not found.'));
+    await mount('/school/quizzes?classroomId=c1');
+    expect((container.querySelector('select') as HTMLSelectElement).value).toBe('c1');
+    expect(container.textContent).toContain('Course: Robotics Foundations');
+    expect(container.textContent).toContain('Your account can’t manage quizzes for this classroom.');
+    expect(container.textContent).not.toMatch(/wasn’t found|may have been removed|isn’t available/);
+    expect(mocks.schoolClassrooms.mock.calls.length).toBeGreaterThan(1); // the authorized list is checked again
+  });
+
+  it('explains a school classroom that was not found', async () => {
+    await mount('/school/quizzes?classroomId=gone');
+    expect(container.textContent).toContain('It wasn’t found in your school.');
+    expect(links()).toEqual(expect.arrayContaining([['Choose another classroom', '/school/quizzes']]));
+    expect(mocks.list).not.toHaveBeenCalled();
   });
 });

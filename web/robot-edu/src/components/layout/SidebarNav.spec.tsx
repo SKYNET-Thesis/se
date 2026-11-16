@@ -69,6 +69,20 @@ describe('SidebarNav role-based navigation', () => {
     expect(courseLink?.getAttribute('href')).toBe('/courses');
   });
 
+  it('gives School Admin one Quizzes entry under Learning, selected on the list and on classroom quiz links', async () => {
+    currentRole = 'school_admin';
+    for (const route of ['/school/quizzes', '/school/quizzes?classroomId=c1']) {
+      await act(async () => { root.render(<MemoryRouter key={route} initialEntries={[route]}><SidebarNav /></MemoryRouter>); await Promise.resolve(); });
+      const quizzes = Array.from(container.querySelectorAll('a')).filter((l) => l.textContent === 'Quizzes');
+      expect(quizzes).toHaveLength(1);
+      expect(quizzes[0].getAttribute('href')).toBe('/school/quizzes');
+      expect(quizzes[0].getAttribute('aria-current')).toBe('page');
+      expect(quizzes[0].className).toContain('vista-nav-active');
+    }
+    const learning = Array.from(container.querySelectorAll('p')).find((p) => p.textContent === 'Learning')?.parentElement;
+    expect(Array.from(learning?.querySelectorAll('a') ?? []).map((l) => l.textContent)).toEqual(['Course catalogue', 'Quizzes', 'Robot Lab']);
+  });
+
   it('preserves Teacher navigation with Student catalogue pointing to /courses', async () => {
     await renderNav('teacher');
     const links = Array.from(container.querySelectorAll('a'));

@@ -248,7 +248,7 @@ export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> 
   return response.json() as Promise<T>;
 }
 
-export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; }
+export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; /** Returned by GET /classrooms/:id; optional because older callers build this shape themselves. */ code?: string; status?: string; }
 export interface ApiRobotResource { id: string; name: string; serialNo: string; modelName: string; status?: string; }
 export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; /** Active students with an active enrollment in this classroom (what students can actually receive). Absent on older APIs. */ enrolled_student_count?: number; assignment_count: number; }
 export interface ApiMyLearning {
