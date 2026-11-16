@@ -11,10 +11,14 @@ class BootstrapWorkflowSafetyTests(unittest.TestCase):
 
     def test_database_is_an_ephemeral_loopback_service_container(self):
         self.assertIn("image: postgres:17", self.text)
+        self.assertRegex(self.text, r"(?m)^\s*- 5432$")
+        self.assertIn("job.services.postgres.ports[5432]", self.text)
+        self.assertNotIn("55432", self.text)
         urls = re.findall(r"postgresql://\S+", self.text)
         self.assertTrue(urls)
         for url in urls:
-            self.assertIn("@127.0.0.1:55432/vista_", url)
+            self.assertIn("@127.0.0.1:${{", url)
+            self.assertIn("/vista_", url)
 
     def test_uses_no_secrets_or_hosted_database_references(self):
         for forbidden in ("secrets.", "supabase.co", "SUPABASE_URL", "pooler", "ovijutkvaaxohauvuxbj", "prisma migrate", "db push"):

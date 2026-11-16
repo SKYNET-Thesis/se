@@ -42,15 +42,17 @@ jobs:
           POSTGRES_PASSWORD: ci-disposable-local-only
           POSTGRES_DB: vista_test_course_builder
         ports:
-          - 55432:5432
+          - 5432
         options: >-
           --health-cmd "pg_isready -U vista_test -d vista_test_course_builder"
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       PGPASSWORD: ci-disposable-local-only
+      PGHOST: 127.0.0.1
+      PGPORT: ${{ job.services.postgres.ports[5432] }}
       VISTA_DATABASE_PROJECT_REF: vista-course-builder-test
-      MAIN_DB_URL: postgresql://vista_test:ci-disposable-local-only@127.0.0.1:55432/vista_test_course_builder
-      SECOND_DB_URL: postgresql://vista_test:ci-disposable-local-only@127.0.0.1:55432/vista_baseline_test_second
+      MAIN_DB_URL: "postgresql://vista_test:ci-disposable-local-only@127.0.0.1:${{ job.services.postgres.ports[5432] }}/vista_test_course_builder"
+      SECOND_DB_URL: "postgresql://vista_test:ci-disposable-local-only@127.0.0.1:${{ job.services.postgres.ports[5432] }}/vista_baseline_test_second"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -80,7 +82,7 @@ jobs:
       - name: Bootstrap a second empty database and compare (reproducibility)
         shell: bash
         run: |
-          psql -h 127.0.0.1 -p 55432 -U vista_test -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE vista_baseline_test_second"
+          psql -h "$PGHOST" -p "$PGPORT" -U vista_test -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE vista_baseline_test_second"
           VISTA_DEV_DATABASE_URL="$SECOND_DB_URL" python scripts/bootstrap_dev_database.py --confirm-local-bootstrap | tee "$RUNNER_TEMP/bootstrap-2.json"
           python - <<'PY'
           import json, os, sys
