@@ -3,6 +3,8 @@
 -- The role is created LOGIN but password-less: set its password out of band after review; this migration never stores a secret.
 -- Table allowlist = tables referenced by runtime code (including learning_submission_files from migration I).
 -- Public-schema TEMP privilege inherited from PUBLIC is handled separately by migration M.
+-- Future public tables are denied by default; update this frozen allowlist only through reviewed migration L' changes and runtime privilege tests.
+-- Recovery: stop API use of this role, revoke its explicit grants/policies, and only then drop it after proving no ownership/dependencies remain.
 -- Prisma connects directly as this single trusted backend identity. It cannot
 -- carry the end-user identity into PostgreSQL, so tenant checks remain in the
 -- NestJS service layer. These permissive policies are intentionally scoped to
