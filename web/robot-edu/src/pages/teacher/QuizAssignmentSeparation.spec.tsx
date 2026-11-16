@@ -24,6 +24,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
 import { QuizDeliveries } from './QuizDeliveries';
 import { TeacherAssignmentEditor } from './TeacherAssignmentEditor';
 import { TeacherClassDetail } from './TeacherClassDetail';
+import { TeacherClasses } from './TeacherClasses';
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const flush = async () => { for (let i = 0; i < 5; i += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); }); };
@@ -31,6 +32,7 @@ let container: HTMLDivElement; let root: Root;
 const mount = async (path: string) => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => { root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes>
+    <Route path="/teacher/classes" element={<TeacherClasses />} />
     <Route path="/teacher/classes/:classroomId" element={<TeacherClassDetail />} />
     <Route path="/teacher/quizzes" element={<QuizDeliveries audience="teacher" />} />
     <Route path="/school/quizzes" element={<QuizDeliveries audience="school" />} />
@@ -165,5 +167,22 @@ describe('Quizzes page classroom states (A04)', () => {
     expect(container.textContent).toContain('It wasn’t found in your school.');
     expect(links()).toEqual(expect.arrayContaining([['Choose another classroom', '/school/quizzes']]));
     expect(mocks.list).not.toHaveBeenCalled();
+  });
+});
+
+describe('My classes (unified VISTA list)', () => {
+  it('lists taught classrooms compactly, active first, with correct singular and plural counts', async () => {
+    mocks.teachingClassrooms.mockResolvedValue([
+      { id: 'c2', name: 'Coding 9B', code: 'COD-9B', status: 'archived', organization_name: 'Lake View', student_count: 18, assignment_count: 2 },
+      { id: 'c1', name: 'Robotics Class A', code: 'RCA-1', status: 'active', organization_name: 'Lake View', student_count: 1, assignment_count: 1 },
+    ]);
+    await mount('/teacher/classes');
+    const rows = [...container.querySelectorAll('main li a')];
+    expect(rows.map((row) => row.getAttribute('href'))).toEqual(['/teacher/classes/c1', '/teacher/classes/c2']);
+    expect(rows[0].textContent).toContain('1 student'); expect(rows[0].textContent).not.toContain('1 students');
+    expect(rows[0].textContent).toContain('1 assigned item'); expect(rows[1].textContent).toContain('18 students');
+    expect(rows[1].textContent).toContain('Archived'); expect(rows[0].textContent).not.toContain('Active');
+    expect(rows[0].textContent).not.toContain('Lake View'); // one school: no repeated school name
+    expect(container.textContent).not.toContain('active teaching assignment');
   });
 });

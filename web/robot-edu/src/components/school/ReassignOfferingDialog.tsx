@@ -61,7 +61,7 @@ export function ReassignOfferingDialog({ open, scope, classroom, onClose }: { op
   const noChoices = offerings.isSuccess && choices.length === 0;
 
   return (
-    <Dialog open={open} onClose={() => { if (!reassign.isPending) onClose(); }} className="vista-school" title="Change course"
+    <Dialog open={open} onClose={() => { if (!reassign.isPending) onClose(); }} title="Change course"
       description={<>Choose another course for <span className="font-medium text-ink">{classroom.name}</span>.</>}
       footer={<><Button data-cancel variant="secondary" onClick={onClose} disabled={reassign.isPending}>Cancel</Button><Button type="submit" variant="primary" form="reassign-offering" loading={reassign.isPending} disabled={!offeringId}>{reassign.isPending ? 'Changing…' : 'Change course'}</Button></>}>
       <form ref={formRef} id="reassign-offering" onSubmit={submit} noValidate className="space-y-4">

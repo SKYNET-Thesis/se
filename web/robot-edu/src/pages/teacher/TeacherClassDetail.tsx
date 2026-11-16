@@ -41,16 +41,16 @@ export function TeacherClassDetail() {
 
   return (
     <main className="mx-auto max-w-6xl px-5 py-8 sm:px-8">
-      <Link to="/teacher/classes" className="text-sm text-[#176255] underline underline-offset-4">My Classes</Link>
+      <Link to="/teacher/classes" className="text-sm text-accent underline underline-offset-4">My Classes</Link>
       <div className="mt-5 flex flex-wrap items-end justify-between gap-4">
-        <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#176255]">Classroom delivery</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.05em] text-ink">{classroom.data?.name ?? 'Classroom'}</h1></div>
+        <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-accent">Classroom delivery</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.05em] text-ink">{classroom.data?.name ?? 'Classroom'}</h1></div>
         <nav aria-label="Assign learning" className="flex flex-wrap gap-2">
-          <Link to={`/teacher/assignments/new?classroomId=${classroomId}`} className="inline-flex h-10 items-center gap-2 bg-[#176255] px-4 text-sm font-semibold text-white"><ClipboardCheckIcon className="h-4 w-4" aria-hidden />New assignment</Link>
-          <Link to={`/teacher/quizzes?classroomId=${classroomId}`} className="inline-flex h-10 items-center gap-2 border border-[#176255] px-4 text-sm font-semibold text-[#176255]"><FileQuestionIcon className="h-4 w-4" aria-hidden />Assign a quiz</Link>
+          <Link to={`/teacher/assignments/new?classroomId=${classroomId}`} className="inline-flex h-10 items-center gap-2 rounded-md bg-accent px-4 text-sm font-semibold text-white hover:bg-accent-hover"><ClipboardCheckIcon className="h-4 w-4" aria-hidden />New assignment</Link>
+          <Link to={`/teacher/quizzes?classroomId=${classroomId}`} className="inline-flex h-10 items-center gap-2 rounded-md border border-line-strong bg-surface px-4 text-sm font-semibold text-ink hover:bg-sunken"><FileQuestionIcon className="h-4 w-4" aria-hidden />Assign a quiz</Link>
         </nav>
       </div>
 
-      <section className="mt-6 border-l-4 border-[#176255] bg-[#f1f3ef] p-5">
+      <section className="mt-6 rounded-lg bg-sunken p-5">
         <h2 className="text-lg font-semibold text-ink">Robot Resource</h2>
         {robot ? <p className="mt-2 text-sm text-ink-muted">Allocated: <span className="font-medium text-ink">{robot.name}</span> · {robot.modelName} · {robot.serialNo}</p> : <p className="mt-2 text-sm text-ink-muted">No robot resource allocated to this class.</p>}
       </section>
@@ -71,9 +71,9 @@ export function TeacherClassDetail() {
               <li key={assignment.id} className="py-4">
                 <div className="flex items-start justify-between gap-4">
                   <div><p className="font-medium text-ink">{assignment.title} <span className="ml-1 rounded border border-line px-1.5 py-0.5 align-middle text-[11px] font-medium text-ink-muted">{assignmentKind(assignment.constraints) === 'quiz' ? 'Quiz' : 'Assignment'}</span></p><p className="mt-1 text-sm text-ink-muted">{assignment.lesson_title ?? 'Lesson'}{assignment.challenge_title ? ` · ${assignment.challenge_title}` : ''}</p>{assignment.due_at && <p className="mt-1 text-xs text-ink-muted">Due {new Date(assignment.due_at).toLocaleString()}</p>}</div>
-                  <span className={assignment.status === 'published' ? 'bg-[#dcefe5] px-2.5 py-1 text-xs font-semibold text-[#176255]' : 'bg-[#ece8da] px-2.5 py-1 text-xs font-semibold capitalize text-[#725d20]'}>{assignment.status}</span>
+                  <span className={assignment.status === 'published' ? 'rounded bg-ok-soft px-2.5 py-1 text-xs font-semibold capitalize text-ok' : 'rounded bg-warn-soft px-2.5 py-1 text-xs font-semibold capitalize text-warn'}>{assignment.status}</span>
                 </div>
-                {canPublishAssignment(assignment.status) && <div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-ink-muted">Not visible to students.</p><button type="button" disabled={publishAssignment.isPending} onClick={() => publishAssignment.mutate(assignment)} className="h-9 bg-[#176255] px-3 text-sm font-semibold text-white disabled:opacity-50">Publish</button></div>}
+                {canPublishAssignment(assignment.status) && <div className="mt-3 flex items-center justify-between gap-3"><p className="text-xs text-ink-muted">Not visible to students.</p><button type="button" disabled={publishAssignment.isPending} onClick={() => publishAssignment.mutate(assignment)} className="h-9 bg-accent px-3 text-sm font-semibold text-white disabled:opacity-50">Publish</button></div>}
               </li>
             ))}
           </ul>
@@ -83,7 +83,7 @@ export function TeacherClassDetail() {
 
       <section className="mt-10">
         <h2 className="text-xl font-semibold text-ink">Submitted results</h2>
-        <ul className="mt-4 divide-y divide-line">{(submissions.data ?? []).map((result) => <li key={result.id} className="flex items-center justify-between gap-4 py-3"><div><p className="font-medium text-ink">{result.full_name ?? 'Student'} · {result.assignment_title??'Assignment'}{result.attempt_number?` · Attempt ${result.attempt_number}`:''}</p><p className="text-sm text-ink-muted">{result.status} · {result.grading_released_at?'released to student':'not released'} · {result.submitted_at?new Date(result.submitted_at).toLocaleString():'Not timestamped'} · {result.review_status??'unreviewed'}</p></div><Link to={`/teacher/classes/${classroomId}/submissions/${result.id}`} className="text-sm font-semibold text-[#176255] underline underline-offset-4">Review</Link></li>)}</ul>
+        <ul className="mt-4 divide-y divide-line">{(submissions.data ?? []).map((result) => <li key={result.id} className="flex items-center justify-between gap-4 py-3"><div><p className="font-medium text-ink">{result.full_name ?? 'Student'} · {result.assignment_title??'Assignment'}{result.attempt_number?` · Attempt ${result.attempt_number}`:''}</p><p className="text-sm text-ink-muted">{result.status} · {result.grading_released_at?'released to student':'not released'} · {result.submitted_at?new Date(result.submitted_at).toLocaleString():'Not timestamped'} · {result.review_status??'unreviewed'}</p></div><Link to={`/teacher/classes/${classroomId}/submissions/${result.id}`} className="text-sm font-semibold text-accent underline underline-offset-4">Review</Link></li>)}</ul>
         {!submissions.isLoading && !submissions.data?.length && <p className="mt-3 text-sm text-ink-muted">No submitted results yet.</p>}
       </section>
     </main>

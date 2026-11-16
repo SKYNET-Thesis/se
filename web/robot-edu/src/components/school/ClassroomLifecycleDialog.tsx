@@ -27,7 +27,7 @@ export function ClassroomLifecycleDialog({ action, classroom, pending, onConfirm
     }
   };
   return (
-    <Dialog open={Boolean(classroom)} onClose={() => { if (!pending) onClose(); }} size="sm" className="vista-school"
+    <Dialog open={Boolean(classroom)} onClose={() => { if (!pending) onClose(); }} size="sm"
       title={archive ? 'Archive classroom?' : 'Reactivate classroom?'}
       description={classroom && <span className="inline-flex flex-wrap items-center gap-2"><span className="font-medium text-ink">{classroom.name}</span><ClassroomCodeTag code={classroom.code} /></span>}
       footer={<><Button variant="secondary" onClick={onClose} disabled={pending} data-autofocus>Cancel</Button>

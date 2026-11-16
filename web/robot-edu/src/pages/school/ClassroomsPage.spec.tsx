@@ -77,7 +77,7 @@ describe('Classroom list', () => {
     expect(rows[1].textContent).toContain('12 / 30'); expect(rows[1].textContent).toContain('Active');
     expect(rows[0].querySelector('.bg-ok-soft')).toBeNull(); // archived is never shown in the success colour
     expect(rows[1].querySelector('a')?.getAttribute('href')).toBe('/school/classrooms/c1');
-    expect(document.body.querySelector('.vista-school')).not.toBeNull();
+    expect(document.body.querySelector('.vista-school')).toBeNull(); // one VISTA palette for every role, no role scope
   });
 
   it('searches and filters through the URL and offers a way out of no results', async () => {
