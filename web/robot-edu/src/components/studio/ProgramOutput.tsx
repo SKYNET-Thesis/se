@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { CopyIcon, DownloadIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import type { GenerationResult } from '../../types/robotProgram';

@@ -1,4 +1,4 @@
-import React from 'react';
+
 import type { ApiMemberCandidate } from '../../lib/api';
 import { Button } from '../../components/ui/Button';
 import { candidatePageCount } from './memberCandidateState';

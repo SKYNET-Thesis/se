@@ -8,6 +8,13 @@ export interface PublicQuizSnapshot {
   questions: Array<{ questionVersionId: string; stem: string; type: string; options: Array<{ id: string; text: string }> }>;
 }
 
+export function completedKnowledgeCheckResult(status: string, snapshot: unknown): KnowledgeCheckSubmissionResult | null {
+  if (status !== 'submitted' || !snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
+  const value = snapshot as Partial<KnowledgeCheckSubmissionResult>;
+  return typeof value.passed === 'boolean' && typeof value.score === 'number' && Number.isFinite(value.score)
+    ? value as KnowledgeCheckSubmissionResult : null;
+}
+
 export function KnowledgeCheckAttempt({
   title, snapshot, result, onSubmit,
 }: {

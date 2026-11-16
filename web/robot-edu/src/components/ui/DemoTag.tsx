@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { FlaskConicalIcon } from 'lucide-react';
 import { cn } from '../../utils/cn';
 

@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { ArrowRightIcon, PuzzleIcon } from 'lucide-react';
 import { useLearning } from '../../contexts/LearningContext';
 import { LinkButton } from '../ui/LinkButton';

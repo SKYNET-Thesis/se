@@ -1,4 +1,4 @@
-import React from 'react';
+
 import type { ArmId, SimState } from '../../types/robotProgram';
 import { sceneZones } from '../../data/simulationScene';
 import { ARM_BASES, TABLE } from '../../utils/robotProgram/kinematics';

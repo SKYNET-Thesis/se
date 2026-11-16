@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BotIcon, CircleCheckIcon, PlusIcon, RotateCwIcon } from 'lucide-react';
 import { Button } from '../../components/ui/Button';

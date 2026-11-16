@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { Link } from 'react-router-dom';
 import { PuzzleIcon } from 'lucide-react';
 import { usePrograms } from '../../contexts/ProgramsContext';

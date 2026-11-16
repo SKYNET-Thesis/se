@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { TerminalSquareIcon } from 'lucide-react';
 import type { LogEntry, LogLevel } from '../../types/robotProgram';
 import { EmptyState } from '../ui/EmptyState';

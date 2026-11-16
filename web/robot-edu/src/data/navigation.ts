@@ -3,12 +3,13 @@ import {
   ClipboardCheckIcon,
   ClipboardListIcon,
   Cpu,
+  InboxIcon,
   LayoutDashboardIcon,
   LibraryIcon,
+  Monitor,
   PuzzleIcon,
   Settings2Icon,
   UsersIcon,
-  InboxIcon,
   type LucideIcon } from
 'lucide-react';
 import type { Role } from '../types/user';
@@ -39,7 +40,8 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     title: 'Build',
     items: [
     { to: '/studio', label: 'Programming Studio', icon: PuzzleIcon },
-    { to: '/lab', label: 'Robot Lab', icon: Cpu }]
+    { to: '/lab', label: 'Robot Control & Practice', icon: Cpu },
+    { to: '/digital-twin', label: '3D Simulation & Monitoring', icon: Monitor }]
 
   }],
 
@@ -50,6 +52,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     { to: '/teacher', label: 'Overview', icon: LayoutDashboardIcon, end: true },
     { to: '/teacher/classes', label: 'My Classes', icon: UsersIcon },
     { to: '/teacher/courses', label: 'Courses & lessons', icon: LibraryIcon },
+    { to: '/admin/courses', label: 'Course builder', icon: BookOpenIcon },
     { to: '/teacher/assignments', label: 'Assignments', icon: ClipboardCheckIcon },
     { to: '/teacher/submissions', label: 'Submissions', icon: InboxIcon }]
 
@@ -58,7 +61,8 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     title: 'Build',
     items: [
     { to: '/studio', label: 'Programming Studio', icon: PuzzleIcon },
-    { to: '/lab', label: 'Robot Lab', icon: Cpu },
+    { to: '/lab', label: 'Robot Control & Practice', icon: Cpu },
+    { to: '/digital-twin', label: '3D Simulation & Monitoring', icon: Monitor },
     { to: '/courses', label: 'Student catalogue', icon: BookOpenIcon }]
 
   }],
@@ -84,7 +88,8 @@ export const navigationByRole: Record<Role, NavSection[]> = {
   {
     title: 'Platform',
     items: [
-    { to: '/lab', label: 'Robot Lab', icon: Cpu },
+    { to: '/lab', label: 'Robot Control & Practice', icon: Cpu },
+    { to: '/digital-twin', label: '3D Simulation & Monitoring', icon: Monitor },
     { to: '/admin/courses', label: 'Course catalogue', icon: BookOpenIcon }]
 
   }],
@@ -101,8 +106,9 @@ export const navigationByRole: Record<Role, NavSection[]> = {
   {
     title: 'Learning',
     items: [
+    { to: '/admin/courses', label: 'Course builder', icon: BookOpenIcon },
     { to: '/courses', label: 'Course catalogue', icon: BookOpenIcon },
-    { to: '/lab', label: 'Robot Lab', icon: Cpu }]
+    { to: '/lab', label: 'Robot Control & Practice', icon: Cpu }]
   }]
 
 };

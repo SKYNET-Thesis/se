@@ -6,13 +6,15 @@ import { Button } from '../../components/ui/Button';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { catalogApi, type ApiCourse } from '../../lib/api';
 import { CanonicalCurriculumEditor } from './CanonicalCurriculumEditor';
+import { CourseContentEditor } from '../../components/authoring/CourseContentEditor';
 import { VistaMark } from '../../components/layout/VistaMark';
 import { MediaAssetLibraryModal } from '../../components/authoring/MediaAssetLibraryModal';
 
-type BuilderSection = 'information' | 'curriculum' | 'objectives' | 'media' | 'versions' | 'preview' | 'publish';
+type BuilderSection = 'information' | 'curriculum' | 'content-editor' | 'objectives' | 'media' | 'versions' | 'preview' | 'publish';
 const sections: { id: BuilderSection; label: string; icon: React.ReactNode }[] = [
+  { id: 'content-editor', label: 'Content Editor', icon: <LayersIcon className="h-4 w-4" /> },
+  { id: 'curriculum', label: 'Curriculum Structure', icon: <LayersIcon className="h-4 w-4" /> },
   { id: 'information', label: 'Course Information', icon: <FileTextIcon className="h-4 w-4" /> },
-  { id: 'curriculum', label: 'Edit Content', icon: <LayersIcon className="h-4 w-4" /> },
   { id: 'objectives', label: 'Learning Objectives', icon: <BookOpenIcon className="h-4 w-4" /> },
   { id: 'media', label: 'Learning Materials', icon: <LibraryIcon className="h-4 w-4" /> },
   { id: 'versions', label: 'Versions', icon: <FileTextIcon className="h-4 w-4" /> },
@@ -41,11 +43,11 @@ export function CourseBuilderPage() {
   const [modalRequest, setModalRequest] = useState<{ kind: 'preview' | 'readiness'; nonce: number } | null>(null);
 
   const courseQuery = useQuery({
-    queryKey: ['admin', 'courses', 'builder'],
-    queryFn: () => catalogApi.courses(token, 1, 100),
+    queryKey: ['admin', 'courses', 'builder', courseId],
+    queryFn: () => catalogApi.course(courseId!, token),
     enabled: Boolean(token && !isNew),
   });
-  const course = courseQuery.data?.items.find((item) => item.id === courseId);
+  const course = courseQuery.data;
 
   useEffect(() => {
     if (!course) return;
@@ -59,7 +61,7 @@ export function CourseBuilderPage() {
     mutationFn: () => catalogApi.createGlobalCourse(token, { title: draft.title, description: draft.description || undefined }),
     onSuccess: async (created) => {
       await qc.invalidateQueries({ queryKey: ['admin', 'courses'] });
-      await qc.setQueryData(['admin', 'courses', 'builder'], (previous: { items: ApiCourse[]; page: number; pageSize: number } | undefined) => ({ items: [...(previous?.items ?? []), created], page: previous?.page ?? 1, pageSize: previous?.pageSize ?? 100 }));
+      await qc.setQueryData(['admin', 'courses', 'builder', created.id], created);
       navigate(`/admin/courses/${created.id}/edit`, { replace: true });
       setActive('curriculum');
       setSaveState('saved');
@@ -70,7 +72,7 @@ export function CourseBuilderPage() {
   const update = useMutation({
     mutationFn: () => { if (!courseId) throw new Error('Course ID is required to save changes.'); return catalogApi.updateGlobalCourse(courseId, token, { title: draft.title, description: draft.description }); },
     onSuccess: async (updated) => {
-      await qc.setQueryData(['admin', 'courses', 'builder'], (previous: { items: ApiCourse[]; page: number; pageSize: number } | undefined) => previous ? { ...previous, items: previous.items.map((item) => item.id === updated.id ? updated : item) } : previous);
+      await qc.setQueryData(['admin', 'courses', 'builder', updated.id], updated);
       await qc.invalidateQueries({ queryKey: ['admin', 'courses'] });
       setSaveState('saved');
       setError(null);
@@ -116,6 +118,54 @@ export function CourseBuilderPage() {
         <div className="flex min-w-0 items-center gap-3"><button type="button" onClick={toggleGlobalNavigation} aria-label="Toggle global navigation" aria-expanded={globalNavigationOpen} className="rounded-md p-2 text-ink-muted hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"><MenuIcon className="h-5 w-5" /></button><Link to="/" aria-label="VISTA home" onClick={(event) => { if (!confirmNavigation()) event.preventDefault(); }} className="hidden shrink-0 sm:block"><VistaMark compact /></Link><div className="min-w-0"><p className="text-xs text-ink-muted"><Link to="/admin/courses" onClick={(event) => { if (!confirmNavigation()) event.preventDefault(); }} className="text-accent-ink hover:underline">Course Management</Link> / Course Builder</p><h1 className="truncate text-lg font-semibold text-ink">{titleForHeader}<span className="ml-2 align-middle text-xs font-medium capitalize text-ink-muted">{status}</span></h1></div></div>
         <div className="flex items-center gap-2"><span role="status" className="hidden text-xs text-ink-muted sm:inline">{saveState === 'saved' && !curriculumDirty ? 'Saved' : 'Unsaved changes'}</span><Button size="sm" variant="secondary" icon={<EyeIcon className="h-4 w-4" />} onClick={() => selectSection('preview')}>Preview</Button><Button size="sm" icon={<SaveIcon className="h-4 w-4" />} loading={create.isPending || update.isPending} onClick={save}>Save Draft</Button></div>
       </div>
+      {course && (
+        <div className="mx-auto flex max-w-[1500px] items-center gap-1 px-4 pt-1 pb-2 md:px-8 border-t border-line/50">
+          <button
+            type="button"
+            onClick={() => selectSection('curriculum')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              active === 'curriculum'
+                ? 'bg-ink text-surface shadow-sm'
+                : 'text-ink-muted hover:bg-sunken hover:text-ink'
+            }`}
+          >
+            Curriculum
+          </button>
+          <button
+            type="button"
+            onClick={() => selectSection('content-editor')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              active === 'content-editor'
+                ? 'bg-ink text-surface shadow-sm'
+                : 'text-ink-muted hover:bg-sunken hover:text-ink'
+            }`}
+          >
+            Content Editor
+          </button>
+          <button
+            type="button"
+            onClick={() => selectSection('preview')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              active === 'preview'
+                ? 'bg-ink text-surface shadow-sm'
+                : 'text-ink-muted hover:bg-sunken hover:text-ink'
+            }`}
+          >
+            Preview
+          </button>
+          <button
+            type="button"
+            onClick={() => selectSection('publish')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              active === 'publish'
+                ? 'bg-ink text-surface shadow-sm'
+                : 'text-ink-muted hover:bg-sunken hover:text-ink'
+            }`}
+          >
+            Publish
+          </button>
+        </div>
+      )}
     </header>
     <div className="mx-auto max-w-[1500px] px-4 py-5 md:px-8">
       <button type="button" onClick={back} className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"><ArrowLeftIcon className="h-4 w-4" />Back to Courses</button>
@@ -125,6 +175,11 @@ export function CourseBuilderPage() {
           {sections.map((section) => <button key={section.id} type="button" onClick={() => selectSection(section.id)} aria-current={active === section.id ? 'page' : undefined} className={`mb-1 flex min-h-10 w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${active === section.id ? 'bg-accent-soft text-accent-ink' : 'text-ink-muted hover:bg-sunken hover:text-ink'}`}>{section.icon}{section.label}</button>)}
         </nav>
         <section className="min-w-0 rounded-xl border border-line bg-surface p-4 shadow-hairline md:p-7">
+          {active === 'content-editor' && (course ? (
+            <CourseContentEditor key={course.id} course={course as ApiCourse} token={token} onDirtyChange={setCurriculumDirty} />
+          ) : (
+            <EmptyPanel title="Save the course details to start editing content" text="The course record is created only when you select Save Draft. You will stay in this builder after it is created." />
+          ))}
           {active === 'information' && <div className="mx-auto max-w-3xl"><h2 className="text-xl font-semibold">Course Information</h2><p className="mt-1 text-sm text-ink-muted">Add the details available on the current course record.</p><label className="mt-6 block text-sm font-medium">Course title<input value={title} onChange={(event) => { setTitle(event.target.value); setSaveState('unsaved'); }} required maxLength={200} className="mt-1.5 h-11 w-full rounded-md border border-line-strong bg-surface px-3 outline-none focus:border-accent focus:ring-2 focus:ring-accent/20" placeholder="e.g. Robotics Fundamentals" /></label><label className="mt-4 block text-sm font-medium">Course description<textarea value={description} onChange={(event) => { setDescription(event.target.value); setSaveState('unsaved'); }} maxLength={4000} className="mt-1.5 min-h-36 w-full rounded-md border border-line-strong bg-surface p-3 outline-none focus:border-accent focus:ring-2 focus:ring-accent/20" placeholder="Describe what learners will learn." /></label><p className="mt-3 text-xs text-ink-subtle">Course-level objectives, thumbnail, difficulty, and duration are not supported by the current course API.</p></div>}
           {active === 'curriculum' && (course ? <><div className="mb-4"><h2 className="text-xl font-semibold">Edit Content</h2><p className="mt-1 text-sm text-ink-muted">Author the canonical course units, sections and learning activities. The backend preserves these learner-facing relationships.</p></div><CanonicalCurriculumEditor key={course.id} course={course as ApiCourse} token={token} onDirtyChange={setCurriculumDirty} modalRequest={modalRequest} /></> : <EmptyPanel title="Save the course details to start editing content" text="The course record is created only when you select Save Draft. You will stay in this builder after it is created." />)}
           {active === 'objectives' && <EmptyPanel title="Learning objectives" text="Learning objectives are currently supported at lesson level, not as course-level fields. Add lesson objectives in the curriculum editor." />}

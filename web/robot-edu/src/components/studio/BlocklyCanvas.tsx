@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import * as Blockly from 'blockly';
 import { getVistaTheme, registerVistaBlocks, vistaToolbox } from './blocklyConfig';
 

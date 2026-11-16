@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { ChevronDownIcon, RotateCcwIcon } from 'lucide-react';
 import type { ArmId, SimState } from '../../types/robotProgram';
 import type { RunInfo } from '../../hooks/useStudioController';

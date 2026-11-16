@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   BookOpenIcon,
   BotIcon,
@@ -12,13 +13,14 @@ import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import type { Lesson, Section, Activity } from '../../pages/admin/CanonicalCurriculumEditor';
 import type { ApiCourse } from '../../lib/api';
+import { curriculumApi } from '../../lib/api';
 
 export interface LearnerPreviewModalProps {
   open: boolean;
   onClose: () => void;
   course: ApiCourse;
   lessons: Lesson[];
-  sections: Section[];
+  token: string;
   selectedLessonId?: string;
 }
 
@@ -27,15 +29,27 @@ export function LearnerPreviewModal({
   onClose,
   course,
   lessons,
-  sections,
+  token,
   selectedLessonId,
 }: LearnerPreviewModalProps) {
   const [activeLessonId, setActiveLessonId] = useState<string>(
     selectedLessonId ?? lessons[0]?.id ?? ''
   );
   const [activeActivity, setActiveActivity] = useState<Activity | null>(null);
+  useEffect(() => {
+    if (open) {
+      setActiveLessonId(selectedLessonId ?? lessons[0]?.id ?? '');
+      setActiveActivity(null);
+    }
+  }, [open, selectedLessonId, lessons[0]?.id]);
 
   const activeLesson = lessons.find((l) => l.id === activeLessonId) ?? lessons[0];
+  const sectionsQuery = useQuery({
+    queryKey: ['curriculum', activeLesson?.id, 'sections'],
+    queryFn: () => curriculumApi.sections(activeLesson!.id, token) as Promise<Section[]>,
+    enabled: open && Boolean(activeLesson?.id),
+  });
+  const sections = (sectionsQuery.data ?? []).filter((section) => section.status === 'published');
 
   const getActivityIcon = (type: string) => {
     switch (type) {
@@ -143,7 +157,11 @@ export function LearnerPreviewModal({
                 </div>
 
                 {/* Sections & Activities */}
-                {sections.length === 0 ? (
+                {sectionsQuery.isPending ? (
+                  <p className="text-xs text-ink-muted py-4 text-center">Loading learner preview…</p>
+                ) : sectionsQuery.isError ? (
+                  <p role="alert" className="text-xs text-danger py-4 text-center">Learner preview could not load. Close and try again.</p>
+                ) : sections.length === 0 ? (
                   <p className="text-xs text-ink-muted italic py-4 text-center">
                     No published sections available in this lesson yet.
                   </p>
@@ -162,7 +180,7 @@ export function LearnerPreviewModal({
 
                         {/* Activities List */}
                         <div className="space-y-1.5">
-                          {(sec.learning_activities ?? []).map((act) => {
+                          {(sec.learning_activities ?? []).filter((act) => act.status === 'published').map((act) => {
                             const isSelected = activeActivity?.id === act.id;
                             return (
                               <div

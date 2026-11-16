@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!services/education-api/.env.test.example
 node_modules/
 dist/
 build/
@@ -74,6 +75,7 @@ packages/
 !database/**/*.sql
 !services/education-api/prisma/migrations/20261104_curriculum_foundation/migration.sql
 !services/education-api/prisma/migrations/20261106_iot_publish_intent/migration.sql
+!services/education-api/prisma/migrations/20261106_iot_command_lifecycle/migration.sql
 
 ########################################
 # ASP.NET Core

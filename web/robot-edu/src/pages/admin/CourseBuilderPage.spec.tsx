@@ -11,7 +11,7 @@ import { CourseBuilderPage } from './CourseBuilderPage';
 const status = vi.hoisted(() => ({ value: 'draft' }));
 vi.mock('../../contexts/SupabaseSessionContext', () => ({ useSupabaseSession: () => ({ session: { access_token: 't' } }) }));
 vi.mock('../../lib/api', () => ({
-  catalogApi: { courses: vi.fn(async () => ({ items: [{ id: 'c1', title: 'Robotics', description: null, status: status.value }], page: 1, pageSize: 100 })) },
+  catalogApi: { course: vi.fn(async () => ({ id: 'c1', title: 'Robotics', description: null, status: status.value })) },
 }));
 vi.mock('./CanonicalCurriculumEditor', () => ({
   CanonicalCurriculumEditor: ({ modalRequest }: { modalRequest?: { kind: string } | null }) => <div>editor modal:{modalRequest?.kind ?? 'none'}</div>,

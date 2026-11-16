@@ -2,11 +2,16 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { KnowledgeCheckAttempt, type PublicQuizSnapshot } from './KnowledgeCheckAttempt';
+import { KnowledgeCheckAttempt, completedKnowledgeCheckResult, type PublicQuizSnapshot } from './KnowledgeCheckAttempt';
 
 const snapshot: PublicQuizSnapshot = { kind: 'question_bank_quiz', schemaVersion: 1, passPercent: 80, questions: [{ questionVersionId: 'question-v1', type: 'single_choice', stem: 'Which command stops motion?', options: [{ id: 'stop', text: 'Stop' }, { id: 'home', text: 'Home' }] }] };
 
 describe('KnowledgeCheckAttempt', () => {
+  it('does not treat the database default empty result snapshot as a submitted grade', () => {
+    expect(completedKnowledgeCheckResult('in_progress', {})).toBeNull();
+    expect(completedKnowledgeCheckResult('submitted', {})).toBeNull();
+    expect(completedKnowledgeCheckResult('submitted', { passed: true, score: 100 })).toMatchObject({ passed: true, score: 100 });
+  });
   let root: Root; let container: HTMLDivElement;
   beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); });
   afterEach(() => { act(() => root.unmount()); container.remove(); });

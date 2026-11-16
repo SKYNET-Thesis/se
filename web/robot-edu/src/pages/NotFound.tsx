@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { CompassIcon } from 'lucide-react';
 import { EmptyState } from '../components/ui/EmptyState';
 import { LinkButton } from '../components/ui/LinkButton';

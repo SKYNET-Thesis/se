@@ -176,8 +176,9 @@ reviewed cutover plan. Keep `_prisma_migrations` unchanged throughout.
 
 The local SQL runner and its tests are prepared, including transactional
 rollback. The catalog comparison gate is satisfied in local baseline evidence.
-The release manifest is empty, so no new SQL migrations are pending. API deploy
-workflows do not run either SQL migrations or Prisma Migrate. The first
-Production runner execution, release credentials, protected approval gate, and
-operational recovery procedure still require separate verification and
-approval.
+The manifest now contains five Course Builder migrations for isolated
+verification; they have not been applied to Production and have no Production
+release approval. API deploy workflows do not run either SQL migrations or
+Prisma Migrate. The first Production runner execution, release credentials,
+protected approval gate, and operational recovery procedure still require
+separate verification and approval.

@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppShell } from './components/layout/AppShell';
@@ -6,7 +6,7 @@ import { AdminProvider } from './contexts/AdminContext';
 import { LearningProvider } from './contexts/LearningContext';
 import { ProgramsProvider } from './contexts/ProgramsContext';
 import { RoleProvider } from './contexts/RoleContext';
-import { Dashboard } from './pages/Dashboard';
+
 import { Courses } from './pages/Courses';
 import { CourseDetail } from './pages/CourseDetail';
 import { LessonViewer } from './pages/LessonViewer';
@@ -17,6 +17,7 @@ import { Studio } from './pages/Studio';
 import { Practice } from './pages/Practice';
 import { SimulationResult } from './pages/SimulationResult';
 import { RobotLab } from './pages/RobotLab';
+import { DigitalTwinPage } from './pages/DigitalTwinPage';
 import { TeacherOverview } from './pages/teacher/TeacherOverview';
 import { TeacherCourses } from './pages/teacher/TeacherCourses';
 import { TeacherAssignments } from './pages/teacher/TeacherAssignments';
@@ -74,6 +75,7 @@ export function App() {
                   <Route path="practice/:attemptId" element={<Practice mode="physical-enabled" />} />
                   <Route path="practice/:attemptId/result/:evaluationId" element={<SimulationResult />} />
                   <Route path="lab" element={<RobotLab />} />
+                  <Route path="digital-twin" element={<DigitalTwinPage />} />
                   <Route path="teacher" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherOverview /></RequireRole>} />
                   <Route path="teacher/classes" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherClasses /></RequireRole>} />
                   <Route path="teacher/classes/:classroomId" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherClassDetail /></RequireRole>} />
@@ -86,9 +88,9 @@ export function App() {
                   <Route path="admin/users" element={<RequireRole roles={['admin']}><AdminUsers /></RequireRole>} />
                   <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />
                   <Route path="admin/settings" element={<RequireRole roles={['admin']}><AdminSettings /></RequireRole>} />
-                  <Route path="admin/courses/new" element={<RequireRole roles={['admin']}><CourseBuilderPage /></RequireRole>} />
-                  <Route path="admin/courses/:courseId/edit" element={<RequireRole roles={['admin']}><CourseBuilderPage /></RequireRole>} />
-                  <Route path="admin/courses" element={<RequireRole roles={['admin']}><AdminCourses /></RequireRole>} />
+                  <Route path="admin/courses/new" element={<RequireRole roles={['admin', 'teacher', 'school_admin']}><CourseBuilderPage /></RequireRole>} />
+                  <Route path="admin/courses/:courseId/edit" element={<RequireRole roles={['admin', 'teacher', 'school_admin']}><CourseBuilderPage /></RequireRole>} />
+                  <Route path="admin/courses" element={<RequireRole roles={['admin', 'teacher', 'school_admin']}><AdminCourses /></RequireRole>} />
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />
                   <Route path="school/users" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="users" /></RequireRole>} />
                   <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />

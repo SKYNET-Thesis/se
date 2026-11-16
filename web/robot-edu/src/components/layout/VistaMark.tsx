@@ -1,4 +1,4 @@
-import React from 'react';
+
 
 export function VistaMark({ compact = false }: {compact?: boolean;}) {
   return (
