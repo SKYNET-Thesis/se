@@ -21,14 +21,8 @@ export class QuestionBankService {
       JOIN public.role_permissions rp ON rp.role_id=m.role_id
       JOIN public.permissions p ON p.id=rp.permission_id
       WHERE m.user_id=${user.vistaUserId}::uuid AND m.organization_id=${organizationId}::uuid
-        AND m.status='active' AND p.code='learning.delivery.manage' LIMIT 1`;
+        AND m.status='active' AND p.code='learning.course.author' LIMIT 1`;
     if (!rows.length) throw new NotFoundException('Question was not found.');
-  }
-
-  private publisher(user: AuthenticatedUser): void {
-    if (user.status !== 'active' || !user.systemPermissions.includes('org.manage')) {
-      throw new NotFoundException('Question was not found.');
-    }
   }
 
   /**
@@ -54,10 +48,11 @@ export class QuestionBankService {
   }
 
   async createQuestion(user: AuthenticatedUser, input: CreateQuestionDto) {
-    const organizationId = input.organizationId ?? null;
-    await this.authorOrg(user, organizationId);
     const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: input.lessonId }, include: { learning_courses: true } });
-    if (!lesson || lesson.course_id !== input.courseId || lesson.learning_courses.organization_id !== organizationId) {
+    // The owning organization comes from the lesson's course, never from the client; a supplied id must merely agree with it.
+    const organizationId = lesson?.learning_courses.organization_id ?? null;
+    await this.authorOrg(user, organizationId);
+    if (!lesson || lesson.course_id !== input.courseId || (input.organizationId !== undefined && input.organizationId !== organizationId)) {
       throw new BadRequestException('Lesson, course and organization must match.');
     }
     if (!input.code.trim()) throw new BadRequestException('Question code is required.');
@@ -71,6 +66,54 @@ export class QuestionBankService {
       if (this.unique(error)) throw new ConflictException('Question code already exists in this organization.');
       throw error;
     }
+  }
+
+  /** Learning outcomes of a lesson; school authors manage them for their own school's lessons only. */
+  async lessonObjectives(user: AuthenticatedUser, lessonId: string) {
+    await this.lessonOrg(user, lessonId);
+    return this.prisma.learning_objectives.findMany({ where: { lesson_id: lessonId }, orderBy: { ordinal: 'asc' }, select: { id: true, code: true, description: true, ordinal: true } });
+  }
+
+  async createObjective(user: AuthenticatedUser, lessonId: string, description: string) {
+    await this.lessonOrg(user, lessonId);
+    const text = description.trim();
+    if (!text || text.length > 500) throw new BadRequestException('Learning outcome text must be 1–500 characters.');
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM public.learning_lessons WHERE id=${lessonId}::uuid FOR UPDATE`;
+      const last = await tx.learning_objectives.aggregate({ where: { lesson_id: lessonId }, _max: { ordinal: true } });
+      const ordinal = (last._max.ordinal ?? 0) + 1;
+      return tx.learning_objectives.create({ data: { lesson_id: lessonId, code: `LO-${ordinal}`, description: text, ordinal }, select: { id: true, code: true, description: true, ordinal: true } });
+    });
+  }
+
+  /**
+   * Creates, reviews and publishes a school-owned question for one lesson in a single call (RC policy: school
+   * authors publish their own school's questions). Each step reuses the canonical validators; a failure after the
+   * draft exists leaves a draft the author can edit or discard.
+   */
+  async authorLessonQuestion(user: AuthenticatedUser, lessonId: string, input: { code?: string; content: VersionContentDto; objectiveId?: string; newObjective?: string; publish?: boolean }) {
+    const lesson = await this.lessonOrg(user, lessonId);
+    if (!lesson.learning_courses.organization_id) throw new NotFoundException('Lesson was not found.'); // global questions stay read-only here
+    let objectiveId = input.objectiveId;
+    if (!objectiveId) {
+      if (!input.newObjective?.trim()) throw new BadRequestException('Choose or enter a Learning Outcome for this question.');
+      objectiveId = (await this.createObjective(user, lessonId, input.newObjective)).id;
+    }
+    const code = input.code?.trim() || `Q-${Date.now().toString(36).toUpperCase()}`;
+    const question = await this.createQuestion(user, { code, courseId: lesson.course_id, lessonId });
+    const version = await this.createVersion(user, question.id, input.content);
+    await this.mapObjectives(user, version.id, { objectiveIds: [objectiveId] } as never);
+    if (input.publish === false) return { questionId: question.id, versionId: version.id, status: 'draft' };
+    await this.submitReview(user, version.id);
+    await this.publish(user, version.id);
+    return { questionId: question.id, versionId: version.id, status: 'published' };
+  }
+
+  private async lessonOrg(user: AuthenticatedUser, lessonId: string) {
+    const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId }, include: { learning_courses: true } });
+    if (!lesson) throw new NotFoundException('Lesson was not found.');
+    await this.authorOrg(user, lesson.learning_courses.organization_id);
+    return lesson;
   }
 
   async list(user: AuthenticatedUser, query: QuestionSearchDto) {
@@ -228,7 +271,6 @@ export class QuestionBankService {
   }
 
   async publish(user: AuthenticatedUser, versionId: string) {
-    this.publisher(user);
     const v = await this.version(user, versionId);
     await this.assertCourseWritable(v.question.course_id);
     if (v.status !== 'in_review') throw new ConflictException('Only an in-review version may be published.');
@@ -246,7 +288,6 @@ export class QuestionBankService {
   }
 
   async archive(user: AuthenticatedUser, versionId: string) {
-    this.publisher(user);
     const v = await this.version(user, versionId);
     await this.assertCourseWritable(v.question.course_id);
     if (v.status !== 'published') throw new ConflictException('Only a published version may be archived.');
