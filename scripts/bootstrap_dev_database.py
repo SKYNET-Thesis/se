@@ -103,9 +103,32 @@ def validate_dev_target(database_url: str, env: dict[str, str]) -> tuple[tuple, 
     return (host, port, database, username, password, query), ref
 
 
+_UNORDERED_CATALOG_LISTS = {
+    "relations", "types", "tables", "constraints", "indexes", "sequences", "functions", "triggers",
+    "rls", "policies", "relation_acls", "default_privileges", "extensions", "public_extension_dependencies",
+}
+
+
+def _canonical(value, key=None):
+    """Normalize only inventory sets whose ordering is not part of schema semantics.
+
+    PostgreSQL ACL arrays follow grantee role OIDs and catalog queries can return
+    tied records in different orders. Column and enum-label arrays retain their
+    order because changing that order can change the meaning of the schema.
+    """
+    if isinstance(value, dict):
+        return {k: _canonical(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        items = [_canonical(i) for i in value]
+        if key in _UNORDERED_CATALOG_LISTS or key in {"acl", "roles"}:
+            return sorted(items, key=lambda i: json.dumps(i, sort_keys=True))
+        return items
+    return value
+
+
 def _fingerprint(inventory: dict) -> str:
     stable = {k: v for k, v in inventory.items() if k not in {"database_name", "server_version", "baseline_sha256", "baseline_size", "dump_count_comparison", "dump_counts_match"}}
-    return hashlib.sha256(json.dumps(stable, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(_canonical(stable), sort_keys=True).encode()).hexdigest()
 
 
 def _inventory(runner: MigrationRunner, connection: tuple) -> dict:

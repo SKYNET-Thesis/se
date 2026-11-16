@@ -74,9 +74,11 @@ jobs:
           python scripts/validate_database_migration_manifest.py --release
           python scripts/check_database_workflow_safety.py .github/workflows
       - name: Bootstrap the first empty database
+        shell: bash  # pipefail: a failed bootstrap must fail the step even though its output is piped through tee
         run: |
           VISTA_DEV_DATABASE_URL="$MAIN_DB_URL" python scripts/bootstrap_dev_database.py --confirm-local-bootstrap | tee "$RUNNER_TEMP/bootstrap-1.json"
       - name: Bootstrap a second empty database and compare (reproducibility)
+        shell: bash
         run: |
           psql -h 127.0.0.1 -p 55432 -U vista_test -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE vista_baseline_test_second"
           VISTA_DEV_DATABASE_URL="$SECOND_DB_URL" python scripts/bootstrap_dev_database.py --confirm-local-bootstrap | tee "$RUNNER_TEMP/bootstrap-2.json"

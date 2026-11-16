@@ -28,5 +28,5 @@
     "20261116_m_revoke_public_temp_privilege"
   ],
   "note": "Schema fingerprint of a fresh PostgreSQL 17 bootstrap (baseline + manifest migrations) for a database owned by user vista_test. Regenerate with --verify-only --write-expectation after a reviewed manifest change.",
-  "schemaFingerprint": "6f7ea36d53b0b2f242ca83cc8b02bad3804c0022e617491482bd0d41ed730ec1"
+  "schemaFingerprint": "b11e8a06964af31814fc1731f72ba5cd6354cb69090b40f33eee06a5bea1424b"
 }
