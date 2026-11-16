@@ -1,0 +1,16 @@
+# Explicitly disposable Course Builder database. This file defines, but does not
+# start, a separate PostgreSQL instance with no persistent volume or host access.
+services:
+  education-test-postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: vista_test_course_builder
+      POSTGRES_USER: vista_test
+      POSTGRES_PASSWORD: vista_test_only
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data:rw,noexec,nosuid,size=1g
+    profiles:
+      - education-test

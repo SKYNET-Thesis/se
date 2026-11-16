@@ -5,7 +5,7 @@ import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface
 const userId = '00000000-0000-4000-8000-000000000001';
 const user = { vistaUserId: userId, status: 'active', systemPermissions: ['org.manage'], memberships: [] } as unknown as AuthenticatedUser;
 const db = { $queryRaw: jest.fn(), $executeRaw: jest.fn(), $transaction: jest.fn() };
-const scope = { isSystemAdministrator: jest.fn(() => true), assertStudentClassroomAccess: jest.fn() };
+const scope = { isSystemAdministrator: jest.fn(() => true), authoringOrganizationIds: jest.fn((): string[] => []), assertStudentClassroomAccess: jest.fn() };
 const storage = { createUpload: jest.fn(), head: jest.fn(), readPrefix: jest.fn(), createDownload: jest.fn() };
 const MP4_HEAD = Uint8Array.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32]);
 

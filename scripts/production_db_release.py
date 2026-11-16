@@ -38,12 +38,14 @@ try:
     from scripts import supabase_identity
     from scripts import verify_production_release_d_i as verifier
     from scripts import verify_production_release_j as verifier_j
+    from scripts import verify_production_release_km as verifier_km
     from scripts.verify_schema_baseline import verify_baseline
 except ModuleNotFoundError:  # executed as a script from the repository root
     import sql_migration_runner as runner_module  # type: ignore
     import supabase_identity  # type: ignore
     import verify_production_release_d_i as verifier  # type: ignore
     import verify_production_release_j as verifier_j  # type: ignore
+    import verify_production_release_km as verifier_km  # type: ignore
     from verify_schema_baseline import verify_baseline  # type: ignore
 
 MigrationRunner = runner_module.MigrationRunner
@@ -54,7 +56,7 @@ class ReleaseError(Exception):
 
 
 SCOPE_FILE = "database/release-scopes.json"
-VERIFIERS = {"d_i": verifier, "j": verifier_j}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
+VERIFIERS = {"d_i": verifier, "j": verifier_j, "km": verifier_km}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
 
 
 def load_scopes(root: Path) -> dict:
@@ -198,6 +200,11 @@ def build_plan(args, operation: str = "read") -> dict:
     except RunnerError as exc:
         raise ReleaseError(str(exc)) from None
     definition = scope_definition(root, args.scope)
+    if args.scope == "K-M":
+        if not definition.get("productionStatus", "").startswith("BLOCKED"):
+            raise ReleaseError("K-M cannot be unblocked by release metadata; a dedicated reviewed implementation of hosted Supabase compatibility and recovery evidence is required")
+        if not args.allow_local_test_database:
+            raise ReleaseError("K-M is marked production BLOCKED: hosted Supabase compatibility/recovery evidence is required before any hosted plan or apply")
     versions = [e["version"] for e in entries]
     expected = list(definition["requiresApplied"]) + list(definition["versions"])
     if versions != expected:
@@ -217,7 +224,8 @@ def build_plan(args, operation: str = "read") -> dict:
     ledger_rows = sorted((r["version"], r["checksum"], r["provenance"]) for r in state["ledger_rows"])
     catalog = None
     data_preview = None
-    if pending and definition.get("expectedCatalogBefore"):  # strict schema fingerprint: the live catalog must equal the schema this scope was reviewed against
+    if pending and definition.get("expectedCatalogBefore"):
+        # K-M requires the exact D-J catalog before it runs (L adds the runtime role's RLS policies; the pinned "after" reflects that).
         catalog = _catalog(runner, connection)
         drift = {k: (definition["expectedCatalogBefore"][k], catalog[k]) for k in CATALOG_KEYS if definition["expectedCatalogBefore"][k] != catalog[k]}
         if drift:

@@ -36,7 +36,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
 vi.mock('../../contexts/SupabaseSessionContext', () => ({
   useSupabaseSession: () => ({ session: { access_token: 'admin-token', user: { email: 'admin@vista.io' } } }),
 }));
-vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ role: 'admin', loading: false, error: null }) }));
+vi.mock('../../contexts/RoleContext', () => ({ useRole: () => ({ role: 'admin', loading: false, error: null }), useOptionalRole: () => ({ role: 'admin', loading: false, error: null, memberships: [] }) }));
 
 const existing = { id: 'course-1', title: 'Dual-Arm Robotics Manipulation', description: 'Learn bimanual control.', status: 'draft' };
 const lessons = [{ id: 'l1', title: 'Introduction', ordinal: 1 }];

@@ -169,11 +169,22 @@ export class ProgrammingService {
           workspace_snapshot=${JSON.stringify(version.workspace_json)}::jsonb,program_snapshot=${JSON.stringify(version.robot_program)}::jsonb
         WHERE id=${attemptId}::uuid AND status='in_progress'`;
       if (updated !== 1) throw new ConflictException({ code: "ATTEMPT_NOT_IN_PROGRESS", message: "This attempt is no longer open for changes." });
-      const progression = evaluated && evaluation?.verdict === "passed" && this.progression
-        ? await this.progression.projectSymbolicPass(tx as never, user, { evaluationId: evaluation.evaluationId as string, attemptId, programVersionId: dto.programVersionId, verdict: "passed" })
+      // Lesson progression is a curriculum contract (`constraints.kind = symbolic_program`). A teacher-created classroom
+      // assignment has no such contract, so a passing run must still submit; it just completes no curriculum lesson.
+      const curriculum = evaluated && evaluation?.verdict === "passed" && this.progression
+        ? await this.isCurriculumProgramming(tx, attempt.assignment_id)
+        : false;
+      const progression = curriculum && this.progression
+        ? await this.progression.projectSymbolicPass(tx as never, user, { evaluationId: evaluation!.evaluationId as string, attemptId, programVersionId: dto.programVersionId, verdict: "passed" })
         : { completedLessonId: null, newlyUnlockedLessonIds: [] };
       return { ...submissions[0], evaluated, progression };
     });
+  }
+
+  private async isCurriculumProgramming(db: Pick<PrismaService, "$queryRaw">, assignmentId: string | null): Promise<boolean> {
+    if (!assignmentId) return false;
+    const rows = await db.$queryRaw<Array<{ kind: string | null }>>`SELECT constraints->>'kind' AS kind FROM public.learning_assignments WHERE id=${assignmentId}::uuid`;
+    return rows?.[0]?.kind === "symbolic_program";
   }
 
   private async ownAttempt(user: AuthenticatedUser, attemptId: string): Promise<AttemptProgramRow> {

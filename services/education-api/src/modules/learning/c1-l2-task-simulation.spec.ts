@@ -155,6 +155,7 @@ describe("C1-L2 Move the Robot: Authoritative Task Simulation", () => {
     it("1. Exact owned ProgramVersion can be evaluated", async () => {
       const output = schematicEngine.render(validL2RobotProgram, "version-l2-1");
       preparation.prepareForOwnExperiment.mockResolvedValueOnce({
+        assignmentKind: "symbolic_program",
         attemptId: "attempt-l2",
         experimentId: "exp-1",
         submissionId: "sub-1",
@@ -239,6 +240,7 @@ describe("C1-L2 Move the Robot: Authoritative Task Simulation", () => {
     it("12 & 14 & 16 & 17. PASS persists evidence with exact ProgramVersion provenance and completes C1-L2, unlocking C1-L3", async () => {
       const output = schematicEngine.render(validL2RobotProgram, "version-l2-provenance");
       preparation.prepareForOwnExperiment.mockResolvedValueOnce({
+        assignmentKind: "symbolic_program",
         attemptId: "attempt-l2",
         experimentId: "exp-l2-pass",
         submissionId: "sub-l2",
@@ -289,6 +291,7 @@ describe("C1-L2 Move the Robot: Authoritative Task Simulation", () => {
     it("13 & 15 & 18 & 19. FAIL persists evidence with provenance but does NOT complete C1-L2 and does NOT unlock C1-L3", async () => {
       const output = schematicEngine.render(wrongTargetRobotProgram, "version-l2-fail");
       preparation.prepareForOwnExperiment.mockResolvedValueOnce({
+        assignmentKind: "symbolic_program",
         attemptId: "attempt-l2",
         experimentId: "exp-l2-fail",
         submissionId: "sub-l2",
@@ -353,6 +356,7 @@ describe("C1-L2 Move the Robot: Authoritative Task Simulation", () => {
 
     it("21. Evaluator transaction failure does not leave false completion", async () => {
       preparation.prepareForOwnExperiment.mockResolvedValueOnce({
+        assignmentKind: "symbolic_program",
         attemptId: "attempt-l2",
         experimentId: "exp-fail",
         submissionId: "sub-1",

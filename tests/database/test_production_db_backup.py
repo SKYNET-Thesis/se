@@ -348,7 +348,10 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertEqual(j["versions"], ["20261114_j_one_submission_per_attempt"])
         self.assertEqual(j["requiresApplied"], d_i["versions"])
         manifest = json.loads((ROOT / "database/migrations/manifest.json").read_text())["migrations"]
-        self.assertEqual([e["version"] for e in manifest], d_i["versions"] + j["versions"])  # D-I first, J strictly after, nothing else
+        km = scopes["scopes"]["K-M"]  # authoring capabilities, runtime role and PUBLIC TEMP revocation: their own scope
+        self.assertEqual([e["version"] for e in manifest], d_i["versions"] + j["versions"] + km["versions"])  # J precedes K-M in source ordering
+        self.assertEqual(km["requiresApplied"], d_i["versions"] + j["versions"])  # J is a hard prerequisite of K-M
+        self.assertIn("BLOCKED", km["productionStatus"])  # hosted M compatibility remains unproven
 
     def test_aws_deploy_flag_and_api_web_deploy_jobs_are_untouched(self):
         backend = (WORKFLOWS / "backend-ci.yml").read_text()

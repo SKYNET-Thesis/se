@@ -14,6 +14,10 @@ export type CanonicalTransform = { ok: true; program: CanonicalNestRobotProgram 
 
 /** Only maps semantics proven by the current Nest ProgrammingService. Never
  * guesses movement, concurrency, condition, vision, or hardware semantics. */
+/** learning_preview_v1 bounds, identical to the backend validation in ProgrammingService (x 0-600, y 0-400, z 10-300 mm). */
+const withinLearningPreviewBounds = ({ x, y, z }: { x: number; y: number; z: number }): boolean =>
+  x >= 0 && x <= 600 && y >= 0 && y <= 400 && z >= 10 && z <= 300;
+
 export function toCanonicalNestRobotProgram(source: RobotProgram, options: { allowLearningPreviewMove?: boolean } = {}): CanonicalTransform {
   const steps: CanonicalNestStep[] = []; const issues: CompatibilityIssue[] = [];
   let selectedArm: 'left' | 'right' | null = null;
@@ -33,6 +37,10 @@ export function toCanonicalNestRobotProgram(source: RobotProgram, options: { all
       case 'move_to':
         if (!options.allowLearningPreviewMove) unsupported(command, 'Cartesian movement has no canonical backend movement semantics.');
         else if (!selectedArm) unsupported(command, 'Learning preview movement requires an explicit selected-arm context.');
+        // The server accepts only integer learning_preview_v1 coordinates; reject here so the block is highlighted
+        // and the autosave still stores the workspace instead of the whole request being refused.
+        else if (![command.target.x, command.target.y, command.target.z].every(Number.isInteger)) unsupported(command, 'Learning preview coordinates must be whole millimetres (no decimals).');
+        else if (!withinLearningPreviewBounds(command.target)) unsupported(command, 'Learning preview coordinates must stay inside x 0-600, y 0-400, z 10-300 mm.');
         else steps.push({ type: 'preview.move_xyz', mode: 'learning_preview', frame: 'learning_preview_v1', arm: selectedArm, position: { x: command.target.x, y: command.target.y, z: command.target.z } });
         break;
       case 'move_joint': unsupported(command, 'Joint movement has no canonical backend movement semantics.'); break;

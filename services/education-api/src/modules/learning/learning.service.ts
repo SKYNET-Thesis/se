@@ -28,17 +28,33 @@ export class LearningService {
     private readonly enrollmentDelivery?: EnrollmentDeliveryService,
   ) {}
 
-  async createGlobalCourse(user: AuthenticatedUser, input: { title: string; description?: string }) {
-    this.assertSystemAdministrator(user);
+  /**
+   * Creates a draft course. A System Administrator without an organization creates global content (legacy behaviour).
+   * Everyone else creates content for their own school: the organization is derived from the caller's memberships
+   * that carry `learning.course.author`; a client-supplied organizationId is only accepted when it is one of those.
+   */
+  async createGlobalCourse(user: AuthenticatedUser, input: { title: string; description?: string; organizationId?: string }) {
+    const organizationId = this.resolveAuthoringOrganization(user, input.organizationId);
     return this.prisma.learning_courses.create({ data: {
       title: requiredTitle(input.title, 'Course title'), description: input.description?.trim(), status: 'draft', created_by: user.vistaUserId,
+      ...(organizationId ? { organization_id: organizationId } : {}),
     } });
   }
 
+  private resolveAuthoringOrganization(user: AuthenticatedUser, requested?: string): string | null {
+    const allowed = this.scope.authoringOrganizationIds(user);
+    if (requested !== undefined) {
+      if (!allowed.includes(requested)) throw new NotFoundException('Course was not found.');
+      return requested;
+    }
+    if (allowed.length === 1) return allowed[0];
+    if (allowed.length > 1) throw new BadRequestException('organizationId is required because you can author for more than one school.');
+    if (this.scope.isSystemAdministrator(user) && user.status === 'active') return null;
+    throw new NotFoundException('Course was not found.');
+  }
+
   async updateGlobalCourse(user: AuthenticatedUser, courseId: string, input: { title?: string; description?: string }) {
-    this.assertSystemAdministrator(user);
-    const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } });
-    if (!course) throw new NotFoundException('Course was not found.');
+    await this.authorCourse(user, courseId);
     return this.prisma.learning_courses.update({ where: { id: courseId }, data: {
       ...(input.title === undefined ? {} : { title: requiredTitle(input.title, 'Course title') }),
       ...(input.description === undefined ? {} : { description: input.description.trim() }),
@@ -54,12 +70,12 @@ export class LearningService {
    * is idempotent and is the safe retry.
    */
   async publishCourse(user: AuthenticatedUser, courseId: string) {
-    this.assertSystemAdministrator(user);
     return runCourseSyncTransaction(this.prisma, async (tx) => {
       const courses = await tx.$queryRaw<Array<{ id: string; status: string; organization_id: string | null }>>`
         SELECT id, status, organization_id FROM public.learning_courses WHERE id=${courseId}::uuid FOR NO KEY UPDATE`;
       const course = courses[0];
-      if (!course || course.organization_id !== null) throw new NotFoundException('Course was not found.');
+      // Publishing is narrower than authoring: only holders of learning.course.publish (Instructors) for that school, or a System Administrator for global courses.
+      if (!course || !this.scope.canPublishOrganization(user, course.organization_id)) throw new NotFoundException('Course was not found.');
       if (course.status === 'archived') throw new ConflictException('An archived course cannot be published.');
       const lessons = await curriculumDeliverability(tx, courseId);
       if (!lessons.length) throw new ConflictException('A course needs at least one lesson before publishing.');
@@ -80,18 +96,14 @@ export class LearningService {
 
   /** Idempotent, all-or-nothing re-synchronization of a published course's classroom enrollments. */
   async syncCourseEnrollments(user: AuthenticatedUser, courseId: string) {
-    this.assertSystemAdministrator(user);
-    const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null }, select: { id: true, status: true } });
-    if (!course) throw new NotFoundException('Course was not found.');
+    const course = await this.authorCourse(user, courseId);
     if (course.status !== 'published') throw new ConflictException('Only a published course can synchronize classroom enrollments.');
     if (!this.enrollmentDelivery) throw new ConflictException('Enrollment synchronization is not configured.');
     return this.enrollmentDelivery.synchronizeCourse(courseId);
   }
 
   async archiveCourse(user: AuthenticatedUser, courseId: string) {
-    this.assertSystemAdministrator(user);
-    const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } });
-    if (!course) throw new NotFoundException('Course was not found.');
+    await this.authorCourse(user, courseId);
     const evidence = await deliveryEvidence(this.prisma, courseId);
     if (evidence.activeEnrollments > 0 || evidence.activeOfferings > 0 || evidence.activeClassrooms > 0) {
       throw new ConflictException(
@@ -102,14 +114,14 @@ export class LearningService {
   }
 
   async createCourseLesson(user: AuthenticatedUser, courseId: string, input: { title: string; content?: Record<string, unknown> }) {
-    this.assertSystemAdministrator(user); const course = await this.globalCourse(courseId);
+    const course = await this.authorCourse(user, courseId);
     await assertCurriculumMutable(this.prisma, courseId, 'Adding lessons');
     const ordinal = (await this.prisma.learning_lessons.aggregate({ where: { course_id: courseId }, _max: { ordinal: true } }))._max.ordinal ?? 0;
     return this.prisma.learning_lessons.create({ data: { course_id: courseId, title: requiredTitle(input.title, 'Lesson title')!, content: (input.content ?? {}) as Prisma.InputJsonValue, ordinal: ordinal + 1 } });
   }
 
   async updateCourseLesson(user: AuthenticatedUser, lessonId: string, input: { title?: string; content?: Record<string, unknown> }) {
-    this.assertSystemAdministrator(user); const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.globalCourse(lesson.course_id);
+    const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.authorCourse(user, lesson.course_id);
     if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
     // Titles are cosmetic; lesson body content is meaning-bearing for enrolled learners.
     if (input.content !== undefined) await assertCurriculumMutable(this.prisma, lesson.course_id, 'Changing lesson content');
@@ -117,7 +129,7 @@ export class LearningService {
   }
 
   async reorderCourseLessons(user: AuthenticatedUser, courseId: string, orderedIds: string[]) {
-    this.assertSystemAdministrator(user); const course = await this.globalCourse(courseId);
+    const course = await this.authorCourse(user, courseId);
     if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
     await assertCurriculumMutable(this.prisma, courseId, 'Reordering lessons');
     const current = await this.prisma.learning_lessons.findMany({ where: { course_id: courseId }, select: { id: true } });
@@ -140,7 +152,7 @@ export class LearningService {
   }
 
   async setLessonPrerequisites(user: AuthenticatedUser, lessonId: string, prerequisiteLessonIds: string[]) {
-    this.assertSystemAdministrator(user); const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.globalCourse(lesson.course_id);
+    const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.authorCourse(user, lesson.course_id);
     if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
     if (prerequisiteLessonIds.includes(lessonId)) throw new BadRequestException('A lesson cannot require itself.'); const count = await this.prisma.learning_lessons.count({ where: { id: { in: prerequisiteLessonIds }, course_id: lesson.course_id } }); if (count !== prerequisiteLessonIds.length) throw new BadRequestException('Prerequisites must belong to the course.');
     if (prerequisiteLessonIds.length) {
@@ -155,18 +167,20 @@ export class LearningService {
     return this.prisma.$transaction(async tx => { await tx.learning_lesson_prerequisites.deleteMany({ where: { lesson_id: lessonId } }); if (prerequisiteLessonIds.length) await tx.learning_lesson_prerequisites.createMany({ data: prerequisiteLessonIds.map(prerequisite_lesson_id => ({ lesson_id: lessonId, prerequisite_lesson_id, required: true })) }); return { lessonId, prerequisiteLessonIds }; });
   }
 
-  private async globalCourse(courseId: string) { const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } }); if (!course) throw new NotFoundException('Course was not found.'); return course; }
-
-  private assertSystemAdministrator(user: AuthenticatedUser) {
-    if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException('Course was not found.');
+  /** Authorizes authoring on one course: school courses need `learning.course.author` in that school; global courses need System Administrator. */
+  private async authorCourse(user: AuthenticatedUser, courseId: string) {
+    const course = await this.prisma.learning_courses.findUnique({ where: { id: courseId } });
+    if (!course || !this.scope.canAuthorOrganization(user, course.organization_id)) throw new NotFoundException('Course was not found.');
+    return course;
   }
 
   async courses(user: AuthenticatedUser, page: PaginationDto) {
     const unrestricted = this.scope.isSystemAdministrator(user);
+    const authoredOrgs = this.scope.authoringOrganizationIds(user);
     const rows = await this.prisma.$queryRaw<CourseRow[]>`
-      SELECT DISTINCT c.id,c.title,c.description,c.status,c.created_at,c.updated_at
+      SELECT DISTINCT c.id,c.title,c.description,c.status,c.created_at,c.updated_at,c.organization_id AS "organizationId"
       FROM public.learning_courses c
-      WHERE ${unrestricted} OR (c.status='published' AND EXISTS (
+      WHERE ${unrestricted} OR c.organization_id = ANY(${authoredOrgs}::uuid[]) OR (c.status='published' AND EXISTS (
         SELECT 1 FROM public.learning_enrollments e
         JOIN public.learning_course_offerings o ON o.id=e.offering_id AND o.course_id=c.id AND o.status='active'
         JOIN public.learning_classrooms cl ON cl.id=e.classroom_id AND cl.offering_id=o.id AND cl.status='active'
@@ -182,9 +196,23 @@ export class LearningService {
   }
 
   async course(user: AuthenticatedUser, courseId: string) {
-    const row = (await this.courses(user, { page: 1, pageSize: 100 })).items.find((item) => item.id === courseId);
-    if (!row) throw new NotFoundException("Course was not found.");
-    return row;
+    const unrestricted=this.scope.isSystemAdministrator(user);
+    const authoredOrgs=this.scope.authoringOrganizationIds(user);
+    const rows=await this.prisma.$queryRaw<CourseRow[]>`
+      SELECT c.id,c.title,c.description,c.status,c.created_at,c.updated_at,c.organization_id AS "organizationId"
+      FROM public.learning_courses c
+      WHERE c.id=${courseId}::uuid AND (${unrestricted} OR c.organization_id = ANY(${authoredOrgs}::uuid[]) OR (c.status='published' AND EXISTS (
+        SELECT 1 FROM public.learning_enrollments e
+        JOIN public.learning_course_offerings o ON o.id=e.offering_id AND o.course_id=c.id AND o.status='active'
+        JOIN public.learning_classrooms cl ON cl.id=e.classroom_id AND cl.offering_id=o.id AND cl.status='active'
+        JOIN public.learning_classroom_members cm ON cm.classroom_id=cl.id AND cm.user_id=e.learner_user_id
+          AND cm.classroom_role='student' AND cm.status='active'
+        JOIN public.memberships m ON m.id=cm.membership_id AND m.user_id=e.learner_user_id
+          AND m.organization_id=cl.organization_id AND m.status='active'
+        WHERE e.course_id=c.id AND e.learner_user_id=${user.vistaUserId}::uuid AND e.status='active'
+      )))`;
+    if(!rows[0]) throw new NotFoundException("Course was not found.");
+    return rows[0];
   }
 
   async lessonsForCourse(user: AuthenticatedUser, courseId: string) {
@@ -201,7 +229,8 @@ export class LearningService {
     const lesson = rows[0]; if (!lesson) throw new NotFoundException("Lesson was not found.");
     const course = await this.course(user, lesson.course_id);
 
-    const path = this.progression && !this.scope.isSystemAdministrator(user)
+    const isAuthor = this.scope.isSystemAdministrator(user) || this.scope.authoringOrganizationIds(user).some((id) => id === (course as { organizationId?: string }).organizationId);
+    const path = this.progression && !isAuthor
       ? await this.progression.coursePath(user, lesson.course_id)
       : null;
     const progressionLesson = path?.lessons.find((l) => l.id === lesson.id) ?? null;
@@ -322,12 +351,13 @@ export class LearningService {
   /** Classroom teaching scope; unlike /me/classrooms this never includes a learner membership. */
   async teachingClassrooms(user: AuthenticatedUser) {
     if (this.scope.isSystemAdministrator(user)) {
-      return this.prisma.$queryRaw`SELECT c.id,c.organization_id,c.name,c.code,c.status,o.name AS organization_name,COUNT(DISTINCT cm.id) FILTER (WHERE cm.status='active' AND cm.classroom_role='student')::int AS student_count,COUNT(DISTINCT ca.id)::int AS assignment_count FROM public.learning_classrooms c JOIN public.organizations o ON o.id=c.organization_id LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id=c.id LEFT JOIN public.learning_classroom_assignments ca ON ca.classroom_id=c.id GROUP BY c.id,o.name ORDER BY c.name`;
+      return this.prisma.$queryRaw`SELECT c.id,c.organization_id,c.name,c.code,c.status,o.name AS organization_name,COUNT(DISTINCT cm.id) FILTER (WHERE cm.status='active' AND cm.classroom_role='student')::int AS student_count,COUNT(DISTINCT ca.id)::int AS assignment_count,(SELECT COUNT(*) FROM public.learning_enrollments en JOIN public.learning_classroom_members sm ON sm.classroom_id=en.classroom_id AND sm.user_id=en.learner_user_id AND sm.classroom_role='student' AND sm.status='active' WHERE en.classroom_id=c.id AND en.status='active')::int AS enrolled_student_count FROM public.learning_classrooms c JOIN public.organizations o ON o.id=c.organization_id LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id=c.id LEFT JOIN public.learning_classroom_assignments ca ON ca.classroom_id=c.id GROUP BY c.id,o.name ORDER BY c.name`;
     }
     return this.prisma.$queryRaw`
       SELECT c.id,c.organization_id,c.name,c.code,c.status,o.name AS organization_name,
         COUNT(DISTINCT students.id) FILTER (WHERE students.status='active' AND students.classroom_role='student')::int AS student_count,
-        COUNT(DISTINCT ca.id)::int AS assignment_count
+        COUNT(DISTINCT ca.id)::int AS assignment_count,
+        (SELECT COUNT(*) FROM public.learning_enrollments en JOIN public.learning_classroom_members sm ON sm.classroom_id=en.classroom_id AND sm.user_id=en.learner_user_id AND sm.classroom_role='student' AND sm.status='active' WHERE en.classroom_id=c.id AND en.status='active')::int AS enrolled_student_count
       FROM public.learning_classroom_members mine
       JOIN public.memberships m ON m.id=mine.membership_id AND m.status='active'
       JOIN public.learning_classrooms c ON c.id=mine.classroom_id AND c.organization_id=m.organization_id
@@ -348,6 +378,8 @@ export class LearningService {
         COALESCE(ca.due_at, a.due_at) AS due_at,
         latest.id AS attempt_id,latest.status AS attempt_status,latest.started_at,latest.submitted_at,
         COALESCE(latest.score::float, sub.assessment_score) AS score,
+        -- Denominator of score: an automatic attempt score is a percentage; a released rubric total is out of the persisted rubric maximum.
+        CASE WHEN latest.score IS NOT NULL THEN 100::float ELSE sub.assessment_max END AS score_max,
         COALESCE(sub.overall_feedback, tf.feedback_content) AS teacher_feedback,
         CASE
           WHEN latest.status = 'evaluated' OR sub.overall_feedback IS NOT NULL OR sub.assessment_score IS NOT NULL THEN 'evaluated'
@@ -383,7 +415,9 @@ export class LearningService {
           -- Instructor grading is visible only after the attempt's grading was released.
           CASE WHEN latest.grading_released_at IS NOT NULL THEN ass.overall_feedback END AS overall_feedback,
           CASE WHEN latest.grading_released_at IS NOT NULL
-            THEN (SELECT SUM(sc.awarded_points)::float FROM public.learning_assessment_scores sc WHERE sc.assessment_id=ass.id) END AS assessment_score
+            THEN (SELECT SUM(sc.awarded_points)::float FROM public.learning_assessment_scores sc WHERE sc.assessment_id=ass.id) END AS assessment_score,
+          CASE WHEN latest.grading_released_at IS NOT NULL
+            THEN (SELECT SUM(rc.max_points)::float FROM public.learning_assessment_scores sc JOIN public.learning_rubric_criteria rc ON rc.id=sc.criterion_id WHERE sc.assessment_id=ass.id) END AS assessment_max
         FROM public.learning_submissions s
         LEFT JOIN public.learning_assessments ass ON ass.submission_id=s.id
         WHERE s.assignment_id=ca.assignment_id AND s.learner_user_id=${user.vistaUserId}::uuid AND s.status<>'draft'
@@ -424,7 +458,9 @@ export class LearningService {
       SELECT co.id AS course_id,co.title AS course_title,l.id AS lesson_id,l.title AS lesson_title,
         COALESCE(template.title,l.title) AS title,COALESCE(template.instructions,'') AS instructions,template.challenge_id,
         COALESCE((
-          SELECT jsonb_agg(jsonb_build_object('id',ch.id,'title',ch.title) ORDER BY ch.title)
+          SELECT jsonb_agg(jsonb_build_object('id',ch.id,'title',ch.title,'description',ch.description,
+            'conditions',COALESCE((SELECT jsonb_agg(jsonb_build_object('type',cc2.condition_type,'description',cc2.description,'ruleKey',cc2.rule_key) ORDER BY cc2.ordinal)
+              FROM public.learning_challenge_conditions cc2 WHERE cc2.challenge_id=ch.id),'[]'::jsonb)) ORDER BY ch.title)
           FROM public.learning_challenges ch
           WHERE ch.status='published'
             AND (ch.organization_id IS NULL OR ch.organization_id=c.organization_id)
@@ -433,7 +469,11 @@ export class LearningService {
               SELECT 1 FROM public.learning_challenge_conditions cc
               WHERE cc.challenge_id=ch.id AND cc.condition_type='success'
             )
-        ),'[]'::jsonb) AS challenges
+        ),'[]'::jsonb) AS challenges,
+        COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('title',rc.title,'description',rc.description,'maxPoints',rc.max_points) ORDER BY rc.ordinal)
+          FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=rubric_source.id
+        ),'[]'::jsonb) AS rubric
       FROM public.learning_classrooms c
       JOIN public.learning_course_offerings o ON o.id=c.offering_id
       JOIN public.learning_courses co ON co.id=o.course_id
@@ -445,6 +485,14 @@ export class LearningService {
         WHERE a.lesson_id=l.id AND source.organization_id=c.organization_id
         ORDER BY ca.created_at DESC LIMIT 1
       ) template ON true
+      LEFT JOIN LATERAL (
+        SELECT a.id FROM public.learning_assignments a
+        JOIN public.learning_classroom_assignments ca ON ca.assignment_id=a.id
+        JOIN public.learning_classrooms source ON source.id=ca.classroom_id
+        WHERE a.lesson_id=l.id AND source.organization_id=c.organization_id
+          AND EXISTS (SELECT 1 FROM public.learning_rubric_criteria rc0 WHERE rc0.assignment_id=a.id)
+        ORDER BY ca.created_at DESC LIMIT 1
+      ) rubric_source ON true
       WHERE c.id=${classroomId}::uuid ORDER BY l.ordinal`;
   }
   async publishedQuizzes(user: AuthenticatedUser, classroomId: string) {
@@ -530,9 +578,26 @@ export class LearningService {
       if(!challenges[0]) throw new NotFoundException("Challenge was not found.");
     }
     return this.prisma.$transaction(async(tx)=>{
+      // The rubric is persisted per assignment and there is no authoring API for it: a new Blockly assignment inherits
+      // the criteria of the most recent assignment of the same lesson in the same organization (the same template that
+      // pre-fills the title/instructions). Quizzes are machine-graded and never inherit a rubric. One statement, so the
+      // content, its rubric and (below) the delivery are created or rolled back together.
       const assignments=await tx.$queryRaw<{id:string}[]>`
-        INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions,constraints)
-        VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""},${JSON.stringify(dto.quizPassPercent === undefined ? {} : { kind: 'knowledge_check', passPercent: dto.quizPassPercent })}::jsonb) RETURNING id`;
+        WITH created AS (
+          INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions,constraints)
+          VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""},${JSON.stringify(dto.quizPassPercent === undefined ? {} : { kind: 'knowledge_check', passPercent: dto.quizPassPercent })}::jsonb) RETURNING id
+        ), copied AS (
+          INSERT INTO public.learning_rubric_criteria(assignment_id,ordinal,title,description,max_points)
+          SELECT (SELECT id FROM created),rc.ordinal,rc.title,rc.description,rc.max_points
+          FROM public.learning_rubric_criteria rc
+          WHERE ${dto.quizPassPercent === undefined} AND rc.assignment_id=(
+            SELECT a.id FROM public.learning_assignments a
+            JOIN public.learning_classroom_assignments ca ON ca.assignment_id=a.id
+            JOIN public.learning_classrooms source ON source.id=ca.classroom_id
+            WHERE a.lesson_id=${dto.lessonId}::uuid AND source.organization_id=${lessons[0].organization_id}::uuid
+              AND EXISTS (SELECT 1 FROM public.learning_rubric_criteria rc0 WHERE rc0.assignment_id=a.id)
+            ORDER BY ca.created_at DESC LIMIT 1)
+        ) SELECT id FROM created`;
       const deliveries=await tx.$queryRaw<Record<string,unknown>[]>`
         INSERT INTO public.learning_classroom_assignments(classroom_id,assignment_id,status)
         VALUES(${classroomId}::uuid,${assignments[0].id}::uuid,'draft')

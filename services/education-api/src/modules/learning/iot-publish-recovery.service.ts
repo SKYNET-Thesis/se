@@ -46,7 +46,7 @@ export class IotPublishRecoveryService {
     }
     return claimed.length;
   }
-  private async complete(commandId: string, owner: string) { await this.prisma.$transaction((tx) => tx.$executeRaw(Prisma.sql`UPDATE public.iot_command_lifecycles SET state='queued',publish_lease_until=NULL,updated_at=now() WHERE command_id=${commandId} AND state='publishing' AND publish_owner=${owner}`)); }
-  private async unknown(commandId: string, owner: string) { await this.prisma.$transaction((tx) => tx.$executeRaw(Prisma.sql`UPDATE public.iot_command_lifecycles SET state='reconciliation_required',publish_lease_until=NULL,publish_error='publish_outcome_unknown',updated_at=now() WHERE command_id=${commandId} AND state='publishing' AND publish_owner=${owner}`)); }
-  private async failed(commandId: string, owner: string) { await this.prisma.$transaction((tx) => tx.$executeRaw(Prisma.sql`UPDATE public.iot_command_lifecycles SET state='publish_failed',publish_lease_until=NULL,publish_error='publish_failed',updated_at=now() WHERE command_id=${commandId} AND state='publishing' AND publish_owner=${owner}`)); }
+  private async complete(commandId: string, owner: string) { await this.prisma.$transaction((tx) => tx.$executeRaw(Prisma.sql`UPDATE public.iot_command_lifecycles SET state='queued',publish_lease_until=NULL,updated_at=now() WHERE command_id=${commandId}::uuid AND state='publishing' AND publish_owner=${owner}`)); }
+  private async unknown(commandId: string, owner: string) { await this.prisma.$transaction((tx) => tx.$executeRaw(Prisma.sql`UPDATE public.iot_command_lifecycles SET state='reconciliation_required',publish_lease_until=NULL,publish_error='publish_outcome_unknown',updated_at=now() WHERE command_id=${commandId}::uuid AND state='publishing' AND publish_owner=${owner}`)); }
+  private async failed(commandId: string, owner: string) { await this.prisma.$transaction((tx) => tx.$executeRaw(Prisma.sql`UPDATE public.iot_command_lifecycles SET state='publish_failed',publish_lease_until=NULL,publish_error='publish_failed',updated_at=now() WHERE command_id=${commandId}::uuid AND state='publishing' AND publish_owner=${owner}`)); }
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ExternalLinkIcon, PlayIcon, ShieldCheckIcon, SquareIcon } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { type ApiAttempt, type ApiVrLessonSession, vrLessonApi } from '../lib/api';

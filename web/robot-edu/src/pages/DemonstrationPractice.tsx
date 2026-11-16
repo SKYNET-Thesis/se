@@ -1,4 +1,4 @@
-import React,{useEffect,useState}from 'react';
+import {useEffect,useState}from 'react';
 import { CircleDotIcon,SquareIcon } from 'lucide-react';
 import { ApiAttempt,apiGet,apiRequest } from '../lib/api';
 import { Button } from '../components/ui/Button';

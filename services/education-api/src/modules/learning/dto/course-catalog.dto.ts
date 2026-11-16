@@ -5,6 +5,8 @@ const nonBlank = { message: 'Title cannot be empty or whitespace.' };
 export class CreateCourseDto {
   @IsString() @Matches(/\S/, nonBlank) @MaxLength(200) title!: string;
   @IsOptional() @IsString() @MaxLength(4000) description?: string;
+  /** Optional; only honoured when it is one of the caller's own authoring schools. Never trusted for authorization. */
+  @IsOptional() @IsUUID() organizationId?: string;
 }
 
 export class UpdateCourseDto {

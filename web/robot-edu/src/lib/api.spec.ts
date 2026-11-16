@@ -123,6 +123,16 @@ describe('learningMediaApi.upload', () => {
 describe('educationAdminApi classroom administration', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('loads organization-owned courses through the scoped endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await educationAdminApi.courses('school-1', 'token');
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/education-admin/organizations/school-1/courses');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ headers: { Authorization: 'Bearer token' } });
+  });
+
   it('sends a scoped PATCH request for safe classroom metadata updates', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'class-1', name: 'Updated classroom' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
@@ -131,6 +141,26 @@ describe('educationAdminApi classroom administration', () => {
 
     expect(String(fetchMock.mock.calls[0][0])).toContain('/education-admin/organizations/school-1/classrooms/class-1');
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'PATCH', body: JSON.stringify({ name: 'Updated classroom', capacity: 30 }) });
+  });
+
+  it('sends course edits through the organization-scoped PATCH endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'course-1' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await educationAdminApi.updateCourse('school-1', 'course-1', 'token', { title: 'Updated course' });
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/education-admin/organizations/school-1/courses/course-1');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'PATCH', body: JSON.stringify({ title: 'Updated course' }) });
+  });
+
+  it('activates an offering through the organization-scoped transition endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 'offering-1', status: 'active' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await educationAdminApi.activateCourseOffering('school-1', 'offering-1', 'token');
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/education-admin/organizations/school-1/course-offerings/offering-1/activate');
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' });
   });
 });
 

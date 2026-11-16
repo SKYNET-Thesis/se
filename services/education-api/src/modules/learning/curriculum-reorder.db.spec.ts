@@ -1,30 +1,23 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { CurriculumService } from './curriculum.service';
+import { LearningScopeService } from './learning-scope.service';
 import { LearningService } from './learning.service';
+import { isIsolatedIntegrationDatabase } from './isolated-db-target';
 
 const requested = process.env.RUN_POSTGRES_INTEGRATION === '1';
 const configuredUrl = process.env.VISTA_INTEGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
-const parsedUrl = configuredUrl ? new URL(configuredUrl) : undefined;
-const isolatedIdentity = Boolean(
-  parsedUrl &&
-  ['localhost', '127.0.0.1', '::1'].includes(parsedUrl.hostname) &&
-  parsedUrl.port === '55432' &&
-  parsedUrl.pathname === '/vista_test_course_builder' &&
-  parsedUrl.username === 'vista_test' &&
-  process.env.VISTA_DATABASE_PROJECT_REF === 'vista-course-builder-test' &&
-  !process.env.SUPABASE_URL,
-);
+const isolatedIdentity = isIsolatedIntegrationDatabase(configuredUrl);
 if (requested && !isolatedIdentity) {
-  throw new Error('PostgreSQL integration tests require the dedicated vista_test_course_builder target on loopback port 55432.');
+  throw new Error('PostgreSQL integration tests require the exact disposable loopback target named by VISTA_TEST_DATABASE_NAME/VISTA_TEST_DATABASE_PORT.');
 }
 const enabled = requested && isolatedIdentity;
 const describeDb = enabled ? describe : describe.skip;
 
 describeDb('real PostgreSQL curriculum reordering', () => {
-  const db = new PrismaClient({ datasources: { db: { url: configuredUrl } } });
+  const db = new PrismaClient({ datasources: { db: { url: configuredUrl ?? 'postgresql://disabled:disabled@127.0.0.1:1/disabled' } } });
   const administrator = { vistaUserId: '00000000-0000-4000-8000-000000000001', status: 'active', systemPermissions: ['org.manage'], memberships: [] };
-  const learning = new LearningService(db as never, { isSystemAdministrator: () => true } as never);
+  const learning = new LearningService(db as never, new LearningScopeService(db as never) as never);
   const curriculum = new CurriculumService(db as never, { coursePath: jest.fn() } as never);
 
   beforeAll(async () => db.$connect());

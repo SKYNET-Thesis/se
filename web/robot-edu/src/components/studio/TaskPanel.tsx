@@ -1,4 +1,3 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRightIcon, CheckCircle2Icon, CircleDashedIcon, CircleIcon, UserCheckIcon, XCircleIcon } from 'lucide-react';
 import type { ExecutionResult } from '../../types/robot';

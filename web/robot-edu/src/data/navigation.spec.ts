@@ -11,4 +11,10 @@ describe('role-based course navigation', () => {
     const item = navigationByRole.student.flatMap(section => section.items).find(entry => entry.label === 'Courses');
     expect(item?.to).toBe('/courses');
   });
+
+  it('gives teachers separate Assignment and Quiz entries', () => {
+    const items = navigationByRole.teacher.flatMap(section => section.items);
+    expect(items.find(entry => entry.label === 'Assignments')?.to).toBe('/teacher/assignments');
+    expect(items.find(entry => entry.label === 'Quizzes')?.to).toBe('/teacher/quizzes');
+  });
 });
