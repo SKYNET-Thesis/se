@@ -7,7 +7,7 @@ import { educationAdminApi, type ApiClassroomStudentImportResult, type ApiClassr
 import { cn } from '../../utils/cn';
 import { template, type ImportRow } from '../../utils/schoolImport';
 import {
-  MAX_IMPORT_ROWS, PREVIEW_FILTERS, STUDENT_CSV_COLUMNS, addedCount, failedRowsCsv, importableCount, previewGroup, previewStatusLabel,
+  MAX_IMPORT_ROWS, STUDENT_CSV_COLUMNS, availablePreviewFilters, addedCount, failedRowsCsv, importableCount, previewGroup, previewStatusLabel,
   readStudentCsv, toClassroomStudentRows, type PreviewGroup,
 } from './classroomStudentImport';
 
@@ -131,7 +131,7 @@ export function ClassroomStudentImport({ open, onClose, organizationId, classroo
             <p className="font-medium text-ink">What the file needs</p>
             <p className="flex flex-wrap items-center gap-1.5 text-ink-muted">Required: {STUDENT_CSV_COLUMNS.required.map(column => <code key={column} className="rounded bg-sunken px-1.5 py-0.5 text-xs text-ink">{column}</code>)}</p>
             <p className="flex flex-wrap items-center gap-1.5 text-ink-muted">Optional: {STUDENT_CSV_COLUMNS.optional.map(column => <code key={column} className="rounded bg-sunken px-1.5 py-0.5 text-xs text-ink">{column}</code>)}</p>
-            <p className="text-ink-muted">Save it as CSV from your spreadsheet. Values that contain commas or quotation marks are fine.</p>
+            <p className="text-ink-muted">Save the file as CSV from Excel or Google Sheets.</p>
             <p className="text-ink-muted">Students already in your school are matched by student code. Anyone new gets a school account and joins this classroom. You can review every row before anything is saved.</p>
           </div>
           <Button size="sm" variant="secondary" onClick={() => downloadText('vista-classroom-students-template.csv', template('students'))} icon={<DownloadIcon className="h-4 w-4" aria-hidden />}>Download template</Button>
@@ -149,7 +149,11 @@ export function ClassroomStudentImport({ open, onClose, organizationId, classroo
 function Review({ preview, fileName, filter, onFilter, onReplace, busy, summaryRef }: { preview: ApiClassroomStudentPreview; fileName: string; filter: 'all' | PreviewGroup; onFilter: (value: 'all' | PreviewGroup) => void; onReplace: () => void; busy: boolean; summaryRef: (node: HTMLElement | null) => void }) {
   const addable = importableCount(preview);
   const counts: Record<'all' | PreviewGroup, number> = { all: preview.processed, add: addable, already: preview.alreadyInClass, fix: preview.needsReview };
-  const visible = preview.rows.filter(row => filter === 'all' || previewGroup(row.status) === filter);
+  const filters = availablePreviewFilters(counts);
+  // A filter whose group is now empty (e.g. after choosing another file) is no longer offered; fall back to All.
+  const active = filters.some(item => item.value === filter) ? filter : 'all';
+  useEffect(() => { if (active !== filter) onFilter('all'); }, [active, filter, onFilter]);
+  const visible = preview.rows.filter(row => active === 'all' || previewGroup(row.status) === active);
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line px-3 py-2">
       <p className="flex min-w-0 items-center gap-2 text-sm"><FileTextIcon className="h-4 w-4 shrink-0 text-ink-subtle" aria-hidden /><span className="truncate font-medium text-ink" title={fileName}>{fileName}</span><span className="shrink-0 tabular-nums text-ink-muted">{plural(preview.processed, 'row')}</span></p>
@@ -159,15 +163,15 @@ function Review({ preview, fileName, filter, onFilter, onReplace, busy, summaryR
     <p ref={summaryRef} tabIndex={-1} className="text-sm text-ink focus-visible:outline-none">
       <span className="font-semibold">{plural(addable, 'student')} will be added</span>
       {addable > 0 && <span className="text-ink-muted"> ({preview.newStudents} new to your school, {preview.existingStudents} already in your school)</span>}.
-      {preview.alreadyInClass > 0 && <span className="text-ink-muted"> {plural(preview.alreadyInClass, 'row')} already in this class will be left as is.</span>}
+      {preview.alreadyInClass > 0 && <span className="text-ink-muted"> {plural(preview.alreadyInClass, 'row')} already in this classroom will be left as is.</span>}
     </p>
     {preview.needsReview > 0 && <p className="border-l-4 border-warn bg-warn-soft p-3 text-sm text-ink">
       <span className="font-medium">{plural(preview.needsReview, 'row needs', 'rows need')} fixing and will be skipped.</span> Fix {preview.needsReview === 1 ? 'it' : 'them'} in your file and import it again; rows already added are left as they are.
     </p>}
 
     <div role="group" aria-label="Show rows" className="flex flex-wrap gap-1">
-      {PREVIEW_FILTERS.map(item => <button key={item.value} type="button" aria-pressed={filter === item.value} onClick={() => onFilter(item.value)}
-        className={cn('inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm transition-colors duration-150', filter === item.value ? 'bg-accent-soft font-medium text-accent-ink' : 'text-ink-muted hover:bg-sunken hover:text-ink')}>
+      {filters.map(item => <button key={item.value} type="button" aria-pressed={active === item.value} onClick={() => onFilter(item.value)}
+        className={cn('inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm transition-colors duration-150', active === item.value ? 'bg-accent-soft font-medium text-accent-ink' : 'text-ink-muted hover:bg-sunken hover:text-ink')}>
         {item.label}<span className="text-xs tabular-nums opacity-80">{counts[item.value]}</span>
       </button>)}
     </div>
@@ -184,8 +188,8 @@ function Review({ preview, fileName, filter, onFilter, onReplace, busy, summaryR
           </tr></thead>
           <tbody className="divide-y divide-line">{visible.map(row => <tr key={row.row} className={row.status === 'needs_review' ? 'bg-danger-soft/40' : undefined}>
             <td className="px-3 py-2.5 tabular-nums text-ink-muted">{row.row}</td>
-            <td className="min-w-0 px-3 py-2.5"><span className="block truncate font-medium text-ink">{[row.firstName, row.lastName].filter(Boolean).join(' ') || <span className="text-ink-subtle">No name</span>}</span><span className="block truncate text-xs text-ink-muted" title={[row.gradeLevel, row.email].filter(Boolean).join(' · ')}>{row.gradeLevel || 'No grade'}{row.email ? ` · ${row.email}` : ''}</span></td>
-            <td className="truncate px-3 py-2.5 tabular-nums">{row.studentCode || <span className="text-ink-subtle">—</span>}</td>
+            <td className="min-w-0 px-3 py-2.5 [overflow-wrap:anywhere]"><span className="block font-medium text-ink">{[row.firstName, row.lastName].filter(Boolean).join(' ') || <span className="text-ink-subtle">No name</span>}</span><span className="block text-xs text-ink-muted">{row.gradeLevel || 'No grade'}</span>{row.email && <span className="block text-xs text-ink-muted"><BreakableEmail email={row.email} /></span>}</td>
+            <td className="px-3 py-2.5 tabular-nums [overflow-wrap:anywhere]">{row.studentCode || <span className="text-ink-subtle">—</span>}</td>
             <td className="px-3 py-2.5"><Badge tone={statusTone[row.status]}>{previewStatusLabel(row.status)}</Badge></td>
             <td className="px-3 py-2.5"><RowNotes row={row} /></td>
           </tr>)}</tbody>
@@ -203,6 +207,12 @@ function Review({ preview, fileName, filter, onFilter, onReplace, busy, summaryR
   </div>;
 }
 
+/** Lets a long address wrap after "@" and dots instead of at an arbitrary letter; the cell still breaks anywhere as a fallback. */
+function BreakableEmail({ email }: { email: string }) {
+  const parts = email.split(/(?<=[@.])/);
+  return <>{parts.map((part, index) => <span key={index}>{part}{index < parts.length - 1 && <wbr />}</span>)}</>;
+}
+
 function RowNotes({ row, className }: { row: PreviewRow; className?: string }) {
   if (!row.errors.length && !row.warnings.length) return row.status === 'already_in_class' ? <span className={cn('text-xs text-ink-muted', className)}>No change</span> : null;
   return <ul className={cn('space-y-0.5 text-xs', className)}>
@@ -218,9 +228,9 @@ function Results({ result, classroomName, summaryRef }: { result: ApiClassroomSt
     <div ref={summaryRef} tabIndex={-1} role="status" className={cn('border-l-4 p-4 text-sm focus-visible:outline-none', added > 0 ? 'border-ok bg-ok-soft' : 'border-danger bg-danger-soft')}>
       <p className={cn('font-semibold', added > 0 ? 'text-ok' : 'text-danger')}>{added > 0 ? `${plural(added, 'student')} added to ${classroomName}` : 'No students were added'}</p>
       <ul className="mt-1.5 space-y-0.5 text-ink">
-        {result.createdAndAdded > 0 && <li>{plural(result.createdAndAdded, 'new student')} got a school account</li>}
-        {result.existingAdded > 0 && <li>{plural(result.existingAdded, 'student')} already in your school joined the class</li>}
-        {result.unchanged > 0 && <li>{plural(result.unchanged, 'student was', 'students were')} already in this class</li>}
+        {result.createdAndAdded > 0 && <li>{plural(result.createdAndAdded, 'new student')} {result.createdAndAdded === 1 ? 'was' : 'were'} given a school account</li>}
+        {result.existingAdded > 0 && <li>{plural(result.existingAdded, 'student')} already in your school joined this classroom</li>}
+        {result.unchanged > 0 && <li>{plural(result.unchanged, 'student was', 'students were')} already in this classroom</li>}
         {result.failed > 0 && <li>{plural(result.failed, 'row')} couldn’t be added</li>}
       </ul>
     </div>

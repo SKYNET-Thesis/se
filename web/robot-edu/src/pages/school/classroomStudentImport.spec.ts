@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { template } from '../../utils/schoolImport';
-import { addedCount, failedRowsCsv, importableCount, previewGroup, readStudentCsv, toClassroomStudentRows } from './classroomStudentImport';
+import { addedCount, availablePreviewFilters, failedRowsCsv, importableCount, previewGroup, readStudentCsv, toClassroomStudentRows } from './classroomStudentImport';
 
 describe('classroom student import view model', () => {
   it('sends only normalized Student contract fields and never preview status or classroom role', () => {
@@ -34,7 +34,7 @@ describe('classroom student import view model', () => {
     const four = 'first_name,last_name,student_code,grade_level';
     // A bare comma outside quotes adds a value; without this check "Van" would be read as the last name.
     const shifted = readStudentCsv(`${four}\nAn,Le,S1,8\nNguyen, Van,An,S2,8\nBao,Tran,S3`);
-    expect(shifted).toEqual({ ok: false, message: expect.stringContaining('Rows 3, 4 don’t have one value for each column') });
+    expect(shifted).toEqual({ ok: false, message: 'Rows 3, 4 don’t match the header’s columns. Check for a missing value or a comma outside quotation marks, then choose the file again.' });
     // Extra empty values at the end of a row are harmless and accepted.
     expect(readStudentCsv(`${four}\nAn,Le,S1,8,,`).ok).toBe(true);
   });
@@ -42,6 +42,13 @@ describe('classroom student import view model', () => {
   it('accepts the downloadable student template and a spreadsheet byte-order mark', () => {
     expect(readStudentCsv(template('students')).ok).toBe(true);
     expect(readStudentCsv(String.fromCharCode(0xfeff) + 'first_name,last_name,student_code,grade_level\nAn,Le,S1,8').ok).toBe(true);
+  });
+
+  it('offers All plus only the review groups that have rows', () => {
+    const labels = (counts: { all: number; add: number; already: number; fix: number }) => availablePreviewFilters(counts).map((item) => item.value);
+    expect(labels({ all: 8, add: 4, already: 1, fix: 3 })).toEqual(['all', 'add', 'already', 'fix']);
+    expect(labels({ all: 2, add: 2, already: 0, fix: 0 })).toEqual(['all', 'add']);
+    expect(labels({ all: 3, add: 0, already: 0, fix: 3 })).toEqual(['all', 'fix']); // rows needing fixing are always reachable
   });
 
   it('counts only rows the service will add, and groups preview statuses for review', () => {

@@ -65,7 +65,7 @@ export function readStudentCsv(source: string): { ok: true; rows: ImportRow[] } 
   if (file.rows.length > MAX_IMPORT_ROWS) return { ok: false, message: `This file has ${file.rows.length} students. Import up to ${MAX_IMPORT_ROWS} at a time by splitting it into smaller files.` };
   if (file.misalignedRows.length) {
     const rows = file.misalignedRows;
-    return { ok: false, message: `${rowList(rows).replace(/^r/, 'R')} ${rows.length === 1 ? 'doesn’t' : 'don’t'} have one value for each column in the header, so ${rows.length === 1 ? 'its' : 'their'} values can’t be matched to columns. Check for a missing value or a comma outside quotation marks, then choose the file again.` };
+    return { ok: false, message: `${rowList(rows).replace(/^r/, 'R')} ${rows.length === 1 ? 'doesn’t' : 'don’t'} match the header’s columns. Check for a missing value or a comma outside quotation marks, then choose the file again.` };
   }
   return { ok: true, rows: file.rows };
 }
@@ -73,10 +73,18 @@ export function readStudentCsv(source: string): { ok: true; rows: ImportRow[] } 
 export type PreviewGroup = 'add' | 'already' | 'fix';
 export const previewGroup = (status: ClassroomStudentPreviewRow['status']): PreviewGroup => (status === 'needs_review' ? 'fix' : status === 'already_in_class' ? 'already' : 'add');
 export const PREVIEW_FILTERS: Array<{ value: 'all' | PreviewGroup; label: string }> = [
-  { value: 'all', label: 'All rows' }, { value: 'add', label: 'Will be added' }, { value: 'already', label: 'Already in class' }, { value: 'fix', label: 'Needs fixing' },
+  { value: 'all', label: 'All rows' }, { value: 'add', label: 'Will be added' }, { value: 'already', label: 'Already in classroom' }, { value: 'fix', label: 'Needs fixing' },
 ];
+/**
+ * Review filters worth showing: All always, plus each group that has rows in the server's preview. A group with no rows
+ * has nothing to show, so its chip is hidden; "Needs fixing" therefore appears whenever any row needs fixing.
+ */
+export function availablePreviewFilters(counts: Record<'all' | PreviewGroup, number>) {
+  return PREVIEW_FILTERS.filter((item) => item.value === 'all' || counts[item.value] > 0);
+}
+
 export const previewStatusLabel = (status: ClassroomStudentPreviewRow['status']) =>
-  status === 'new_student' ? 'New to school' : status === 'existing_student' ? 'In your school' : status === 'already_in_class' ? 'Already in class' : 'Needs fixing';
+  status === 'new_student' ? 'New to school' : status === 'existing_student' ? 'In your school' : status === 'already_in_class' ? 'Already in classroom' : 'Needs fixing';
 
 /**
  * Rows the confirm request will add. The service processes every row: rows with errors fail on their own and the

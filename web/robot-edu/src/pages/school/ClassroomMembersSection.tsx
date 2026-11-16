@@ -169,7 +169,7 @@ export function ClassroomMembersSection({ organizationId, classroomId, classroom
 
 function RemoveButton({ member, onRemove }: { member: ClassroomMember; onRemove: (member: ClassroomMember) => void }) {
   return <button type="button" onClick={() => onRemove(member)} aria-label={`Remove ${member.name}`}
-    className="inline-flex h-9 shrink-0 items-center rounded-md px-2.5 text-[13px] font-medium text-ink-muted transition-colors duration-150 hover:bg-danger-soft hover:text-danger focus-visible:text-danger">Remove</button>;
+    className="inline-flex h-11 min-w-11 shrink-0 items-center justify-center rounded-md px-3 text-[13px] font-medium text-ink-muted transition-colors duration-150 hover:bg-danger-soft hover:text-danger focus-visible:text-danger">Remove</button>;
 }
 
 /** sm and up: one row per member with email under the name so long addresses never widen the table. */
@@ -188,7 +188,7 @@ function MemberTable({ members, onRemove }: { members: ClassroomMember[]; onRemo
       </td>
       <td className="px-3 py-2.5"><Badge tone={member.role === 'teacher' ? 'accent' : 'neutral'}>{roleLabel(member.role)}</Badge></td>
       <td className="px-3 py-2.5 tabular-nums text-ink-muted">{joinedLabel(member.joinedAt) ?? '—'}</td>
-      <td className="px-5 py-1.5 text-right">{canRemove(member) && <RemoveButton member={member} onRemove={onRemove} />}</td>
+      <td className="px-5 py-1 text-right">{canRemove(member) && <RemoveButton member={member} onRemove={onRemove} />}</td>
     </tr>)}</tbody>
   </table>;
 }

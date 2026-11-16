@@ -199,7 +199,10 @@ describe('CSV import', () => {
     expect(api.confirmClassroomStudentImport).toHaveBeenCalledTimes(1);
     expect(api.confirmClassroomStudentImport.mock.calls[0][3]).toEqual(sent);
     expect(dialog().textContent).toContain('2 students added to Robotics 8A');
-    expect(dialog().textContent).toContain('1 student was already in this class');
+    expect(dialog().textContent).toContain('1 new student was given a school account');
+    expect(dialog().textContent).toContain('1 student already in your school joined this classroom');
+    expect(dialog().textContent).toContain('1 student was already in this classroom');
+    expect(dialog().textContent).not.toMatch(/in this class(?!room)/);
     expect(dialog().textContent).toContain('Row 5');
     expect(dialog().textContent).toContain('Download as CSV');
     expect(api.classroomMembers.mock.calls.length).toBeGreaterThan(membersCalls);
@@ -227,10 +230,28 @@ describe('CSV import', () => {
     await chooseFile('first_name,last_name,student_code,grade_level\nNguyen, Van,An,S2,8\n');
     expect(api.previewClassroomStudentImport).not.toHaveBeenCalled();
     expect(api.confirmClassroomStudentImport).not.toHaveBeenCalled();
-    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('Row 2 doesn’t have one value for each column');
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('Row 2 doesn’t match the header’s columns. Check for a missing value');
     await chooseFile('first_name,last_name,student_code,grade_level\n"Nguyen, Van,An,S2,8\n');
     expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('starts on line 2 is never closed');
     expect(api.previewClassroomStudentImport).not.toHaveBeenCalled();
+  });
+
+  it('hides empty review groups and falls back to All when the chosen group is gone after another file', async () => {
+    api.previewClassroomStudentImport.mockResolvedValueOnce(preview);
+    await mount();
+    await click(button('Import students'));
+    await chooseFile(CSV);
+    const chips = () => [...dialog().querySelectorAll('[aria-label="Show rows"] button')].map((item) => item.textContent);
+    expect(chips()).toEqual(['All rows4', 'Will be added2', 'Already in classroom1', 'Needs fixing1']);
+    await click(button('Needs fixing1'));
+    expect(dialog().querySelectorAll('table tbody tr')).toHaveLength(1);
+    // Another file with nothing to fix: the "Needs fixing" chip disappears and the table shows every row again.
+    api.previewClassroomStudentImport.mockResolvedValueOnce({ ...preview, processed: 2, alreadyInClass: 0, needsReview: 0, rows: preview.rows.slice(0, 2) });
+    await click(button('Choose another file'));
+    await chooseFile(['first_name,last_name,student_code,grade_level', 'An,Le,S1,8', 'Bao,Tran,S2,8', ''].join(String.fromCharCode(10)));
+    expect(chips()).toEqual(['All rows2', 'Will be added2']);
+    expect(dialog().querySelector('[aria-label="Show rows"] [aria-pressed="true"]')?.textContent).toBe('All rows2');
+    expect(dialog().querySelectorAll('table tbody tr')).toHaveLength(2);
   });
 
   it('cannot import when no row can be added', async () => {
