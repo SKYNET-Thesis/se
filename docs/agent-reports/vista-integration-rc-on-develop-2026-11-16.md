@@ -70,7 +70,7 @@ PR #147 symbolic evaluator and ProgramVersion handling; migrations F–J (the re
 | DB integration (all `*.db.spec.ts`, 16 suites, guard temporarily pointed at 55433 and restored) | PASS **143 passed**, 6 skipped |
 | `runtime-role-security` (opt-in) | 5 passed, **1 failed** (PUBLIC `TEMP`, see §5) |
 | `iot-feedback.repository.int.spec` | NOT RUN (expects the Supabase-local DB on 54322) |
-| Web Vitest | PASS 83 files / **578 tests** |
+| Web Vitest | PASS 83 files / **578 tests** (one earlier full run showed 2 timing failures in the team's `CourseContentEditor.spec` while the machine was loaded; the file passes alone twice and the next full run was 578/578 — a load-sensitive team test, not changed) |
 | API build / web build | PASS / PASS |
 | Playwright, real browser + real API + isolated DB | PASS **13/13** (see below) |
 | Symbolic-evaluation regression | PASS (develop's Jest specs run in the 889) |
