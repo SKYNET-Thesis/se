@@ -9,6 +9,14 @@ import { AuthorLessonQuestionDto } from './dto/question-bank.dto';
 import { IMPORT_MAX_BYTES, buildXlsx, templateTable, toCsv } from './question-import';
 import { QuestionBankService } from './question-bank.service';
 
+const IMPORT_MIME = new Set(['text/csv', 'application/csv', 'application/vnd.ms-excel', 'text/plain', 'application/octet-stream', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+type UploadedImport = { originalname: string; mimetype?: string; buffer: Buffer };
+function requireImportFile(file?: UploadedImport): UploadedImport {
+  if (!file) throw new BadRequestException('Attach a .csv or .xlsx file in the "file" field.');
+  if (file.mimetype && !IMPORT_MIME.has(file.mimetype.split(';')[0].trim().toLowerCase())) throw new BadRequestException('Unsupported file type. Upload a .csv or .xlsx file.');
+  return file;
+}
+
 @ApiTags('Question Bank')
 @ApiBearerAuth()
 @UseGuards(SupabaseAuthGuard)
@@ -27,13 +35,13 @@ export class QuestionBankController {
     return new StreamableFile(format === 'csv' ? Buffer.from(toCsv(templateTable())) : buildXlsx(templateTable()));
   }
   @Post('quiz-authoring/lessons/:lessonId/import/preview') @UseInterceptors(FileInterceptor('file', { limits: { fileSize: IMPORT_MAX_BYTES, files: 1 } }))
-  importPreview(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @UploadedFile() file?: { originalname: string; buffer: Buffer }) {
-    if (!file) throw new BadRequestException('Attach a .csv or .xlsx file in the "file" field.');
+  importPreview(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @UploadedFile() upload?: UploadedImport) {
+    const file = requireImportFile(upload);
     return this.bank.importPreview(user, lessonId, file.originalname, file.buffer);
   }
   @Post('quiz-authoring/lessons/:lessonId/import') @UseInterceptors(FileInterceptor('file', { limits: { fileSize: IMPORT_MAX_BYTES, files: 1 } }))
-  importCommit(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Body() body: { objectiveId?: string; newObjective?: string; publish?: string }, @UploadedFile() file?: { originalname: string; buffer: Buffer }) {
-    if (!file) throw new BadRequestException('Attach a .csv or .xlsx file in the "file" field.');
+  importCommit(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Body() body: { objectiveId?: string; newObjective?: string; publish?: string }, @UploadedFile() upload?: UploadedImport) {
+    const file = requireImportFile(upload);
     return this.bank.importCommit(user, lessonId, file.originalname, file.buffer, { objectiveId: body?.objectiveId || undefined, newObjective: body?.newObjective, publish: body?.publish !== 'false' });
   }
   @Get('quiz-authoring/lessons/:lessonId/assignment') quizAssignment(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string) { return this.bank.quizAuthoringAssignment(user, lessonId); }
