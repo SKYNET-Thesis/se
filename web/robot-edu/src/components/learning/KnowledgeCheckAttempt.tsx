@@ -6,9 +6,10 @@ export interface PublicQuizSnapshot {
   kind: 'question_bank_quiz';
   schemaVersion: 1;
   passPercent: number;
-  questions: Array<{ questionVersionId: string; stem: string; type: string; options: Array<{ id: string; text: string }> }>;
+  questions: Array<{ questionVersionId: string; stem: string; type: string; options: Array<{ id: string; text: string }>; points?: number }>;
 }
 
+const pointsLabel = (points: number) => `${points} ${points === 1 ? 'point' : 'points'}`;
 const toSelection = (draft?: ApiDraftAnswer[]): Record<string, string[]> =>
   Object.fromEntries((draft ?? []).map((answer) => [answer.questionId, answer.optionIds ?? (answer.optionId ? [answer.optionId] : [])]));
 
@@ -63,8 +64,9 @@ export function KnowledgeCheckAttempt({
     <p className="text-xs font-medium uppercase tracking-wide text-accent-ink">Classroom knowledge check</p>
     <h1 className="mt-2 text-3xl font-semibold text-ink">{title}</h1>
     <p className="mt-2 text-sm text-ink-muted">Answer each question. Your responses are graded by the server.</p>
+    {snapshot.questions.every((q) => typeof q.points === 'number') && <p className="mt-1 text-sm text-ink-muted" data-testid="quiz-total-points">Total: {pointsLabel(snapshot.questions.reduce((sum, q) => sum + (q.points ?? 0), 0))} · Pass at {snapshot.passPercent}%</p>}
     <div className="mt-8 space-y-6">{snapshot.questions.map((question, index) => <fieldset key={question.questionVersionId} disabled={Boolean(submitted) || Boolean(readOnly)} className="rounded-xl border border-line p-5">
-      <legend className="px-2 font-medium">Question {index + 1}</legend>
+      <legend className="px-2 font-medium">Question {index + 1}{typeof question.points === 'number' && <span className="ml-2 text-sm font-normal text-ink-muted" data-testid="question-points">· {pointsLabel(question.points)}</span>}</legend>
       <p className="mb-4">{question.stem}</p>
       <div className="space-y-2">{question.options.map((option) => <label key={option.id} className="flex cursor-pointer items-start gap-3 rounded-md border border-line p-3 hover:bg-sunken">
         <input type={question.type === 'multiple_choice' ? 'checkbox' : 'radio'} name={question.questionVersionId} value={option.id} checked={(answers[question.questionVersionId] ?? []).includes(option.id)} onChange={(event) => { touched.current = true; setAnswers((current) => {
@@ -78,6 +80,8 @@ export function KnowledgeCheckAttempt({
     {error && <p role="alert" className="mt-4 rounded bg-danger-soft p-3 text-sm text-danger">{error}</p>}
     {submitted && <section aria-label="Quiz result" className="mt-6 rounded-xl border border-line bg-sunken/40 p-5">
       <h2 className="font-semibold">{submitted.passed ? 'Passed' : 'Not passed yet'}</h2><p className="mt-1">Score: {submitted.score}% · Required: {snapshot.passPercent}%</p>
+      {typeof submitted.earnedPoints === 'number' && typeof submitted.possiblePoints === 'number' && <p className="mt-1 text-sm" data-testid="quiz-earned-points">{submitted.earnedPoints} of {pointsLabel(submitted.possiblePoints)} earned</p>}
+      {submitted.feedback && <ul className="mt-3 space-y-1 text-sm" aria-label="Points per question">{submitted.feedback.map((item, index) => <li key={item.questionVersionId} data-testid="question-result">Question {index + 1}: {item.correct ? 'correct' : 'not correct'} · {item.earnedPoints} / {item.possiblePoints}{item.explanation ? <span className="block text-ink-muted">{item.explanation}</span> : null}</li>)}</ul>}
     </section>}
     <div className="mt-6 flex flex-wrap items-center gap-4">
       <button type="button" className="inline-flex h-10 items-center rounded-md bg-accent px-4 text-sm font-medium text-white disabled:opacity-50" onClick={() => (confirmSubmit ? setConfirming(true) : void submit())} disabled={!canSubmit || busy || Boolean(submitted) || Boolean(readOnly)}>{busy ? 'Submitting…' : submitted ? 'Submitted' : 'Submit quiz'}</button>

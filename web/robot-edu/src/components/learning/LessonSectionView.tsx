@@ -1,4 +1,3 @@
-import React from 'react';
 import { InfoIcon, ShieldAlertIcon } from 'lucide-react';
 import type { LessonSection } from '../../types/learning';
 import { cn } from '../../utils/cn';

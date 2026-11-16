@@ -76,10 +76,10 @@ export class EducationAdminService {
   async createClassroom(user: AuthenticatedUser, organizationId: string, dto: CreateClassroomDto) {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
     const offering = await this.prisma.learning_course_offerings.findFirst({
-      where: { id: dto.offeringId, organization_id: organizationId, status: 'active', learning_courses: { is: { organization_id: null, status: 'published' } } },
+      where: { id: dto.offeringId, organization_id: organizationId, status: 'active', learning_courses: { is: { status: 'published', OR: [{ organization_id: null }, { organization_id: organizationId }] } } },
       select: { id: true },
     });
-    if (!offering) throw new NotFoundException("An active offering for a published global course was not found.");
+    if (!offering) throw new NotFoundException("An active offering for a published course was not found.");
     if (!dto.name.trim() || !dto.code.trim()) throw new BadRequestException("Classroom name and code cannot be empty.");
     try {
       return await this.prisma.learning_classrooms.create({ data: {
@@ -114,8 +114,8 @@ export class EducationAdminService {
 
   async createCourseOffering(user: AuthenticatedUser, organizationId: string, dto: { courseId: string; code: string; title?: string; academicTerm?: string; academicYear?: number }) {
     await this.assertOrganizationPermission(user, organizationId, 'education.classroom.manage');
-    const course = await this.prisma.learning_courses.findFirst({ where: { id: dto.courseId, organization_id: null, status: 'published' }, select: { id: true, title: true } });
-    if (!course) throw new NotFoundException('Published global course was not found.');
+    const course = await this.prisma.learning_courses.findFirst({ where: { id: dto.courseId, status: 'published', OR: [{ organization_id: null }, { organization_id: organizationId }] }, select: { id: true, title: true } });
+    if (!course) throw new NotFoundException('Published course was not found.');
     try {
       return await this.prisma.learning_course_offerings.create({ data: {
         organization_id: organizationId, course_id: course.id, code: dto.code.trim(), title: dto.title?.trim() || course.title,
@@ -164,10 +164,10 @@ export class EducationAdminService {
       const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
       if (classroom.status === "archived") throw new ConflictException("Reactivate the classroom before changing its course offering.");
       const offering = await tx.learning_course_offerings.findFirst({
-        where: { id: offeringId, organization_id: organizationId, status: "active", learning_courses: { is: { organization_id: null, status: "published" } } },
+        where: { id: offeringId, organization_id: organizationId, status: "active", learning_courses: { is: { status: "published", OR: [{ organization_id: null }, { organization_id: organizationId }] } } },
         select: { id: true },
       });
-      if (!offering) throw new NotFoundException("An active offering for a published global course was not found.");
+      if (!offering) throw new NotFoundException("An active offering for a published course was not found.");
       if (classroom.offering_id !== offeringId) {
         await tx.learning_classrooms.update({ where: { id: classroom.id }, data: { offering_id: offeringId, updated_at: new Date() } });
         // Access granted through the previous offering ends; progress and attempts stay in place.

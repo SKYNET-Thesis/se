@@ -23,6 +23,7 @@ import { MediaAssetLibraryModal } from '../../components/authoring/MediaAssetLib
 import { LearnerPreviewModal } from '../../components/authoring/LearnerPreviewModal';
 import { ReadinessChecklistModal } from '../../components/authoring/ReadinessChecklistModal';
 import { publishNotice } from '../../lib/publishNotice';
+import { PUBLISH_DENIED_MESSAGE, useCanPublishCourses } from '../../lib/coursePublishing';
 
 export type ContentRef =
   | { kind: 'lesson_content'; key: string }
@@ -168,6 +169,7 @@ export function CanonicalCurriculumEditor({
   // Authoring Studio Modals
   const [learnerPreviewOpen, setLearnerPreviewOpen] = useState(false);
   const [readinessChecklistOpen, setReadinessChecklistOpen] = useState(false);
+  const canPublish = useCanPublishCourses();
   const [mediaLibraryOpen, setMediaLibraryOpen] = useState(false);
 
   // Draft of the activity open in the content workspace (reading blocks, video/media, canonical quiz)
@@ -618,6 +620,7 @@ export function CanonicalCurriculumEditor({
   };
   /** One publish flow for both views. Publishing never uses stale content: unsaved edits block it. */
   const openPublish = (snapshot?: CurriculumSnapshot) => {
+    if (!canPublish) { setNotice(null); setError(PUBLISH_DENIED_MESSAGE); return; }
     if (isContentDirty) {
       setNotice(null);
       setError('You have unsaved changes in the Content Editor. Save or discard them before publishing, so the published course matches what you see.');

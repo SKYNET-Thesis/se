@@ -14,14 +14,14 @@ describe('EducationAdminService course offering assignment', () => {
 
   beforeEach(() => { findCourse.mockReset(); createOffering.mockReset(); });
 
-  it('refuses an unpublished or school-owned course before creating an offering', async () => {
+  it('refuses an unpublished course or another school\'s course before creating an offering', async () => {
     findCourse.mockResolvedValue(null);
     await expect((service as unknown as { createCourseOffering: Function }).createCourseOffering(admin, 'school-1', { courseId: 'course-1', code: 'R-101' }))
       .rejects.toBeInstanceOf(NotFoundException);
     expect(createOffering).not.toHaveBeenCalled();
   });
 
-  it('creates an active organization offering only from a published global course', async () => {
+  it('creates an active organization offering from a published global course or the school\'s own published course', async () => {
     findCourse.mockResolvedValue({ id: 'course-1', status: 'published', title: 'Robotics' });
     createOffering.mockResolvedValue({ id: 'offering-1', course_id: 'course-1', status: 'active' });
     await expect((service as unknown as { createCourseOffering: Function }).createCourseOffering(admin, 'school-1', { courseId: 'course-1', code: 'R-101' }))

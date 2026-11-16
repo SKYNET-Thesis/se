@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckIcon, ChevronDownIcon, CopyIcon, DownloadIcon, FileJsonIcon, FolderOpenIcon, PencilIcon, PlusIcon, SearchIcon, Trash2Icon, UploadIcon } from 'lucide-react';
 import type { ProgramRecord } from '../../types/robotProgram';

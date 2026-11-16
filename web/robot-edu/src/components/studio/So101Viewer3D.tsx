@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type * as THREE from 'three';
 import type { SimState } from '../../types/robotProgram';
 import { perfMark } from '../../utils/perf';

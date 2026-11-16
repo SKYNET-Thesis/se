@@ -1,4 +1,3 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import { PuzzleIcon } from 'lucide-react';

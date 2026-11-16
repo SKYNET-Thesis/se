@@ -20,7 +20,7 @@ it('keeps the new robot scope when an old robot response arrives late', async ()
   await act(async () => root?.render(<Probe robotId="robot-b" />));
   await vi.waitFor(() => { expect(deferred.has('robot-a')).toBe(true); expect(deferred.has('robot-b')).toBe(true); });
   await act(async () => { deferred.get('robot-b')!.forEach(resolve => resolve({ token: 'scope-b', expiresAt, organizationId: 'org', robotId: 'robot-b' })); await Promise.resolve(); });
-  await vi.waitFor(() => expect(host.textContent).toBe('robot-b'));
+  await vi.waitFor(() => expect(host?.textContent).toBe('robot-b'));
   await act(async () => { deferred.get('robot-a')!.forEach(resolve => resolve({ token: 'scope-a', expiresAt, organizationId: 'org', robotId: 'robot-a' })); await Promise.resolve(); });
-  expect(host.textContent).toBe('robot-b');
+  expect(host?.textContent).toBe('robot-b');
 });

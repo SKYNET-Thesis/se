@@ -1,4 +1,3 @@
-import React from 'react';
 import { PlusIcon, Trash2Icon } from 'lucide-react';
 import type { Criterion, CriterionCheck } from '../../types/learning';
 import type { RobotOp, ZoneId } from '../../types/robotProgram';

@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { CurriculumService } from './curriculum.service';
+import { LearningScopeService } from './learning-scope.service';
 import { LearningService } from './learning.service';
 
 const requested = process.env.RUN_POSTGRES_INTEGRATION === '1';
@@ -9,14 +10,14 @@ const parsedUrl = configuredUrl ? new URL(configuredUrl) : undefined;
 const isolatedIdentity = Boolean(
   parsedUrl &&
   ['localhost', '127.0.0.1', '::1'].includes(parsedUrl.hostname) &&
-  parsedUrl.port === '55432' &&
+  parsedUrl.port === '55433' &&
   parsedUrl.pathname === '/vista_test_course_builder' &&
   parsedUrl.username === 'vista_test' &&
   process.env.VISTA_DATABASE_PROJECT_REF === 'vista-course-builder-test' &&
   !process.env.SUPABASE_URL,
 );
 if (requested && !isolatedIdentity) {
-  throw new Error('PostgreSQL integration tests require the dedicated vista_test_course_builder target on loopback port 55432.');
+  throw new Error('PostgreSQL integration tests require the approved vista_test_course_builder target on loopback port 55433.');
 }
 const enabled = requested && isolatedIdentity;
 const describeDb = enabled ? describe : describe.skip;
@@ -24,7 +25,7 @@ const describeDb = enabled ? describe : describe.skip;
 describeDb('real PostgreSQL curriculum reordering', () => {
   const db = new PrismaClient({ datasources: { db: { url: configuredUrl } } });
   const administrator = { vistaUserId: '00000000-0000-4000-8000-000000000001', status: 'active', systemPermissions: ['org.manage'], memberships: [] };
-  const learning = new LearningService(db as never, { isSystemAdministrator: () => true } as never);
+  const learning = new LearningService(db as never, new LearningScopeService(db as never) as never);
   const curriculum = new CurriculumService(db as never, { coursePath: jest.fn() } as never);
 
   beforeAll(async () => db.$connect());

@@ -1,4 +1,3 @@
-import React from 'react';
 import type { ProgramRecord } from '../../types/robotProgram';
 import type { InspectorTab, StudioController } from '../../hooks/useStudioController';
 import { Tabs } from '../ui/Tabs';

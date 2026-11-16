@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import React, { act } from 'react';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -259,7 +259,7 @@ describe('CourseDetail / Course Path', () => {
     expect(lesson4Item.textContent).toContain('🔒 Locked');
     expect(lesson4Item.textContent).toContain('Complete Grab & Release to unlock this lesson.');
 
-    const lockedButton = lesson4Item.querySelector('button[disabled]');
+    const lockedButton = lesson4Item.querySelector<HTMLButtonElement>('button[disabled]');
     expect(lockedButton).toBeDefined();
     expect(lockedButton?.disabled).toBe(true);
     expect(lockedButton?.getAttribute('aria-disabled')).toBe('true');

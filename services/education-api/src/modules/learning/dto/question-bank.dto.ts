@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMinSize, ArrayUnique, IsArray, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMinSize, ArrayUnique, IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 
 export class CreateQuestionDto {
   @IsOptional() @IsUUID() organizationId?: string;
@@ -67,3 +67,11 @@ export class CreateQuizAssignmentDto {
 }
 
 export class UpdateQuizAssignmentDto extends CreateQuizAssignmentDto {}
+
+export class AuthorLessonQuestionDto {
+  @IsOptional() @IsString() @MaxLength(80) code?: string;
+  @ValidateNested() @Type(() => VersionContentDto) content!: VersionContentDto;
+  @IsOptional() @IsUUID() objectiveId?: string;
+  @IsOptional() @IsString() @MaxLength(500) newObjective?: string;
+  @IsOptional() @IsBoolean() publish?: boolean;
+}

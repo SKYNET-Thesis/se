@@ -31,6 +31,77 @@ The application listens on container port 3000. The repository Compose stack
 publishes it at `http://localhost:3001`; its API prefix is `/api/v1`. Do not
 commit `.env` or Supabase credentials.
 
+## Learning Media (Phase 2.3)
+
+The API uses the existing private S3 Learning Media bucket. Set the server-only
+`LEARNING_MEDIA_BUCKET` and `AWS_REGION` values in the local API `.env`; provide
+AWS credentials through the AWS SDK default credential chain (for example, a
+named local AWS profile), never through the web app or committed environment
+files. The API role requires `s3:PutObject` and `s3:GetObject` only under
+`learning-media/courses/*`; Terraform contains this scoped policy and the
+browser CORS origins, but no AWS changes are applied by this repository task.
+
+Uploads use a five-minute presigned S3 POST policy, limited to the announced
+file size and an allow-listed extension/MIME pair (maximum 250 MiB). The record
+stays `pending` until the API verifies S3 HEAD size, content type, and media ID.
+Student/author playback and document access use backend-authorized S3 URLs that
+expire after 15 minutes, allowing browser video range requests while keeping
+delivery short-lived. The server never returns permanent public URLs.
+
+The canonical Production DDL owner is the repository SQL release runner under
+`database/migrations/`; Prisma schema remains the generated-client data model.
+The prepared SQL sequence is `20261110_a_curriculum_foundation`,
+`20261110_b_question_bank_foundation`, `20261110_c_question_bank_quiz_attempt`,
+`20261110_d_activity_content`, then `20261110_e_learning_media`. Each source is
+review-only and remains unregistered because release manifest provenance
+requires committed source bytes. See `database/migrations/README.md` and
+`docs/operations/production-migration-ownership.md`. Do not use `prisma migrate`
+to apply these changes or apply them to Production.
+Pending or failed records are never listed or delivered; no automatic object
+deletion is performed. Operations must monitor pending rows and use an approved
+orphan cleanup process after verifying object references.
+
+For local browser testing, configure the existing private bucket and AWS profile,
+ensure the bucket CORS configuration permits `http://localhost:5173` and the
+deployed VISTA web origin, then run:
+
+```bash
+# Terminal 1: Education API (after setting its existing DB/Auth variables and
+# LEARNING_MEDIA_BUCKET/AWS_REGION in services/education-api/.env)
+cd services/education-api
+npm run start:dev
+```
+
+```bash
+# Terminal 2: VISTA web (after configuring web/robot-edu/.env)
+cd web/robot-edu
+npm run dev -- --host 0.0.0.0
+```
+
+```bash
+# Backend checks (run from the repository root)
+cd services/education-api
+npx jest src/modules/learning/learning-media.service.spec.ts src/modules/learning/activity-content.schema.spec.ts --runInBand
+npx prisma validate --schema prisma/schema.prisma
+npm run build
+```
+
+```bash
+# Frontend checks (run from the repository root)
+cd web/robot-edu
+npx vitest run src/components/authoring/ActivityEditorPanel.spec.tsx src/components/authoring/LearningMediaPreviewModal.spec.tsx
+npm run build
+```
+
+Real upload testing requires a non-Production bucket, an AWS identity with the
+scoped S3 actions, an isolated DB with the approved curriculum and media SQL
+migrations applied, and the web origin in bucket CORS. The optional
+`docker-compose.education-test.yml` definition uses tmpfs and binds only to
+loopback; `.env.test.example` contains local-only credentials and no Production
+secrets. See `docs/operations/course-builder-database-testing.md`. The pending
+release manifest means database migration readiness is **not verified** by the
+application build.
+
 ## Student login and first setup
 
 Students sign in with a school code, student code, and password. The API resolves

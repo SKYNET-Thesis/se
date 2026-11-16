@@ -12,6 +12,10 @@ export function validateProductionConfig(config: Configuration): Configuration {
   if (!database.protocol.startsWith("postgres") || !database.hostname || !database.username || !database.password || !["require", "verify-full"].includes(database.searchParams.get("sslmode") ?? "")) {
     throw new Error("DATABASE_URL must be a PostgreSQL URL with credentials and sslmode=require or verify-full.");
   }
+  const runtimeRole = required(config, "DATABASE_RUNTIME_ROLE");
+  if (!/^[a-z_][a-z0-9_]{0,62}$/.test(runtimeRole) || runtimeRole === "postgres" || database.username.split(".")[0] !== runtimeRole) {
+    throw new Error("DATABASE_RUNTIME_ROLE must name the dedicated non-superuser role used by DATABASE_URL.");
+  }
   const supabase = new URL(required(config, "SUPABASE_URL"));
   if (supabase.protocol !== "https:") throw new Error("SUPABASE_URL must use HTTPS.");
   required(config, "SUPABASE_SERVICE_ROLE_KEY");

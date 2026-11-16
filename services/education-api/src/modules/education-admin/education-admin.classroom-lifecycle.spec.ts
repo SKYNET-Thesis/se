@@ -124,12 +124,12 @@ describe("EducationAdminService classroom lifecycle", () => {
   });
 
   describe("change offering", () => {
-    it("rejects an offering that is inactive, draft-course based, school-owned or from another organization", async () => {
+    it("rejects an offering that is inactive, draft-course based, or whose course belongs to another school (global and the own school's published courses are allowed)", async () => {
       findOffering.mockResolvedValue(null);
       await expect(service.changeClassroomOffering(schoolAdmin as never, ORG_A, ROOM, NEW_OFFERING)).rejects.toBeInstanceOf(NotFoundException);
       const where = findOffering.mock.calls[0][0].where;
       expect(where).toMatchObject({ id: NEW_OFFERING, organization_id: ORG_A, status: "active" });
-      expect(where.learning_courses).toEqual({ is: { organization_id: null, status: "published" } });
+      expect(where.learning_courses).toEqual({ is: { status: "published", OR: [{ organization_id: null }, { organization_id: ORG_A }] } });
       expect(tx.learning_classrooms.update).not.toHaveBeenCalled();
       expect(releaseIn).not.toHaveBeenCalled();
     });

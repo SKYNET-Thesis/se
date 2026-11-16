@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppShell } from './components/layout/AppShell';
@@ -6,7 +6,6 @@ import { AdminProvider } from './contexts/AdminContext';
 import { LearningProvider } from './contexts/LearningContext';
 import { ProgramsProvider } from './contexts/ProgramsContext';
 import { RoleProvider } from './contexts/RoleContext';
-import { Dashboard } from './pages/Dashboard';
 import { Courses } from './pages/Courses';
 import { CourseDetail } from './pages/CourseDetail';
 import { LessonViewer } from './pages/LessonViewer';
@@ -62,7 +61,7 @@ export function App() {
                 <Route index element={<PublicEntry />} />
                 <Route path="home-v2" element={<Navigate to="/" replace />} />
                 {/* Full-page workspace: deliberately outside AppShell so the editor owns the whole viewport. */}
-                <Route path="admin/courses/:courseId" element={<RequireSession><RequireRole roles={['admin']}><Suspense fallback={<RouteFallback />}><CourseBuilder /></Suspense></RequireRole></RequireSession>} />
+                <Route path="admin/courses/:courseId" element={<RequireSession><RequireRole roles={['admin', 'teacher', 'school_admin']}><Suspense fallback={<RouteFallback />}><CourseBuilder /></Suspense></RequireRole></RequireSession>} />
                 <Route element={<RequireSession><AppShell /></RequireSession>}>
                   <Route path="account" element={<AccountSettings />} />
                   <Route path="settings" element={<WebSettings />} />
@@ -95,7 +94,7 @@ export function App() {
                   <Route path="admin/users" element={<RequireRole roles={['admin']}><AdminUsers /></RequireRole>} />
                   <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />
                   <Route path="admin/settings" element={<RequireRole roles={['admin']}><AdminSettings /></RequireRole>} />
-                  <Route path="admin/courses" element={<RequireRole roles={['admin']}><AdminCourses /></RequireRole>} />
+                  <Route path="admin/courses" element={<RequireRole roles={['admin', 'teacher', 'school_admin']}><AdminCourses /></RequireRole>} />
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />
                   <Route path="school/users" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="users" /></RequireRole>} />
                   <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />

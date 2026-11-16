@@ -171,7 +171,22 @@ class StaticSafeguardTests(unittest.TestCase):
         self.assertEqual(d_i["versions"], [e["version"] for e in manifest["migrations"]][: len(d_i["versions"])])
         self.assertIn("20261114_j_one_submission_per_attempt", d_i["excludedVersions"])  # Stage J can never ride along with D-I
         registered = [e["version"] for e in manifest["migrations"]]
-        self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"])  # J is registered strictly after D-I
+        self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"] + scopes["K-M"]["versions"])  # J precedes K-M in the manifest
+        self.assertEqual(scopes["K-M"]["requiresApplied"], d_i["versions"] + scopes["J"]["versions"])  # K-M needs exactly D-J applied: J is a hard prerequisite
+        self.assertEqual(scopes["K-M"]["excludedVersions"], [])
+        self.assertEqual(scopes["K-M"]["productionStatus"].split()[0], "BLOCKED")
+        before, after = scopes["K-M"]["expectedCatalogBefore"], scopes["K-M"]["expectedCatalogAfter"]
+        self.assertEqual(before, scopes["J"]["expectedCatalogAfter"])  # K-M starts from exactly the schema J leaves behind
+        self.assertEqual({k: v for k, v in after.items() if k != "policies"}, {k: v for k, v in before.items() if k != "policies"})  # and adds only the runtime role's RLS policies
+        self.assertGreater(after["policies"], before["policies"])
+
+    def test_km_hosted_release_is_blocked_until_hosted_compatibility_evidence_exists(self):
+        definition = prm.scope_definition(ROOT, "K-M")
+        self.assertTrue(definition["productionStatus"].startswith("BLOCKED"))
+        self.assertIn("hosted Supabase", definition["productionStatus"])
+        source = (ROOT / "scripts/production_db_release.py").read_text()
+        self.assertIn("cannot be unblocked by release metadata", source)
+        self.assertIn("K-M is marked production BLOCKED", source)
 
     def test_deploy_script_still_has_health_check_and_rollback(self):
         script = (ROOT / "infra/terraform/scripts/deploy-api.sh").read_text()
@@ -519,8 +534,12 @@ class ReleaseFlowTests(unittest.TestCase):
             mutate(repo)
         manifest_path = repo / "database/migrations/manifest.json"
         manifest = json.loads(manifest_path.read_text())
-        manifest["migrations"] = [e for e in manifest["migrations"] if e["version"] != J_VERSION]  # D-I scenarios never see Stage J
+        # Later, separately reviewed scopes (K-M) are never part of the D-I/J scenarios either.
+        later = set(json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"].get("K-M", {}).get("versions", []))
+        manifest["migrations"] = [e for e in manifest["migrations"] if e["version"] != J_VERSION and e["version"] not in later]  # D-I scenarios never see Stage J
         (repo / "database/migrations" / f"{J_VERSION}.sql").unlink(missing_ok=True)
+        for version in later:
+            (repo / "database/migrations" / f"{version}.sql").unlink(missing_ok=True)
         if with_j:
             shutil.copy2(J_SQL, repo / "database/migrations" / f"{J_VERSION}.sql")
             manifest["migrations"].append({"version": J_VERSION, "path": f"database/migrations/{J_VERSION}.sql", "sha256": "x", "order": len(manifest["migrations"]) + 1})

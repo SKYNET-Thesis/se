@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Blockly from "blockly";
 import { BlocklyCanvas } from "../components/studio/BlocklyCanvas";
 import { Button } from "../components/ui/Button";

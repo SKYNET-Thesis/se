@@ -1,4 +1,3 @@
-import React from 'react';
 import { Link } from 'react-router-dom';
 import { FlaskConicalIcon } from 'lucide-react';
 import type { ExperimentRecord, ExecutionOutcome } from '../../types/robot';

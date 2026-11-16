@@ -1,4 +1,3 @@
-import React from 'react';
 import { ShieldAlertIcon } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Dialog } from '../ui/Dialog';

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CameraOffIcon, CheckCircle2Icon, CircleDashedIcon, PuzzleIcon, RefreshCwIcon } from 'lucide-react';
 import type { ArmStatus } from '../types/robot';
 import { usePrograms } from '../contexts/ProgramsContext';

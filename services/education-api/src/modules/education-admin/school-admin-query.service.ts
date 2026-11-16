@@ -91,7 +91,7 @@ export class SchoolAdminQueryService {
     return this.prisma.$queryRaw`
       SELECT id,title,description,created_at,updated_at
       FROM public.learning_courses
-      WHERE organization_id IS NULL AND status='published'
+      WHERE status='published' AND (organization_id IS NULL OR organization_id=${organizationId}::uuid)
       ORDER BY title`;
   }
 

@@ -19,6 +19,7 @@ import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { catalogApi, type ApiCourse } from '../../lib/api';
 import { MediaAssetLibraryModal } from '../../components/authoring/MediaAssetLibraryModal';
 import { publishNotice } from '../../lib/publishNotice';
+import { PUBLISH_DENIED_MESSAGE, useCanPublishCourses } from '../../lib/coursePublishing';
 
 const STATUS_TONE: Record<string, BadgeTone> = {
   published: 'ok',
@@ -37,6 +38,7 @@ export function AdminCourses() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const navigate = useNavigate();
+  const canPublish = useCanPublishCourses();
   // Create / edit / curriculum all live in the full-page Course Builder; this page only lists and navigates.
   const openBuilder = (courseId: string | 'new', tab?: 'details' | 'curriculum') =>
     navigate(courseId === 'new' ? '/admin/courses/new' : `/admin/courses/${courseId}?tab=${tab ?? 'curriculum'}`);
@@ -371,7 +373,8 @@ export function AdminCourses() {
                           <Button
                             size="sm"
                             onClick={() => publish.mutate(course.id)}
-                            disabled={course.status !== 'draft'}
+                            disabled={course.status !== 'draft' || !canPublish}
+                            title={!canPublish ? PUBLISH_DENIED_MESSAGE : undefined}
                             loading={publish.isPending && selected?.id === course.id}
                           >
                             Publish

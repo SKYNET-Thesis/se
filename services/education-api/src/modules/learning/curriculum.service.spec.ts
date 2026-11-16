@@ -155,7 +155,7 @@ describe('CurriculumService', () => {
     await expect(service.authorSections(teacher as never, lessonId)).rejects.toBeInstanceOf(NotFoundException);
     const sql = (query.mock.calls[0][0] as TemplateStringsArray).join('?');
     expect(sql).toContain('m.organization_id=c.organization_id');
-    expect(sql).toContain("p.code='learning.delivery.manage'");
+    expect(sql).toContain("p.code='learning.course.author'"); // authoring is its own capability, not classroom delivery
   });
 
   it('publishes a section and its validated activity without exposing draft content to learners', async () => {

@@ -497,6 +497,7 @@ describe("P0.8 — Simulation Result, Evidence & Physical-Lab Handoff", () => {
     mockScope = {
       classroomIds: jest.fn().mockResolvedValue(["class-1"]),
       isSystemAdministrator: jest.fn().mockReturnValue(false),
+      authoringOrganizationIds: jest.fn().mockReturnValue([]),
     };
 
     progressionService = new ProgressionService(mockPrisma, mockScope);
