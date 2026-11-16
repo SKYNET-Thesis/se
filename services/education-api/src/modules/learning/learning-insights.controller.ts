@@ -22,6 +22,7 @@ export class LearningInsightsController {
   @Get("me/recent-activity") activity(@CurrentUser()u:AuthenticatedUser){return this.insights.myRecentActivity(u)}
   @Get("classrooms/:classroomId/dashboard") classroomDashboard(@CurrentUser()u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe)id:string){return this.insights.classroomDashboard(u,id)}
   @Get("classrooms/:classroomId/progress-summary") progress(@CurrentUser()u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe)id:string){return this.insights.classroomProgress(u,id)}
+  @Get("classrooms/:classroomId/learner-progress") learnerProgress(@CurrentUser()u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe)id:string){return this.insights.learnerProgress(u,id)}
   @Get("classrooms/:classroomId/submission-summary") submissions(@CurrentUser()u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe)id:string){return this.insights.classroomSubmissionSummary(u,id)}
   @Get("classrooms/:classroomId/activity") classroomActivity(@CurrentUser()u:AuthenticatedUser,@Param("classroomId",ParseUUIDPipe)id:string){return this.insights.classroomActivity(u,id)}
   @Get("me/attempts/:attemptId/workspace") workspace(@CurrentUser()u:AuthenticatedUser,@Param("attemptId",ParseUUIDPipe)id:string){return this.insights.attemptWorkspace(u,id)}

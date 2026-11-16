@@ -436,6 +436,7 @@ export const instructorApi = {
   assess: (submissionId: string, token: string, body: { overallFeedback?: string; scores: { criterionId: string; awardedPoints: number; comment?: string }[] }) => apiRequest<ApiInstructorSubmission[]>(`/submissions/${submissionId}/assessment`, token, "POST", body),
   feedback: (submissionId: string, token: string, content: string) => apiRequest<ApiFeedback>(`/submissions/${submissionId}/feedback`, token, "POST", { content }),
   reopenGrading: (attemptId: string, token: string, reason: string) => apiRequest<{ attemptId: string; released: false; reopened: true }>(`/attempts/${attemptId}/grading/reopen`, token, "POST", { reason }),
+  learnerProgress: (classroomId: string, token: string) => apiGet<ApiLearnerProgress[]>(`/classrooms/${classroomId}/learner-progress`, token),
   releaseGrading: (submissionId: string, token: string) => apiRequest<{ attemptId: string; released: true; releasedAt: string }>(`/submissions/${submissionId}/release`, token, "POST"),
   attemptFiles: (attemptId: string, token: string) => apiGet<ApiSubmissionFile[]>(`/attempts/${attemptId}/files`, token),
   attemptFileUrl: (attemptId: string, fileId: string, token: string) => apiGet<{ url: string; filename: string; mimeType: string; expiresIn: number }>(`/attempts/${attemptId}/files/${fileId}/url`, token),
@@ -635,6 +636,7 @@ export const organizationApi = {
   detail: (id: string, token: string) => apiGet<ApiRecord>(`/organizations/${id}`, token),
   classrooms: (id: string, token: string) => apiGet<ApiClassroom[]>(`/organizations/${id}/classrooms`, token),
 };
+export interface ApiLearnerProgress { learnerUserId: string; fullName: string | null; email: string | null; lessonCount: number; lessonsCompleted: number; progressPercent: number; attemptsSubmitted: number; bestScore: number | null; lastActivityAt: string | null }
 export interface ApiRubricConfig { assignmentId: string; criteria: Array<{ id: string; title: string; description: string | null; maxPoints: number; ordinal: number }>; editable: boolean; lockedReason: string | null; totalPoints: number }
 export const assignmentApi = {
   list: learnerApi.assignments,

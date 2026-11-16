@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { assignmentKind } from '../../components/submission/submissionState';
 import { Link, useParams } from 'react-router-dom';
 import { ClipboardCheckIcon, FileQuestionIcon } from 'lucide-react';
+import { LearnerProgressTable } from '../../components/teacher/LearnerProgressTable';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { assignmentApi, classroomApi, instructorApi, type ApiClassroomAssignment } from '../../lib/api';
@@ -80,6 +81,8 @@ export function TeacherClassDetail() {
           {!assignments.isLoading && !assignments.data?.length && <p className="mt-3 text-sm text-ink-muted">No learning assigned yet.</p>}
         </div>
       </section>
+
+      <LearnerProgressTable classroomId={classroomId} token={token} />
 
       <section className="mt-10">
         <h2 className="text-xl font-semibold text-ink">Submitted results</h2>
