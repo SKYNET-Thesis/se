@@ -1,8 +1,8 @@
--- Draft (NOT registered): provisioning of the restricted runtime role `vista_app_runtime` for the direct-Prisma Education API.
--- Integration note (2026-11-16): the Question Bank global-scope part of the earlier draft (organization_id DROP NOT NULL,
--- learning_questions_global_course_code_key, check_learning_question_scope / check_learning_question_objective) is now delivered
--- by REGISTERED migration F (20261111_f_global_question_scope) and was removed here to avoid duplicate schema changes.
--- What remains is the role, its grants and its policies. Apply only through scripts/sql_migration_runner.py after owner approval.
+-- Release migration L: the restricted runtime role `vista_app_runtime` used by the direct-Prisma Education API.
+-- (The Question Bank global-scope changes that an earlier draft contained are migration F and are not repeated here.)
+-- The role is created LOGIN but password-less: set its password out of band after review; this migration never stores a secret.
+-- Table allowlist = tables referenced by runtime code (including learning_submission_files from migration I).
+-- Public-schema TEMP privilege inherited from PUBLIC is handled separately by migration M.
 -- Prisma connects directly as this single trusted backend identity. It cannot
 -- carry the end-user identity into PostgreSQL, so tenant checks remain in the
 -- NestJS service layer. These permissive policies are intentionally scoped to

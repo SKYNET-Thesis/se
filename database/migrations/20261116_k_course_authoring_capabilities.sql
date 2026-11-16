@@ -1,8 +1,9 @@
--- Draft (NOT registered in database/migrations/manifest.json; owner review required before any shared/Production use).
--- Introduces the school-scoped authoring capability approved for the VISTA Release Candidate:
---   learning.course.author  -> create/edit/preview/publish the caller's own school's courses, curriculum,
---                              media, questions and quizzes. It is distinct from learning.delivery.manage
---                              (classroom delivery) and from org.manage (System Administrator).
+-- Release migration K: school-scoped authoring and publishing capabilities (owner-approved policy, 2026-11-16).
+--   learning.course.author  -> create/edit/preview a school's courses, curriculum, media, questions and quizzes
+--                              (Instructor and School Admin). Distinct from learning.delivery.manage (classroom
+--                              delivery) and from org.manage (System Administrator).
+--   learning.course.publish -> publish a school's courses (Instructor only; School Admin must not publish).
+-- Both are enforced by the Education API (LearningScopeService), never only by the UI.
 -- Granted to the existing roles `instructor` and `school_admin` only when those roles exist.
 -- learning.course.publish (publishing a school's courses) is granted to `instructor` ONLY, per the owner's latest policy.
 -- Idempotent: safe to rerun. No data is removed. Rollback: delete the two role_permissions rows and the permission row.
