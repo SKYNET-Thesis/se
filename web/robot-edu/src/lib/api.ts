@@ -587,7 +587,25 @@ export type AuthorQuestionBody = {
   content: { type: string; difficulty: string; cognitiveLevel: string; stem: string; options: Array<{ id: string; text: string }>; answerKey: string[]; explanation?: string };
   objectiveId?: string; newObjective?: string; code?: string;
 };
+export type QuestionImportItem = { rowNumber: number; status: 'valid' | 'invalid' | 'duplicate'; errors: string[]; duplicateOf?: { row?: number; existingCode?: string }; points?: number; stem?: string; type?: string };
+export type QuestionImportPreview = { total: number; valid: number; invalid: number; duplicates: number; items: QuestionImportItem[] };
+export type QuestionImportResult = QuestionImportPreview & { created: number; failed: number; results: Array<{ rowNumber: number; status: 'created' | 'failed'; message?: string; versionId?: string; points?: number }> };
+async function postQuestionFile<T>(path: string, token: string, file: File, fields: Record<string, string> = {}): Promise<T> {
+  const form = new FormData();
+  form.append('file', file);
+  for (const [key, value] of Object.entries(fields)) if (value) form.append(key, value);
+  const response = await fetch(`${baseUrl}${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, body: form });
+  if (!response.ok) { const payload = await response.json().catch(() => null) as { message?: string | string[] } | null; throw new ApiError(response.status, [payload?.message ?? `Import failed (${response.status}).`].flat().join(' ')); }
+  return response.json() as Promise<T>;
+}
 export const quizAuthoringApi = {
+  importPreview: (lessonId: string, token: string, file: File) => postQuestionFile<QuestionImportPreview>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/import/preview`, token, file),
+  importCommit: (lessonId: string, token: string, file: File, fields: { objectiveId?: string; newObjective?: string }) => postQuestionFile<QuestionImportResult>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/import`, token, file, fields as Record<string, string>),
+  downloadTemplate: async (token: string, format: 'csv' | 'xlsx') => {
+    const response = await fetch(`${baseUrl}/author/question-bank/quiz-authoring/import-template?format=${format}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) throw new ApiError(response.status, 'Could not download the template.');
+    return response.blob();
+  },
   objectives: (lessonId: string, token: string) => apiGet<AuthoringObjective[]>(`/author/question-bank/lessons/${lessonId}/objectives`, token),
   authorQuestion: (lessonId: string, token: string, body: AuthorQuestionBody) => apiRequest<{ questionId: string; versionId: string; status: string }>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/questions`, token, 'POST', body),
   questions: (lessonId: string, token: string, search = '', type = '', page = 1, pageSize = 20) => apiGet<{ items: QuizAuthoringQuestion[]; total: number; page: number; pageSize: number }>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/questions?search=${encodeURIComponent(search)}&type=${encodeURIComponent(type)}&page=${page}&pageSize=${pageSize}`, token),

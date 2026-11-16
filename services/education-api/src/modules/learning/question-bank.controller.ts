@@ -1,10 +1,12 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Res, StreamableFile, UploadedFile, UseInterceptors, Param, ParseIntPipe, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../identity/auth/current-user.decorator';
 import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
 import { SupabaseAuthGuard } from '../identity/auth/supabase-auth.guard';
 import { AddAssignmentQuestionDto, CreateQuestionDto, CreateQuizAssignmentDto, ObjectiveMappingDto, QuestionSearchDto, ReorderAssignmentQuestionsDto, UpdateQuizAssignmentDto, UpdateVersionDto, VersionContentDto } from './dto/question-bank.dto';
 import { AuthorLessonQuestionDto } from './dto/question-bank.dto';
+import { IMPORT_MAX_BYTES, buildXlsx, templateTable, toCsv } from './question-import';
 import { QuestionBankService } from './question-bank.service';
 
 @ApiTags('Question Bank')
@@ -17,6 +19,22 @@ export class QuestionBankController {
   @Get('quiz-authoring/lessons/:lessonId/questions') quizQuestions(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Query('search') search = '', @Query('type') type?: string, @Query('page', new ParseIntPipe({ optional: true })) page = 1, @Query('pageSize', new ParseIntPipe({ optional: true })) pageSize = 20) {
     if (page < 1 || pageSize < 1 || pageSize > 100 || search.length > 80 || (type && !['single_choice', 'multiple_choice', 'true_false'].includes(type))) throw new BadRequestException('Question search filters are invalid.');
     return this.bank.quizAuthoringQuestions(user, lessonId, search, type, page, pageSize);
+  }
+
+  @Get('quiz-authoring/import-template') importTemplate(@Query('format') format = 'csv', @Res({ passthrough: true }) res: { set(h: Record<string, string>): void }) {
+    if (format !== 'csv' && format !== 'xlsx') throw new BadRequestException('Template format must be csv or xlsx.');
+    res.set({ 'Content-Disposition': `attachment; filename="question-bank-template.${format}"`, 'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    return new StreamableFile(format === 'csv' ? Buffer.from(toCsv(templateTable())) : buildXlsx(templateTable()));
+  }
+  @Post('quiz-authoring/lessons/:lessonId/import/preview') @UseInterceptors(FileInterceptor('file', { limits: { fileSize: IMPORT_MAX_BYTES, files: 1 } }))
+  importPreview(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @UploadedFile() file?: { originalname: string; buffer: Buffer }) {
+    if (!file) throw new BadRequestException('Attach a .csv or .xlsx file in the "file" field.');
+    return this.bank.importPreview(user, lessonId, file.originalname, file.buffer);
+  }
+  @Post('quiz-authoring/lessons/:lessonId/import') @UseInterceptors(FileInterceptor('file', { limits: { fileSize: IMPORT_MAX_BYTES, files: 1 } }))
+  importCommit(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Body() body: { objectiveId?: string; newObjective?: string; publish?: string }, @UploadedFile() file?: { originalname: string; buffer: Buffer }) {
+    if (!file) throw new BadRequestException('Attach a .csv or .xlsx file in the "file" field.');
+    return this.bank.importCommit(user, lessonId, file.originalname, file.buffer, { objectiveId: body?.objectiveId || undefined, newObjective: body?.newObjective, publish: body?.publish !== 'false' });
   }
   @Get('quiz-authoring/lessons/:lessonId/assignment') quizAssignment(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string) { return this.bank.quizAuthoringAssignment(user, lessonId); }
   @Get('quiz-authoring/lessons/:lessonId/preview') quizPreview(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string) { return this.bank.quizAuthoringAssignment(user, lessonId, true); /* authorOrg already limits this to authors of the owning school (or a System Administrator) */ }
