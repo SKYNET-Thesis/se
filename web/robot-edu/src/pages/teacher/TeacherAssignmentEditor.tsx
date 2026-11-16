@@ -8,6 +8,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Field, inputClasses } from '../../components/ui/Field';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { UNSAVED_MESSAGE, useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
+import { AssignmentConfigPanel } from '../../components/assignments/AssignmentConfigPanel';
 import { assignmentApi, instructorApi, type ApiClassroomAssignment } from '../../lib/api';
 import { statusPresentation } from '../../queries/teacherAssignmentsModel';
 import { createDraftBody, createUpdateBody, draftForDeliveryOption, teacherLearningInvalidations, teacherLearningKeys } from '../../queries/teacherLearningQueries';
@@ -191,7 +192,9 @@ export function TeacherAssignmentEditor() {
                 <li><strong className="font-medium text-ink">Attempts:</strong> students work in an attempt, run simulations as often as they like (a simulation never submits), and submit explicitly. A submission is final; a retry is a new attempt where the classroom delivery allows it.</li>
                 <li><strong className="font-medium text-ink">Attachments:</strong> students can attach files to an attempt before submitting; you can download them while reviewing.</li>
               </ul>
-              <div className="mt-3"><Note>Due dates and attempt limits are not configurable for Blockly assignments yet, so no controls are shown.</Note></div>
+              {existingMode && existing && !(existing.constraints as { kind?: string } | null | undefined)?.kind
+                ? <div className="mt-4"><AssignmentConfigPanel classroomId={classroomId} assignmentId={assignmentId!} token={token} schedule={{ availableFrom: existing.available_from, dueAt: existing.due_at, closeAt: existing.close_at, maxAttempts: existing.max_attempts }} /></div>
+                : <div className="mt-3"><Note>Save the draft first; then the opening/due/closing dates, attempt limit and rubric can be configured here.</Note></div>}
             </Section>
 
             <Section step={5} title="Grading settings">

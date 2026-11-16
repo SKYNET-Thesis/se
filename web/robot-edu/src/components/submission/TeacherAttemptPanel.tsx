@@ -14,11 +14,18 @@ export function TeacherAttemptPanel({ item, submissionId, token, onReleased }: {
   const attempt = item.attempt ?? null;
   const [confirming, setConfirming] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [reopening, setReopening] = useState(false);
+  const [reason, setReason] = useState('');
   const files = useQuery({ queryKey: ['teacher-attempt-files', attempt?.id], queryFn: () => instructorApi.attemptFiles(attempt!.id, token), enabled: Boolean(token && attempt?.id) });
   const release = useMutation({
     mutationFn: () => instructorApi.releaseGrading(submissionId, token),
     onSuccess: async () => { setMessage('Grade and feedback released to the student.'); await onReleased(); },
     onError: (error) => setMessage(error instanceof Error ? error.message : 'The grade could not be released.'),
+  });
+  const reopen = useMutation({
+    mutationFn: () => instructorApi.reopenGrading(attempt!.id, token, reason.trim()),
+    onSuccess: async () => { setReopening(false); setReason(''); setMessage('Release withdrawn. The student no longer sees this grade; assess again and release the corrected grade. The change is recorded in the audit log.'); await onReleased(); },
+    onError: (error) => setMessage(error instanceof Error ? error.message : 'The grade could not be reopened.'),
   });
   const open = async (fileId: string) => {
     try { window.open((await instructorApi.attemptFileUrl(attempt!.id, fileId, token)).url, '_blank', 'noopener'); }
@@ -32,8 +39,10 @@ export function TeacherAttemptPanel({ item, submissionId, token, onReleased }: {
       <div className="flex items-center gap-3">
         <Badge tone={released ? 'ok' : 'warn'}>{released ? `Released ${new Date(attempt.gradingReleasedAt!).toLocaleString()}` : 'Not released to student'}</Badge>
         {!released && <Button size="sm" loading={release.isPending} onClick={() => setConfirming(true)}>Release grade & feedback</Button>}
+        {released && !reopening && <Button size="sm" variant="secondary" onClick={() => setReopening(true)}>Reopen grading</Button>}
       </div>
     </div>
+    {reopening && <div className="mt-3 space-y-2 rounded-md border border-line p-3"><label className="block text-sm font-medium text-ink">Reason for withdrawing the released grade<textarea className="mt-1 w-full rounded-md border border-line-strong bg-surface px-3 py-2 text-sm" rows={2} maxLength={1000} value={reason} onChange={(e) => setReason(e.target.value)} /></label><p className="text-xs text-ink-muted">The student stops seeing this grade immediately. The withdrawn grade and your reason are kept in the audit log.</p><div className="flex gap-2"><Button size="sm" variant="secondary" onClick={() => { setReopening(false); setReason(''); }}>Cancel</Button><Button size="sm" loading={reopen.isPending} disabled={reason.trim().length < 5} onClick={() => reopen.mutate()}>Withdraw release</Button></div></div>}
     <h3 className="mt-4 text-sm font-semibold text-ink">Student attachments</h3>
     {files.isLoading && <p className="mt-2 text-sm text-ink-muted">Loading attachments…</p>}
     {!files.isLoading && (files.data ?? []).length === 0 && <p className="mt-2 text-sm text-ink-muted">No files were attached to this attempt.</p>}
