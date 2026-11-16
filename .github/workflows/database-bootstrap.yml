@@ -61,6 +61,8 @@ jobs:
           {
             echo "PGHOST=127.0.0.1"
             echo "PGPORT=$POSTGRES_SERVICE_PORT"
+            echo "VISTA_TEST_DATABASE_NAME=vista_test_course_builder"
+            echo "VISTA_TEST_DATABASE_PORT=$POSTGRES_SERVICE_PORT"
             echo "MAIN_DB_URL=postgresql://vista_test:ci-disposable-local-only@127.0.0.1:$POSTGRES_SERVICE_PORT/vista_test_course_builder"
             echo "SECOND_DB_URL=postgresql://vista_test:ci-disposable-local-only@127.0.0.1:$POSTGRES_SERVICE_PORT/vista_baseline_test_second"
           } >> "$GITHUB_ENV"

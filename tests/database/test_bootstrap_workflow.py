@@ -15,6 +15,8 @@ class BootstrapWorkflowSafetyTests(unittest.TestCase):
         self.assertIn("job.services.postgres.ports[5432]", self.text)
         self.assertIn("Resolve the PostgreSQL service's dynamic host port", self.text)
         self.assertIn("$POSTGRES_SERVICE_PORT", self.text)
+        self.assertIn("VISTA_TEST_DATABASE_NAME=vista_test_course_builder", self.text)
+        self.assertIn("VISTA_TEST_DATABASE_PORT=$POSTGRES_SERVICE_PORT", self.text)
         self.assertNotIn("55432", self.text)
         self.assertNotIn("job.services.postgres.ports[5432] }}\n      VISTA_DATABASE_PROJECT_REF", self.text)
         urls = re.findall(r"postgresql://\S+", self.text)
