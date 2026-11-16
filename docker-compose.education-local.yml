@@ -1,0 +1,18 @@
+# Disposable PostgreSQL for local Education API development.
+# No named or bind volume is used; database files live only in container tmpfs.
+services:
+  education-local-postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: ${VISTA_LOCAL_DB_NAME:?set VISTA_LOCAL_DB_NAME}
+      POSTGRES_USER: vista_test
+      POSTGRES_PASSWORD: ${VISTA_LOCAL_DB_PASSWORD:?set VISTA_LOCAL_DB_PASSWORD}
+    ports:
+      - "127.0.0.1:${VISTA_LOCAL_DB_PORT:?set VISTA_LOCAL_DB_PORT}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data:rw,noexec,nosuid,size=1g
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vista_test -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

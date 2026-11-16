@@ -8,7 +8,7 @@ How to build a local development PostgreSQL database, and what each file in this
 | --- | --- | --- |
 | `baselines/production-public-schema-20261109T172950Z.sql` | **Historical baseline.** Schema-only `pg_dump` of the verified 2026-11-09 Production `public` schema (88 tables, SHA-256 `5b140ce7…`). It already contains migrations A/B/C and every earlier change. | No. Its SHA-256 is pinned by `migrations/manifest.json` and `baselines/production-baseline-evidence.json`. |
 | `baselines/production-baseline-evidence.json` | Verification record for that baseline (integrity, isolated restore, catalog parity). | Only to record new verification. |
-| `migrations/*.sql`, `migrations/manifest.json` | **Release migrations** applied by `scripts/sql_migration_runner.py` after the baseline. The manifest currently selects D (`activity_content`), E (`learning_media`), F (`global_question_scope`), G (`activity_progress_scope_guard`). A/B/C are kept as source history only; never replay them. | No applied migration may change; checksums are enforced. |
+| `migrations/*.sql`, `migrations/manifest.json` | **Release migrations** applied by `scripts/sql_migration_runner.py` after the baseline. The current manifest selects D–M in order; A/B/C are already represented by the historical baseline and are never replayed. | No applied migration may change; checksums are enforced. |
 | `vista_database_schema.sql` | **Legacy Review 2 script.** Not a backend baseline (no `learning_activity_progress`, no enrollment lifecycle constraints). Do not use it to build a development database. | No. |
 
 Development bootstrap = **historical baseline → release migrations → verification**, performed by
@@ -16,32 +16,37 @@ Development bootstrap = **historical baseline → release migrations → verific
 
 ## Create a development database (new team member)
 
-Requirements: Docker, a recent `psql` client on your PATH (the dump header uses `\restrict`; `psql` 18.x was
-used for verification), Python 3.12, Node.js 22 with npm. Everything runs against a throw-away PostgreSQL 17
-container bound to `127.0.0.1`. The bootstrap script refuses any host that is not loopback, any database not
-named `vista_test_*`, and any database whose `public` schema is not empty.
+Requirements: Docker Compose, `psql` 18 or newer (the schema baseline uses `\restrict`), Python 3, Node.js 22 with npm. The Education
+local Compose file runs a throw-away PostgreSQL 17 container bound to `127.0.0.1` with tmpfs storage and no
+persistent volume. Choose an available port and unique `vista_test_*` database name. The bootstrap script
+refuses non-loopback hosts, other database names, Supabase URLs, and non-empty public schemas.
 
 ```bash
-# 1. Start an empty PostgreSQL 17 (loopback only; choose your own password).
-docker run -d --name vista-dev-pg \
-  -e POSTGRES_USER=vista_test -e POSTGRES_PASSWORD=change-me-local \
-  -e POSTGRES_DB=vista_test_course_builder \
-  -p 127.0.0.1:55432:5432 postgres:17
+# 1. Generate unique local values and choose an unused loopback port.
+export VISTA_LOCAL_SUFFIX="$(date -u +%Y%m%d%H%M%S)"
+export VISTA_LOCAL_DB_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+export VISTA_LOCAL_DB_NAME="vista_test_local_${VISTA_LOCAL_SUFFIX}"
+export VISTA_LOCAL_DB_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+export VISTA_LOCAL_RUNTIME_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+export VISTA_DATABASE_PROJECT_REF="local-${VISTA_LOCAL_SUFFIX}"
+export VISTA_LOCAL_COMPOSE_PROJECT="vista-education-${VISTA_LOCAL_SUFFIX}"
+docker compose -p "$VISTA_LOCAL_COMPOSE_PROJECT" -f docker-compose.education-local.yml up -d --wait
 
 # 2. Point the tools at it (local label only; never a Supabase reference).
-export VISTA_DEV_DATABASE_URL='postgresql://vista_test:change-me-local@127.0.0.1:55432/vista_test_course_builder'
-export VISTA_DATABASE_PROJECT_REF=vista-course-builder-test
+export VISTA_DEV_DATABASE_URL="postgresql://vista_test:${VISTA_LOCAL_DB_PASSWORD}@127.0.0.1:${VISTA_LOCAL_DB_PORT}/${VISTA_LOCAL_DB_NAME}?sslmode=disable"
 unset SUPABASE_URL
 
-# 3. Bootstrap: restore baseline, apply D/E/F/G through the ledger, verify, re-run to prove idempotence.
+# 3. Bootstrap: restore the baseline, apply the complete D–M manifest, and verify it.
 python3 scripts/bootstrap_dev_database.py --confirm-local-bootstrap
 
 # 4. Re-verify at any time (read-only).
 python3 scripts/bootstrap_dev_database.py --verify-only
 ```
 
-Port `55432`, database `vista_test_course_builder`, user `vista_test` and project label
-`vista-course-builder-test` are what the PostgreSQL integration tests expect; keep them unchanged.
+The Education PostgreSQL integration suites accept the selected port/name when `VISTA_TEST_DATABASE_PORT`,
+`VISTA_TEST_DATABASE_NAME`, and `VISTA_DATABASE_PROJECT_REF` match the same disposable target. See
+[`course-builder-database-testing.md`](../docs/operations/course-builder-database-testing.md) for fixture
+requirements. Do not reuse legacy fixed ports when they are occupied.
 
 What the script does, in order:
 
@@ -50,35 +55,35 @@ What the script does, in order:
 3. Creates the `NOLOGIN` roles that the baseline grants reference (`anon`, `authenticated`, `service_role`, `postgres`, `supabase_admin`) if missing.
 4. Restores the baseline in one transaction and compares catalog object counts with the dump.
 5. Applies the manifest migrations through `scripts/sql_migration_runner.py` (advisory lock, one transaction, ledger rows with checksums).
-6. Verifies the ledger equals the manifest, that the required objects exist (`learning_activity_progress`, the classroom-member, lesson-progress and enrollment unique constraints, the enrollment `revoked` status, migration D/E/F/G objects), that the schema fingerprint equals the pinned `baselines/dev-schema-expectation.json`, and that a second run has nothing pending.
+6. Verifies the ledger equals the manifest, required objects and constraints, the K–M authorization/runtime-role/TEMP contracts, and the pinned `baselines/dev-schema-expectation.json`; a second run has nothing pending.
 7. Prints the schema fingerprint. Any database bootstrapped from the same commit prints the same fingerprint, and verification fails with "schema drift" if it differs from the pinned value (the fingerprint assumes a database owned by `vista_test`, as in the commands above).
 
-Expected result: 89 tables, 787 columns, 485 constraints, 239 indexes, 20 triggers, 13 functions; ledger rows
-`20261110_d_activity_content`, `20261110_e_learning_media`, `20261111_f_global_question_scope`,
-`20261111_g_activity_progress_scope_guard`.
+Expected PostgreSQL 17 result: 91 tables, 814 columns, 502 constraints, 246 indexes, 48 RLS policies,
+22 triggers, 15 functions, and the ten D–M ledger rows. The expected fingerprint is pinned in
+`baselines/dev-schema-expectation.json` and assumes the database owner is `vista_test`.
 
 ## Run the backend against it
 
-```bash
-cd services/education-api
-export DATABASE_URL='postgresql://vista_test:change-me-local@127.0.0.1:55432/vista_test_course_builder?schema=public'
-export DIRECT_URL="$DATABASE_URL"        # required by prisma/schema.prisma
-npm ci
-npx prisma validate && npx prisma generate     # client generation only
-npm run build
-npm run start:dev
-```
+Use the restricted `vista_app_runtime` role for API `DATABASE_URL`; set its password only in the disposable
+local database after bootstrap. Use the `vista_test` writer URL for `DIRECT_URL`, Prisma generation, and
+local seed scripts. Full commands are in [`local-education-development.md`](../docs/setup/local-education-development.md).
 
 PostgreSQL integration tests (real database, no mocks):
 
 ```bash
-export VISTA_DATABASE_PROJECT_REF=vista-course-builder-test RUN_POSTGRES_INTEGRATION=1
-npx jest --runInBand --testPathPatterns 'db\.spec'    # 66 tests
-npx jest --runInBand                                  # full suite
+cd services/education-api
+export VISTA_DATABASE_PROJECT_REF=vista-course-builder-test
+export VISTA_TEST_DATABASE_NAME="$VISTA_LOCAL_DB_NAME"
+export VISTA_TEST_DATABASE_PORT="$VISTA_LOCAL_DB_PORT"
+export VISTA_INTEGRATION_DATABASE_URL="$VISTA_DEV_DATABASE_URL"
+export RUN_POSTGRES_INTEGRATION=1
+npx jest --runInBand --testPathPatterns 'db\.spec'
+npx jest --runInBand
 ```
 
-`iot-feedback.repository.int.spec.ts` needs its own `vista_iot_integration` database on port 54322 and
-`learning-media.storage.s3.int.spec.ts` needs S3 settings; both skip when their targets are not configured.
+Optional IoT feedback integration additionally requires `RUN_IOT_FEEDBACK_INTEGRATION=1` and its dedicated
+local fixture configuration. Learning Media S3 integration needs a local S3-compatible endpoint and explicit
+test settings. Neither requires Production services.
 
 ## Continuous integration
 
@@ -96,12 +101,13 @@ touches Supabase or Production and is not a release gate. To reproduce its resul
 3. Bootstrap a fresh database, then run `python3 scripts/bootstrap_dev_database.py --verify-only --write-expectation`
    to re-pin `baselines/dev-schema-expectation.json`, review the diff, and commit it with the manifest.
 
-## Reset
+## Stop and discard the disposable database
 
-The bootstrap never reuses a populated database. To start over, remove the container and repeat the steps:
+The bootstrap never reuses a populated database. To discard this ephemeral database, stop only the Compose
+project created for it:
 
 ```bash
-docker rm -f vista-dev-pg
+docker compose -p "$VISTA_LOCAL_COMPOSE_PROJECT" -f docker-compose.education-local.yml down
 ```
 
 ## Troubleshooting
@@ -109,12 +115,12 @@ docker rm -f vista-dev-pg
 | Symptom | Cause / fix |
 | --- | --- |
 | `Target public schema is not empty; bootstrap refused` | The database was already bootstrapped or partly restored. `docker rm -f vista-dev-pg` and start a new container. Do not delete objects by hand. |
-| `PostgreSQL database preflight failed (psql exit 2)` | Server not reachable, wrong password, or TLS mismatch. Check `docker ps`, the URL, and the `127.0.0.1:55432` port mapping. |
+| `PostgreSQL database preflight failed (psql exit 2)` | Server not reachable, wrong password, or TLS mismatch. Check the selected Compose project, URL, and loopback port. |
 | `... must be named vista_test_...` / `loopback` | The guard is working. Use a local `vista_test_*` database; never point this at Supabase. |
-| `VISTA_DATABASE_PROJECT_REF must be a local label` | Export `VISTA_DATABASE_PROJECT_REF=vista-course-builder-test`. |
+| `VISTA_DATABASE_PROJECT_REF must be a local label` | Export a unique local label such as `local-<timestamp>`; never use the Production project ref. |
 | `Manifest validation failed` | `database/migrations` has uncommitted or untracked `.sql` files, or a checksum changed. Release inventory is validated against Git; restore the file instead of editing it. |
 | Prisma: `Environment variable not found: DIRECT_URL` | Export `DIRECT_URL` (same value as `DATABASE_URL`). |
-| Integration tests: `require the dedicated vista_test_course_builder target` | Use exactly port `55432`, database `vista_test_course_builder`, user `vista_test`, `VISTA_DATABASE_PROJECT_REF=vista-course-builder-test`; unset `SUPABASE_URL`. |
+| Integration tests: `require the exact disposable target` | Set the target URL, `VISTA_TEST_DATABASE_PORT`, `VISTA_TEST_DATABASE_NAME`, and a non-Production `VISTA_DATABASE_PROJECT_REF` consistently; unset `SUPABASE_URL`. |
 | `psql` rejects `\restrict` | Your `psql` client is too old for the dump header. Upgrade the client. |
 
 ## Safety rules
