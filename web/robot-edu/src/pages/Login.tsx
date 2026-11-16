@@ -1,13 +1,5 @@
 import React, { useState } from 'react';
-import {
-  AlertCircleIcon,
-  ArrowLeftIcon,
-  CheckCircle2Icon,
-  EyeIcon,
-  EyeOffIcon,
-  MailIcon,
-  ShieldCheckIcon,
-} from 'lucide-react';
+import { AlertCircleIcon, ArrowLeftIcon, CheckCircle2Icon, EyeIcon, EyeOffIcon, MailIcon } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { VistaMark } from '../components/layout/VistaMark';

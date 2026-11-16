@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FileQuestionIcon, PlusIcon, PuzzleIcon } from 'lucide-react';
 import { usePrograms } from '../contexts/ProgramsContext';

@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppShell } from './components/layout/AppShell';
@@ -6,7 +6,6 @@ import { AdminProvider } from './contexts/AdminContext';
 import { LearningProvider } from './contexts/LearningContext';
 import { ProgramsProvider } from './contexts/ProgramsContext';
 import { RoleProvider } from './contexts/RoleContext';
-import { Dashboard } from './pages/Dashboard';
 import { Courses } from './pages/Courses';
 import { CourseDetail } from './pages/CourseDetail';
 import { LessonViewer } from './pages/LessonViewer';

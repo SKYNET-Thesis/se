@@ -1,4 +1,3 @@
-import React from 'react';
 import { CheckIcon } from 'lucide-react';
 import type { DemoUser } from '../../types/user';
 import { roleDefinitions } from '../../data/adminDemo';

@@ -1,4 +1,3 @@
-import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useRole } from '../../contexts/RoleContext';
 import { navigationByRole } from '../../data/navigation';

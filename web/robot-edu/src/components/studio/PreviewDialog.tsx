@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { AlertTriangleIcon } from 'lucide-react';
 import type { GenerationResult } from '../../types/robotProgram';
 import { Button } from '../ui/Button';

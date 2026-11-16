@@ -1,5 +1,5 @@
 import { prefetchPracticeWorkspace } from '../lib/routePrefetch';
-import React, { useRef, useEffect } from 'react';
+import { useRef, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AttemptHistory } from '../components/submission/AttemptHistory';

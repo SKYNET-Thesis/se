@@ -344,7 +344,7 @@ export interface ApiInstructorSubmissionDetail extends ApiInstructorSubmission {
 export type ApiRecord = Record<string, unknown>;
 export interface ApiIdentity { id: string; fullName: string; email: string | null; status: string; signupMethod: string; emailVerifiedAt: string | null; createdAt: string; updatedAt: string; }
 export interface ApiReflection { id: string; submission_id: string; prompt_key: string; prompt_text: string; response_text: string | null; created_at: string; }
-export interface ApiVrLessonSession { id?: string; state: 'NOT_STARTED'|'STARTING'|'READY'|'WAITING_FOR_HEADSET'|'CONNECTED'|'RUNNING'|'STOPPING'|'STOPPED'|'FAILED'; mode: 'offline_fake_follower'; operatorUrl: string | null; error: string | null; createdAt?: string; updatedAt?: string; }
+export interface ApiVrLessonSession { id?: string; state: 'NOT_STARTED'|'STARTING'|'READY'|'WAITING_FOR_HEADSET'|'CONNECTED'|'RUNNING'|'STOPPING'|'STOPPED'|'FAILED'; mode: 'offline_fake_follower'; operatorUrl: string | null; error: string | null; createdAt?: string; updatedAt?: string; completedAt?: string | null; }
 
 export const learnerApi = {
   enrollments: (token: string) => apiGet<ApiEnrollment[]>("/me/enrollments?page=1&pageSize=100", token),
@@ -363,8 +363,8 @@ export const learnerApi = {
   createAttempt: (classroomAssignmentId: string, token: string) => apiRequest<ApiAttempt>(`/classroom-assignments/${classroomAssignmentId}/attempts`, token, "POST"),
   attempt: (attemptId: string, token: string) => apiGet<ApiAttempt>(`/me/attempts/${attemptId}`, token),
   program: (attemptId: string, token: string) => apiGet<ApiProgram>(`/me/attempts/${attemptId}/program`, token),
-  createProgram: (attemptId: string, token: string, body: { title: string; workspaceJson: Record<string, unknown>; robotProgram: Record<string, unknown> }) => apiRequest<ApiProgram>(`/me/attempts/${attemptId}/program`, token, "POST", body),
-  updateProgram: (programId: string, token: string, body: { title?: string; workspaceJson?: Record<string, unknown>; robotProgram?: Record<string, unknown> }) => apiRequest<ApiProgram>(`/me/programs/${programId}`, token, "PATCH", body),
+  createProgram: (attemptId: string, token: string, body: { title: string; workspaceJson: Record<string, unknown>; robotProgram: object }) => apiRequest<ApiProgram>(`/me/attempts/${attemptId}/program`, token, "POST", body),
+  updateProgram: (programId: string, token: string, body: { title?: string; workspaceJson?: Record<string, unknown>; robotProgram?: object }) => apiRequest<ApiProgram>(`/me/programs/${programId}`, token, "PATCH", body),
   versions: (programId: string, token: string) => apiGet<ApiProgramVersion[]>(`/me/programs/${programId}/versions`, token),
   createVersion: (programId: string, token: string, changeSummary?: string) => apiRequest<ApiProgramVersion>(`/me/programs/${programId}/versions`, token, "POST", { changeSummary }),
   submit: (attemptId: string, token: string, programVersionId: string, reflection?: string) => apiRequest<ApiSubmission>(`/me/attempts/${attemptId}/submission`, token, "POST", { programVersionId, reflection }),

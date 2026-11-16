@@ -1,4 +1,3 @@
-import React from 'react';
 import type { RobotCommand } from '../../types/robotProgram';
 import { describeCommand } from '../../utils/robotProgram/describe';
 

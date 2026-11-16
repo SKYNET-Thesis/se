@@ -1,4 +1,3 @@
-import React from 'react';
 import { AlertTriangleIcon, CheckCircle2Icon, CircleXIcon, CornerDownRightIcon } from 'lucide-react';
 import type { Problem } from '../../types/robotProgram';
 import { EmptyState } from '../ui/EmptyState';

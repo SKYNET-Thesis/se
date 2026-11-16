@@ -8,7 +8,7 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { Tabs } from '../../components/ui/Tabs';
 import { useRole } from '../../contexts/RoleContext';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
-import { educationAdminApi, type ApiOffering, type ApiSchoolClassroom, type ApiSchoolPerson } from '../../lib/api';
+import { educationAdminApi, type ApiSchoolClassroom, type ApiSchoolPerson } from '../../lib/api';
 import { classroomStudentImportInvalidations, memberInvalidations, schoolAdminEnabledQueries, schoolAdminKeys, type PeopleFilters, type SchoolTab } from '../../queries/schoolAdminQueries';
 import { ClassroomRobotAllocation } from './ClassroomRobotAllocation';
 import { MemberCandidatePicker } from './MemberCandidatePicker';
