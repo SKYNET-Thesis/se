@@ -172,10 +172,13 @@ class StaticSafeguardTests(unittest.TestCase):
         self.assertIn("20261114_j_one_submission_per_attempt", d_i["excludedVersions"])  # Stage J can never ride along with D-I
         registered = [e["version"] for e in manifest["migrations"]]
         self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"] + scopes["K-M"]["versions"])  # J precedes K-M in the manifest
-        self.assertEqual(scopes["K-M"]["requiresApplied"], d_i["versions"])  # K-M can release independently of J
+        self.assertEqual(scopes["K-M"]["requiresApplied"], d_i["versions"] + scopes["J"]["versions"])  # K-M needs exactly D-J applied: J is a hard prerequisite
         self.assertEqual(scopes["K-M"]["excludedVersions"], [])
         self.assertEqual(scopes["K-M"]["productionStatus"].split()[0], "BLOCKED")
-        self.assertEqual(scopes["K-M"]["expectedCatalogBefore"], scopes["K-M"]["expectedCatalogAfter"])
+        before, after = scopes["K-M"]["expectedCatalogBefore"], scopes["K-M"]["expectedCatalogAfter"]
+        self.assertEqual(before, scopes["J"]["expectedCatalogAfter"])  # K-M starts from exactly the schema J leaves behind
+        self.assertEqual({k: v for k, v in after.items() if k != "policies"}, {k: v for k, v in before.items() if k != "policies"})  # and adds only the runtime role's RLS policies
+        self.assertGreater(after["policies"], before["policies"])
 
     def test_km_hosted_release_is_blocked_until_hosted_compatibility_evidence_exists(self):
         definition = prm.scope_definition(ROOT, "K-M")
