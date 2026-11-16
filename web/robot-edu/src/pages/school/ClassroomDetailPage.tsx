@@ -28,7 +28,7 @@ export function ClassroomDetailPage() {
   const [offeringOpen, setOfferingOpen] = useState(false);
   const [lifecycleOpen, setLifecycleOpen] = useState(false);
 
-  const shell = (content: ReactNode) => <div className="vista-school mx-auto max-w-7xl px-4 py-6 sm:px-8 lg:px-10 lg:py-7"><nav aria-label="Breadcrumb">{backLink}</nav>{content}</div>;
+  const shell = (content: ReactNode) => <div className="mx-auto max-w-7xl px-4 py-6 sm:px-8 lg:px-10 lg:py-7"><nav aria-label="Breadcrumb">{backLink}</nav>{content}</div>;
 
   if (loading) return shell(<DetailSkeleton />);
   if (!scope.organizationId) return shell(<EmptyState className="mt-8" icon={<GraduationCapIcon />} title="No school to manage" description="Your account has no active school administrator membership." />);

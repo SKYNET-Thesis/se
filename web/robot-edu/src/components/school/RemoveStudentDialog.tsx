@@ -31,7 +31,7 @@ export function RemoveStudentDialog({ student, classroomName, pending, onConfirm
   };
 
   return (
-    <Dialog open={Boolean(student)} onClose={() => { if (!pending) onClose(); }} size="sm" className="vista-school"
+    <Dialog open={Boolean(student)} onClose={() => { if (!pending) onClose(); }} size="sm"
       title="Remove student?"
       description={student && <span className="block min-w-0"><span className="font-medium text-ink [overflow-wrap:anywhere]">{student.name}</span>{student.email && <span className="block text-ink-muted [overflow-wrap:anywhere]">{student.email}</span>}</span>}
       footer={<>

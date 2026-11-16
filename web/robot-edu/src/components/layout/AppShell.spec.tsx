@@ -5,7 +5,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppShell } from './AppShell';
-import { brandScopeFor } from './brandScope';
 
 vi.mock('./SidebarNav', () => ({
   SidebarNav: () => <nav aria-label="Global navigation">Dashboard Courses My Learning</nav>,
@@ -96,36 +95,13 @@ describe('AppShell focused learning navigation', () => {
     expect(container.textContent).toContain('Course path');
   });
 
-  it('scopes the palette to the active School Admin role only', () => {
-    expect(brandScopeFor('school_admin')).toBe('vista-school');
-    for (const role of ['student', 'teacher', 'teaching_assistant', 'admin', null, undefined] as const) expect(brandScopeFor(role)).toBeNull();
-  });
-
-  it('applies the VISTA School palette only while the active role is School Admin, including portals on <body>', async () => {
-    await renderAt('/courses/course-1');
-    expect(document.body.classList.contains('vista-school')).toBe(false);
-    expect(container.querySelector('button[aria-label="Account menu"]')?.className).toContain('bg-[#176255]');
-
-    act(() => root.unmount()); root = createRoot(container);
-    roleState.role = 'school_admin';
-    await renderAt('/courses/course-1');
-    expect(document.body.classList.contains('vista-school')).toBe(true);
-    expect(container.querySelector('button[aria-label="Account menu"]')?.className).toContain('bg-accent');
-
-    act(() => root.unmount()); root = createRoot(container);
-    expect(document.body.classList.contains('vista-school')).toBe(false); // removed on unmount, e.g. logout
-  });
-
-  it('removes the School palette when the active role changes without remounting the shell', async () => {
-    roleState.role = 'school_admin';
-    await renderAt('/courses/course-1');
-    expect(document.body.classList.contains('vista-school')).toBe(true);
-    roleState.role = 'teacher';
-    await renderAt('/courses/course-1'); // same root: AppShell re-renders with the new role
-    expect(document.body.classList.contains('vista-school')).toBe(false);
-    expect(container.querySelector('button[aria-label="Account menu"]')?.className).toContain('bg-[#176255]');
-    roleState.role = null; // session ended / role still resolving
-    await renderAt('/courses/course-1');
-    expect(document.body.classList.contains('vista-school')).toBe(false);
+  it('gives every role the same VISTA identity: no role palette class, shared accent tokens', async () => {
+    for (const role of ['student', 'teacher', 'teaching_assistant', 'school_admin', 'admin', null]) {
+      roleState.role = role;
+      await renderAt('/courses/course-1'); // same root: the shell re-renders with each role
+      expect(document.body.className).toBe('');
+      const avatar = container.querySelector('button[aria-label="Account menu"]')?.className ?? '';
+      expect(avatar).toContain('bg-accent'); expect(avatar).not.toMatch(/#[0-9a-f]{6}/i);
+    }
   });
 });

@@ -66,7 +66,7 @@ export function ClassroomsPage() {
   };
 
   return (
-    <div className="vista-school mx-auto max-w-7xl px-4 py-8 sm:px-8 lg:px-10">
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-8 lg:px-10">
       <PageHeader title="Classrooms" description="Find a classroom to manage its students, course and robot."
         actions={<Button variant="primary" onClick={() => setCreateOpen(true)} icon={<PlusIcon className="h-4 w-4" aria-hidden />} disabled={!scope.organizationId}>Create classroom</Button>} />
 

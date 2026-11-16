@@ -8,32 +8,13 @@
 
 /* END TAILWIND IMPORTS — ALL OTHER CSS MUST GO BELOW THIS LINE */
 
+/* VISTA Web design tokens, shared by every role (System Admin, School Admin, Teacher, Student). Direction: Playful
+   Precision, educational robotics. Roles differ by navigation and features, not by palette. Values are space-separated
+   RGB so Tailwind can apply opacity. Contrast figures are against white unless noted. */
 :root {
-  --canvas: 247 246 243;
+  --canvas: 244 246 250; /* #F4F6FA cool paper, navy-tinted */
   --surface: 255 255 255;
-  --sunken: 240 239 235;
-  --ink: 23 25 28;
-  --ink-muted: 78 83 90;
-  --ink-subtle: 112 117 125;
-  --line: 229 227 221;
-  --line-strong: 206 203 196;
-  --accent: 13 115 105;
-  --accent-hover: 9 94 86;
-  --accent-soft: 226 241 238;
-  --accent-ink: 7 78 71;
-  --ok: 30 122 72;
-  --ok-soft: 228 243 233;
-  --warn: 158 98 8;
-  --warn-soft: 251 241 220;
-  --danger: 182 44 44;
-  --danger-soft: 251 233 231;
-}
-/* VISTA brand scope for School Administration. AppShell puts it on <body> while the active role is school_admin, so the
-   shell, pages, portalled dialogs and toasts share it; other roles keep :root. It re-points the neutral and accent
-   tokens only. Semantic ok/warn/danger stay global. Contrast figures are against white unless noted. */
-.vista-school {
-  --canvas: 244 246 250; /* cool paper, navy-tinted, replaces the warm grey */
-  --sunken: 236 240 246;
+  --sunken: 236 240 246; /* quiet panels, code and evidence blocks */
   --ink: 25 36 78; /* Deep Navy #19244E, 15.0:1 */
   --ink-muted: 72 82 110; /* 7.8:1 */
   --ink-subtle: 96 105 132; /* 5.5:1, 4.8:1 on sunken */
@@ -41,25 +22,31 @@
   --line-strong: 196 204 219;
   --accent: 37 60 150; /* Brilliant Blue #253C96, 9.7:1: primary actions, links, focus ring */
   --accent-hover: 25 36 78; /* Deep Navy #19244E */
-  --accent-soft: 196 231 229; /* Ocean Water #C4E7E5: selected/active plates */
+  --accent-soft: 196 231 229; /* Ocean Water #C4E7E5: selected content plates and accent badges */
   --accent-ink: 25 36 78; /* Deep Navy, 11.3:1 on Ocean Water */
-  --vista-signal: 243 107 46; /* Sunset Orange #F36B2E: non-text marks only (3.0:1) */
+  --vista-signal: 243 107 46; /* Sunset Orange #F36B2E: non-text emphasis marks only (3.0:1) */
   --vista-mango: 245 154 30; /* Mango #F59A1E: non-text marks only, always paired with text */
+  --nav-active-bg: 234 240 255; /* #EAF0FF, distinct from the Ocean Water plates used for content */
+  --nav-active-ink: 25 36 78; /* Deep Navy, 13.2:1 on #EAF0FF */
+  --nav-active-icon: 37 60 150; /* Brilliant Blue, 8.8:1 on #EAF0FF */
+  /* Semantic states are independent of the brand palette. */
+  --ok: 30 122 72;
+  --ok-soft: 228 243 233;
+  --warn: 158 98 8;
+  --warn-soft: 251 241 220;
+  --danger: 182 44 44;
+  --danger-soft: 251 233 231;
 }
-/* The active navigation item carries the same Sunset Orange notch as the classroom code tag. Outside the scope the
-   class is inert, so other roles' navigation is unchanged. */
-.vista-school .vista-nav-active {
-  position: relative;
+/* Selected item in the main navigation, every role: a quiet blue tint, Deep Navy semibold text and a Brilliant Blue icon,
+   so it reads apart from the hover tint without a decorative stripe. Declared after the Tailwind utilities, so it wins
+   over the item's accent classes. Keyboard focus uses the global :focus-visible outline. */
+.vista-nav-active {
+  background-color: rgb(var(--nav-active-bg));
+  color: rgb(var(--nav-active-ink));
+  font-weight: 600;
 }
-.vista-school .vista-nav-active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 8px;
-  bottom: 8px;
-  width: 3px;
-  border-radius: 0 2px 2px 0;
-  background: rgb(var(--vista-signal));
+.vista-nav-active svg {
+  color: rgb(var(--nav-active-icon));
 }
 html,
 body,

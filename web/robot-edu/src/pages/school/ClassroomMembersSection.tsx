@@ -138,7 +138,7 @@ export function ClassroomMembersSection({ organizationId, classroomId, classroom
       </>}
     </section>
 
-    <Dialog open={memberOpen} onClose={closeMemberDialog} className="vista-school" title="Add member" description={<>Teachers and students from your school who aren’t in <span className="font-medium text-ink">{classroomName}</span> yet.</>}
+    <Dialog open={memberOpen} onClose={closeMemberDialog} title="Add member" description={<>Teachers and students from your school who aren’t in <span className="font-medium text-ink">{classroomName}</span> yet.</>}
       footer={<><Button variant="secondary" onClick={closeMemberDialog} disabled={addMember.isPending}>Cancel</Button><Button id="add-classroom-member-submit" type="submit" variant="primary" form="add-classroom-member" loading={addMember.isPending} disabled={!selectedMemberId}>{addMember.isPending ? 'Adding…' : 'Add member'}</Button></>}>
       <form id="add-classroom-member" onSubmit={event => void submitMember(event)} className="space-y-4">
         <label className="block">

@@ -15,7 +15,7 @@ interface DialogProps {
   children?: React.ReactNode;
   footer?: React.ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'preview';
-  /** Extra classes on the portal root, e.g. a token scope such as `vista-school`. The dialog renders into
+  /** Extra classes on the portal root, e.g. a token scope. The dialog renders into
    *  document.body, so scopes set on the page do not reach it otherwise. */
   className?: string;
 }

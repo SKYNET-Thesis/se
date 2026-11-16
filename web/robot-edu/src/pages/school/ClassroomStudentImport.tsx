@@ -103,7 +103,7 @@ export function ClassroomStudentImport({ open, onClose, organizationId, classroo
     : <><Button variant="secondary" onClick={close} disabled={Boolean(busy)}>Cancel</Button>
       {step === 1 && <Button variant="primary" onClick={() => void confirm()} loading={busy === 'importing'} disabled={addable === 0}>{busy === 'importing' ? 'Adding students…' : addable === 0 ? 'Nothing to add' : `Add ${plural(addable, 'student')}`}</Button>}</>;
 
-  return <Dialog open={open} onClose={close} size="lg" className="vista-school" title="Import students"
+  return <Dialog open={open} onClose={close} size="lg" title="Import students"
     description={<>Add a class list to <span className="font-medium text-ink">{classroomName}</span> from a CSV file.</>} footer={footer}>
     <div className="space-y-5">
       <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs" aria-label="Import steps">

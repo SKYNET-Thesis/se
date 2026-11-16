@@ -1,12 +1,64 @@
-import React, { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ChevronRightIcon, RotateCwIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { EmptyState } from '../../components/ui/EmptyState';
+import { ClassroomCodeTag, ClassroomStatusBadge } from '../../components/school/ClassroomBadges';
+import { Button } from '../../components/ui/Button';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
-import { instructorApi, type ApiTeachingClassroom } from '../../lib/api';
+import { ApiError, instructorApi, type ApiTeachingClassroom } from '../../lib/api';
+import { teacherLearningKeys } from '../../queries/teacherLearningQueries';
 
+const countLabel = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+const activeFirst = (a: ApiTeachingClassroom, b: ApiTeachingClassroom) => Number(a.status !== 'active') - Number(b.status !== 'active') || a.name.localeCompare(b.name);
+const loadMessage = (error: unknown) => {
+  if (error instanceof TypeError) return 'VISTA couldn’t be reached. Check your connection, then try again.';
+  if (error instanceof ApiError && error.status === 401) return 'Your session has ended. Sign in again, then try again.';
+  return 'Your classes couldn’t be loaded. Try again.';
+};
+
+/** The classrooms a teacher teaches (GET /me/teaching-classrooms), sharing its cache with Quizzes and the classroom page. */
 export function TeacherClasses() {
-  const { session } = useSupabaseSession(); const [classes, setClasses] = useState<ApiTeachingClassroom[]>([]); const [error, setError] = useState<string | null>(null);
-  useEffect(() => { const token = session?.access_token; if (!token) return; void instructorApi.teachingClassrooms(token).then(setClasses).catch((e: unknown) => setError(e instanceof Error ? e.message : 'Unable to load classes.')); }, [session?.access_token]);
-  return <main className="mx-auto max-w-6xl px-5 py-8 sm:px-8"><PageHeader title="My Classes" description="Only classrooms where you hold an active teaching assignment are shown." />{error && <p role="alert" className="mt-6 bg-danger-soft p-3 text-sm text-danger">{error}</p>}{!error && classes.length === 0 && <div className="mt-8"><EmptyState title="No teaching assignments" description="Ask your school administrator to add you to a classroom." /></div>}<div className="mt-8 grid gap-4 md:grid-cols-2">{classes.map((item) => <article key={item.id} className="bg-[#edf1ed] p-6"><p className="text-sm text-ink-muted">{item.organization_name}</p><h2 className="mt-8 text-2xl font-semibold tracking-[-.04em] text-ink">{item.name}</h2><p className="mt-1 text-sm text-ink-muted">{item.code}</p><div className="mt-8 flex justify-between text-sm text-ink-muted"><span>{item.student_count} students</span><span>{item.assignment_count} assigned items</span></div><Link className="mt-6 inline-block text-sm font-semibold text-[#176255] underline underline-offset-4" to={`/teacher/classes/${item.id}`}>Open classroom</Link></article>)}</div></main>;
+  const { session } = useSupabaseSession();
+  const token = session?.access_token ?? '';
+  const classes = useQuery({ queryKey: teacherLearningKeys.teachingClassrooms, queryFn: () => instructorApi.teachingClassrooms(token), enabled: Boolean(token) });
+  const rows = [...(classes.data ?? [])].sort(activeFirst);
+  const schools = new Set(rows.map((item) => item.organization_name).filter(Boolean));
+
+  return (
+    <main className="mx-auto w-full max-w-[980px] px-4 py-6 md:px-8 md:py-8">
+      <PageHeader title="My classes" />
+      {classes.isError ? (
+        <div role="alert" className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-md bg-danger-soft p-3 text-sm text-danger">
+          <span>{loadMessage(classes.error)}</span>
+          {!(classes.error instanceof ApiError && classes.error.status === 401) && <Button size="sm" variant="secondary" onClick={() => void classes.refetch()} loading={classes.isFetching} icon={<RotateCwIcon className="h-4 w-4" aria-hidden />}>Try again</Button>}
+        </div>
+      ) : classes.isPending ? (
+        <ul aria-label="Loading classes" className="mt-4 divide-y divide-line">{[0, 1, 2].map((item) => <li key={item} className="flex items-center gap-4 py-4"><div className="h-4 w-44 rounded bg-sunken motion-safe:animate-pulse" /><div className="h-3 w-28 rounded bg-sunken motion-safe:animate-pulse" /></li>)}</ul>
+      ) : rows.length === 0 ? (
+        <p className="mt-6 text-sm text-ink-muted">You aren’t teaching any classes yet. A school administrator can add you to a classroom.</p>
+      ) : (
+        <ul className="mt-2 divide-y divide-line">
+          {rows.map((item) => (
+            <li key={item.id}>
+              <Link to={`/teacher/classes/${item.id}`} className="group -mx-2 flex min-h-[64px] items-center gap-4 rounded-md px-2 py-3.5 hover:bg-sunken">
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <span className="break-words text-[15px] font-semibold text-ink group-hover:text-accent">{item.name}</span>
+                    {item.code && <ClassroomCodeTag code={item.code} />}
+                  </span>
+                  <span className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[13px] tabular-nums text-ink-muted">
+                    <span>{countLabel(item.student_count, 'student')}</span>
+                    <span>{countLabel(item.assignment_count, 'assigned item')}</span>
+                    {schools.size > 1 && item.organization_name && <span className="break-words">{item.organization_name}</span>}
+                  </span>
+                </span>
+                {item.status && item.status !== 'active' && <ClassroomStatusBadge status={item.status} />}
+                <ChevronRightIcon className="h-4 w-4 shrink-0 text-ink-subtle group-hover:text-accent" aria-hidden />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </main>
+  );
 }

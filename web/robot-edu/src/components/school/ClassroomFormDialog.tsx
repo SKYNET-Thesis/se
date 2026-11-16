@@ -81,7 +81,7 @@ export function ClassroomFormDialog({ open, mode, scope, classroom, pending, onS
   );
 
   return (
-    <Dialog open={open} onClose={requestClose} className="vista-school"
+    <Dialog open={open} onClose={requestClose}
       title={mode === 'create' ? 'Create classroom' : 'Edit classroom'}
       description={mode === 'create'
         ? 'Choose a course from the VISTA catalog. VISTA sets it up for your school and links it to this classroom.'
