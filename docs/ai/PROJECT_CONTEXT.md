@@ -1,6 +1,6 @@
 # VISTA project context
 
-Last reviewed: 2026-11-11. This is a compact orientation document, not proof
+Last reviewed: 2026-11-16. This is a compact orientation document, not proof
 that a feature is deployed or accepted. For progress and evidence, use
 [`CURRENT_STATUS.md`](CURRENT_STATUS.md), then verify relevant claims against
 the current checkout and the linked source/operational records.
@@ -57,7 +57,7 @@ and [robot safety boundary](../education/robot-safety-boundary.md).
 | Area | Intended responsibility and boundary |
 | --- | --- |
 | Education Platform | Role-aware student, teacher, school-admin, and system-admin learning workflows. NestJS API is authoritative for identity mapping, permissions, resource scope, grading, and progression. |
-| Course Builder | System-admin course catalog and canonical Course → Lesson → Section → Activity authoring, ordering, prerequisites, preview, and publishing. Source and tests exist; role-route and end-to-end acceptance remain open. |
+| Course Builder | System-admin course catalog and canonical Course → Lesson → Section → Activity authoring, ordering, prerequisites, preview, and publishing. Instructor and School Admin authoring, instructor-only publishing, and builder journeys passed local Playwright on the combined integration candidate; remote CI and Production acceptance remain unverified. See [current status](CURRENT_STATUS.md). |
 | Reading and Video | Reading/video activities are learning content. Media bytes belong in private object storage; metadata and associations belong in PostgreSQL. A video preview or activity record alone does not prove a complete secured media workflow. |
 | Question Bank and Quiz Engine | Reusable canonical questions/versions feed knowledge checks. Attempts use immutable public/grading snapshots; grading is server-side. Keep a knowledge check distinct from larger course assessment and teacher-graded work. |
 | Classroom Delivery | Published courses are selected through school-scoped offerings/classrooms; teachers deliver assignments/quizzes to authorized classrooms. Membership and tenant scope are checked server-side. |
