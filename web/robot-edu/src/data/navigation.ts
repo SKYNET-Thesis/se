@@ -6,6 +6,7 @@ import {
   Cpu,
   InboxIcon,
   LayoutDashboardIcon,
+  LayersIcon,
   LibraryIcon,
   Monitor,
   PuzzleIcon,
@@ -108,7 +109,8 @@ export const navigationByRole: Record<Role, NavSection[]> = {
   {
     title: 'Learning',
     items: [
-    { to: '/admin/courses', label: 'Course builder', icon: BookOpenIcon },
+    { to: '/school/courses', label: 'Courses', icon: BookOpenIcon },
+    { to: '/school/offerings', label: 'Offerings', icon: LayersIcon },
     { to: '/courses', label: 'Course catalogue', icon: BookOpenIcon },
     { to: '/lab', label: 'Robot Control & Practice', icon: Cpu }]
   }]

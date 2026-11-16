@@ -13,6 +13,8 @@ import { classifyImportError, ImportProvisioningError, type ImportErrorCode } fr
 import { StudentProvisioningService } from "./student-provisioning.service";
 import { EnrollmentDeliveryService } from "../learning/enrollment-delivery.service";
 import { UpdateClassroomDto } from "./dto/update-classroom.dto";
+import { UpdateCourseOfferingDto } from "./dto/update-course-offering.dto";
+import { runCourseSyncTransaction } from "../learning/course-sync-transaction";
 
 @Injectable()
 export class EducationAdminService {
@@ -93,9 +95,11 @@ export class EducationAdminService {
   }
 
   async updateClassroom(user: AuthenticatedUser, organizationId: string, classroomId: string, dto: UpdateClassroomDto) {
-    await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
+    await this.assertClassroomUpdatePermission(user, organizationId, classroomId);
     const classroom = await this.prisma.learning_classrooms.findFirst({ where: { id: classroomId, organization_id: organizationId }, select: { id: true } });
     if (!classroom) throw new NotFoundException("Classroom was not found.");
+    if (dto.name !== undefined && !dto.name.trim()) throw new BadRequestException("Classroom name cannot be empty.");
+    if (dto.code !== undefined && !dto.code.trim()) throw new BadRequestException("Classroom code cannot be empty.");
     try {
       return await this.prisma.learning_classrooms.update({
         where: { id: classroom.id },
@@ -112,6 +116,33 @@ export class EducationAdminService {
     }
   }
 
+  async updateCourse(user: AuthenticatedUser, organizationId: string, courseId: string, dto: { title?: string; description?: string }) {
+    await this.assertOrganizationCourseAuthor(user, organizationId);
+    const course = await this.prisma.learning_courses.findFirst({
+      where: { id: courseId, organization_id: organizationId },
+      select: { id: true },
+    });
+    if (!course) throw new NotFoundException("Course was not found.");
+    if (dto.title !== undefined && !dto.title.trim()) throw new BadRequestException("Course title cannot be empty.");
+    return this.prisma.learning_courses.update({
+      where: { id: course.id },
+      data: {
+        ...(dto.title === undefined ? {} : { title: dto.title.trim() }),
+        ...(dto.description === undefined ? {} : { description: dto.description.trim() || null }),
+        updated_at: new Date(),
+      },
+    });
+  }
+
+  async courses(user: AuthenticatedUser, organizationId: string) {
+    await this.assertOrganizationCourseAuthor(user, organizationId);
+    return this.prisma.learning_courses.findMany({
+      where: { organization_id: organizationId },
+      select: { id: true, title: true, description: true, status: true, created_at: true, updated_at: true },
+      orderBy: { updated_at: "desc" },
+    });
+  }
+
   async createCourseOffering(user: AuthenticatedUser, organizationId: string, dto: { courseId: string; code: string; title?: string; academicTerm?: string; academicYear?: number }) {
     await this.assertOrganizationPermission(user, organizationId, 'education.classroom.manage');
     const course = await this.prisma.learning_courses.findFirst({ where: { id: dto.courseId, status: 'published', OR: [{ organization_id: null }, { organization_id: organizationId }] }, select: { id: true, title: true } });
@@ -119,7 +150,7 @@ export class EducationAdminService {
     try {
       return await this.prisma.learning_course_offerings.create({ data: {
         organization_id: organizationId, course_id: course.id, code: dto.code.trim(), title: dto.title?.trim() || course.title,
-        academic_term: dto.academicTerm?.trim(), academic_year: dto.academicYear, status: 'active', created_by: user.vistaUserId,
+        academic_term: dto.academicTerm?.trim(), academic_year: dto.academicYear, status: 'draft', created_by: user.vistaUserId,
       } });
     } catch (error: unknown) {
       if (this.isUniqueViolation(error)) throw new ConflictException('An offering with this code already exists in the organization.');
@@ -127,11 +158,58 @@ export class EducationAdminService {
     }
   }
 
+  async updateCourseOffering(user: AuthenticatedUser, organizationId: string, offeringId: string, dto: UpdateCourseOfferingDto) {
+    await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
+    const offering = await this.prisma.learning_course_offerings.findFirst({
+      where: { id: offeringId, organization_id: organizationId, learning_courses: { is: { organization_id: null, status: "published" } } },
+      select: { id: true, status: true },
+    });
+    if (!offering) throw new NotFoundException("Course offering was not found.");
+    if (offering.status !== "draft") throw new ConflictException("Only draft course offerings can be updated.");
+    try {
+      return await this.prisma.learning_course_offerings.update({
+        where: { id: offering.id },
+        data: {
+          ...(dto.code === undefined ? {} : { code: dto.code.trim() }),
+          ...(dto.title === undefined ? {} : { title: dto.title.trim() || null }),
+          ...(dto.academicTerm === undefined ? {} : { academic_term: dto.academicTerm.trim() || null }),
+          ...(dto.academicYear === undefined ? {} : { academic_year: dto.academicYear }),
+          updated_at: new Date(),
+        },
+      });
+    } catch (error: unknown) {
+      if (this.isUniqueViolation(error)) throw new ConflictException("An offering with this code already exists in the organization.");
+      throw error;
+    }
+  }
+
+  async activateCourseOffering(user: AuthenticatedUser, organizationId: string, offeringId: string) {
+    await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
+    return runCourseSyncTransaction(this.prisma, async (tx) => {
+      const offering = await tx.learning_course_offerings.findFirst({
+        where: { id: offeringId, organization_id: organizationId, learning_courses: { is: { organization_id: null, status: "published" } } },
+        select: { id: true, course_id: true, status: true },
+      });
+      if (!offering) throw new NotFoundException("Course offering was not found.");
+      if (offering.status !== "draft") throw new ConflictException("Only draft course offerings can be activated.");
+      const activated = await tx.learning_course_offerings.update({
+        where: { id: offering.id },
+        data: { status: "active", updated_at: new Date() },
+      });
+      const sync = await this.enrollments.synchronizeCourseIn(tx, offering.course_id);
+      return { ...activated, enrollmentSync: sync };
+    });
+  }
+
   async upsertClassroomMember(user: AuthenticatedUser, organizationId: string, classroomId: string, dto: UpsertClassroomMemberDto) {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.members.manage");
     const membership = await this.prisma.memberships.findFirst({ where: { user_id: dto.userId, organization_id: organizationId }, select: { id: true, status: true, roles: { select: { code: true } } } });
     if (!membership || membership.status !== "active") throw new NotFoundException("An active organization membership was not found.");
-    const classroomRole = membership.roles.code === "student" ? "student" : membership.roles.code === "instructor" ? "teacher" : null;
+    const classroomRole =
+      membership.roles.code === "student" ? "student"
+      : membership.roles.code === "instructor" ? "teacher"
+      : membership.roles.code === "teaching_assistant" ? "teaching_assistant"
+      : null;
     if (!classroomRole) throw new ConflictException("This organization role is not eligible for classroom membership.");
     // Membership and enrollment change together under the classroom lock: a synchronization failure must not
     // leave a half-added student, and a concurrent archive/removal cannot be overtaken by this enrollment.
@@ -210,6 +288,21 @@ export class EducationAdminService {
       // Only this classroom's enrollment is released; other classrooms of the same course keep their own rows.
       const released = await this.enrollments.releaseIn(tx, classroom.id, studentId);
       return { removed: true, enrollment: released[0] ?? null };
+    });
+  }
+
+  async removeClassroomStaff(user: AuthenticatedUser, organizationId: string, classroomId: string, staffUserId: string) {
+    await this.assertOrganizationPermission(user, organizationId, "education.classroom.members.manage");
+    return this.prisma.$transaction(async (tx) => {
+      const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
+      // Teachers and TAs hold no learning_enrollments, so no enrollment release is needed.
+      const member = await tx.learning_classroom_members.findFirst({
+        where: { classroom_id: classroom.id, user_id: staffUserId, classroom_role: { in: ["teacher", "teaching_assistant"] }, status: "active" },
+        select: { id: true },
+      });
+      if (!member) throw new NotFoundException("Classroom staff member was not found.");
+      await tx.learning_classroom_members.update({ where: { id: member.id }, data: { status: "removed", left_at: new Date() } });
+      return { removed: true };
     });
   }
 
@@ -344,6 +437,33 @@ export class EducationAdminService {
     if (this.scope.isSystemAdministrator(user)) return;
     const membership = user.memberships.find((item) => item.organizationId === organizationId && item.status === "active");
     if (!membership || !membership.permissions.includes(permission)) throw new NotFoundException("Organization was not found.");
+  }
+
+  private async assertOrganizationCourseAuthor(user: AuthenticatedUser, organizationId: string) {
+    if (this.scope.canAuthorOrganization(user, organizationId)) return;
+    const membership = user.memberships.find((item) => item.organizationId === organizationId && item.status === "active");
+    if (!membership) throw new NotFoundException("Organization was not found.");
+    throw new NotFoundException("Course was not found.");
+  }
+
+  private async assertClassroomUpdatePermission(user: AuthenticatedUser, organizationId: string, classroomId: string) {
+    if (this.scope.isSystemAdministrator(user)) return;
+    const membership = user.memberships.find((item) => item.organizationId === organizationId && item.status === "active");
+    if (membership?.permissions.includes("education.classroom.manage")) return;
+    if (!membership?.permissions.includes("learning.delivery.manage")) throw new NotFoundException("Organization was not found.");
+    const teacherMembership = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT cm.id
+      FROM public.learning_classroom_members cm
+      WHERE cm.classroom_id=${classroomId}::uuid
+        AND cm.user_id=${user.vistaUserId}::uuid
+        AND cm.classroom_role IN ('teacher', 'teaching_assistant')
+        AND cm.status='active'
+        AND EXISTS (
+          SELECT 1 FROM public.memberships m
+          WHERE m.id=cm.membership_id AND m.organization_id=${organizationId}::uuid AND m.status='active'
+        )
+      LIMIT 1`;
+    if (!teacherMembership.length) throw new NotFoundException("Classroom was not found.");
   }
 
   private isUniqueViolation(error: unknown): error is { code: string } {

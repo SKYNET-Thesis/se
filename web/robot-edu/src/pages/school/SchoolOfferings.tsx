@@ -1,0 +1,95 @@
+import React, { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CheckCircle2Icon, PencilIcon, PlusIcon, RadioIcon } from 'lucide-react';
+import { Button } from '../../components/ui/Button';
+import { Dialog } from '../../components/ui/Dialog';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { PageHeader } from '../../components/ui/PageHeader';
+import { useRole } from '../../contexts/RoleContext';
+import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
+import { educationAdminApi, type ApiOffering } from '../../lib/api';
+import { schoolAdminKeys } from '../../queries/schoolAdminQueries';
+
+export function SchoolOfferings() {
+  const { session } = useSupabaseSession();
+  const { memberships } = useRole();
+  const token = session?.access_token ?? '';
+  const organizationId = memberships.find(item => item.roleCode === 'school_admin' && item.status === 'active')?.organizationId ?? '';
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editing, setEditing] = useState<ApiOffering | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const offerings = useQuery({
+    queryKey: schoolAdminKeys.offerings(organizationId),
+    queryFn: () => educationAdminApi.offerings(organizationId, token),
+    enabled: Boolean(organizationId && token),
+  });
+  const publishedCourses = useQuery({
+    queryKey: ['school-admin', organizationId, 'published-courses'],
+    queryFn: () => educationAdminApi.publishedCourses(organizationId, token),
+    enabled: createOpen && Boolean(organizationId && token),
+  });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: schoolAdminKeys.offerings(organizationId) });
+  const createOffering = useMutation({
+    mutationFn: (body: { courseId: string; code: string; title?: string }) => educationAdminApi.createCourseOffering(organizationId, token, body),
+    onSuccess: async () => { setCreateOpen(false); setError(null); await refresh(); },
+    onError: reason => setError(reason instanceof Error ? reason.message : 'Unable to create offering.'),
+  });
+  const updateOffering = useMutation({
+    mutationFn: (body: { code: string; title?: string }) => educationAdminApi.updateCourseOffering(organizationId, editing?.id ?? '', token, body),
+    onSuccess: async () => { setEditing(null); setError(null); await refresh(); },
+    onError: reason => setError(reason instanceof Error ? reason.message : 'Unable to update offering.'),
+  });
+  const activateOffering = useMutation({
+    mutationFn: (offeringId: string) => educationAdminApi.activateCourseOffering(organizationId, offeringId, token),
+    onSuccess: async () => { setError(null); await refresh(); },
+    onError: reason => setError(reason instanceof Error ? reason.message : 'Unable to activate offering.'),
+  });
+
+  const submitCreate = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const courseId = String(form.get('courseId') ?? '');
+    const code = String(form.get('code') ?? '').trim();
+    if (!courseId || !code) { setError('Choose a published course and enter an offering code.'); return; }
+    createOffering.mutate({ courseId, code, title: String(form.get('title') ?? '').trim() || undefined });
+  };
+  const submitEdit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const code = String(form.get('code') ?? '').trim();
+    if (!code) { setError('Offering code cannot be empty.'); return; }
+    updateOffering.mutate({ code, title: String(form.get('title') ?? '').trim() || undefined });
+  };
+
+  return <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:px-10">
+    <PageHeader title="Offerings" description="Prepare and activate organization-specific delivery instances for published courses." />
+    {error && <p role="alert" className="mt-5 rounded-md bg-danger-soft p-3 text-sm text-danger">{error}</p>}
+    <section className="mt-8">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div><h2 className="text-2xl font-semibold tracking-[-.04em] text-ink">Delivery offerings</h2><p className="mt-1 text-sm text-ink-muted">{offerings.isPending ? 'Loading offerings…' : `${offerings.data?.length ?? 0} offering${offerings.data?.length === 1 ? '' : 's'}`}</p></div>
+        <Button onClick={() => { setError(null); setCreateOpen(true); }} icon={<PlusIcon className="h-4 w-4" />}>New offering</Button>
+      </header>
+      {offerings.error instanceof Error && <p role="alert" className="mt-5 rounded-md bg-danger-soft p-3 text-sm text-danger">{offerings.error.message}</p>}
+      {offerings.isPending ? <div className="mt-6 grid gap-3">{Array.from({ length: 3 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-lg border border-line bg-sunken/60" />)}</div> : offerings.data?.length === 0 ? <div className="mt-7"><EmptyState icon={<RadioIcon />} title="No offerings yet" description="Create an offering from a published global course, then activate it before assigning classrooms." /></div> : <div className="mt-6 overflow-hidden rounded-xl border border-line bg-surface"><div className="divide-y divide-line">{offerings.data?.map(offering => <OfferingRow key={offering.id} offering={offering} activating={activateOffering.isPending && activateOffering.variables === offering.id} onEdit={() => { setError(null); setEditing(offering); }} onActivate={() => { setError(null); activateOffering.mutate(offering.id); }} />)}</div></div>}
+    </section>
+    <Dialog open={createOpen} onClose={() => setCreateOpen(false)} title="New offering" description="Only published global courses can be used. New offerings start as drafts." footer={<><Button variant="secondary" onClick={() => setCreateOpen(false)}>Cancel</Button><Button type="submit" form="create-offering" loading={createOffering.isPending}>Create draft</Button></>}>
+      <form id="create-offering" onSubmit={submitCreate} className="space-y-4">
+        <label className="block text-sm font-medium text-ink">Published course<select required name="courseId" disabled={publishedCourses.isPending} className="mt-1.5 h-10 w-full rounded-md border border-line-strong bg-surface px-3 text-sm"><option value="">{publishedCourses.isPending ? 'Loading published courses…' : 'Select a published course'}</option>{publishedCourses.data?.map(course => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label>
+        <label className="block text-sm font-medium text-ink">Offering code<input required maxLength={80} name="code" placeholder="ROBOTICS-2026-A" className="mt-1.5 h-10 w-full rounded-md border border-line-strong bg-surface px-3 text-sm" /></label>
+        <label className="block text-sm font-medium text-ink">Title <span className="font-normal text-ink-muted">(optional)</span><input maxLength={200} name="title" placeholder="Robotics Foundations — Class A" className="mt-1.5 h-10 w-full rounded-md border border-line-strong bg-surface px-3 text-sm" /></label>
+      </form>
+    </Dialog>
+    <Dialog open={Boolean(editing)} onClose={() => setEditing(null)} title="Edit draft offering" description="Draft offerings can be edited before activation." footer={<><Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button><Button type="submit" form="edit-offering" loading={updateOffering.isPending}>Save changes</Button></>}>
+      <form id="edit-offering" onSubmit={submitEdit} className="space-y-4">
+        <label className="block text-sm font-medium text-ink">Offering code<input required maxLength={80} name="code" defaultValue={editing?.code ?? ''} className="mt-1.5 h-10 w-full rounded-md border border-line-strong bg-surface px-3 text-sm" /></label>
+        <label className="block text-sm font-medium text-ink">Title <span className="font-normal text-ink-muted">(optional)</span><input maxLength={200} name="title" defaultValue={editing?.title ?? ''} className="mt-1.5 h-10 w-full rounded-md border border-line-strong bg-surface px-3 text-sm" /></label>
+      </form>
+    </Dialog>
+  </main>;
+}
+
+function OfferingRow({ offering, activating, onEdit, onActivate }: { offering: ApiOffering; activating: boolean; onEdit: () => void; onActivate: () => void }) {
+  const active = offering.status === 'active';
+  return <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold text-ink">{offering.title}</h3><span className={active ? 'rounded-full bg-accent-soft px-2.5 py-1 text-xs font-semibold capitalize text-accent-strong' : 'rounded-full bg-warn-soft px-2.5 py-1 text-xs font-semibold capitalize text-ink-muted'}>{offering.status}</span></div><p className="mt-1 text-sm text-ink-muted">Code <span className="font-medium text-ink">{offering.code}</span>{active ? ' · Ready for classroom assignment' : ' · Activate before assigning a classroom'}</p></div><div className="flex items-center gap-2">{!active && <><Button size="sm" variant="secondary" icon={<PencilIcon className="h-3.5 w-3.5" />} onClick={onEdit}>Edit</Button><Button size="sm" icon={<CheckCircle2Icon className="h-3.5 w-3.5" />} loading={activating} onClick={onActivate}>Activate</Button></>}</div></div>;
+}

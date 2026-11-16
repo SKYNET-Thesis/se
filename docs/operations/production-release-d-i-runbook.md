@@ -1,6 +1,6 @@
 # Production database release D–I: runbook (PREPARED, NOT EXECUTED)
 
-Status: **prepared for review and implemented as source (workflow, scripts, tests). Nothing has been run against Production and no GitHub setting has been changed.** It grants no authorization; every
+Status: **prepared for review and implemented as source (workflow, scripts, tests). The release itself (D-I) has not been run against Production.** Since this text was first written (2026-11-12) the logical-backup AWS destination, the GitHub variables, the Supabase reader role and the read-only preflight secret were provisioned (see [production-db-logical-backup.md](production-db-logical-backup.md#one-time-configuration-status-2026-11-13)); branch protection, CODEOWNERS and a second apply reviewer are still open. It grants no authorization; every
 step marked **[APPROVAL]** needs explicit owner approval at that moment. Stage J (`database/staged-migrations/`) is **not** part of
 this release.
 
@@ -115,12 +115,11 @@ creation until it is done; the gate does not require J because J is never in the
    `PRODUCTION_SUPABASE_URL`, `SUPABASE_ACCESS_TOKEN` (Supabase personal access token able to read backups of this project only). Create a dedicated
    PostgreSQL role with `USAGE` on schema `public`, `SELECT` on every `public` table **and sequence**, **and `BYPASSRLS`** (or table ownership) and name it **`vista_backup_reader`** (the tooling accepts no other read-only role; pooler user `vista_backup_reader.ovijutkvaaxohauvuxbj`, see [connection strings](production-db-logical-backup.md#connection-strings-and-role-separation-enforced-in-code)); use its URL (session pooler,
    `sslmode=require`); the tooling also wraps every read in `BEGIN READ ONLY`. `SELECT` alone is **not enough**: all 46 RLS tables have RLS enabled, so such a role reads 0 rows
-   (`count(*)` silently returns 0, `pg_dump` aborts). `snapshot` and the logical backup now refuse a role that RLS would blind (tested). Supabase documents this role recipe and `postgres` could create it on Supabase's own PostgreSQL 17.11 image (disposable container); that it also works on the hosted Free project is
-   the one remaining unverified point (see production-db-readiness-20261113.md §10). Exact SQL: [production-db-logical-backup.md](production-db-logical-backup.md#reader-role).
-2. Environment **`production-database-apply`**: **required reviewers** (at least two people from the database owners; enable *prevent self-review*), branch
+   (`count(*)` silently returns 0, `pg_dump` aborts). `snapshot` and the logical backup now refuse a role that RLS would blind (tested). **Done 2026-11-13:** the role was created on the hosted project with [production-db-reader-role-sql.md](production-db-reader-role-sql.md) and verified (details and rollback: [production-db-logical-backup.md](production-db-logical-backup.md#reader-role)); `PRODUCTION_DATABASE_READONLY_URL` in `production-database-preflight` now holds its session-pooler URL.
+2. Environment **`production-database-apply`**: **required reviewer** (configured 2026-11-13: `leduc121` only, with self-review allowed because the project has a single maintainer; the original plan of two reviewers with *prevent self-review* was replaced on purpose, see the readiness record section 16), branch
    policy `main` only, no wait-timer bypass; secret `PRODUCTION_DATABASE_APPLY_URL` (the privileged `postgres` URL used today by the API, session pooler) and the
    same `SUPABASE_ACCESS_TOKEN` and `PRODUCTION_SUPABASE_URL`. Do **not** add the privileged secret at repository level.
-3. Branch protection on `main`: required reviews, required checks `Education CI`, `Database Migration Safety`, `Database Bootstrap`, no force-push.
+3. Branch protection on `main` (applied 2026-11-13, solo maintainer): required check runs `api`, `web`, `docker`, `database-safety`, `validate-inventory`; no force-push, no deletion; pull-request reviews and code-owner reviews are **not** required (nobody else can approve); `Database Bootstrap` is not required because its workflow is path-filtered. CODEOWNERS lists `@leduc121` for the database paths (documentation of ownership, not enforced).
    CODEOWNERS for `database/`, `scripts/production_db_release.py`, `.github/workflows/production-database-release.yml`.
 4. Repository Actions permissions: workflows' default token read-only (the workflows request what they need); allow `workflow_dispatch`.
 5. Keep `AWS_DEPLOY_ENABLED=true` and the `aws-demo` environment reviewers unchanged.
