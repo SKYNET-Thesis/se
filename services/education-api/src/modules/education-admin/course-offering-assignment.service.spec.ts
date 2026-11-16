@@ -1,5 +1,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
+import { validate } from 'class-validator';
 import { EducationAdminService } from './education-admin.service';
+import { UpdateCourseOfferingDto } from './dto/update-course-offering.dto';
 
 const admin = { vistaUserId: 'admin-1', memberships: [{ organizationId: 'school-1', status: 'active', permissions: ['education.classroom.manage'] }] };
 
@@ -17,6 +19,14 @@ describe('EducationAdminService course offering assignment', () => {
   );
 
   beforeEach(() => { findCourse.mockReset(); createOffering.mockReset(); updateOffering.mockReset(); findOffering.mockReset(); transaction.mockReset(); synchronizeCourseIn.mockReset(); });
+
+  it.each(['code', 'title', 'academicTerm', 'academicYear'])(
+    'rejects null for optional offering field %s instead of letting it reach service string operations',
+    async (field) => {
+      const errors = await validate(Object.assign(new UpdateCourseOfferingDto(), { [field]: null }));
+      expect(errors.some((error) => error.property === field)).toBe(true);
+    },
+  );
 
   it('refuses an unpublished course or another school\'s course before creating an offering', async () => {
     findCourse.mockResolvedValue(null);
@@ -60,6 +70,12 @@ describe('EducationAdminService course offering assignment', () => {
 
     await expect((activationService as unknown as { activateCourseOffering: Function }).activateCourseOffering(admin, 'school-1', 'offering-1'))
       .resolves.toMatchObject({ status: 'active', enrollmentSync: { classrooms: 1, enrolled: 2 } });
+    expect(findOffering).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: 'offering-1', organization_id: 'school-1',
+        learning_courses: { is: { status: 'published', OR: [{ organization_id: null }, { organization_id: 'school-1' }] } },
+      }),
+    }));
     expect(updateOffering).toHaveBeenCalledWith(expect.objectContaining({ data: { status: 'active', updated_at: expect.any(Date) } }));
     expect(synchronizeCourseIn).toHaveBeenCalledWith(tx, 'course-1');
   });

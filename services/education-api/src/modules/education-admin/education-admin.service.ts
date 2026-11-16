@@ -161,7 +161,7 @@ export class EducationAdminService {
   async updateCourseOffering(user: AuthenticatedUser, organizationId: string, offeringId: string, dto: UpdateCourseOfferingDto) {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
     const offering = await this.prisma.learning_course_offerings.findFirst({
-      where: { id: offeringId, organization_id: organizationId, learning_courses: { is: { organization_id: null, status: "published" } } },
+      where: { id: offeringId, organization_id: organizationId, learning_courses: { is: { status: "published", OR: [{ organization_id: null }, { organization_id: organizationId }] } } },
       select: { id: true, status: true },
     });
     if (!offering) throw new NotFoundException("Course offering was not found.");
@@ -187,7 +187,7 @@ export class EducationAdminService {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
     return runCourseSyncTransaction(this.prisma, async (tx) => {
       const offering = await tx.learning_course_offerings.findFirst({
-        where: { id: offeringId, organization_id: organizationId, learning_courses: { is: { organization_id: null, status: "published" } } },
+        where: { id: offeringId, organization_id: organizationId, learning_courses: { is: { status: "published", OR: [{ organization_id: null }, { organization_id: organizationId }] } } },
         select: { id: true, course_id: true, status: true },
       });
       if (!offering) throw new NotFoundException("Course offering was not found.");
