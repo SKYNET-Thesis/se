@@ -128,12 +128,25 @@ jobs:
       - name: Backend build
         working-directory: services/education-api
         run: npm run build
+      - name: Prepare isolated runtime-role security fixture
+        shell: bash
+        run: |
+          psql "$MAIN_DB_URL" -X -v ON_ERROR_STOP=1 -c "DO \$\$ BEGIN IF current_database() <> 'vista_test_course_builder' OR current_user <> 'vista_test' THEN RAISE EXCEPTION 'unexpected runtime-security fixture target'; END IF; END \$\$"
+          psql "$MAIN_DB_URL" -X -v ON_ERROR_STOP=1 -c "ALTER ROLE vista_app_runtime PASSWORD 'ci-runtime-disposable-only'"
+          COURSE_ID="$(psql "$MAIN_DB_URL" -X -At -v ON_ERROR_STOP=1 -c "INSERT INTO public.learning_courses (title,status) VALUES ('CI runtime-role security fixture','draft') RETURNING id")"
+          USER_ID="$(psql "$MAIN_DB_URL" -X -At -v ON_ERROR_STOP=1 -c "INSERT INTO public.users (full_name,signup_method,status) VALUES ('CI runtime-role security fixture','admin_created','active') RETURNING id")"
+          {
+            echo "VISTA_RUNTIME_SECURITY_DATABASE_URL=postgresql://vista_app_runtime:ci-runtime-disposable-only@127.0.0.1:$PGPORT/vista_test_course_builder"
+            echo "VISTA_RUNTIME_FIXTURE_COURSE_ID=$COURSE_ID"
+            echo "VISTA_RUNTIME_FIXTURE_USER_ID=$USER_ID"
+          } >> "$GITHUB_ENV"
       - name: PostgreSQL integration tests (real database; none skipped)
         working-directory: services/education-api
         env:
           DATABASE_URL: ${{ env.MAIN_DB_URL }}?schema=public
           DIRECT_URL: ${{ env.MAIN_DB_URL }}?schema=public
           RUN_POSTGRES_INTEGRATION: "1"
+          RUN_RUNTIME_ROLE_SECURITY: "1"
         run: |
           npx jest --runInBand --testPathPatterns 'db\.spec' --json --outputFile="$RUNNER_TEMP/db-tests.json"
           python - <<'PY'

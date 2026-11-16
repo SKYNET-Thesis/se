@@ -22,7 +22,8 @@ class BootstrapWorkflowSafetyTests(unittest.TestCase):
         urls = re.findall(r"postgresql://\S+", self.text)
         self.assertTrue(urls)
         for url in urls:
-            self.assertIn("@127.0.0.1:$POSTGRES_SERVICE_PORT/", url)
+            self.assertIn("@127.0.0.1:", url)
+            self.assertRegex(url, r":\$(?:POSTGRES_SERVICE_PORT|PGPORT)/vista_")
             self.assertIn("/vista_", url)
 
     def test_uses_no_secrets_or_hosted_database_references(self):
@@ -38,6 +39,11 @@ class BootstrapWorkflowSafetyTests(unittest.TestCase):
             "prisma generate",
             "npm run build",
             "RUN_POSTGRES_INTEGRATION",
+            "RUN_RUNTIME_ROLE_SECURITY",
+            "VISTA_RUNTIME_SECURITY_DATABASE_URL",
+            "VISTA_RUNTIME_FIXTURE_COURSE_ID",
+            "VISTA_RUNTIME_FIXTURE_USER_ID",
+            "ALTER ROLE vista_app_runtime PASSWORD 'ci-runtime-disposable-only'",
             "numPendingTests",
         ):
             self.assertIn(required, self.text)
