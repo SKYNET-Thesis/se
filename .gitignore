@@ -47,6 +47,8 @@ logs/
 
 TestResults/
 BenchmarkDotNet.Artifacts/
+web/robot-edu/test-results/
+web/robot-edu/playwright-report/
 
 ########################################
 # NuGet
