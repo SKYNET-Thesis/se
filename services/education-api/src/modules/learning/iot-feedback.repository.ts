@@ -31,7 +31,7 @@ export class FeedbackRepository {
         FROM public.iot_command_lifecycles lifecycle
         JOIN public.control_sessions session ON session.id=lifecycle.control_session_id
         JOIN public.learning_experiments experiment ON experiment.id=lifecycle.experiment_id
-        WHERE lifecycle.command_id=${event.commandId} FOR UPDATE`);
+        WHERE lifecycle.command_id=${event.commandId}::uuid FOR UPDATE`);
       const lifecycle = rows[0];
       if (!lifecycle) throw new IotFeedbackRetryableError("iot feedback command is unknown");
       if (lifecycle.robot_id !== event.robotId) throw new IotFeedbackRejectedError("iot feedback robot mismatch");
@@ -39,7 +39,7 @@ export class FeedbackRepository {
 
       const inserted = await tx.$queryRaw<{ event_id: string }[]>(Prisma.sql`
         INSERT INTO public.iot_inbound_events(event_id,command_id,robot_id,kind,sequence,occurred_at,payload)
-        VALUES(${event.eventId},${event.commandId},${event.robotId},${event.kind},${BigInt(event.sequence)},
+        VALUES(${event.eventId},${event.commandId}::uuid,${event.robotId}::uuid,${event.kind},${BigInt(event.sequence)},
           to_timestamp(${event.occurredAtMs}::double precision/1000),${JSON.stringify(event)}::jsonb)
         ON CONFLICT (event_id) DO NOTHING RETURNING event_id`);
       if (!inserted[0]) return "duplicate";
@@ -61,7 +61,7 @@ export class FeedbackRepository {
           completed_at=CASE WHEN ${next.state} IN ('completed','failed','timed_out') THEN COALESCE(completed_at,to_timestamp(${event.occurredAtMs}::double precision/1000)) ELSE completed_at END,
           error_code=CASE WHEN ${next.state} IN ('failed','timed_out') THEN ${event.code ?? event.status ?? null} ELSE error_code END,
           updated_at=now()
-        WHERE command_id=${lifecycle.command_id}`);
+        WHERE command_id=${lifecycle.command_id}::uuid`);
       await tx.$executeRaw(Prisma.sql`
         UPDATE public.learning_experiments SET status=${mapped.experiment},
           output_snapshot=output_snapshot || ${JSON.stringify({ iot: { commandId: event.commandId, state: next.state, lastEventId: event.eventId, lastSequence: next.sequence } })}::jsonb,

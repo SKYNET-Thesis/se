@@ -12,3 +12,4 @@ export function RoleProvider({ children }: {children: React.ReactNode;}) {
   const value=useMemo(()=>({role,memberships,loading,error}),[role,memberships,loading,error]);return <RoleContext.Provider value={value}>{children}</RoleContext.Provider>;
 }
 export function useRole(): RoleContextValue {const ctx=useContext(RoleContext);if(!ctx)throw new Error('useRole must be used within RoleProvider');return ctx;}
+export function useOptionalRole(): RoleContextValue | null { return useContext(RoleContext); }

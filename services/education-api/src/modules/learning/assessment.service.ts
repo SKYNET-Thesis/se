@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
+import { classifyExecution } from "./execution-provenance";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { AssessSubmissionDto } from "./dto/assess-submission.dto";
 import { CreateFeedbackDto } from "./dto/create-feedback.dto";
@@ -198,7 +199,7 @@ export class AssessmentService {
     const rows=await this.prisma.$queryRaw<Record<string,unknown>[]>`
       SELECT e.id,e.execution_mode AS "executionMode",e.method,e.status,e.started_at AS "startedAt",
         e.ended_at AS "endedAt",e.created_at AS "createdAt",
-        jsonb_build_object('programVersionId',e.input_snapshot->>'programVersionId') AS provenance,
+        jsonb_build_object('programVersionId',e.input_snapshot->>'programVersionId','runtimeAdapterMode',e.input_snapshot->>'runtimeAdapterMode') AS provenance,
         CASE WHEN e.execution_mode='real_robot' THEN jsonb_build_object(
           'state',e.output_snapshot->>'state','errorCode',e.output_snapshot->>'errorCode',
           'startedAtMs',e.output_snapshot->'startedAtMs','endedAtMs',e.output_snapshot->'endedAtMs'
@@ -254,7 +255,8 @@ export class AssessmentService {
       WHERE e.submission_id=${submission.id}::uuid AND e.learner_user_id=${submission.learner_user_id}::uuid
         AND ca.classroom_id=${submission.classroom_id}::uuid
       ORDER BY e.created_at DESC`;
-    return rows??[];
+    // The execution source is derived here, on the server, from what was persisted at run time (see execution-provenance.ts); the web only displays it.
+    return (rows??[]).map((row)=>({...row,executionProvenance:classifyExecution({executionMode:String(row.executionMode),runtimeMode:(row.provenance as {runtimeAdapterMode?:string|null}|null)?.runtimeAdapterMode??null})}));
   }
   private detail(submissionId:string, db:Pick<PrismaService,"$queryRaw">=this.prisma){return db.$queryRaw<Record<string,unknown>[]>`
     SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,s.status,s.submitted_at,s.origin,

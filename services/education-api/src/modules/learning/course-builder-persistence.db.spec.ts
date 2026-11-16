@@ -6,18 +6,13 @@ import { LearningScopeService } from './learning-scope.service';
 import { LearningService } from './learning.service';
 import { ProgressionService } from './progression.service';
 import { QuestionBankService } from './question-bank.service';
+import { isIsolatedIntegrationDatabase } from './isolated-db-target';
 
 const requested = process.env.RUN_POSTGRES_INTEGRATION === '1';
 const configuredUrl = process.env.VISTA_INTEGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
-const parsedUrl = configuredUrl ? new URL(configuredUrl) : undefined;
-const isolatedIdentity = Boolean(
-  parsedUrl && ['localhost', '127.0.0.1', '::1'].includes(parsedUrl.hostname) &&
-  parsedUrl.port === '55432' && parsedUrl.pathname === '/vista_test_course_builder' &&
-  parsedUrl.username === 'vista_test' &&
-  process.env.VISTA_DATABASE_PROJECT_REF === 'vista-course-builder-test' && !process.env.SUPABASE_URL,
-);
+const isolatedIdentity = isIsolatedIntegrationDatabase(configuredUrl);
 if (requested && !isolatedIdentity) {
-  throw new Error('Course Builder PostgreSQL tests require vista_test_course_builder on loopback port 55432.');
+  throw new Error('Course Builder PostgreSQL tests require the exact disposable loopback target named by VISTA_TEST_DATABASE_NAME/VISTA_TEST_DATABASE_PORT.');
 }
 
 const describeDb = requested && isolatedIdentity ? describe : describe.skip;
@@ -25,7 +20,7 @@ const adminId = '00000000-0000-4000-8000-000000000001';
 const admin = { vistaUserId: adminId, status: 'active', systemPermissions: ['org.manage'], memberships: [] };
 
 describeDb('real PostgreSQL Course Builder persistence scenarios A-G', () => {
-  const db = new PrismaClient({ datasources: { db: { url: configuredUrl } } });
+  const db = new PrismaClient({ datasources: { db: { url: configuredUrl ?? 'postgresql://disabled:disabled@127.0.0.1:1/disabled' } } });
   const scope = new LearningScopeService(db as never);
   const progression = new ProgressionService(db as never, scope as never);
   const learning = new LearningService(db as never, scope as never, progression as never);
@@ -42,7 +37,7 @@ describeDb('real PostgreSQL Course Builder persistence scenarios A-G', () => {
     const identity = await db.$queryRaw<Array<{ version: string; database: string; current_user: string }>>`
       SELECT version() AS version,current_database() AS database,current_user`;
     expect(identity[0].version).toContain('PostgreSQL 17');
-    expect(identity[0].database).toBe('vista_test_course_builder');
+    expect(identity[0].database).toBe(process.env.VISTA_TEST_DATABASE_NAME ?? 'vista_test_course_builder');
     expect(identity[0].current_user).toBe('vista_test');
   });
   afterAll(async () => { await db.$disconnect(); });

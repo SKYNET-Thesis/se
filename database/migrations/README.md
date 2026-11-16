@@ -1,7 +1,7 @@
 # Production SQL migration stream
 
 This directory is the source inventory for SQL releases owned by the SQL
-release runner. The active manifest selects migrations D, E, F, G, and H against the
+release runner. The active manifest selects migrations D through M (K: authoring/publishing capabilities, L: restricted runtime role, M: revocation of the PUBLIC TEMP privilege; K–M are local release candidates, unapproved and unapplied outside disposable databases) against the
 verified 2026-11-09 Production baseline. Migrations A–C are excluded because
 their schema is already represented in that baseline and their historical
 Production versions must not be replayed.
@@ -46,5 +46,8 @@ See [`../../docs/operations/production-migration-ownership.md`](../../docs/opera
 for migration ownership and release approval policy.
 
 Catalog verification does not validate a first live runner execution or
-authorize a Production release. Any future application requires separate
-review, explicit approval, and the controls in the ownership policy.
+authorize a Production release. K–M is explicitly production-blocked until
+hosted Supabase platform-role compatibility for M and its recovery behavior are
+independently verified. See [`../../docs/operations/production-release-k-m-runbook.md`](../../docs/operations/production-release-k-m-runbook.md).
+Any future application requires separate review, explicit approval, and the
+controls in the ownership policy.

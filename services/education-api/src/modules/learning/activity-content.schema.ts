@@ -22,6 +22,8 @@ export function validateActivityContent(type: string, raw: unknown): ActivityCon
   if (raw == null) return null;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new BadRequestException('Activity content must be an object.');
   const value = raw as Record<string, unknown>;
+  // Evaluated activities (quiz, practice, …) have no structured content; the builder sends `{}` for them.
+  if (type !== 'reading' && type !== 'video' && Object.keys(value).length === 0) return null;
   if (value.version !== 1) throw new BadRequestException('Activity content version is invalid.');
 
   if (type === 'reading') {

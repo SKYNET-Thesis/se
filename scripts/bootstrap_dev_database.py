@@ -58,6 +58,11 @@ REQUIRED_OBJECTS = [
     ("one submission per attempt unique index (migration I)", "to_regclass('public.learning_submissions_attempt_id_key') IS NOT NULL", "20261113_i_attempt_submission_foundation"),
     ("table learning_submission_files with row level security (migration I)", "COALESCE((SELECT relrowsecurity FROM pg_class WHERE oid=to_regclass('public.learning_submission_files')), false)", "20261113_i_attempt_submission_foundation"),
     ("attempt grading release columns (migration I)", "(SELECT count(*) FROM pg_attribute WHERE attrelid='public.learning_assignment_attempts'::regclass AND attname IN ('draft_response','draft_saved_at','grading_released_at','grading_released_by','grading_release_origin') AND NOT attisdropped)=5", "20261113_i_attempt_submission_foundation"),
+    ("permission learning.course.author (migration K)", "EXISTS (SELECT 1 FROM public.permissions WHERE code='learning.course.author')", "20261116_k_course_authoring_capabilities"),
+    ("permission learning.course.publish (migration K)", "EXISTS (SELECT 1 FROM public.permissions WHERE code='learning.course.publish')", "20261116_k_course_authoring_capabilities"),
+    ("restricted runtime role without superuser/bypassrls/inherit (migration L)", "EXISTS (SELECT 1 FROM pg_roles WHERE rolname='vista_app_runtime' AND NOT rolsuper AND NOT rolbypassrls AND NOT rolinherit AND NOT rolcreatedb AND NOT rolcreaterole)", "20261116_l_runtime_role"),
+    ("runtime role may write learning_submission_files (migration L)", "has_table_privilege('vista_app_runtime','public.learning_submission_files','INSERT')", "20261116_l_runtime_role"),
+    ("PUBLIC TEMP revoked and runtime role without TEMP (migration M)", "NOT has_database_privilege('public',current_database(),'TEMP') AND NOT has_database_privilege('vista_app_runtime',current_database(),'TEMP')", "20261116_m_revoke_public_temp_privilege"),
     ("trigger guard_learning_submission_files (migration I)", "EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.learning_submission_files'::regclass AND tgname='guard_learning_submission_files')", "20261113_i_attempt_submission_foundation"),
     ("legacy UNIQUE (assignment_id, learner_user_id) removed (migration J)", "NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.learning_submissions'::regclass AND conname='learning_submissions_assignment_id_learner_user_id_key')", "20261114_j_one_submission_per_attempt"),
     ("lookup index learning_submissions_assignment_learner_idx (migration J)", "to_regclass('public.learning_submissions_assignment_learner_idx') IS NOT NULL", "20261114_j_one_submission_per_attempt"),
@@ -98,9 +103,32 @@ def validate_dev_target(database_url: str, env: dict[str, str]) -> tuple[tuple, 
     return (host, port, database, username, password, query), ref
 
 
+_UNORDERED_CATALOG_LISTS = {
+    "relations", "types", "tables", "constraints", "indexes", "sequences", "functions", "triggers",
+    "rls", "policies", "relation_acls", "default_privileges", "extensions", "public_extension_dependencies",
+}
+
+
+def _canonical(value, key=None):
+    """Normalize only inventory sets whose ordering is not part of schema semantics.
+
+    PostgreSQL ACL arrays follow grantee role OIDs and catalog queries can return
+    tied records in different orders. Column and enum-label arrays retain their
+    order because changing that order can change the meaning of the schema.
+    """
+    if isinstance(value, dict):
+        return {k: _canonical(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        items = [_canonical(i) for i in value]
+        if key in _UNORDERED_CATALOG_LISTS or key in {"acl", "roles"}:
+            return sorted(items, key=lambda i: json.dumps(i, sort_keys=True))
+        return items
+    return value
+
+
 def _fingerprint(inventory: dict) -> str:
     stable = {k: v for k, v in inventory.items() if k not in {"database_name", "server_version", "baseline_sha256", "baseline_size", "dump_count_comparison", "dump_counts_match"}}
-    return hashlib.sha256(json.dumps(stable, sort_keys=True).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(_canonical(stable), sort_keys=True).encode()).hexdigest()
 
 
 def _inventory(runner: MigrationRunner, connection: tuple) -> dict:
@@ -189,6 +217,14 @@ def bootstrap(repo_root: Path, database_url: str, *, env: dict[str, str], confir
         raise RunnerError("Restored baseline catalog counts differ from the dump for: " + ", ".join(mismatched))
     if baseline_inventory["prisma_ledger_rows"] or baseline_inventory["sql_ledger_rows"]:
         raise RunnerError("Restored baseline unexpectedly contains migration ledger rows")
+
+    # Step 1b (LOCAL DEVELOPMENT ONLY): the historical baseline is schema-only and the repository has no canonical role seed, while
+    # migration K fails closed unless the canonical roles already exist. Production carries these role rows; a fresh local database gets
+    # exactly these four (no permissions, no grants: K grants its own two permissions to them).
+    runner._psql(connection, """INSERT INTO public.roles(code, name, scope)
+SELECT v.code, v.code, v.scope FROM (VALUES ('system_admin','system'),('school_admin','organization'),('instructor','organization'),('student','organization')) AS v(code, scope)
+WHERE NOT EXISTS (SELECT 1 FROM public.roles r WHERE r.code = v.code);
+""", single_transaction=True)
 
     # Step 2: release migrations through the reviewed runner (ledger + checksums).
     result = runner.apply(ref, operator_id=operator_id, approval_reference="LOCAL-DEV-BOOTSTRAP")

@@ -1,5 +1,6 @@
 import { ConflictException, ServiceUnavailableException } from '@nestjs/common';
 import { EnrollmentDeliveryService } from './enrollment-delivery.service';
+import { LearningScopeService } from './learning-scope.service';
 import { LearningService } from './learning.service';
 import { createClassroom, createDb, createStudent, createWorld, describeDb, enrollmentRows, joinClassroom, type Db, type Student, type World } from './db-test-support';
 
@@ -11,8 +12,8 @@ import { createClassroom, createDb, createStudent, createWorld, describeDb, enro
 describeDb('real PostgreSQL course publication and enrollment synchronization', () => {
   const db: Db = createDb();
   let healthy: EnrollmentDeliveryService;
-  const scope = { isSystemAdministrator: () => true } as never;
-  const sysUser = {} as never;
+  const scope = new LearningScopeService(db as never) as never; // the real authority rules (System Administrator publishes global courses)
+  const sysUser = { status: 'active', systemPermissions: ['org.manage'], memberships: [], vistaUserId: '00000000-0000-4000-8000-000000000001' } as never;
   beforeAll(async () => { await db.$connect(); healthy = new EnrollmentDeliveryService(db as never); });
   afterAll(async () => { await db.$disconnect(); });
 

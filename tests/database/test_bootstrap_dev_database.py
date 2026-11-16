@@ -6,7 +6,7 @@ from pathlib import Path
 
 import re
 
-from scripts.bootstrap_dev_database import BASELINE_FILE, EVIDENCE_FILE, EXPECTATION_FILE, REQUIRED_OBJECTS, required_objects_sql, validate_dev_target
+from scripts.bootstrap_dev_database import _fingerprint, BASELINE_FILE, EVIDENCE_FILE, EXPECTATION_FILE, REQUIRED_OBJECTS, required_objects_sql, validate_dev_target
 from scripts.sql_migration_runner import MigrationRunner, RunnerError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -93,6 +93,18 @@ class RequiredObjectSelectionTests(unittest.TestCase):
         expectation = json.loads(path.read_text())
         self.assertEqual(expectation["ledgerVersions"], [m["version"] for m in manifest["migrations"]])
         self.assertRegex(expectation["schemaFingerprint"], r"^[0-9a-f]{64}$")
+
+
+class FingerprintDeterminismTests(unittest.TestCase):
+    def test_acl_item_order_does_not_change_the_fingerprint_but_privileges_do(self):
+        a = {"tables": [{"name": "t", "columns": [{"name": "first"}, {"name": "second"}], "acl": ["anon=r/owner", "service_role=arwd/owner", "postgres=arwd/owner"]}], "default_privileges": [{"acl": ["x=r/y", "z=r/y"]}]}
+        b = {"tables": [{"name": "t", "columns": [{"name": "first"}, {"name": "second"}], "acl": ["postgres=arwd/owner", "anon=r/owner", "service_role=arwd/owner"]}], "default_privileges": [{"acl": ["z=r/y", "x=r/y"]}]}
+        self.assertEqual(_fingerprint(a), _fingerprint(b))  # role creation order (cluster-specific OIDs) must not matter
+        widened = {"tables": [{"name": "t", "acl": ["anon=arwd/owner", "service_role=arwd/owner", "postgres=arwd/owner"]}], "default_privileges": a["default_privileges"]}
+        self.assertNotEqual(_fingerprint(a), _fingerprint(widened))  # but a different privilege still changes it
+        self.assertNotEqual(_fingerprint(a), _fingerprint({**a, "tables": a["tables"] + [{"name": "u", "acl": []}]}))
+        reordered_columns = {"tables": [{**a["tables"][0], "columns": list(reversed(a["tables"][0]["columns"]))}], "default_privileges": a["default_privileges"]}
+        self.assertNotEqual(_fingerprint(a), _fingerprint(reordered_columns))  # column order is schema semantics, unlike ACL order
 
 
 @unittest.skipUnless(os.environ.get("VISTA_BOOTSTRAP_VERIFY_DATABASE_URL"), "requires a bootstrapped loopback vista_test_* database")

@@ -1,4 +1,3 @@
-import React from 'react';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { useRole } from '../contexts/RoleContext';

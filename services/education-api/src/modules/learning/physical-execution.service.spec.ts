@@ -1,3 +1,4 @@
+process.env.VISTA_PHYSICAL_RUNTIME_MODES = "declared_physical_adapter"; // this suite simulates a deployment whose runtime reports a declared physical adapter
 import { ConflictException, NotFoundException } from "@nestjs/common";
 import { PhysicalExecutionService } from "./physical-execution.service";
 
@@ -238,7 +239,7 @@ describe("PhysicalExecutionService Gate 1", () => {
         program_version_id: scope().program_version_id, status: "running", run_id: "wf03-19191919-1919-4191-8191-191919191919",
       }])
       .mockResolvedValueOnce([{
-        learner_user_id: user.vistaUserId, execution_mode: "real_robot",
+        learner_user_id: user.vistaUserId, execution_mode: "real_robot", runtime_mode: "declared_physical_adapter",
         program_version_id: scope().program_version_id, course_id: "course-1", l5_lesson_id: "l5-id",
       }])
       .mockResolvedValueOnce([{ id: "eval-pass" }]);
@@ -454,13 +455,51 @@ describe("PhysicalExecutionService Gate 1", () => {
           program_version_id: scope().program_version_id, status: "running", run_id: "wf03-exp-1",
         }])
         .mockResolvedValueOnce([{
-          learner_user_id: user.vistaUserId, execution_mode: "real_robot",
+          learner_user_id: user.vistaUserId, execution_mode: "real_robot", runtime_mode: "declared_physical_adapter",
           program_version_id: scope().program_version_id, course_id: "course-1", l5_lesson_id: "l5-id",
         }])
         .mockResolvedValueOnce([{ id: "eval-pass" }]);
       runtime.getRun.mockResolvedValue({ state: "succeeded", startedAtMs: 1000, endedAtMs: 2000, events: [] });
       const res = await service.status(user as never, "exp-1");
       expect(res.status).toBe("succeeded");
+    });
+
+    const withRuntimeMode = (runtimeMode: string | null) => {
+      queryRaw
+        .mockResolvedValueOnce([{
+          experiment_id: "exp-1", control_session_id: "sess-1",
+          robot_id: scope().robot_id, robot_name: scope().robot_name, robot_model: scope().robot_model, robot_serial: scope().robot_serial,
+          program_version_id: scope().program_version_id, status: "running", run_id: "wf03-exp-1",
+        }])
+        .mockResolvedValueOnce([{
+          learner_user_id: user.vistaUserId, execution_mode: "real_robot", runtime_mode: runtimeMode,
+          program_version_id: scope().program_version_id, course_id: "course-1", l5_lesson_id: "l5-id",
+        }])
+        .mockResolvedValueOnce([{ id: "eval-pass" }]);
+      runtime.getRun.mockResolvedValue({ state: "succeeded", startedAtMs: 1000, endedAtMs: 2000, events: [] });
+    };
+
+    it("Q2. a successful run on a FAKE FOLLOWER runtime records its result but never completes the physical lesson", async () => {
+      withRuntimeMode("fake_follower");
+      const dto = await service.status(user as never, "exp-1");
+      expect(dto.status).toBe("succeeded");
+      expect(progression.completeLesson).not.toHaveBeenCalled();
+    });
+
+    it("Q3. a runtime that does not state what drove the robot does not complete the physical lesson", async () => {
+      withRuntimeMode(null);
+      await service.status(user as never, "exp-1");
+      expect(progression.completeLesson).not.toHaveBeenCalled();
+    });
+
+    it("Q4. an undeclared adapter mode is unverified and does not complete the lesson; a declared one does", async () => {
+      withRuntimeMode("some_other_adapter");
+      await service.status(user as never, "exp-1");
+      expect(progression.completeLesson).not.toHaveBeenCalled();
+      queryRaw.mockReset();
+      withRuntimeMode("declared_physical_adapter");
+      await service.status(user as never, "exp-1");
+      expect(progression.completeLesson).toHaveBeenCalledTimes(1);
     });
 
     it("Q. Runtime success -> C1-L5 completed", async () => {
@@ -471,7 +510,7 @@ describe("PhysicalExecutionService Gate 1", () => {
           program_version_id: scope().program_version_id, status: "running", run_id: "wf03-exp-1",
         }])
         .mockResolvedValueOnce([{
-          learner_user_id: user.vistaUserId, execution_mode: "real_robot",
+          learner_user_id: user.vistaUserId, execution_mode: "real_robot", runtime_mode: "declared_physical_adapter",
           program_version_id: scope().program_version_id, course_id: "course-1", l5_lesson_id: "l5-id",
         }])
         .mockResolvedValueOnce([{ id: "eval-pass" }]);
@@ -529,7 +568,7 @@ describe("PhysicalExecutionService Gate 1", () => {
           program_version_id: scope().program_version_id, status: "succeeded", run_id: "wf03-exp-1",
         }])
         .mockResolvedValueOnce([{
-          learner_user_id: user.vistaUserId, execution_mode: "real_robot",
+          learner_user_id: user.vistaUserId, execution_mode: "real_robot", runtime_mode: "declared_physical_adapter",
           program_version_id: scope().program_version_id, course_id: "course-1", l5_lesson_id: "l5-id",
         }])
         .mockResolvedValueOnce([{ id: "eval-pass" }]);

@@ -4,6 +4,7 @@ import { CurrentUser } from '../identity/auth/current-user.decorator';
 import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
 import { SupabaseAuthGuard } from '../identity/auth/supabase-auth.guard';
 import { AddAssignmentQuestionDto, CreateQuestionDto, CreateQuizAssignmentDto, ObjectiveMappingDto, QuestionSearchDto, ReorderAssignmentQuestionsDto, UpdateQuizAssignmentDto, UpdateVersionDto, VersionContentDto } from './dto/question-bank.dto';
+import { AuthorLessonQuestionDto } from './dto/question-bank.dto';
 import { QuestionBankService } from './question-bank.service';
 
 @ApiTags('Question Bank')
@@ -18,10 +19,13 @@ export class QuestionBankController {
     return this.bank.quizAuthoringQuestions(user, lessonId, search, type, page, pageSize);
   }
   @Get('quiz-authoring/lessons/:lessonId/assignment') quizAssignment(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string) { return this.bank.quizAuthoringAssignment(user, lessonId); }
-  @Get('quiz-authoring/lessons/:lessonId/preview') quizPreview(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string) { if (user.status !== 'active' || !user.systemPermissions.includes('org.manage')) return this.bank.quizAuthoringAssignment(user, lessonId); return this.bank.quizAuthoringAssignment(user, lessonId, true); }
+  @Get('quiz-authoring/lessons/:lessonId/preview') quizPreview(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string) { return this.bank.quizAuthoringAssignment(user, lessonId, true); /* authorOrg already limits this to authors of the owning school (or a System Administrator) */ }
   @Post('quiz-authoring/lessons/:lessonId/assignment') createQuizAssignment(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Body() body: CreateQuizAssignmentDto) { return this.bank.createQuizAssignment(user, lessonId, body.title, body.instructions, body.passPercent); }
   @Patch('quiz-authoring/lessons/:lessonId/assignment/:assignmentId') updateQuizAssignment(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Param('assignmentId', ParseUUIDPipe) assignmentId: string, @Body() body: UpdateQuizAssignmentDto) { return this.bank.updateQuizAssignment(user, lessonId, assignmentId, body.title, body.instructions, body.passPercent); }
 
+  @Get('lessons/:lessonId/objectives') lessonObjectives(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string) { return this.bank.lessonObjectives(user, lessonId); }
+  @Post('quiz-authoring/lessons/:lessonId/questions') authorLessonQuestion(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Body() body: AuthorLessonQuestionDto) { return this.bank.authorLessonQuestion(user, lessonId, body); }
+  @Post('lessons/:lessonId/objectives') createObjective(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Body() body: { description?: string }) { return this.bank.createObjective(user, lessonId, String(body?.description ?? '')); }
   @Post('questions') create(@CurrentUser() user: AuthenticatedUser, @Body() body: CreateQuestionDto) { return this.bank.createQuestion(user, body); }
   @Get('questions') list(@CurrentUser() user: AuthenticatedUser, @Query() query: QuestionSearchDto) { return this.bank.list(user, query); }
   @Get('questions/:id') get(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) { return this.bank.get(user, id); }

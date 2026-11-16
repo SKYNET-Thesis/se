@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertCircleIcon,
   ArrowLeftIcon,
@@ -9,7 +9,6 @@ import {
   ChevronRightIcon,
   Loader2Icon,
   PlayIcon,
-  RefreshCwIcon,
   SearchIcon,
   SettingsIcon,
   XIcon,
@@ -106,12 +105,12 @@ export function HardwareCalibrationPanel({
   // Port detection modal state
   const [detectionOpen, setDetectionOpen] = useState(false);
   const [detection, setDetection] = useState<DetectionState | null>(null);
-  const [detectionPolling, setDetectionPolling] = useState(false);
+  const [, setDetectionPolling] = useState(false);
 
   // Calibration session state
   const [calibActive, setCalibActive] = useState(false);
   const [calibStatus, setCalibStatus] = useState<string>('idle');
-  const [calibId, setCalibId] = useState<string | null>(null);
+  const [, setCalibId] = useState<string | null>(null);
   const [reviewMode, setReviewMode] = useState(false);
   const [progressByJoint, setProgressByJoint] = useState<Record<string, ProgressEventPayload>>({});
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
@@ -362,7 +361,6 @@ export function HardwareCalibrationPanel({
   const hasLeaderCalib = profiles.leader.includes('Teleop') || profiles.leader.length > 0;
   const hasFollowerCalib = profiles.follower.includes('Teleop') || profiles.follower.length > 0;
 
-  const roleLabel = role === 'LEADER' ? 'Teleoperator (Leader)' : 'Robot (Follower)';
   const isStartDisabled = !token || !deviceId || !port || calibActive || busy;
 
   return (

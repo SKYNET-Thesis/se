@@ -25,6 +25,16 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 EXCLUDED_VERSIONS = {"20261113_i_attempt_submission_foundation", "20261114_j_one_submission_per_attempt"}
+FIRST_D03_VERSION = "20261113_i_attempt_submission_foundation"
+
+
+def migrations_before_d03(entries: list[dict]) -> list[dict]:
+    """Build the pristine D-H template from migrations registered before Stage 1.
+
+    Later release migrations such as K-M must not be replayed against this
+    pre-D03 catalog, even though they are now present in the active manifest.
+    """
+    return [entry for entry in entries if entry["version"] not in EXCLUDED_VERSIONS and entry["version"] < FIRST_D03_VERSION]
 
 
 def _psql(parsed, database: str, sql: str) -> str:
@@ -56,7 +66,7 @@ def build(admin_url: str, template_name: str) -> None:
         print(f"template {template_name} already exists; nothing to do")
         return
     manifest = json.loads((ROOT / "database/migrations/manifest.json").read_text(encoding="utf-8"))
-    kept = [e for e in manifest["migrations"] if e["version"] not in EXCLUDED_VERSIONS]
+    kept = migrations_before_d03(manifest["migrations"])
     for number, entry in enumerate(kept, start=1):
         entry["order"] = number
     work = Path(tempfile.mkdtemp(prefix="vista-d03-pristine-"))

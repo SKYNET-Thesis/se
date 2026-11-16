@@ -1,4 +1,3 @@
-import React from 'react';
 import { CheckCircle2Icon, CircleAlertIcon, CloudOffIcon, EyeIcon, LoaderIcon, PlayIcon, Redo2Icon, ShieldCheckIcon, SquareIcon, Undo2Icon, CpuIcon } from 'lucide-react';
 import type { ProgramRecord } from '../../types/robotProgram';
 import type { StudioController } from '../../hooks/useStudioController';
