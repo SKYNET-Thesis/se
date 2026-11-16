@@ -226,6 +226,13 @@ test('Journey 2: instructor authors a school question, builds and configures a q
   await expect(dialog.getByRole('alert')).toContainText('at least two correct answers');
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 
+  // Weights: the single-choice question is worth 1 point, the multiple-choice question 3 points (total 4). Validation first.
+  const multiCard = workspace.locator('article', { hasText: 'Select the safety checks before moving the robot.' });
+  const singleCard = workspace.locator('article', { hasText: 'Which command safely stops the robot?' });
+  await multiCard.getByRole('spinbutton').fill('0');
+  await expect(multiCard.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
+  await multiCard.getByRole('spinbutton').fill('3');
+  await singleCard.getByRole('spinbutton').fill('1');
   const addButtons = workspace.getByRole('button', { name: 'Add', exact: true });
   await expect(addButtons).toHaveCount(2);
   await addButtons.first().click();
@@ -235,6 +242,8 @@ test('Journey 2: instructor authors a school question, builds and configures a q
 
   await workspace.getByRole('button', { name: 'Preview', exact: true }).click();
   await expect(workspace.getByText('Passing score: 70% · 2 questions')).toBeVisible();
+  const quizApi = await api(page, instructorToken, 'GET', `/author/question-bank/quiz-authoring/lessons/${(await api(page, instructorToken, 'GET', `/courses/${courseId}/lessons`)).body[0].id}/assignment`);
+  expect(quizApi.body.questions.map((q: { stem: string; points: number }) => [q.stem, Number(q.points)]).sort()).toEqual([['Select the safety checks before moving the robot.', 3], ['Which command safely stops the robot?', 1]]);
   await expect(workspace.getByText('Answer: a, b')).toBeVisible(); // the author sees the answer key; students never do (checked below)
   const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && r.url().includes('/author/activities/'));
   await workspace.getByRole('button', { name: 'Save Quiz Activity' }).click();
@@ -330,13 +339,19 @@ test('Journey 2: instructor authors a school question, builds and configures a q
     expect(JSON.stringify(attempt.body)).not.toMatch(/answerKey|answer_key|correctOptionIds/);
   }
   await expect(page.getByText('Which command safely stops the robot?')).toBeVisible();
-  await page.getByText('Increase speed', { exact: true }).click();
+  // The student sees the real weights before answering (browser rendering, not just stored data).
+  await expect(page.getByTestId('quiz-total-points')).toHaveText('Total: 4 points · Pass at 70%');
+  await expect(page.getByTestId('question-points')).toHaveText(['· 3 points', '· 1 point']);
+  // Attempt 1: the 1-point question right, the 3-point question wrong => 1 of 4 points = 25% (an unweighted 50% would be wrong).
+  await page.getByText('Stop motion', { exact: true }).click();
   await page.getByText('Check the emergency stop', { exact: true }).click();
   await page.getByText('Disable all sensors', { exact: true }).click();
   await page.getByRole('button', { name: 'Submit quiz' }).click();
   await page.getByRole('dialog', { name: 'Submit this quiz?' }).getByRole('button', { name: 'Submit quiz' }).click();
   await expect(page.getByRole('heading', { name: 'Not passed yet' })).toBeVisible();
-  await expect(page.getByText(/Score: 0% · Required: 70%/)).toBeVisible();
+  await expect(page.getByText(/Score: 25% · Required: 70%/)).toBeVisible();
+  await expect(page.getByTestId('quiz-earned-points')).toHaveText('1 of 4 points earned');
+  await expect(page.getByTestId('question-result')).toHaveText([/Question 1: not correct · 0 \/ 3/, /Question 2: correct · 1 \/ 1/]);
 
   await page.goto(`/my-learning/${delivery.id}`);
   await page.getByRole('button', { name: 'Start a new attempt' }).click();
@@ -348,6 +363,7 @@ test('Journey 2: instructor authors a school question, builds and configures a q
   await page.getByRole('dialog', { name: 'Submit this quiz?' }).getByRole('button', { name: 'Submit quiz' }).click();
   await expect(page.getByRole('heading', { name: 'Passed' })).toBeVisible();
   await expect(page.getByText(/Score: 100%/)).toBeVisible();
+  await expect(page.getByTestId('quiz-earned-points')).toHaveText('4 of 4 points earned');
 
   // Duplicate submission: replaying the same submission is refused or idempotent (never 5xx) and the graded result does not change.
   const original = await submission;
@@ -357,7 +373,7 @@ test('Journey 2: instructor authors a school question, builds and configures a q
   const quizAttempts = (attemptsAfter.body as Array<{ classroom_assignment_id?: string; status: string; score: number | null }>).filter((a) => a.classroom_assignment_id === delivery.id);
   expect(quizAttempts).toHaveLength(2);
   expect(quizAttempts.every((a) => a.status !== 'in_progress')).toBe(true); // both attempts are finished; the replay created none
-  expect(quizAttempts.find((a) => Number(a.score) === 100)).toBeTruthy();
+  expect(quizAttempts.map((a) => Number(a.score)).sort((x, y) => x - y)).toEqual([25, 100]); // points-weighted scores persisted by the server
 
   // The instructor sees the matching result; persistence holds after relogin.
   const teacher = await signIn(page, fixture.users.instructor.authUserId);

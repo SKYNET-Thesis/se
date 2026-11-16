@@ -229,6 +229,10 @@ export interface KnowledgeCheckSubmissionResult {
   passPercent: number;
   completedLessonId: string | null;
   newlyUnlockedLessonIds: string[];
+  /** Question Bank quizzes grade by points: the server states how many of the possible points were earned, per question too. */
+  earnedPoints?: number;
+  possiblePoints?: number;
+  feedback?: Array<{ questionVersionId: string; correct: boolean; earnedPoints: number; possiblePoints: number; explanation?: string | null }>;
 }
 
 export async function apiRequest<T>(path: string, accessToken: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<T> {

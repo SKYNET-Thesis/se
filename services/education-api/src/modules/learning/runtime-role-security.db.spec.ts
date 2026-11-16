@@ -112,6 +112,34 @@ describeRuntime('Education API PostgreSQL runtime role security', () => {
     await expect(db.$queryRawUnsafe('SELECT id FROM public.api_keys LIMIT 0')).rejects.toThrow(/permission denied/i);
   });
 
+  it('does not inherit TEMP (or CREATE) from PUBLIC and cannot create temporary objects in practice', async () => {
+    const acl = await db.$queryRaw<Array<{ public_temp: boolean; public_create: boolean }>>`
+      SELECT has_database_privilege('public',current_database(),'TEMP') AS public_temp,
+             has_database_privilege('public',current_database(),'CREATE') AS public_create`;
+    expect(acl[0]).toEqual({ public_temp: false, public_create: false });
+    await expect(db.$executeRawUnsafe('CREATE TEMP TABLE runtime_temp_probe(x int)')).rejects.toThrow(/permission denied to create temporary tables/);
+    await expect(db.$executeRawUnsafe('CREATE SCHEMA runtime_schema_probe')).rejects.toThrow(/permission denied/);
+  });
+
+  it('keeps the table privilege matrix: writable runtime tables, SELECT-only catalogs, and nothing else', async () => {
+    const privilege = async (table: string, kind: string) => (await db.$queryRawUnsafe<Array<{ ok: boolean }>>(`SELECT has_table_privilege(current_user,'public.${table}','${kind}') AS ok`))[0].ok;
+    for (const table of ['learning_submission_files', 'learning_submissions', 'learning_assignment_attempts', 'learning_courses', 'learning_questions', 'learning_enrollments']) {
+      for (const kind of ['SELECT', 'INSERT', 'UPDATE']) expect(await privilege(table, kind)).toBe(true);
+    }
+    for (const table of ['permissions', 'roles', 'role_permissions']) {
+      expect(await privilege(table, 'SELECT')).toBe(true);
+      for (const kind of ['INSERT', 'UPDATE', 'DELETE']) expect(await privilege(table, kind)).toBe(false);
+    }
+    for (const table of ['vista_schema_migrations', 'api_keys']) expect(await privilege(table, 'SELECT')).toBe(false);
+    // Every public table the runtime role can touch is covered by an allowlisted RLS policy named for this role (no privilege without a policy).
+    const unprotected = await db.$queryRaw<Array<{ relname: string }>>`
+      SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity
+        AND has_table_privilege(current_user,c.oid,'SELECT')
+        AND NOT EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname='public' AND p.tablename=c.relname AND 'vista_app_runtime'=ANY(p.roles))`;
+    expect(unprotected).toEqual([]);
+  });
+
   it('cannot create public schema objects or assume the database owner role', async () => {
     const probeTable = `public.vista_runtime_probe_${randomUUID().replace(/-/g, '')}`;
     await expect(db.$executeRawUnsafe(`CREATE TABLE ${probeTable}(id integer)`)).rejects.toThrow(/permission denied/i);
