@@ -62,11 +62,60 @@ listed local checks, with explicitly stated scope.
 | WF-04: teacher reviews evidence, records assessment/feedback; student sees feedback | Server-side rubric assessment and feedback persist on submission; grade/feedback have release gate; review is read-only for robot evidence | Submission GET, assessment/feedback POST, grade release, student feedback GET | Teacher review route; student My Learning/feedback display | Submission, rubric, assessment, feedback and release state | Teacher classroom review/assess permission; student only sees own released grading/feedback | `assessment.service.spec.ts`; Playwright “Student submits a ProgramVersion and instructor assesses and returns feedback” | Evidence-rich review path not separately asserted in browser test | None for software test flow | **COMPLETE AND VERIFIED** for submission + assessment + feedback lifecycle in local E2E |
 | WF-04: AI/data integration produces model output for review | Schema and review projection can reference dataset/model/checkpoint/evaluation metadata; AI integration entry point only prints startup message | No established inference or training API in `services/ai-integration` | Review can show existing persisted model metadata if present; no inference UI | Dataset/model metadata schema exists | Any future inference must preserve API authorization and robot safety ownership | No inference tests | VLA inference, training workers, model evaluation/action pipeline missing | Model/provider/service implementation and validation absent | **MISSING** |
 
+## WF-02 Queue 03 — verified main scope and integration boundary
+
+Read the approved [WF-02 activity diagram](../diagrams/workflows/activity-wf02-learning-assignment.md)
+and its Gate 1, Gate 2+3 and Gate 4 definitions before verification. The diagram
+approves: teacher creates/edits a lesson; the web collects assignment details;
+the API validates and saves; the teacher publishes; the student sees assigned
+work, submits a program/work item and the API records the submission.
+
+| Boundary / approved step | Category and state on this Codex branch | Main implementation and evidence | Remaining limitation |
+|---|---|---|---|
+| School offerings and classroom enrollment | **A — available on main; verified locally** | Offering/classroom scoping and transactional enrollment synchronization on course publish; membership change/revocation synchronization. Real PostgreSQL publish, rollback, retry, concurrency, offering/classroom state and enrollment access suites passed. | No remote CI or Production evidence; those are outside this local verification. |
+| Course and lesson access; assigned work visibility | **A — available on main; verified locally** | Published course/lesson/activity delivery; enrollment-gated student reads/writes; authorized My Learning and lesson paths. Real PostgreSQL enrollment/course builder suites and Playwright classroom/course journeys passed. | Full C1 evidence chain is not covered by a single browser journey. |
+| Quiz delivery, attempts, scoring and snapshots | **A — available on main; verified locally** | Canonical Question Bank quiz delivery; server-issued public/private attempt snapshots; weighted scoring and retake lifecycle. PostgreSQL course-builder persistence test verifies private answer snapshot, immutable attempt snapshot, score and classroom isolation. Browser Journey 2 verifies weighted 1+3 point scoring (25%, then 100%), attempt limit/retake and no key exposure; course-builder delivery journey also passed. | No missing core quiz step identified in WF-02. |
+| Assignment attempt and submission lifecycle | **A — available on main; verified locally** | Classroom assignment attempt → immutable ProgramVersion → one final attempt-bound Submission, with duplicate/frozen-write and retry protections. DB submission/retry suites and Playwright student submission journey passed. | Refresh recovery cannot safely reuse an orphan ProgramVersion created before later orchestration stages finish (known Gate 2+3 limitation). |
+| Teacher review, grading and release | **A — available on main; verified locally** | Classroom-scoped instructor review, rubric assessment and separate grade/feedback release; student cannot read grading before release. DB assessment/submission suites and browser teacher review/release flow passed. | Reopening a released grade with audited history is a separate Claude branch enhancement, not present in main. |
+| Progression | **A — core course/lesson/quiz progression available on main; components verified** | Progression and quiz completion covered by course-builder persistence, retry and quiz service tests. | Full ProgramVersion → Submission → schematic Experiment → SymbolicEvaluation → progression vertical remains **IMPLEMENTED BUT UNVERIFIED** as one end-to-end C1 journey. |
+| Authorization and tenant isolation | **A — available on main; verified locally** | Active membership/enrollment and organization/classroom scope checked in services; unauthorized attempt/submission access returns not found; cross-school classroom/roster and forged course ownership denied. Real PostgreSQL and browser isolation cases passed. | Hosted Supabase/Production authorization was not exercised. |
+| Approved diagram: author/edit → validate/save draft → publish → learner view → submit/record | **A — available on main; verified locally** | Assignment content and classroom delivery are separate; create is transactional and begins draft; explicit classroom-scoped publish; student delivery/attempt/submission paths. Backend and browser coverage passed. | None identified for the approved diagram's core steps. |
+
+### A / B / C classification
+
+- **A — already available and verifiable on main:** all approved diagram steps
+  and listed core integration boundaries above. Queue 03 found no isolated
+  implementation defect to fix, so it made no WF-02 source-code changes.
+- **B — implemented on Claude's branch, not integrated into main:** commit
+  `44964f4` on `feat/lms-full-phase1` adds assignment configuration (schedule,
+  attempt/rubric options), audited reopening of released grades, teacher
+  learner-progress monitoring, Question Bank CSV/XLSX import and related UI;
+  it also adds progression/media/question-import integration coverage. These
+  files were inspected read-only. Do not duplicate them. Phase 1E is pending;
+  retain an explicit dependency on that branch and its owner's completion,
+  then formally integrate and rerun acceptance before claiming this enhanced
+  LMS journey verified.
+- **C — genuinely missing from both:** no core feature required by the
+  approved WF-02 activity diagram was found missing. The Gate 2+3 recovery
+  limitation remains: after refresh between ProgramVersion creation and a
+  later C1 stage, the current APIs cannot safely reuse the orphan version.
+  This needs a broader idempotency contract and is not safe to recreate as an
+  independent patch. Full C1 vertical E2E verification also remains outstanding.
+
+The Queue 03 result is **PARTIAL** for total WF-02 completion because Claude's
+enhancements are not integrated and the Gate 2+3 C1 recovery/full-journey gap
+remains. This report does **not** claim verification against Claude's LMS code.
+
 ## Baseline verification
 
 Commands and results on this branch (Queue 01 records below are retained for WF-02–WF-04 context; WF-01 updated verification follows):
 
 - Added migration `20261117_n_wf01_robot_allocation_permission.sql` to grant `education.classroom.resource.allocate` to the canonical organization-scoped `school_admin` role. It is an additive local candidate, included in the manifest and bootstrap invariant; it has not been applied outside disposable PostgreSQL.
+- Queue 03 used a second disposable PostgreSQL 17.11 container on loopback `127.0.0.1:46517`, tmpfs-only data, database `vista_test_wf02_20261117`, and migrations D–N from the SQL runner. No application writes targeted a Production/staging database.
+- WF-02 backend: `npm run build` passed; targeted Jest with PostgreSQL integration enabled passed **17 suites / 222 tests**, covering course publish/enrollment, enrollment authorization and revocation, quiz delivery/snapshot/scoring, submission/attempt lifecycle, assessment/release and classroom regression.
+- WF-02 frontend: targeted Vitest passed **9 files / 83 tests**; `npm run build` passed with existing BlocklyCanvas import and large-chunk warnings.
+- WF-02 browser: `course-builder-delivery.spec.ts`, `lms-independent.spec.ts` and `lms-authoring.spec.ts` passed **14/14** against local JWKS, Vite, Education API and disposable PostgreSQL. This includes the weighted quiz score sequence 25% → 100%, assignment submission, teacher review/grade release, classroom enrollment, authorization and cross-school denials.
+- WF-02 DB `--verify-only` passed: ledger D–N (11 migrations), schema fingerprint `c5032d16ff1dbe008d1bc3f34ebb8b1d44ca6fa94c82b972e37469106cae147d`.
 - `cd services/education-api && npm run build` — passed.
 - Backend targeted Jest with PostgreSQL integration enabled: `education-admin.service.spec.ts`, `education-admin.classroom-lifecycle.spec.ts`, `learning.service.spec.ts`, `instructor-assignment-management.db.spec.ts`, `robot-allocation.db.spec.ts` — 5 suites / 127 tests passed; the database-backed cases used only the disposable PostgreSQL instance.
 - `cd web/robot-edu && npm run build` — passed (existing chunk-size and BlocklyCanvas import warnings).
@@ -96,4 +145,4 @@ No real robot, AWS, Production, or staging services were accessed. No migration 
 - WF-04 full evidence projection needs browser/API coverage; C3 artifact availability may remain host-local; dataset/model links are metadata only. VLA training/inference is missing.
 - K–N Production release remains blocked by migration-runner/platform-role and recovery verification requirements.
 
-**Next action:** WF-01 implementation and local acceptance are complete. Queue 03 may proceed from this worktree/branch after review. Keep WF-03 physical work gated and do not start LMS Phase 1E.
+**Next action:** WF-01 implementation and local acceptance are complete. WF-02 core main functionality is locally verified; enhanced LMS integration and the C1 retry/idempotency gap remain pending. Queue 04 may proceed with independent work on this worktree/branch. Keep WF-03 physical work gated and do not start LMS Phase 1E.
