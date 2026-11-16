@@ -575,7 +575,7 @@ export class PhysicalExecutionService {
       if (existing[0]) return false;
       await tx.$executeRaw`
         INSERT INTO public.iot_command_lifecycles(command_id,experiment_id,control_session_id,robot_id,state,issued_at,expires_at,last_sequence,command_payload)
-        VALUES(${command.commandId},${experimentId}::uuid,${sessionId}::uuid,${robotId}::uuid,'pending_publish',
+        VALUES(${command.commandId}::uuid,${experimentId}::uuid,${sessionId}::uuid,${robotId}::uuid,'pending_publish',
           to_timestamp(${command.issuedAtMs}::double precision/1000),to_timestamp(${command.expiresAtMs}::double precision/1000),-1,${JSON.stringify(command.payload)}::jsonb)`;
       return true;
     });
@@ -584,7 +584,7 @@ export class PhysicalExecutionService {
     if (!created) return { state: "queued", events: [{ type: "iot_command_already_dispatched" }] };
     const claimed = await this.prisma.$transaction((tx) => tx.$executeRaw(Prisma.sql`
       UPDATE public.iot_command_lifecycles SET state='publishing',publish_attempts=publish_attempts+1,publish_owner=${owner},publish_started_at=now(),publish_lease_until=now()+interval '30 seconds',updated_at=now()
-      WHERE command_id=${command.commandId} AND state='pending_publish'`));
+      WHERE command_id=${command.commandId}::uuid AND state='pending_publish'`));
     if (claimed !== 1) throw new Error("iot publish intent claim lost");
     try { await this.iot.publishRunCommand(command); }
     catch (error) {
@@ -592,14 +592,14 @@ export class PhysicalExecutionService {
       const publishError = state === "publish_failed" ? "publish_failed" : "publish_outcome_unknown";
       await this.prisma.$transaction((tx) => tx.$executeRaw(Prisma.sql`
         UPDATE public.iot_command_lifecycles SET state=${state},publish_lease_until=NULL,publish_error=${publishError},updated_at=now()
-        WHERE command_id=${command.commandId} AND state='publishing' AND publish_owner=${owner}`));
+        WHERE command_id=${command.commandId}::uuid AND state='publishing' AND publish_owner=${owner}`));
       throw error;
     }
     try {
       return await this.prisma.$transaction(async (tx) => {
         await tx.$executeRaw`
           UPDATE public.iot_command_lifecycles SET state='queued',publish_lease_until=NULL,updated_at=now()
-          WHERE command_id=${command.commandId} AND state='publishing' AND publish_owner=${owner}`;
+          WHERE command_id=${command.commandId}::uuid AND state='publishing' AND publish_owner=${owner}`;
         return { state: "queued", events: [{ type: "iot_command_published", commandId: command.commandId }] };
       });
     } catch (error) {
@@ -614,7 +614,7 @@ export class PhysicalExecutionService {
     await this.prisma.$transaction((tx) => tx.$executeRaw(Prisma.sql`
       UPDATE public.iot_command_lifecycles
       SET state='reconciliation_required',publish_lease_until=NULL,publish_error='publish_outcome_unknown',updated_at=now()
-      WHERE command_id=${commandId} AND state='publishing' AND publish_owner=${owner}`));
+      WHERE command_id=${commandId}::uuid AND state='publishing' AND publish_owner=${owner}`));
   }
 
   private async persistRuntimeSnapshot(experimentId: string, sessionId: string, runId: string, snapshot: RuntimeSnapshot, requestedEvent?: string, provenance: Record<string, unknown> = {}) {
