@@ -9,8 +9,8 @@ name: Production Database Release
 # proves it restores into a disposable PostgreSQL 17, stores it SSE-KMS encrypted in a private bucket (never a workflow artifact) and binds
 # the evidence to the project, scope, manifest, release commit and plan hash. The `apply` job (human approval) re-verifies that evidence.
 #
-# Scope: only reviewed scopes from database/release-scopes.json can be chosen: D-I (applied 2026-11-13) and J (D03 Stage 2). A scope is plannable only
-# when the manifest equals its requiresApplied + versions exactly, so J stays unusable until its separately reviewed manifest activation is on main.
+# Scope: only reviewed scopes from database/release-scopes.json can be chosen: D-I, J (D03 Stage 2), and K-M.
+# K-M requires D-J already applied (J is a hard prerequisite); it never applies J itself. M remains production-blocked until hosted Supabase role compatibility is evidenced.
 
 on:
   workflow_dispatch:

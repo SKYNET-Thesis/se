@@ -23,6 +23,22 @@ RUNTIME_ROLE = "vista_app_runtime"
 RUNTIME_WRITABLE = ["learning_submission_files", "learning_submissions", "learning_assignment_attempts", "learning_courses", "learning_questions"]
 RUNTIME_SELECT_ONLY = ["permissions", "roles", "role_permissions"]
 RUNTIME_DENIED = ["vista_schema_migrations", "api_keys"]
+PLATFORM_ROLES = ["postgres", "supabase_admin", "supabase_auth_admin", "supabase_storage_admin", "authenticator", "anon", "authenticated", "service_role"]
+
+K_CODES = "('learning.course.author','learning.course.publish')"
+# Row digests that K-M must leave untouched. The RBAC tables are digested WITHOUT K's own two permissions and their grants:
+# those are the only rows K is allowed to add, and they are asserted separately.
+INVENTORY_SOURCES = {
+    "learning_courses": "public.learning_courses", "learning_questions": "public.learning_questions", "learning_assessments": "public.learning_assessments",
+    "learning_submissions": "public.learning_submissions", "memberships": "public.memberships", "roles": "public.roles",
+    "permissions": f"(SELECT * FROM public.permissions WHERE code NOT IN {K_CODES})",
+    "role_permissions": f"(SELECT * FROM public.role_permissions WHERE permission_id NOT IN (SELECT id FROM public.permissions WHERE code IN {K_CODES}))",
+}
+
+
+def inventory(url: str) -> dict:
+    parts = ",".join(f"'{name}',(SELECT md5(COALESCE(string_agg(to_jsonb(x)::text, '|' ORDER BY to_jsonb(x)::text),'')) FROM {source} x)" for name, source in INVENTORY_SOURCES.items())
+    return base.query(url, f"SELECT json_build_object({parts})::text")
 
 
 def preview(url: str) -> dict:
@@ -34,9 +50,8 @@ def preview(url: str) -> dict:
 
 def snapshot(url: str) -> dict:
     ledger = base.query(url, "SELECT COALESCE(json_agg(version ORDER BY version),'[]'::json)::text FROM public.vista_schema_migrations")
-    counts = base.query(url, "SELECT json_build_object(" + ",".join(f"'{t}',(SELECT count(*) FROM public.{t})" for t in
-                        ["learning_courses", "learning_questions", "learning_assessments", "learning_submissions", "memberships"]) + ")::text")
-    return {"ledger": ledger, "counts": counts, "preview": preview(url)}
+    inv = inventory(url)
+    return {"ledger": ledger, "inventory": inv, "preview": preview(url)}
 
 
 def verify(url: str, pre: dict, root: Path | None = None) -> list[tuple[str, bool, str]]:
@@ -59,13 +74,19 @@ def verify(url: str, pre: dict, root: Path | None = None) -> list[tuple[str, boo
         check(f"ledger keeps {version}", bool(r) and r["sum"] == pinned.get(version))
     check("ledger gained exactly the K-M versions", set(pre["ledger"]) | set(scope["versions"]) == set(by_version))
 
+    role_codes = base.query(url, "SELECT COALESCE(array_agg(code ORDER BY code),'{}'::text[])::text FROM public.roles WHERE code = ANY(ARRAY['instructor','school_admin','student'])")
+    check("required canonical roles are present", role_codes == ["instructor", "school_admin", "student"], f"found {role_codes}")
+
     caps = base.query(url, """SELECT json_build_object(
       'author',EXISTS(SELECT 1 FROM public.permissions WHERE code='learning.course.author'),
       'publish',EXISTS(SELECT 1 FROM public.permissions WHERE code='learning.course.publish'),
+      'instructor_author',(SELECT count(*) FROM public.role_permissions rp JOIN public.roles r ON r.id=rp.role_id JOIN public.permissions p ON p.id=rp.permission_id WHERE r.code='instructor' AND p.code='learning.course.author'),
+      'school_admin_author',(SELECT count(*) FROM public.role_permissions rp JOIN public.roles r ON r.id=rp.role_id JOIN public.permissions p ON p.id=rp.permission_id WHERE r.code='school_admin' AND p.code='learning.course.author'),
       'instructor_publish',(SELECT count(*) FROM public.role_permissions rp JOIN public.roles r ON r.id=rp.role_id JOIN public.permissions p ON p.id=rp.permission_id WHERE r.code='instructor' AND p.code='learning.course.publish'),
       'school_admin_publish',(SELECT count(*) FROM public.role_permissions rp JOIN public.roles r ON r.id=rp.role_id JOIN public.permissions p ON p.id=rp.permission_id WHERE r.code='school_admin' AND p.code='learning.course.publish'),
       'student_author',(SELECT count(*) FROM public.role_permissions rp JOIN public.roles r ON r.id=rp.role_id JOIN public.permissions p ON p.id=rp.permission_id WHERE r.code='student' AND p.code IN ('learning.course.author','learning.course.publish')))::text""")
-    check("authoring and publishing permissions exist", caps["author"] and caps["publish"])
+    check("author permission exists and is granted to Instructor and School Admin", caps["author"] and caps["instructor_author"] == 1 and caps["school_admin_author"] == 1)
+    check("publish permission exists and is granted only to Instructor", caps["publish"] and caps["instructor_publish"] == 1)
     check("School Admin never holds learning.course.publish", caps["school_admin_publish"] == 0)
     check("students hold no authoring or publishing permission", caps["student_author"] == 0)
 
@@ -76,10 +97,14 @@ def verify(url: str, pre: dict, root: Path | None = None) -> list[tuple[str, boo
       'create',has_database_privilege('{RUNTIME_ROLE}',current_database(),'CREATE'),
       'temp',has_database_privilege('{RUNTIME_ROLE}',current_database(),'TEMP'),
       'public_temp',has_database_privilege('public',current_database(),'TEMP'),
+      'owner_temp',has_database_privilege((SELECT r.rolname FROM pg_database d JOIN pg_roles r ON r.oid=d.datdba WHERE d.datname=current_database()),current_database(),'TEMP'),
       'schema_create',has_schema_privilege('{RUNTIME_ROLE}','public','CREATE'))::text""")
     check("runtime role exists with no superuser/createdb/createrole/replication/bypassrls/inherit", role["exists"] and not role["unsafe"])
     check("runtime role can connect, cannot create or use temporary tables, cannot create in public", role["connect"] and not role["create"] and not role["temp"] and not role["schema_create"])
     check("TEMP is no longer inherited from PUBLIC", not role["public_temp"])
+    check("database owner retains TEMP", role["owner_temp"])
+    platform = base.query(url, "SELECT COALESCE(json_object_agg(rolname, json_build_object('exists',true,'temp',has_database_privilege(rolname,current_database(),'TEMP'))),'{}'::json)::text FROM pg_roles WHERE rolname = ANY(ARRAY[" + ",".join("'"+r+"'" for r in PLATFORM_ROLES) + "]) ")
+    check("available Supabase/platform roles retain TEMP", all(info.get("temp") for info in platform.values()))
     for table in RUNTIME_WRITABLE:
         ok = base.query(url, f"SELECT (has_table_privilege('{RUNTIME_ROLE}','public.{table}','SELECT') AND has_table_privilege('{RUNTIME_ROLE}','public.{table}','INSERT') AND has_table_privilege('{RUNTIME_ROLE}','public.{table}','UPDATE'))::text")
         check(f"runtime role can read and write {table}", ok in (True, "true"))
@@ -90,9 +115,8 @@ def verify(url: str, pre: dict, root: Path | None = None) -> list[tuple[str, boo
         ok = base.query(url, f"SELECT (NOT has_table_privilege('{RUNTIME_ROLE}','public.{table}','SELECT'))::text")
         check(f"runtime role has no access to {table}", ok in (True, "true"))
 
-    now = base.query(url, "SELECT json_build_object(" + ",".join(f"'{t}',(SELECT count(*) FROM public.{t})" for t in
-                     ["learning_courses", "learning_questions", "learning_assessments", "learning_submissions", "memberships"]) + ")::text")
-    check("no existing business rows were added or removed", now == pre["counts"], f"{json.dumps(now, sort_keys=True)} vs {json.dumps(pre['counts'], sort_keys=True)}")
+    now = inventory(url)
+    check("deterministic row digests unchanged (RBAC tables compared without K's own permissions and grants)", now == pre["inventory"], f"{json.dumps(now, sort_keys=True)} vs {json.dumps(pre['inventory'], sort_keys=True)}")
     return results
 
 

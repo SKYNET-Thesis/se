@@ -195,6 +195,14 @@ def bootstrap(repo_root: Path, database_url: str, *, env: dict[str, str], confir
     if baseline_inventory["prisma_ledger_rows"] or baseline_inventory["sql_ledger_rows"]:
         raise RunnerError("Restored baseline unexpectedly contains migration ledger rows")
 
+    # Step 1b (LOCAL DEVELOPMENT ONLY): the historical baseline is schema-only and the repository has no canonical role seed, while
+    # migration K fails closed unless the canonical roles already exist. Production carries these role rows; a fresh local database gets
+    # exactly these four (no permissions, no grants: K grants its own two permissions to them).
+    runner._psql(connection, """INSERT INTO public.roles(code, name, scope)
+SELECT v.code, v.code, v.scope FROM (VALUES ('system_admin','system'),('school_admin','organization'),('instructor','organization'),('student','organization')) AS v(code, scope)
+WHERE NOT EXISTS (SELECT 1 FROM public.roles r WHERE r.code = v.code);
+""", single_transaction=True)
+
     # Step 2: release migrations through the reviewed runner (ledger + checksums).
     result = runner.apply(ref, operator_id=operator_id, approval_reference="LOCAL-DEV-BOOTSTRAP")
     # Step 3: verification, including idempotent re-run.

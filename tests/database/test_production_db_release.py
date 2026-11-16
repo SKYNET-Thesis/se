@@ -171,9 +171,19 @@ class StaticSafeguardTests(unittest.TestCase):
         self.assertEqual(d_i["versions"], [e["version"] for e in manifest["migrations"]][: len(d_i["versions"])])
         self.assertIn("20261114_j_one_submission_per_attempt", d_i["excludedVersions"])  # Stage J can never ride along with D-I
         registered = [e["version"] for e in manifest["migrations"]]
-        self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"] + scopes["K-M"]["versions"])  # J strictly after D-I, K-M strictly after J
-        self.assertEqual(scopes["K-M"]["requiresApplied"], d_i["versions"] + scopes["J"]["versions"])  # K-M needs exactly D-J applied
+        self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"] + scopes["K-M"]["versions"])  # J precedes K-M in the manifest
+        self.assertEqual(scopes["K-M"]["requiresApplied"], d_i["versions"])  # K-M can release independently of J
         self.assertEqual(scopes["K-M"]["excludedVersions"], [])
+        self.assertEqual(scopes["K-M"]["productionStatus"].split()[0], "BLOCKED")
+        self.assertEqual(scopes["K-M"]["expectedCatalogBefore"], scopes["K-M"]["expectedCatalogAfter"])
+
+    def test_km_hosted_release_is_blocked_until_hosted_compatibility_evidence_exists(self):
+        definition = prm.scope_definition(ROOT, "K-M")
+        self.assertTrue(definition["productionStatus"].startswith("BLOCKED"))
+        self.assertIn("hosted Supabase", definition["productionStatus"])
+        source = (ROOT / "scripts/production_db_release.py").read_text()
+        self.assertIn("cannot be unblocked by release metadata", source)
+        self.assertIn("K-M is marked production BLOCKED", source)
 
     def test_deploy_script_still_has_health_check_and_rollback(self):
         script = (ROOT / "infra/terraform/scripts/deploy-api.sh").read_text()
