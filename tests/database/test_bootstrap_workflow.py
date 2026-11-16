@@ -13,11 +13,14 @@ class BootstrapWorkflowSafetyTests(unittest.TestCase):
         self.assertIn("image: postgres:17", self.text)
         self.assertRegex(self.text, r"(?m)^\s*- 5432$")
         self.assertIn("job.services.postgres.ports[5432]", self.text)
+        self.assertIn("Resolve the PostgreSQL service's dynamic host port", self.text)
+        self.assertIn("$POSTGRES_SERVICE_PORT", self.text)
         self.assertNotIn("55432", self.text)
+        self.assertNotIn("job.services.postgres.ports[5432] }}\n      VISTA_DATABASE_PROJECT_REF", self.text)
         urls = re.findall(r"postgresql://\S+", self.text)
         self.assertTrue(urls)
         for url in urls:
-            self.assertIn("@127.0.0.1:${{", url)
+            self.assertIn("@127.0.0.1:$POSTGRES_SERVICE_PORT/", url)
             self.assertIn("/vista_", url)
 
     def test_uses_no_secrets_or_hosted_database_references(self):

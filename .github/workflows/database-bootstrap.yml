@@ -48,15 +48,22 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       PGPASSWORD: ci-disposable-local-only
-      PGHOST: 127.0.0.1
-      PGPORT: ${{ job.services.postgres.ports[5432] }}
       VISTA_DATABASE_PROJECT_REF: vista-course-builder-test
-      MAIN_DB_URL: "postgresql://vista_test:ci-disposable-local-only@127.0.0.1:${{ job.services.postgres.ports[5432] }}/vista_test_course_builder"
-      SECOND_DB_URL: "postgresql://vista_test:ci-disposable-local-only@127.0.0.1:${{ job.services.postgres.ports[5432] }}/vista_baseline_test_second"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Resolve the PostgreSQL service's dynamic host port
+        env:
+          POSTGRES_SERVICE_PORT: ${{ job.services.postgres.ports[5432] }}
+        shell: bash
+        run: |
+          {
+            echo "PGHOST=127.0.0.1"
+            echo "PGPORT=$POSTGRES_SERVICE_PORT"
+            echo "MAIN_DB_URL=postgresql://vista_test:ci-disposable-local-only@127.0.0.1:$POSTGRES_SERVICE_PORT/vista_test_course_builder"
+            echo "SECOND_DB_URL=postgresql://vista_test:ci-disposable-local-only@127.0.0.1:$POSTGRES_SERVICE_PORT/vista_baseline_test_second"
+          } >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
