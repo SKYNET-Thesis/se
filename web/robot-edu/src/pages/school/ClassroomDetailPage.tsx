@@ -11,6 +11,7 @@ import { Button } from '../../components/ui/Button';
 import { EmptyState } from '../../components/ui/EmptyState';
 import type { ClassroomFormValues } from '../../queries/classroomsModel';
 import { canReassignOffering, isArchived, lifecycleAction } from '../../queries/classroomsModel';
+import { lifecycleOutcome } from '../../queries/classroomLifecycleModel';
 import { useClassroomMutations, useSchoolClassroom, useSchoolScope } from '../../queries/schoolClassrooms';
 import { ClassroomMembersSection } from './ClassroomMembersSection';
 import { ClassroomRobotAllocation } from './ClassroomRobotAllocation';
@@ -45,8 +46,8 @@ export function ClassroomDetailPage() {
   const reassignReasonId = 'reassign-disabled-reason';
   const save = async (values: ClassroomFormValues) => { await mutations.update.mutateAsync({ classroomId: classroom.id, values }); setEditOpen(false); toast.success('Classroom saved'); };
   const confirmLifecycle = async () => {
-    if (action === 'archive') await mutations.archive.mutateAsync(classroom.id); else await mutations.reactivate.mutateAsync(classroom.id);
-    setLifecycleOpen(false); toast.success(action === 'archive' ? 'Classroom archived' : 'Classroom reactivated');
+    const response = action === 'archive' ? await mutations.archive.mutateAsync(classroom.id) : await mutations.reactivate.mutateAsync(classroom.id);
+    setLifecycleOpen(false); const outcome = lifecycleOutcome(action, response, classroom); toast.success(outcome.title, { description: outcome.description });
   };
 
   return shell(<>

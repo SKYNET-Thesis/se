@@ -3,6 +3,7 @@ import { useRole } from '../contexts/RoleContext';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { educationAdminApi, type ApiSchoolClassroom } from '../lib/api';
 import { ClassroomStepError, createRequests, updateRequest, type ClassroomFormValues } from './classroomsModel';
+import { isStaleLifecycleError } from './classroomLifecycleModel';
 import { schoolAdminKeys } from './schoolAdminQueries';
 
 /** The organization a school administrator manages; RoleContext must finish before an empty id means "none". */
@@ -64,7 +65,8 @@ export function useClassroomMutations(scope: SchoolScope) {
     mutationFn: ({ classroomId, values }: { classroomId: string; values: ClassroomFormValues }) => educationAdminApi.updateClassroom(organizationId, classroomId, token, updateRequest(values)),
     onSuccess: (_data, { classroomId }) => refresh(classroomId),
   });
-  const archive = useMutation({ mutationFn: (classroomId: string) => educationAdminApi.archiveClassroom(organizationId, classroomId, token), onSuccess: (_data, classroomId) => refresh(classroomId) });
-  const reactivate = useMutation({ mutationFn: (classroomId: string) => educationAdminApi.reactivateClassroom(organizationId, classroomId, token), onSuccess: (_data, classroomId) => refresh(classroomId) });
+  // Status changes refresh only after the server confirms. A 404/409 means the screen is stale, so it is refreshed too.
+  const archive = useMutation({ mutationFn: (classroomId: string) => educationAdminApi.archiveClassroom(organizationId, classroomId, token), onSuccess: (_data, classroomId) => refresh(classroomId), onError: (error, classroomId) => { if (isStaleLifecycleError(error)) void refresh(classroomId); } });
+  const reactivate = useMutation({ mutationFn: (classroomId: string) => educationAdminApi.reactivateClassroom(organizationId, classroomId, token), onSuccess: (_data, classroomId) => refresh(classroomId), onError: (error, classroomId) => { if (isStaleLifecycleError(error)) void refresh(classroomId); } });
   return { create, update, archive, reactivate };
 }

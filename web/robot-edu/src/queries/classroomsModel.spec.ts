@@ -4,6 +4,7 @@ import {
   ClassroomStepError, apiErrorPresentation, canReassignOffering, classroomStatusPresentation, createRequests, emptyClassroomForm, enrollmentLabel,
   filterClassrooms, firstErrorField, lifecycleAction, parseStatusFilter, statusCounts, updateRequest, validateClassroomForm,
 } from './classroomsModel';
+import { currentOffering, isRefusedOfferingError, isStaleLifecycleError, lifecycleErrorMessage, lifecycleOutcome, selectableOfferings } from './classroomLifecycleModel';
 
 const room = (over: Partial<ApiSchoolClassroom>): ApiSchoolClassroom => ({
   id: 'c', organization_id: 'o', offering_id: 'f', name: 'Robotics A', code: 'ROB-A', description: null, capacity: null, status: 'active',
@@ -91,5 +92,44 @@ describe('apiErrorPresentation', () => {
   it('keeps other errors at form level', () => {
     expect(apiErrorPresentation(new ApiError(403, 'Forbidden.'))).toEqual({ message: 'Forbidden.' });
     expect(apiErrorPresentation('x')).toEqual({ message: 'The classroom could not be saved. Try again.' });
+  });
+});
+
+describe('classroom lifecycle model (A03)', () => {
+  const room = { name: 'Robotics 8A', student_count: 12 };
+  it('maps network, session, permission and state errors to plain messages', () => {
+    expect(lifecycleErrorMessage(new TypeError('Failed to fetch'), 'archive')).toBe('VISTA couldn’t be reached. Check your connection, then try again.');
+    expect(lifecycleErrorMessage(new ApiError(401, 'Unauthorized'), 'reactivate')).toBe('Your session has ended. Sign in again, then try again.');
+    expect(lifecycleErrorMessage(new ApiError(403, 'Forbidden resource'), 'change-course')).toBe('Your account isn’t allowed to manage classrooms in this school.');
+    expect(lifecycleErrorMessage(new ApiError(409, 'Only archived or completed classrooms can be reactivated.'), 'reactivate')).toContain('can’t be reactivated from its current status');
+    expect(lifecycleErrorMessage(new ApiError(500, 'Database unavailable.'), 'archive')).toBe('Database unavailable.');
+    expect(isStaleLifecycleError(new ApiError(404, 'x'))).toBe(true);
+    expect(isStaleLifecycleError(new ApiError(409, 'x'))).toBe(true);
+    expect(isStaleLifecycleError(new ApiError(403, 'x'))).toBe(false);
+  });
+
+  it('treats only the offering-specific 404 as an ineligible course', () => {
+    expect(isRefusedOfferingError(new ApiError(404, 'An active offering for a published global course was not found.'))).toBe(true);
+    expect(isRefusedOfferingError(new ApiError(404, 'Classroom was not found.'))).toBe(false);
+    expect(isRefusedOfferingError(new ApiError(404, 'Cannot PUT /api/v1/education/admin/organizations/o/classrooms/c/offering'))).toBe(false);
+    expect(isRefusedOfferingError(new ApiError(500, 'An active offering for a published global course was not found.'))).toBe(false);
+    expect(isRefusedOfferingError(new TypeError('Failed to fetch'))).toBe(false);
+    expect(lifecycleErrorMessage(new ApiError(404, 'Cannot PUT /x/offering'), 'change-course')).toContain('This classroom wasn’t found');
+  });
+
+  it('only reports counts the server returned', () => {
+    expect(lifecycleOutcome('archive', { releasedEnrollments: 1 }, room).description).toBe('Course access ended for 1 student in this classroom. Their work is kept.');
+    expect(lifecycleOutcome('archive', {}, room).description).toBe('Students keep their work. You can reactivate the classroom later.');
+    expect(lifecycleOutcome('reactivate', { restoredEnrollments: 12 }, room).description).toBe('Course access is back for 12 students.');
+    expect(lifecycleOutcome('reactivate', { restoredEnrollments: 0 }, { ...room, student_count: 0 }).description).toBe('You can change its course and manage it as before.');
+    expect(lifecycleOutcome('reactivate', { restoredEnrollments: '3' }, room).description).toBe('You can change its course and manage it as before.'); // non-numeric: no claim
+  });
+
+  it('offers only active offerings other than the current one', () => {
+    const list = [{ id: 'a', code: 'A', title: 'A', status: 'active' }, { id: 'b', code: 'B', title: 'B', status: 'active' }, { id: 'c', code: 'C', title: 'C', status: 'archived' }];
+    expect(selectableOfferings(list, 'a').map((item) => item.id)).toEqual(['b']);
+    expect(selectableOfferings(undefined, 'a')).toEqual([]);
+    expect(currentOffering(list, 'c')?.code).toBe('C');
+    expect(currentOffering(list, null)).toBeNull();
   });
 });

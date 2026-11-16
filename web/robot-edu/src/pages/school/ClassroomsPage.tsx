@@ -12,6 +12,7 @@ import { inputClasses } from '../../components/ui/Field';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Pagination } from '../../components/ui/Pagination';
 import type { ApiSchoolClassroom } from '../../lib/api';
+import { lifecycleOutcome } from '../../queries/classroomLifecycleModel';
 import { STATUS_FILTERS, classroomPath, enrollmentLabel, filterClassrooms, lifecycleAction, parseStatusFilter, statusCounts, type ClassroomStatusFilter } from '../../queries/classroomsModel';
 import { useClassroomMutations, useSchoolClassrooms, useSchoolScope } from '../../queries/schoolClassrooms';
 import { paginate } from '../../queries/teacherAssignmentsModel';
@@ -58,8 +59,9 @@ export function ClassroomsPage() {
   };
   const confirmLifecycle = async () => {
     if (!lifecycle) return;
-    if (lifecycleKind === 'archive') await mutations.archive.mutateAsync(lifecycle.id); else await mutations.reactivate.mutateAsync(lifecycle.id);
-    toast.success(lifecycleKind === 'archive' ? 'Classroom archived' : 'Classroom reactivated', { description: lifecycle.name });
+    const response = lifecycleKind === 'archive' ? await mutations.archive.mutateAsync(lifecycle.id) : await mutations.reactivate.mutateAsync(lifecycle.id);
+    const outcome = lifecycleOutcome(lifecycleKind, response, lifecycle);
+    toast.success(outcome.title, { description: outcome.description });
     setLifecycle(null);
   };
 

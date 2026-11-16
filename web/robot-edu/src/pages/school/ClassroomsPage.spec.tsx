@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   classrooms: vi.fn(), members: vi.fn(), publishedCourses: vi.fn(), createCourseOffering: vi.fn(), createClassroom: vi.fn(),
-  updateClassroom: vi.fn(), archiveClassroom: vi.fn(), reactivateClassroom: vi.fn(), offerings: vi.fn(), toast: vi.fn(),
+  updateClassroom: vi.fn(), archiveClassroom: vi.fn(), reactivateClassroom: vi.fn(), offerings: vi.fn(), assignClassroomOffering: vi.fn(), toast: vi.fn(),
   role: { memberships: [{ id: 'm1', organizationId: 'org1', roleCode: 'school_admin', status: 'active' }], loading: false } as { memberships: unknown[]; loading: boolean },
 }));
 vi.mock('../../contexts/SupabaseSessionContext', () => ({ useSupabaseSession: () => ({ session: { access_token: 'tok' }, loading: false }) }));
@@ -17,7 +17,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api')>();
   return { ...actual, educationAdminApi: { ...actual.educationAdminApi, classrooms: mocks.classrooms, classroomMembers: mocks.members, publishedCourses: mocks.publishedCourses,
     createCourseOffering: mocks.createCourseOffering, createClassroom: mocks.createClassroom, updateClassroom: mocks.updateClassroom, archiveClassroom: mocks.archiveClassroom,
-    reactivateClassroom: mocks.reactivateClassroom, offerings: mocks.offerings } };
+    reactivateClassroom: mocks.reactivateClassroom, offerings: mocks.offerings, assignClassroomOffering: mocks.assignClassroomOffering } };
 });
 
 import { ApiError } from '../../lib/api';
@@ -255,7 +255,7 @@ describe('Classroom detail', () => {
     expect(mocks.archiveClassroom).not.toHaveBeenCalled();
     await click(button('Archive classroom'));
     expect(mocks.archiveClassroom).toHaveBeenCalledWith('org1', 'c1', 'tok');
-    expect(mocks.toast).toHaveBeenCalledWith('Classroom archived');
+    expect(mocks.toast).toHaveBeenCalledWith('Robotics 8A archived', { description: 'Students keep their work. You can reactivate the classroom later.' });
   });
 
   it('keeps the archive dialog open with the server error when archiving fails', async () => {
@@ -278,5 +278,151 @@ describe('Classroom detail', () => {
     await flush();
     expect(mocks.updateClassroom).toHaveBeenCalledWith('org1', 'c1', 'tok', { name: 'Robotics 8A', code: 'ROB-8A', description: '' });
     expect(mocks.toast).toHaveBeenCalledWith('Classroom saved');
+  });
+});
+
+describe('Classroom lifecycle (A03)', () => {
+  const offerings = [
+    { id: 'f1', code: 'RF-2026', title: 'Robotics Foundations', status: 'active' },
+    { id: 'f2', code: 'RD-2026', title: 'Robot Discovery', status: 'active' },
+    { id: 'f3', code: 'OLD-2025', title: 'Retired Course', status: 'archived' },
+  ];
+  const buttons = (label: string) => [...document.body.querySelectorAll('button')].filter((item) => item.textContent?.trim() === label);
+  const options = () => [...dialog().querySelectorAll('select[name="offeringId"] option')].map((item) => item.textContent);
+  const choose = async (value: string) => type(dialog().querySelector('select[name="offeringId"]') as HTMLSelectElement, value);
+  const submitChange = async () => { await act(async () => { (dialog().querySelector('form') as HTMLFormElement).requestSubmit(); }); await flush(); };
+
+  it('reports the enrollments the server released when archiving, then refreshes the classroom', async () => {
+    mocks.archiveClassroom.mockResolvedValue({ id: 'c1', status: 'archived', releasedEnrollments: 12 });
+    await mount('/school/classrooms/c1');
+    const loads = mocks.classrooms.mock.calls.length;
+    await openArchiveFromMenu();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    expect(document.activeElement?.textContent).toBe('Cancel'); // the safe action starts focused
+    await click(button('Archive classroom'));
+    expect(mocks.archiveClassroom).toHaveBeenCalledTimes(1);
+    expect(mocks.toast).toHaveBeenCalledWith('Robotics 8A archived', { description: 'Course access ended for 12 students in this classroom. Their work is kept.' });
+    expect(mocks.classrooms.mock.calls.length).toBeGreaterThan(loads);
+  });
+
+  it('does not claim access came back when the server restored none', async () => {
+    mocks.classrooms.mockResolvedValue([room({ id: 'c2', name: 'Coding 9B', status: 'archived', student_count: 5 })]);
+    mocks.reactivateClassroom.mockResolvedValue({ id: 'c2', status: 'active', restoredEnrollments: 0 });
+    await mount('/school/classrooms/c2');
+    await click(button('Reactivate'));
+    expect(dialog().textContent).toContain('get course access back if its course is still running');
+    await click(button('Reactivate classroom'));
+    expect(mocks.toast).toHaveBeenCalledWith('Coding 9B reactivated', { description: 'No course access was restored. Check that the classroom’s course is still running.' });
+  });
+
+  it('reports restored access from the List row menu too', async () => {
+    mocks.classrooms.mockResolvedValue([room({ id: 'c2', name: 'Coding 9B', code: 'COD-9B', status: 'archived', student_count: 3 })]);
+    mocks.reactivateClassroom.mockResolvedValue({ id: 'c2', status: 'active', restoredEnrollments: 3 });
+    await mount('/school/classrooms');
+    await click(document.body.querySelector('button[aria-label="Actions for Coding 9B"]') as HTMLButtonElement);
+    await click([...document.body.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Reactivate classroom') as HTMLElement);
+    await click(button('Reactivate classroom'));
+    expect(mocks.reactivateClassroom).toHaveBeenCalledWith('org1', 'c2', 'tok');
+    expect(mocks.toast).toHaveBeenCalledWith('Coding 9B reactivated', { description: 'Course access is back for 3 students.' });
+  });
+
+  it('explains permission and stale-data errors, keeps the dialog open and refreshes on 404', async () => {
+    mocks.reactivateClassroom.mockRejectedValueOnce(new ApiError(403, 'Forbidden resource'));
+    mocks.classrooms.mockResolvedValue([room({ id: 'c2', name: 'Coding 9B', status: 'archived' })]);
+    await mount('/school/classrooms/c2');
+    await click(button('Reactivate'));
+    await click(button('Reactivate classroom'));
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toBe('Your account isn’t allowed to manage classrooms in this school.');
+    const loads = mocks.classrooms.mock.calls.length;
+    mocks.reactivateClassroom.mockRejectedValueOnce(new ApiError(404, 'Classroom was not found.'));
+    await click(button('Reactivate classroom'));
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('wasn’t found');
+    expect(mocks.classrooms.mock.calls.length).toBeGreaterThan(loads);
+    expect(mocks.toast).not.toHaveBeenCalled();
+  });
+
+  it('shows the current course, offers only other active courses, and changes it after the server confirms', async () => {
+    mocks.offerings.mockResolvedValue(offerings);
+    mocks.assignClassroomOffering.mockResolvedValue({ id: 'c1', offeringId: 'f2', status: 'active' });
+    await mount('/school/classrooms/c1');
+    await click(button('Change course'));
+    expect(dialog().textContent).toContain('Robotics FoundationsRF-2026Current');
+    expect(options()).toEqual(['Choose a course', 'Robot Discovery (RD-2026)']); // not the current one, not the archived one
+    expect((buttons('Change course').at(-1) as HTMLButtonElement).disabled).toBe(true);
+    await choose('f2');
+    const loads = mocks.classrooms.mock.calls.length;
+    await submitChange();
+    expect(mocks.assignClassroomOffering).toHaveBeenCalledTimes(1);
+    expect(mocks.assignClassroomOffering).toHaveBeenCalledWith('org1', 'c1', 'f2', 'tok');
+    expect(mocks.toast).toHaveBeenCalledWith('Course changed', { description: 'Robotics 8A now uses Robot Discovery.' });
+    expect(mocks.classrooms.mock.calls.length).toBeGreaterThan(loads);
+  });
+
+  it('explains a course the server refuses and refreshes the data behind the dialog', async () => {
+    mocks.offerings.mockResolvedValue(offerings);
+    mocks.assignClassroomOffering.mockRejectedValue(new ApiError(404, 'An active offering for a published global course was not found.'));
+    await mount('/school/classrooms/c1');
+    await click(button('Change course'));
+    await choose('f2');
+    const loads = mocks.offerings.mock.calls.length;
+    await submitChange();
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toBe('This course can’t be assigned. Only VISTA catalog courses your school is running can be used. Choose another course.');
+    expect(mocks.offerings.mock.calls.length).toBeGreaterThan(loads);
+    expect(mocks.toast).not.toHaveBeenCalled();
+    // The refused course stays listed but can't be chosen again, and the selection is cleared.
+    const refused = dialog().querySelector('select[name="offeringId"] option[value="f2"]') as HTMLOptionElement;
+    expect(refused.disabled).toBe(true);
+    expect(refused.textContent).toBe('Robot Discovery (RD-2026) · can’t be assigned');
+    expect((dialog().querySelector('select[name="offeringId"]') as HTMLSelectElement).value).toBe('');
+    expect((buttons('Change course').at(-1) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('does not mark a course ineligible after network, server or classroom-not-found errors', async () => {
+    mocks.offerings.mockResolvedValue(offerings);
+    mocks.assignClassroomOffering
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new ApiError(500, 'Database unavailable.'))
+      .mockRejectedValueOnce(new ApiError(404, 'Classroom was not found.'))
+      .mockResolvedValueOnce({ id: 'c1', offeringId: 'f2', status: 'active' });
+    await mount('/school/classrooms/c1');
+    await click(button('Change course'));
+    await choose('f2');
+    const option = () => dialog().querySelector('select[name="offeringId"] option[value="f2"]') as HTMLOptionElement;
+    const expectRetryable = (message: string) => {
+      expect(dialog().querySelector('[role="alert"]')?.textContent).toContain(message);
+      expect(option().disabled).toBe(false);
+      expect(option().textContent).toBe('Robot Discovery (RD-2026)');
+      expect((dialog().querySelector('select[name="offeringId"]') as HTMLSelectElement).value).toBe('f2');
+    };
+    await submitChange();
+    expectRetryable('VISTA couldn’t be reached.');
+    await submitChange();
+    expectRetryable('Database unavailable.');
+    await submitChange();
+    expectRetryable('This classroom wasn’t found.');
+    await submitChange(); // the same choice can be retried and succeeds
+    expect(mocks.assignClassroomOffering).toHaveBeenCalledTimes(4);
+    expect(mocks.toast).toHaveBeenCalledWith('Course changed', { description: 'Robotics 8A now uses Robot Discovery.' });
+  });
+
+  it('explains a classroom archived elsewhere when changing its course', async () => {
+    mocks.offerings.mockResolvedValue(offerings);
+    mocks.assignClassroomOffering.mockRejectedValue(new ApiError(409, 'Reactivate the classroom before changing its course offering.'));
+    await mount('/school/classrooms/c1');
+    await click(button('Change course'));
+    await choose('f2');
+    await submitChange();
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toBe('This classroom has been archived, so its course can’t be changed. Reactivate it first.');
+  });
+
+  it('offers retry when courses fail to load, and says so when there is no other course', async () => {
+    mocks.offerings.mockRejectedValueOnce(new ApiError(500, 'boom')).mockResolvedValueOnce([offerings[0], offerings[2]]);
+    await mount('/school/classrooms/c1');
+    await click(button('Change course'));
+    expect(dialog().querySelector('[role="alert"]')?.textContent).toContain('Your school’s courses couldn’t be loaded.');
+    expect(dialog().querySelector('select')).toBeNull();
+    await click(button('Try again'));
+    expect(dialog().textContent).toContain('Your school isn’t running another course right now.');
+    expect((buttons('Change course').at(-1) as HTMLButtonElement).disabled).toBe(true);
   });
 });
