@@ -88,8 +88,6 @@ export class LearningService {
         );
       }
       const published = await tx.learning_courses.update({ where: { id: courseId }, data: { status: 'published' } });
-      // A school-owned course is delivered through an offering of the owning school; create it (once) before enrollments synchronize.
-      if (course.organization_id) await this.ensureSchoolOffering(tx, course.organization_id, courseId, published.title, user.vistaUserId);
       if (!this.enrollmentDelivery) throw new ConflictException('Enrollment synchronization is not configured.');
       const enrollmentSync = await this.enrollmentDelivery.synchronizeCourseIn(tx, courseId);
       return { ...published, enrollmentSync };
@@ -174,18 +172,6 @@ export class LearningService {
     const course = await this.prisma.learning_courses.findUnique({ where: { id: courseId } });
     if (!course || !this.scope.canAuthorOrganization(user, course.organization_id)) throw new NotFoundException('Course was not found.');
     return course;
-  }
-
-  private async ensureSchoolOffering(db: Pick<PrismaService, '$queryRaw'>, organizationId: string, courseId: string, title: string, userId: string) {
-    const existing = await db.$queryRaw<{ id: string }[]>`
-      SELECT id FROM public.learning_course_offerings WHERE course_id=${courseId}::uuid AND organization_id=${organizationId}::uuid LIMIT 1`;
-    if (existing.length) return existing[0].id;
-    const code = `C-${courseId.slice(0, 8).toUpperCase()}`;
-    const rows = await db.$queryRaw<{ id: string }[]>`
-      INSERT INTO public.learning_course_offerings(course_id,organization_id,code,title,status,created_by)
-      VALUES(${courseId}::uuid,${organizationId}::uuid,${code},${title},'active',${userId}::uuid)
-      ON CONFLICT DO NOTHING RETURNING id`;
-    return rows[0]?.id ?? null;
   }
 
   async courses(user: AuthenticatedUser, page: PaginationDto) {

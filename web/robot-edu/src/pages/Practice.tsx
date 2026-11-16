@@ -372,7 +372,8 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
   const publicQuiz = (data.attempt.workspace_snapshot ?? data.attempt.quiz) as PublicQuizSnapshot | undefined;
   if (assignmentConstraints.kind === 'knowledge_check') {
     if (publicQuiz?.kind === 'question_bank_quiz' && publicQuiz.schemaVersion === 1 && Array.isArray(publicQuiz.questions) && session) {
-    const prior = data.attempt.result_snapshot && typeof data.attempt.result_snapshot === 'object'
+    // `result_snapshot` is `{}` (NOT NULL default) until the server grades the attempt; only a graded snapshot is a prior result.
+    const prior = data.attempt.result_snapshot && typeof data.attempt.result_snapshot === 'object' && typeof (data.attempt.result_snapshot as { score?: unknown }).score === 'number'
       ? data.attempt.result_snapshot as import('../lib/api').KnowledgeCheckSubmissionResult : null;
     return <KnowledgeCheckAttempt title={data.assignment.title} snapshot={publicQuiz} result={prior} initialDraft={data.attempt.draft_response?.answers} draftSavedAt={data.attempt.draft_saved_at} readOnly={data.attempt.status !== 'in_progress'} confirmSubmit onSaveDraft={(answers) => learnerApi.saveQuizDraft(data.attempt.id, answers, session.access_token).then(() => undefined)} onSubmit={(answers) => learnerApi.submitKnowledgeCheck(data.attempt.id, { answers }, session.access_token)} />;
     }

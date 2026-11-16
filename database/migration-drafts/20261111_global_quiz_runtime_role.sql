@@ -1,43 +1,8 @@
--- Phase 2.4.3 additive follow-up for the direct-Prisma Education API runtime.
--- Apply only through scripts/sql_migration_runner.py after release approval.
---
--- Global canonical courses have organization_id NULL. Question Bank identity
--- must support that same scope while retaining per-course code uniqueness.
-ALTER TABLE public.learning_questions
-  ALTER COLUMN organization_id DROP NOT NULL;
-
-CREATE UNIQUE INDEX learning_questions_global_course_code_key
-  ON public.learning_questions(course_id, code)
-  WHERE organization_id IS NULL;
-
-CREATE OR REPLACE FUNCTION public.check_learning_question_scope() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-  IF TG_OP='UPDATE' AND (NEW.organization_id,NEW.course_id,NEW.lesson_id,NEW.code) IS DISTINCT FROM
-      (OLD.organization_id,OLD.course_id,OLD.lesson_id,OLD.code) AND
-      EXISTS (SELECT 1 FROM public.learning_question_versions WHERE question_id=OLD.id) THEN
-    RAISE EXCEPTION 'Versioned question identity and scope are immutable' USING ERRCODE='23514';
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.learning_lessons l JOIN public.learning_courses c ON c.id=l.course_id
-    WHERE l.id=NEW.lesson_id AND c.id=NEW.course_id AND c.organization_id IS NOT DISTINCT FROM NEW.organization_id) THEN
-    RAISE EXCEPTION 'Question lesson, course and organization must match' USING ERRCODE='23514';
-  END IF;
-  RETURN NEW;
-END $$;
-
-CREATE OR REPLACE FUNCTION public.check_learning_question_objective() RETURNS trigger
-LANGUAGE plpgsql AS $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.learning_question_versions v
-    JOIN public.learning_questions q ON q.id=v.question_id JOIN public.learning_objectives o ON o.id=NEW.objective_id
-    JOIN public.learning_lessons l ON l.id=o.lesson_id JOIN public.learning_courses c ON c.id=l.course_id
-    WHERE v.id=NEW.question_version_id AND o.lesson_id=q.lesson_id
-      AND c.organization_id IS NOT DISTINCT FROM q.organization_id) THEN
-    RAISE EXCEPTION 'Question objective must belong to the question lesson and organization' USING ERRCODE='23514';
-  END IF;
-  RETURN NEW;
-END $$;
-
+-- Draft (NOT registered): provisioning of the restricted runtime role `vista_app_runtime` for the direct-Prisma Education API.
+-- Integration note (2026-11-16): the Question Bank global-scope part of the earlier draft (organization_id DROP NOT NULL,
+-- learning_questions_global_course_code_key, check_learning_question_scope / check_learning_question_objective) is now delivered
+-- by REGISTERED migration F (20261111_f_global_question_scope) and was removed here to avoid duplicate schema changes.
+-- What remains is the role, its grants and its policies. Apply only through scripts/sql_migration_runner.py after owner approval.
 -- Prisma connects directly as this single trusted backend identity. It cannot
 -- carry the end-user identity into PostgreSQL, so tenant checks remain in the
 -- NestJS service layer. These permissive policies are intentionally scoped to
@@ -117,7 +82,7 @@ BEGIN
         'learning_objective_competencies','learning_objectives','learning_questions','learning_question_versions',
         'learning_question_version_objectives','learning_assignment_question_versions','learning_quiz_attempt_grading',
         'learning_program_versions','learning_programs','learning_reflections','learning_rubric_criteria',
-        'learning_submissions','learning_symbolic_evaluations','learning_vla_action_steps','learning_vla_interactions'
+        'learning_submissions','learning_submission_files','learning_symbolic_evaluations','learning_vla_action_steps','learning_vla_interactions'
       ]::text[])
     ORDER BY c.relname
   LOOP

@@ -53,7 +53,7 @@ const adminUser = { vistaUserId: identities.admin.id, status: 'active', systemPe
 const fixtureRolePermissions: Record<string, { scope: string; permissions: string[] }> = {
   system_admin: { scope: 'system', permissions: ['org.manage'] },
   school_admin: { scope: 'organization', permissions: ['learning.delivery.manage', 'learning.course.author', 'education.classroom.read', 'education.classroom.manage', 'education.classroom.members.manage', 'education.members.read', 'education.members.provision'] },
-  instructor: { scope: 'organization', permissions: ['learning.delivery.manage', 'learning.course.author', 'learning.work.review', 'learning.assessment.assess'] },
+  instructor: { scope: 'organization', permissions: ['learning.delivery.manage', 'learning.course.author', 'learning.course.publish', 'learning.work.review', 'learning.assessment.assess'] },
   student: { scope: 'organization', permissions: ['learning.work.write'] },
 };
 

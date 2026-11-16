@@ -1,3 +1,43 @@
+# VISTA — STATUS UPDATE / CLAUDE HANDOFF (07 NOV 2026)
+
+> This is a dated addendum to the 03 Nov historical snapshot below. Implementation and test results are reported from Codex/user evidence, not independently audited here. Do not treat planned features as deployed.
+
+## Scope and evidence
+
+This 07 Nov 2026 addendum records user-provided Codex execution reports and manual screenshots. It is not a new repository audit, authenticated browser E2E, or proof of production deployment. Historical sections remain snapshots of their original dates.
+
+## Course management role contract
+
+System Admin: global Course Catalog create/edit/publish/archive and canonical Curriculum Editor (Lesson → Section → Activity, ordering and lesson prerequisites). School Admin: published global course selection, school-scoped Course Offering and Classroom, teacher/student assignment. Student: enrollment-scoped My Learning, course progress and learning activities. Teacher: existing classroom, assignment, submission and progress review. Role-aware navigation is a UX requirement; backend authorization and organization scope remain authoritative.
+
+## Reported implementation
+
+Codex reported AdminCourses.tsx and CanonicalCurriculumEditor.tsx implementation, canonical lesson/section/activity APIs, classroom edit and offering reassignment, automatic enrollment/revocation, and student My Learning deduplication. These are reported implementation claims; end-to-end integration and role navigation are not yet accepted.
+
+## Verification results
+
+Reported: backend full regression 52 suites / 464 tests PASS (local rerun after sandbox loopback EPERM); canonical curriculum editor focused frontend 6/6 PASS and frontend build PASS in that earlier run; PostgreSQL 16 disposable current Prisma schema provisioning PASS; enrollment-lifecycle.db.spec.ts 10/10 real PostgreSQL scenarios PASS (concurrency, membership, offering reassignment, revocation, rejoin, transfer, multi-classroom, progress preservation, rollback, My Learning dedup). The database container was stopped and removed. These results do not establish a fresh complete regression, authenticated cross-role HTTP E2E, or migration-chain reproducibility.
+
+## Open UI issue — System Admin Course catalogue
+
+Manual screenshot shows account labeled admin opening Course catalogue and receiving student-style My Learning (Welcome back, admin; Your courses; Teacher assigned; progress percentages; Open course; Keep going; How course access works). This is not accepted System Admin Course Management behavior. Root cause is UNVERIFIED: inspect role resolution, route/sidebar mapping, integration of canonical admin components and whether the running frontend is stale. Users & roles page explicitly states browser-local demo directory; it is not proof of authenticated System Admin identity. Do not claim the bug fixed.
+
+## Supabase production migration gate
+
+Supabase PostgreSQL is the PRIMARY PRODUCTION DATABASE. Preserve all existing data. Current Git Prisma migration chain appears incomplete relative to the earlier Supabase _prisma_migrations records; original historical baseline not yet reconciled. Disposable prisma db push validates current schema only, not historical migration reproducibility. Production schema/migration changes: NO-GO until schema-only authoritative baseline, reconciliation, backup/recovery review and explicit user approval. Never run migration/reset/db push against production.
+
+## Remaining acceptance gates
+
+Confirm authenticated System Admin → Course Management and School Admin → offerings/classrooms, Student → My Learning, Teacher → existing classroom flows. Verify direct-route authorization and cross-school isolation via JWT/JWKS-backed HTTP E2E on isolated test services; execute current full frontend/backend regression and builds. After routing is corrected, manually demo create Course → Lesson → Section → Activity → publish → offering → classroom → enrollment → student learning → teacher review. Question Bank and quiz integration require separate verified coverage.
+
+## Operations and agent handoff
+
+Maintain docs/operations/VISTA_PROJECT_CONTEXT.md, DEVELOPMENT_STATUS.md, and DATABASE_MIGRATION_STATUS.md where they exist; keep AGENTS.md instructions concise and point to those documents. Do not assert files were updated in the repository by this offline document update. No production DB access, infrastructure mutation, commit, push or deploy is authorized by this addendum.
+
+---
+
+# PRESERVED 03 NOV 2026 MASTER CONTEXT
+
 # VISTA — MASTER CONTEXT / CHAT HANDOFF
 
 > Snapshot: 2026-11-03. Context is assembled from VISTA_HANDOFF.docx, the user-provided discussion log, BM04 template and the uploaded planned AWS architecture diagram. This is a working handoff, not proof of live deployment.

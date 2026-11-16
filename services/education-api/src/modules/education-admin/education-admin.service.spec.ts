@@ -57,7 +57,7 @@ describe("EducationAdminService organization boundaries", () => {
     const user = { ...baseUser, memberships: [{ id: "m-1", organizationId: "school-a", roleCode: "school_admin", status: "active", permissions: ["education.classroom.manage"] }] };
     await expect(service.createClassroom(user, "school-a", { offeringId: "offering-a", name: "Class A", code: "A" })).resolves.toMatchObject({ id: "class-a" });
     expect(findOffering).toHaveBeenCalledWith({
-      where: { id: "offering-a", organization_id: "school-a", status: "active", learning_courses: { is: { organization_id: null, status: "published" } } },
+      where: { id: "offering-a", organization_id: "school-a", status: "active", learning_courses: { is: { status: "published", OR: [{ organization_id: null }, { organization_id: "school-a" }] } } },
       select: { id: true },
     });
     await expect(service.createClassroom(user, "school-b", { offeringId: "offering-a", name: "Class B", code: "B" })).rejects.toBeInstanceOf(NotFoundException);

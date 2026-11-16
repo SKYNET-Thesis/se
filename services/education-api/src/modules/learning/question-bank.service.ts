@@ -48,11 +48,12 @@ export class QuestionBankService {
   }
 
   async createQuestion(user: AuthenticatedUser, input: CreateQuestionDto) {
-    const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: input.lessonId }, include: { learning_courses: true } });
-    // The owning organization comes from the lesson's course, never from the client; a supplied id must merely agree with it.
-    const organizationId = lesson?.learning_courses.organization_id ?? null;
+    // Team contract (migration F): the client states the question's scope (absent = global) and it must equal the lesson's course scope;
+    // authority is checked against that scope, so a school author can never create a global question or one for another school.
+    const organizationId = input.organizationId ?? null;
     await this.authorOrg(user, organizationId);
-    if (!lesson || lesson.course_id !== input.courseId || (input.organizationId !== undefined && input.organizationId !== organizationId)) {
+    const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: input.lessonId }, include: { learning_courses: true } });
+    if (!lesson || lesson.course_id !== input.courseId || lesson.learning_courses.organization_id !== organizationId) {
       throw new BadRequestException('Lesson, course and organization must match.');
     }
     if (!input.code.trim()) throw new BadRequestException('Question code is required.');
@@ -100,7 +101,7 @@ export class QuestionBankService {
       objectiveId = (await this.createObjective(user, lessonId, input.newObjective)).id;
     }
     const code = input.code?.trim() || `Q-${Date.now().toString(36).toUpperCase()}`;
-    const question = await this.createQuestion(user, { code, courseId: lesson.course_id, lessonId });
+    const question = await this.createQuestion(user, { code, courseId: lesson.course_id, lessonId, organizationId: lesson.learning_courses.organization_id! });
     const version = await this.createVersion(user, question.id, input.content);
     await this.mapObjectives(user, version.id, { objectiveIds: [objectiveId] } as never);
     if (input.publish === false) return { questionId: question.id, versionId: version.id, status: 'draft' };

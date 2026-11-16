@@ -10,6 +10,7 @@ import { NavDrawer } from '../../components/layout/NavDrawer';
 import { MediaAssetLibraryModal } from '../../components/authoring/MediaAssetLibraryModal';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { catalogApi, type ApiCourse } from '../../lib/api';
+import { PUBLISH_DENIED_MESSAGE, useCanPublishCourses } from '../../lib/coursePublishing';
 import { CanonicalCurriculumEditor, type CurriculumEditorActions } from './CanonicalCurriculumEditor';
 
 export type CourseBuilderTab = 'details' | 'curriculum' | 'media' | 'settings';
@@ -34,6 +35,7 @@ const inputClass =
 export function CourseBuilder() {
   const { courseId = 'new' } = useParams<{ courseId: string }>();
   const isNew = courseId === 'new';
+  const canPublish = useCanPublishCourses();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -279,8 +281,8 @@ export function CourseBuilder() {
             variant="primary"
             icon={<RocketIcon className="h-4 w-4" />}
             aria-label={publishLabel}
-            disabled={isNew || isArchived}
-            title={isNew ? 'Create the draft first' : undefined}
+            disabled={isNew || isArchived || !canPublish}
+            title={isNew ? 'Create the draft first' : !canPublish ? PUBLISH_DENIED_MESSAGE : undefined}
             onClick={openPublish}
           >
             <span className="hidden sm:inline">{publishLabel}</span>

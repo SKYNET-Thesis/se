@@ -5,6 +5,12 @@ export class ApiError extends Error {
 
 const baseUrl = (((import.meta as any).env?.VITE_API_BASE_URL as string | undefined) ?? "/api/v1").replace(/\/$/, "");
 
+/** The API answers `null` payloads with an empty 200 body (e.g. no quiz authored yet); treat that as null instead of a JSON parse error. */
+async function readJson<T>(response: Response): Promise<T> {
+  try { return await response.json() as T; }
+  catch (error) { if (error instanceof SyntaxError) return null as T; throw error; }
+}
+
 export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
     cache: "no-store",
@@ -14,7 +20,7 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
     const body = await response.json().catch(() => null) as { message?: string } | null;
     throw new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`);
   }
-  return response.json() as Promise<T>;
+  return readJson<T>(response);
 }
 
 /** For endpoints that return `null` as an empty 200 body (NestJS sends no body for a null result). */
@@ -228,7 +234,7 @@ export interface KnowledgeCheckSubmissionResult {
 export async function apiRequest<T>(path: string, accessToken: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { method, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   if (!response.ok) { const payload = await response.json().catch(() => null) as { message?: string } | null; throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`); }
-  return response.json() as Promise<T>;
+  return readJson<T>(response);
 }
 
 export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> {
@@ -245,7 +251,7 @@ export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> 
     const payload = await response.json().catch(() => null) as { message?: string } | null;
     throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`);
   }
-  return response.json() as Promise<T>;
+  return readJson<T>(response);
 }
 
 export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; }
@@ -332,7 +338,8 @@ export interface ApiSymbolicEvaluation {
 export interface ApiFeedback { id: string; submission_id: string; content: string; feedback_type: string; created_at: string; }
 export interface ApiRubricCriterion { id: string; title: string; description: string | null; maxPoints: number | string; ordinal: number; }
 export interface ApiInstructorSubmission { id: string; assignment_id: string; learner_user_id: string; status: string; submitted_at: string | null; attempt_id?: string; attempt_number?: number; grading_released_at?: string | null; origin?: 'original' | 'reconstructed'; attempt?: { id: string; attemptNumber: number; gradingReleasedAt: string | null } | null; full_name?: string; email?: string | null; assignment_title?:string; review_status?:string; rubric_criteria?: ApiRubricCriterion[]; overall_feedback?: string | null; }
-export interface ApiTeacherExperimentEvidence {id:string;executionMode:string;method:string;status:string;startedAt:string|null;endedAt:string|null;createdAt:string;provenance:{programVersionId:string|null};result:Record<string,unknown>;metrics:Record<string,unknown>;events:Array<{index:number;type:string;occurredAt:string;state?:string|null;errorCode?:string|null}>;artifacts:Array<{id:string;type:string;mimeType:string|null;createdAt:string;availability:'unavailable'|'local_only'|'metadata_only'}>;controlSession:{id:string;state:string;startedAt:string|null;endedAt:string|null;robot:{id:string;name:string;model:string;serial:string}}|null;demonstration:{id:string;status:string;startedAt:string;endedAt:string|null;frameCount:number|null;checksum:string|null;durationS:number|null;artifactAvailability:'unavailable'|'local_only'|'metadata_only';segments:Array<{index:number;startMs:number;endMs:number;action:string|null;arm:string|null;object:string|null}>;reflection:{prompt:string;response:string|null;createdAt:string}|null;datasets:Array<{id:string;name:string;version:string;split:string;frozen:boolean;huggingFaceRepo:string|null;huggingFaceRevision:string|null}>}|null;modelMetadata:{evaluationRunId:string;status:string;outcome:string|null;createdAt:string;checkpoint:{id:string;version:string;step:number|null};model:{id:string;name:string;status:string}}|null;}
+export type ExecutionProvenance='SIMULATION'|'MOCK_RUNTIME'|'PHYSICAL_ROBOT'|'UNVERIFIED_RUNTIME';
+export interface ApiTeacherExperimentEvidence {id:string;executionMode:string;executionProvenance?:ExecutionProvenance;method:string;status:string;startedAt:string|null;endedAt:string|null;createdAt:string;provenance:{programVersionId:string|null;runtimeAdapterMode?:string|null};result:Record<string,unknown>;metrics:Record<string,unknown>;events:Array<{index:number;type:string;occurredAt:string;state?:string|null;errorCode?:string|null}>;artifacts:Array<{id:string;type:string;mimeType:string|null;createdAt:string;availability:'unavailable'|'local_only'|'metadata_only'}>;controlSession:{id:string;state:string;startedAt:string|null;endedAt:string|null;robot:{id:string;name:string;model:string;serial:string}}|null;demonstration:{id:string;status:string;startedAt:string;endedAt:string|null;frameCount:number|null;checksum:string|null;durationS:number|null;artifactAvailability:'unavailable'|'local_only'|'metadata_only';segments:Array<{index:number;startMs:number;endMs:number;action:string|null;arm:string|null;object:string|null}>;reflection:{prompt:string;response:string|null;createdAt:string}|null;datasets:Array<{id:string;name:string;version:string;split:string;frozen:boolean;huggingFaceRepo:string|null;huggingFaceRevision:string|null}>}|null;modelMetadata:{evaluationRunId:string;status:string;outcome:string|null;createdAt:string;checkpoint:{id:string;version:string;step:number|null};model:{id:string;name:string;status:string}}|null;}
 export interface ApiInstructorSubmissionDetail extends ApiInstructorSubmission { email?:string|null;program_version:{id:string;versionNumber:number;workspaceJson:Record<string,unknown>;robotProgram:Record<string,unknown>;/** `submission` = the copy frozen on the submission row at submit time; `version` = legacy fallback to the program version. */snapshotSource?:'submission'|'version';validationResult:Record<string,unknown>;changeSummary?:string|null;createdAt:string}|null;experiment:{id:string;status:string;executionMode:string;createdAt:string;endedAt?:string|null}|null;experiments:ApiTeacherExperimentEvidence[];symbolic_evaluation:ApiSymbolicEvaluation|null;assessment:{id:string;overallFeedback:string|null;reviewedAt:string;scores:Array<{criterionId:string;awardedPoints:number;comment?:string|null}>}|null;feedback:Array<{id:string;content:string;createdAt:string}>; }
 export type ApiRecord = Record<string, unknown>;
 export interface ApiIdentity { id: string; fullName: string; email: string | null; status: string; signupMethod: string; emailVerifiedAt: string | null; createdAt: string; updatedAt: string; }
@@ -565,7 +572,14 @@ export const learningMediaApi = {
 type QuizAuthoringQuestion = { id: string; questionId: string; code: string; type: string; stem: string; options: Array<{ id: string; text: string }>; versionNumber: number; objectives: Array<{ id: string; code: string; description: string }> };
 type QuizAuthoringSelected = { versionId: string; questionId: string; ordinal: number; points: number; type: string; stem: string; options: Array<{ id: string; text: string }>; code: string; answerKey?: string[]; explanation?: string | null };
 type QuizAuthoringAssignment = { id: string; title: string; instructions: string; constraints: { kind: string; passPercent: number }; questions: QuizAuthoringSelected[] };
+export type AuthoringObjective = { id: string; code: string; description: string; ordinal: number };
+export type AuthorQuestionBody = {
+  content: { type: string; difficulty: string; cognitiveLevel: string; stem: string; options: Array<{ id: string; text: string }>; answerKey: string[]; explanation?: string };
+  objectiveId?: string; newObjective?: string; code?: string;
+};
 export const quizAuthoringApi = {
+  objectives: (lessonId: string, token: string) => apiGet<AuthoringObjective[]>(`/author/question-bank/lessons/${lessonId}/objectives`, token),
+  authorQuestion: (lessonId: string, token: string, body: AuthorQuestionBody) => apiRequest<{ questionId: string; versionId: string; status: string }>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/questions`, token, 'POST', body),
   questions: (lessonId: string, token: string, search = '', type = '', page = 1, pageSize = 20) => apiGet<{ items: QuizAuthoringQuestion[]; total: number; page: number; pageSize: number }>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/questions?search=${encodeURIComponent(search)}&type=${encodeURIComponent(type)}&page=${page}&pageSize=${pageSize}`, token),
   assignment: (lessonId: string, token: string) => apiGetOptional<QuizAuthoringAssignment>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment`, token),
   preview: (lessonId: string, token: string) => apiGetOptional<QuizAuthoringAssignment>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/preview`, token),

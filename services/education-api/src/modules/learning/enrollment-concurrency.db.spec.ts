@@ -1,6 +1,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import { EducationAdminService } from '../education-admin/education-admin.service';
 import { EnrollmentDeliveryService } from './enrollment-delivery.service';
+import { LearningScopeService } from './learning-scope.service';
 import { LearningService } from './learning.service';
 import {
   createClassroom, createDb, createStudent, createWorld, deferred, describeDb, enrollmentRows, isPending, joinClassroom, schoolAdminUser,
@@ -17,8 +18,8 @@ import {
 describeDb('real PostgreSQL enrollment concurrency', () => {
   const db: Db = createDb();
   let enrollments: EnrollmentDeliveryService;
-  const scope = { isSystemAdministrator: () => true } as never;
-  const sysUser = {} as never; // authorization is stubbed by the scope above; these suites test data consistency
+  const scope = new LearningScopeService(db as never) as never; // the real authority rules (System Administrator publishes global courses)
+  const sysUser = { status: 'active', systemPermissions: ['org.manage'], memberships: [], vistaUserId: '00000000-0000-4000-8000-000000000001' } as never; // a System Administrator; these suites test data consistency
   beforeAll(async () => { await db.$connect(); enrollments = new EnrollmentDeliveryService(db as never); admin = adminWith(enrollments); });
   afterAll(async () => { await db.$disconnect(); });
 

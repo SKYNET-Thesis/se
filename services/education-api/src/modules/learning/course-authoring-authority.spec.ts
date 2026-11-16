@@ -93,15 +93,16 @@ describe('school-scoped course authoring authority', () => {
     const lesson = (organizationId: string | null) => ({ id: 'l1', course_id: 'c1', learning_courses: { organization_id: organizationId } });
     const bank = (organizationId: string | null) => new QuestionBankService({
       learning_lessons: { findUnique: jest.fn(async () => lesson(organizationId)) },
-      $queryRaw: jest.fn(async () => [{ id: 'm1' }]),
+      $queryRaw: jest.fn(async (_sql: unknown, ...values: unknown[]) => (values.includes(SCHOOL_A) ? [{ id: 'm1' }] : [])), // the caller authors for school A only
     } as never);
     const content = { type: 'single_choice', difficulty: 'easy', cognitiveLevel: 'understand', stem: 's', options: [{ id: 'a', text: 'a' }, { id: 'b', text: 'b' }], answerKey: ['a'], explanation: 'e' };
 
     it('keeps the global Question Bank read-only for school authors', async () => {
       await expect(bank(null).authorLessonQuestion(user(), 'l1', { content, newObjective: 'o' } as never)).rejects.toBeInstanceOf(NotFoundException);
     });
-    it('takes the question\'s school from the lesson\'s course, never from the client', async () => {
-      await expect(bank(SCHOOL_A).createQuestion(user(), { code: 'Q', courseId: 'c1', lessonId: 'l1', organizationId: SCHOOL_B })).rejects.toBeInstanceOf(BadRequestException);
+    it('never creates a question for a school the caller cannot author for, nor a global one from a school lesson', async () => {
+      await expect(bank(SCHOOL_A).createQuestion(user(), { code: 'Q', courseId: 'c1', lessonId: 'l1', organizationId: SCHOOL_B })).rejects.toBeInstanceOf(NotFoundException);
+      await expect(bank(SCHOOL_A).createQuestion(user({ systemPermissions: ['org.manage'] }), { code: 'Q', courseId: 'c1', lessonId: 'l1' })).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 });
