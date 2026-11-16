@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "baselineSha256": "5b140ce7b5f9b71e5c013f45ec9298cde48db29ac5e6a979b78aea694c2ef962",
-  "sourceCommit": "a9b5aedb8170d7adf1b86d3631a8fda0da51af25",
+  "sourceCommit": "92777223b35679c626372b40d1d4487f58d12cc7",
   "migrations": [
     {
       "version": "20261110_d_activity_content",
@@ -44,6 +44,24 @@
       "path": "database/migrations/20261114_j_one_submission_per_attempt.sql",
       "sha256": "52d3c21427bd5fd03c9d66bb98e276d6442f07faad9e27c580071ad911f2ba68",
       "order": 7
+    },
+    {
+      "version": "20261116_k_course_authoring_capabilities",
+      "path": "database/migrations/20261116_k_course_authoring_capabilities.sql",
+      "sha256": "a6de10da98c503dfc4e3ca4fc3ffd07e21cfe3b4b57e2bed4856568288e555f7",
+      "order": 8
+    },
+    {
+      "version": "20261116_l_runtime_role",
+      "path": "database/migrations/20261116_l_runtime_role.sql",
+      "sha256": "bca692960edf31c91749cfadaae8e10e6bc80aa225e60abad0511aa34e960d79",
+      "order": 9
+    },
+    {
+      "version": "20261116_m_revoke_public_temp_privilege",
+      "path": "database/migrations/20261116_m_revoke_public_temp_privilege.sql",
+      "sha256": "3cca73daeb923a09d69a97fa27f45f1b3ab3cc0ece64e4f21e784e7e1c8ec010",
+      "order": 10
     }
   ]
 }
