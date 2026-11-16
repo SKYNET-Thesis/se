@@ -38,12 +38,14 @@ try:
     from scripts import supabase_identity
     from scripts import verify_production_release_d_i as verifier
     from scripts import verify_production_release_j as verifier_j
+    from scripts import verify_production_release_km as verifier_km
     from scripts.verify_schema_baseline import verify_baseline
 except ModuleNotFoundError:  # executed as a script from the repository root
     import sql_migration_runner as runner_module  # type: ignore
     import supabase_identity  # type: ignore
     import verify_production_release_d_i as verifier  # type: ignore
     import verify_production_release_j as verifier_j  # type: ignore
+    import verify_production_release_km as verifier_km  # type: ignore
     from verify_schema_baseline import verify_baseline  # type: ignore
 
 MigrationRunner = runner_module.MigrationRunner
@@ -54,7 +56,7 @@ class ReleaseError(Exception):
 
 
 SCOPE_FILE = "database/release-scopes.json"
-VERIFIERS = {"d_i": verifier, "j": verifier_j}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
+VERIFIERS = {"d_i": verifier, "j": verifier_j, "km": verifier_km}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
 
 
 def load_scopes(root: Path) -> dict:

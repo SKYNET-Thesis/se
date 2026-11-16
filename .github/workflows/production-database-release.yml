@@ -18,7 +18,7 @@ on:
       scope:
         description: "Approved release scope"
         type: choice
-        options: ["D-I", "J"]
+        options: ["D-I", "J", "K-M"]
         default: "J"
       backup_mode:
         description: "managed = verify Supabase managed backup/PITR (paid plans); logical = logical-dump backup + restore test (Supabase Free)"

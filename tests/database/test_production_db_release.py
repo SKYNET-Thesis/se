@@ -171,7 +171,9 @@ class StaticSafeguardTests(unittest.TestCase):
         self.assertEqual(d_i["versions"], [e["version"] for e in manifest["migrations"]][: len(d_i["versions"])])
         self.assertIn("20261114_j_one_submission_per_attempt", d_i["excludedVersions"])  # Stage J can never ride along with D-I
         registered = [e["version"] for e in manifest["migrations"]]
-        self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"])  # J is registered strictly after D-I
+        self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"] + scopes["K-M"]["versions"])  # J strictly after D-I, K-M strictly after J
+        self.assertEqual(scopes["K-M"]["requiresApplied"], d_i["versions"] + scopes["J"]["versions"])  # K-M needs exactly D-J applied
+        self.assertEqual(scopes["K-M"]["excludedVersions"], [])
 
     def test_deploy_script_still_has_health_check_and_rollback(self):
         script = (ROOT / "infra/terraform/scripts/deploy-api.sh").read_text()
@@ -519,8 +521,12 @@ class ReleaseFlowTests(unittest.TestCase):
             mutate(repo)
         manifest_path = repo / "database/migrations/manifest.json"
         manifest = json.loads(manifest_path.read_text())
-        manifest["migrations"] = [e for e in manifest["migrations"] if e["version"] != J_VERSION]  # D-I scenarios never see Stage J
+        # Later, separately reviewed scopes (K-M) are never part of the D-I/J scenarios either.
+        later = set(json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"].get("K-M", {}).get("versions", []))
+        manifest["migrations"] = [e for e in manifest["migrations"] if e["version"] != J_VERSION and e["version"] not in later]  # D-I scenarios never see Stage J
         (repo / "database/migrations" / f"{J_VERSION}.sql").unlink(missing_ok=True)
+        for version in later:
+            (repo / "database/migrations" / f"{version}.sql").unlink(missing_ok=True)
         if with_j:
             shutil.copy2(J_SQL, repo / "database/migrations" / f"{J_VERSION}.sql")
             manifest["migrations"].append({"version": J_VERSION, "path": f"database/migrations/{J_VERSION}.sql", "sha256": "x", "order": len(manifest["migrations"]) + 1})

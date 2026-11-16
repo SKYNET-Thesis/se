@@ -60,6 +60,30 @@
       },
       "maxGradedWithoutAttempt": 0,
       "verifier": "j"
+    },
+    "K-M": {
+      "description": "School authoring/publishing capabilities (K), restricted runtime role (L), revocation of the PUBLIC TEMP privilege (M)",
+      "requiresApplied": [
+        "20261110_d_activity_content",
+        "20261110_e_learning_media",
+        "20261111_f_global_question_scope",
+        "20261111_g_activity_progress_scope_guard",
+        "20261112_h_learning_media_audio_mpeg",
+        "20261113_i_attempt_submission_foundation",
+        "20261114_j_one_submission_per_attempt"
+      ],
+      "versions": [
+        "20261116_k_course_authoring_capabilities",
+        "20261116_l_runtime_role",
+        "20261116_m_revoke_public_temp_privilege"
+      ],
+      "sha256": {
+        "20261116_k_course_authoring_capabilities": "a6de10da98c503dfc4e3ca4fc3ffd07e21cfe3b4b57e2bed4856568288e555f7",
+        "20261116_l_runtime_role": "bca692960edf31c91749cfadaae8e10e6bc80aa225e60abad0511aa34e960d79",
+        "20261116_m_revoke_public_temp_privilege": "3cca73daeb923a09d69a97fa27f45f1b3ab3cc0ece64e4f21e784e7e1c8ec010"
+      },
+      "excludedVersions": [],
+      "verifier": "km"
     }
   }
 }
