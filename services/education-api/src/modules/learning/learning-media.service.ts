@@ -21,24 +21,28 @@ export type CreateLearningMediaUpload = { filename: string; contentType: string;
 export class LearningMediaService {
   constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly storage: LearningMediaStorage, private readonly progression?: ProgressionService) {}
 
-  private assertAuthor(user: AuthenticatedUser) {
-    if (user.status !== 'active' || !this.scope.isSystemAdministrator(user)) throw new NotFoundException('Learning media was not found.');
+  /** Authors are System Administrators (global courses) or holders of `learning.course.author` (their own school's courses). */
+  private assertAuthor(user: AuthenticatedUser): { admin: boolean; orgs: string[] } {
+    const admin = user.status === 'active' && this.scope.isSystemAdministrator(user);
+    const orgs = this.scope.authoringOrganizationIds(user);
+    if (!admin && !orgs.length) throw new NotFoundException('Learning media was not found.');
+    return { admin, orgs };
   }
 
   private async authorAsset(user: AuthenticatedUser, mediaId: string, states: string[] = ['ready']) {
-    this.assertAuthor(user);
+    const author = this.assertAuthor(user);
     const rows = await this.prisma.$queryRaw<Array<{ id: string; course_id: string; object_key: string; original_filename: string; mime_type: string; size_bytes: number; status: string; created_at: Date }>>`
       SELECT m.id,m.course_id,m.object_key,m.original_filename,m.mime_type,m.size_bytes::int AS size_bytes,m.status,m.created_at
       FROM public.learning_media_assets m JOIN public.learning_courses c ON c.id=m.course_id
-      WHERE m.id=${mediaId}::uuid AND c.organization_id IS NULL AND m.status=ANY(${states}::text[])`;
+      WHERE m.id=${mediaId}::uuid AND ((c.organization_id IS NULL AND ${author.admin}) OR c.organization_id = ANY(${author.orgs}::uuid[])) AND m.status=ANY(${states}::text[])`;
     if (!rows[0]) throw new NotFoundException('Learning media was not found.');
     return rows[0];
   }
 
   async createUpload(user: AuthenticatedUser, courseId: string, input: CreateLearningMediaUpload) {
-    this.assertAuthor(user);
+    const author = this.assertAuthor(user);
     const courses = await this.prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM public.learning_courses WHERE id=${courseId}::uuid AND organization_id IS NULL AND status<>'archived'`;
+      SELECT id FROM public.learning_courses WHERE id=${courseId}::uuid AND ((organization_id IS NULL AND ${author.admin}) OR organization_id = ANY(${author.orgs}::uuid[])) AND status<>'archived'`;
     if (!courses[0]) throw new NotFoundException('Course was not found.');
     const filename = input.filename.trim();
     if (!filename || filename.length > 240 || filename.includes('/') || filename.includes('\\') || /[\u0000-\u001f\u007f]/.test(filename)) {
@@ -87,11 +91,11 @@ export class LearningMediaService {
   }
 
   async list(user: AuthenticatedUser, courseId: string, search = '', kind = '') {
-    this.assertAuthor(user);
+    const author = this.assertAuthor(user);
     if (search.length > 120) throw new BadRequestException('Search text is too long.');
     if (kind && !['video', 'document', 'image'].includes(kind)) throw new BadRequestException('Media type filter is invalid.');
     const courses = await this.prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT id FROM public.learning_courses WHERE id=${courseId}::uuid AND organization_id IS NULL`;
+      SELECT id FROM public.learning_courses WHERE id=${courseId}::uuid AND ((organization_id IS NULL AND ${author.admin}) OR organization_id = ANY(${author.orgs}::uuid[]))`;
     if (!courses[0]) throw new NotFoundException('Course was not found.');
     const mimePrefix = kind === 'video' ? 'video/%' : kind === 'image' ? 'image/%' : kind === 'document' ? '!video/%' : '';
     return this.prisma.$queryRaw<Array<Record<string, unknown>>>`

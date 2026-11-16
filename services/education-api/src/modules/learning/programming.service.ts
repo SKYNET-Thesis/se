@@ -123,6 +123,13 @@ export class ProgrammingService {
       if (!version) throw new BadRequestException("Program version does not belong to this attempt program.");
       await this.validateCurriculumProgram(attempt.assignment_id, version.robot_program as Record<string, unknown>);
       await this.validateCurriculumWorkspace(attempt.assignment_id, version.workspace_json);
+      const previousSubmissions=await tx.$queryRaw<{id:string;program_version_id:string}[]>`
+        SELECT id,program_version_id FROM public.learning_submissions
+        WHERE assignment_id=${attempt.assignment_id}::uuid AND learner_user_id=${user.vistaUserId}::uuid
+        FOR UPDATE`;
+      if(previousSubmissions[0]&&previousSubmissions[0].program_version_id!==dto.programVersionId){
+        await tx.$executeRaw`DELETE FROM public.learning_assessments WHERE submission_id=${previousSubmissions[0].id}::uuid`;
+      }
       const submissions = await tx.$queryRaw<{ id: string; assignment_id: string; learner_user_id: string; program_id: string; program_version_id: string; status: string; submitted_at: Date }[]>`
         INSERT INTO public.learning_submissions(assignment_id,learner_user_id,program_id,program_version_id,submitted_workspace,submitted_program,reflection,status,submitted_at)
         VALUES(${attempt.assignment_id}::uuid,${user.vistaUserId}::uuid,${attempt.program_id}::uuid,${dto.programVersionId}::uuid,

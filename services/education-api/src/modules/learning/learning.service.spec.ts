@@ -15,7 +15,7 @@ describe("LearningService assignment delivery", () => {
   const assertTeacherClassroomAccess = jest.fn();
   const service = new LearningService(
     { $queryRaw: queryRaw, $transaction: transaction } as never,
-    { assertStudentClassroomAccess, assertTeacherClassroomAccess, isSystemAdministrator: () => false } as never,
+    { assertStudentClassroomAccess, assertTeacherClassroomAccess, isSystemAdministrator: () => false, authoringOrganizationIds: () => [], canAuthorOrganization: () => false } as never,
   );
 
   beforeEach(() => {
@@ -64,12 +64,21 @@ describe("LearningService assignment delivery", () => {
     expect(sql).toContain("c.status='published'");
   });
 
+  it('loads a requested course by ID instead of depending on the first catalogue page', async () => {
+    queryRaw.mockResolvedValueOnce([{ id:'course-109', title:'Older course', status:'published' }]);
+    await expect(service.course(user as never, 'course-109')).resolves.toMatchObject({ id:'course-109' });
+    const sql=(queryRaw.mock.calls[0][0] as TemplateStringsArray).join('?');
+    expect(sql).toContain('WHERE c.id=');
+    expect(sql).toContain("c.status='published'");
+    expect(sql).not.toContain('LIMIT');
+  });
+
   it('reorders lessons without relying on a deferrable unique constraint', async () => {
     const lessons = { findMany: jest.fn().mockResolvedValue([{ id: 'lesson-1' }, { id: 'lesson-2' }]), update: jest.fn().mockResolvedValue({}) };
     const tx = { $queryRaw: jest.fn().mockResolvedValue([{ id: 'course-1' }]), $executeRaw: jest.fn(), learning_lessons: lessons };
     const reorderService = new LearningService(
-      { $queryRaw: jest.fn().mockResolvedValue([{ status: 'draft' }]), learning_courses: { findFirst: jest.fn().mockResolvedValue({ id: 'course-1', status: 'draft' }) }, learning_lessons: lessons, $transaction: jest.fn(async (work) => work(tx)) } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      { $queryRaw: jest.fn().mockResolvedValue([{ status: 'draft' }]), learning_courses: { findUnique: jest.fn().mockResolvedValue({ id: 'course-1', status: 'draft', organization_id: null }) }, learning_lessons: lessons, $transaction: jest.fn(async (work) => work(tx)) } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never,
     );
     await reorderService.reorderCourseLessons({ ...user, systemPermissions: ['org.manage'] } as never, 'course-1', ['lesson-2', 'lesson-1']);
     expect(tx.$executeRaw).toHaveBeenCalledTimes(1);
@@ -125,7 +134,7 @@ describe("LearningService assignment delivery", () => {
     const scopedQuery = jest.fn().mockResolvedValue([]);
     const scopedService = new LearningService(
       { $queryRaw: scopedQuery } as never,
-      { classroomIds: jest.fn().mockResolvedValue([]), isSystemAdministrator: jest.fn().mockReturnValue(false) } as never,
+      { classroomIds: jest.fn().mockResolvedValue([]), isSystemAdministrator: jest.fn().mockReturnValue(false), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockReturnValue(false) } as never,
     );
 
     await scopedService.courses(user, { page: 1, pageSize: 20 });
@@ -145,7 +154,7 @@ describe("LearningService assignment delivery", () => {
       .mockResolvedValueOnce([{ id: "course-1", title: "Robotics Fundamentals" }]);
     const lockedService = new LearningService(
       { $queryRaw: lockedQuery } as never,
-      { classroomIds: jest.fn().mockResolvedValue([]), isSystemAdministrator: jest.fn().mockReturnValue(false) } as never,
+      { classroomIds: jest.fn().mockResolvedValue([]), isSystemAdministrator: jest.fn().mockReturnValue(false), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockReturnValue(false) } as never,
       { coursePath: jest.fn().mockResolvedValue({ lessons: [{ id: "lesson-2", status: "locked", lockReason: "Complete L1" }] }) } as never,
     );
 
@@ -160,7 +169,7 @@ describe("LearningService assignment delivery", () => {
       .mockResolvedValueOnce([{ id: "course-1", title: "Robotics Fundamentals" }]);
     const scopedService = new LearningService(
       { $queryRaw: scopedQuery } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(false) } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(false), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockReturnValue(false) } as never,
       { coursePath: jest.fn().mockRejectedValue(pathFailure) } as never,
     );
 
@@ -394,7 +403,7 @@ describe("LearningService assignment delivery", () => {
 
     const enrichedService = new LearningService(
       { $queryRaw: lessonQuery } as never,
-      { classroomIds: jest.fn().mockResolvedValue([]), isSystemAdministrator: jest.fn().mockReturnValue(false) } as never,
+      { classroomIds: jest.fn().mockResolvedValue([]), isSystemAdministrator: jest.fn().mockReturnValue(false), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockReturnValue(false) } as never,
       mockProgression as never,
     );
 
@@ -438,7 +447,7 @@ describe('LearningService global catalog lifecycle', () => {
     const update = jest.fn().mockResolvedValue({ id: 'course-1', status: 'published' });
     const service = new LearningService(
       { learning_courses: { findUnique, update }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never,
     );
 
     await expect((service as unknown as { publishCourse: Function }).publishCourse(systemAdmin, 'course-1'))
@@ -455,7 +464,7 @@ describe('LearningService global catalog lifecycle', () => {
     const update = jest.fn();
     const service = new LearningService(
       { learning_courses: { findUnique, update }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never,
     );
 
     await expect((service as unknown as { publishCourse: Function }).publishCourse(systemAdmin, 'course-1'))
@@ -469,7 +478,7 @@ describe('LearningService global catalog lifecycle', () => {
     const update = jest.fn().mockResolvedValue({ id: 'course-1', status: 'published' });
     const service = new LearningService(
       { learning_courses: { findUnique, update }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never,
     );
 
     await expect((service as unknown as { publishCourse: Function }).publishCourse(systemAdmin, 'course-1'))
@@ -483,9 +492,9 @@ describe('LearningService global catalog lifecycle', () => {
     const synchronizeCourse = jest.fn().mockResolvedValue({ classrooms: 1, enrolled: 2 });
     const service = new LearningService(
       { learning_courses: { findUnique, update }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never, undefined, { synchronizeCourse } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never, undefined, { synchronizeCourse } as never,
     );
-    await expect(service.publishCourse(systemAdmin as never, 'course-1')).resolves.toMatchObject({ status: 'published' });
+    await expect(service.publishCourse(systemAdmin as never, 'course-1')).resolves.toMatchObject({ status: 'published', enrollmentSync: { classrooms: 1, enrolled: 2 } });
     expect(synchronizeCourse).toHaveBeenCalledWith('course-1');
   });
 
@@ -495,7 +504,7 @@ describe('LearningService global catalog lifecycle', () => {
     const update = jest.fn().mockResolvedValue({ id: 'course-1', status: 'published' });
     const service = new LearningService(
       { learning_courses: { findUnique, update }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never, undefined, { synchronizeCourse: jest.fn().mockRejectedValue(new Error('db down')) } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never, undefined, { synchronizeCourse: jest.fn().mockRejectedValue(new Error('db down')) } as never,
     );
     await expect(service.publishCourse(systemAdmin as never, 'course-1')).resolves.toMatchObject({ status: 'published' });
   });
@@ -505,8 +514,8 @@ describe('LearningService global catalog lifecycle', () => {
     const query = jest.fn().mockResolvedValue([{ activeEnrollments: 3, progressRows: 0, attemptRows: 0 }]);
     const update = jest.fn();
     const service = new LearningService(
-      { learning_courses: { findFirst, update }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      { learning_courses: { findUnique: findFirst, update }, $queryRaw: query } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never,
     );
 
     await expect(service.archiveCourse(systemAdmin as never, 'course-1')).rejects.toBeInstanceOf(ConflictException);
@@ -518,8 +527,8 @@ describe('LearningService global catalog lifecycle', () => {
     const query = jest.fn().mockResolvedValue([{ activeEnrollments: 0, activeOfferings: 1, activeClassrooms: 0, progressRows: 0, attemptRows: 0 }]);
     const update = jest.fn();
     const service = new LearningService(
-      { learning_courses: { findFirst, update }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      { learning_courses: { findUnique: findFirst, update }, $queryRaw: query } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never,
     );
 
     await expect(service.archiveCourse(systemAdmin as never, 'course-1')).rejects.toBeInstanceOf(ConflictException);
@@ -531,8 +540,8 @@ describe('LearningService global catalog lifecycle', () => {
     const query = jest.fn().mockResolvedValue([{ activeEnrollments: 0, progressRows: 4, attemptRows: 2 }]);
     const update = jest.fn().mockResolvedValue({ id: 'course-1', status: 'archived' });
     const service = new LearningService(
-      { learning_courses: { findFirst, update }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      { learning_courses: { findUnique: findFirst, update }, $queryRaw: query } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never,
     );
 
     await expect(service.archiveCourse(systemAdmin as never, 'course-1')).resolves.toMatchObject({ status: 'archived' });
@@ -541,7 +550,7 @@ describe('LearningService global catalog lifecycle', () => {
 
   it('rejects a whitespace-only course title', async () => {
     const create = jest.fn();
-    const service = new LearningService({ learning_courses: { create } } as never, { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never);
+    const service = new LearningService({ learning_courses: { create } } as never, { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never);
     await expect(service.createGlobalCourse(systemAdmin as never, { title: '   ' })).rejects.toBeInstanceOf(BadRequestException);
     expect(create).not.toHaveBeenCalled();
   });
@@ -552,8 +561,8 @@ describe('LearningService global catalog lifecycle', () => {
     const query = jest.fn().mockResolvedValue([{ status: 'published' }, { activeEnrollments: 0, progressRows: 2, attemptRows: 0 }]);
     const update = jest.fn();
     const service = new LearningService(
-      { learning_lessons: { findUnique, update }, learning_courses: { findFirst }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      { learning_lessons: { findUnique, update }, learning_courses: { findUnique: findFirst }, $queryRaw: query } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never,
     );
 
     await expect(service.updateCourseLesson(systemAdmin as never, 'lesson-2', { content: { summary: 'changed' } }))
@@ -567,8 +576,8 @@ describe('LearningService global catalog lifecycle', () => {
     const query = jest.fn().mockResolvedValue([{ status: 'published' }, { activeEnrollments: 2, progressRows: 0, attemptRows: 0 }]);
     const update = jest.fn().mockResolvedValue({ id: 'lesson-2', title: 'Renamed' });
     const service = new LearningService(
-      { learning_lessons: { findUnique, update }, learning_courses: { findFirst }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      { learning_lessons: { findUnique, update }, learning_courses: { findUnique: findFirst }, $queryRaw: query } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never,
     );
 
     await expect(service.updateCourseLesson(systemAdmin as never, 'lesson-2', { title: 'Renamed' })).resolves.toMatchObject({ title: 'Renamed' });
@@ -583,8 +592,8 @@ describe('LearningService global catalog lifecycle', () => {
       .mockResolvedValueOnce([{ status: 'published' }])
       .mockResolvedValueOnce([{ activeEnrollments: 1, progressRows: 0, attemptRows: 0 }]);
     const service = new LearningService(
-      { learning_courses: { findFirst }, learning_lessons: { aggregate, create }, $queryRaw: query } as never,
-      { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never,
+      { learning_courses: { findUnique: findFirst }, learning_lessons: { aggregate, create }, $queryRaw: query } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never,
     );
 
     await expect(service.createCourseLesson(systemAdmin as never, 'course-1', { title: 'New lesson' }))
@@ -597,7 +606,7 @@ describe('LearningService global catalog lifecycle', () => {
     const findFirst = jest.fn().mockResolvedValue({ id: 'course-1', organization_id: null });
     const count = jest.fn().mockResolvedValue(1);
     const query = jest.fn().mockResolvedValue([{ id: 'lesson-1' }]);
-    const service = new LearningService({ learning_lessons: { findUnique, count }, learning_courses: { findFirst }, $queryRaw: query } as never, { isSystemAdministrator: jest.fn().mockReturnValue(true) } as never);
+    const service = new LearningService({ learning_lessons: { findUnique, count }, learning_courses: { findUnique: findFirst }, $queryRaw: query } as never, { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockImplementation((_u: unknown, org: string | null) => org === null) } as never);
     await expect(service.setLessonPrerequisites(systemAdmin as never, 'lesson-2', ['lesson-1'])).rejects.toThrow(BadRequestException);
     expect(query).toHaveBeenCalled();
   });

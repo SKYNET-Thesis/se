@@ -46,6 +46,38 @@ describe("ProgrammingService M2C", () => {
       .rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it("invalidates a saved grade when a learner submits a different ProgramVersion", async () => {
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ attempt_id:"attempt-2", classroom_id:"class-1", assignment_id:"assignment-1", program_id:"program-2" }])
+      .mockResolvedValueOnce([{ id:"version-2", workspace_json:{ blocks:[] }, robot_program:validRobotProgram }])
+      .mockResolvedValueOnce([{ id:"submission-1", program_version_id:"version-1" }])
+      .mockResolvedValueOnce([{ id:"submission-1", assignment_id:"assignment-1", learner_user_id:"user-1", program_id:"program-2", program_version_id:"version-2", status:"submitted", submitted_at:new Date() }]);
+    const txExecute = jest.fn().mockResolvedValue(1);
+    transaction.mockImplementation(async (work) => work({ $queryRaw: txQuery, $executeRaw: txExecute }));
+    queryRaw.mockResolvedValue([]);
+
+    await service.submit(user, "attempt-2", { programVersionId:"version-2" });
+
+    expect(txExecute.mock.calls[0][0].join('')).toContain('DELETE FROM public.learning_assessments');
+    expect(txExecute).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves a published grade when the same ProgramVersion is submitted again", async () => {
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ attempt_id:"attempt-2", classroom_id:"class-1", assignment_id:"assignment-1", program_id:"program-2" }])
+      .mockResolvedValueOnce([{ id:"version-2", workspace_json:{ blocks:[] }, robot_program:validRobotProgram }])
+      .mockResolvedValueOnce([{ id:"submission-1", program_version_id:"version-2" }])
+      .mockResolvedValueOnce([{ id:"submission-1", assignment_id:"assignment-1", learner_user_id:"user-1", program_id:"program-2", program_version_id:"version-2", status:"submitted", submitted_at:new Date() }]);
+    const txExecute = jest.fn().mockResolvedValue(1);
+    transaction.mockImplementation(async (work) => work({ $queryRaw: txQuery, $executeRaw: txExecute }));
+    queryRaw.mockResolvedValue([]);
+
+    await service.submit(user, "attempt-2", { programVersionId:"version-2" });
+
+    expect(txExecute).toHaveBeenCalledTimes(1);
+    expect(txExecute.mock.calls[0][0].join('')).toContain('UPDATE public.learning_assignment_attempts');
+  });
+
   it("does not reveal another learner's attempt as a program", async () => {
     queryRaw.mockResolvedValue([]);
     await expect(service.programForAttempt(user, "attempt-other")).rejects.toBeInstanceOf(NotFoundException);

@@ -1,6 +1,19 @@
 {
   "formatVersion": 1,
   "baselineSha256": "5b140ce7b5f9b71e5c013f45ec9298cde48db29ac5e6a979b78aea694c2ef962",
-  "sourceCommit": null,
-  "migrations": []
+  "sourceCommit": "cefd4825dcb21a80385cfca801ea7018b0d8df5e",
+  "migrations": [
+    {
+      "version": "20261110_d_activity_content",
+      "path": "database/migrations/20261110_d_activity_content.sql",
+      "sha256": "108c321adf155233791aae453b9e6bf77f57ef82c0da4444fbcae8b728ed5627",
+      "order": 1
+    },
+    {
+      "version": "20261110_e_learning_media",
+      "path": "database/migrations/20261110_e_learning_media.sql",
+      "sha256": "a19f11708c4029afca9cce4474c2c3e95cbea0a5d1a850de5c0c1c08d73812a9",
+      "order": 2
+    }
+  ]
 }

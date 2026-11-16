@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
+import { classifyExecution } from "./execution-provenance";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { AssessSubmissionDto } from "./dto/assess-submission.dto";
 import { CreateFeedbackDto } from "./dto/create-feedback.dto";
@@ -37,7 +38,7 @@ export class AssessmentService {
 
   async assessment(user:AuthenticatedUser,submissionId:string) {
     const submission=await this.submissionScope(submissionId); await this.scope.assertTeacherClassroomPermission(user,submission.classroom_id,["learning.work.review"]);
-    const rows=await this.prisma.$queryRaw<Record<string, unknown>[]>`SELECT a.id,a.submission_id,a.reviewer_user_id,a.overall_feedback,a.reviewed_at,a.created_at,COALESCE(json_agg(json_build_object('criterionId',s.criterion_id,'awardedPoints',s.awarded_points,'comment',s.comment)) FILTER (WHERE s.criterion_id IS NOT NULL),'[]'::json) AS scores FROM public.learning_assessments a LEFT JOIN public.learning_assessment_scores s ON s.assessment_id=a.id WHERE a.submission_id=${submissionId}::uuid GROUP BY a.id`;
+    const rows=await this.prisma.$queryRaw<Record<string, unknown>[]>`SELECT a.id,a.submission_id,a.reviewer_user_id,a.overall_feedback,a.reviewed_at,a.published_at,a.created_at,COALESCE(json_agg(json_build_object('criterionId',s.criterion_id,'awardedPoints',s.awarded_points,'comment',s.comment)) FILTER (WHERE s.criterion_id IS NOT NULL),'[]'::json) AS scores FROM public.learning_assessments a LEFT JOIN public.learning_assessment_scores s ON s.assessment_id=a.id WHERE a.submission_id=${submissionId}::uuid GROUP BY a.id`;
     if(!rows[0]) throw new NotFoundException("Assessment was not found."); return rows[0];
   }
 
@@ -53,10 +54,22 @@ export class AssessmentService {
       const criteria=await tx.$queryRaw<{id:string;max_points:number}[]>`SELECT id,max_points FROM public.learning_rubric_criteria WHERE assignment_id=${submission.assignment_id}::uuid AND id=ANY(${dto.scores.map(s=>s.criterionId)}::uuid[])`;
       if(criteria.length!==dto.scores.length || new Set(dto.scores.map(s=>s.criterionId)).size!==dto.scores.length) throw new BadRequestException("Scores must reference distinct criteria from this assignment.");
       for(const score of dto.scores){const criterion=criteria.find(c=>c.id===score.criterionId)!;if(score.awardedPoints>Number(criterion.max_points)) throw new BadRequestException("Awarded points exceed the rubric maximum.");}
-      const assessments=await tx.$queryRaw<{id:string}[]>`INSERT INTO public.learning_assessments(submission_id,reviewer_user_id,overall_feedback,reviewed_at) VALUES(${submissionId}::uuid,${user.vistaUserId}::uuid,${dto.overallFeedback??null},now()) ON CONFLICT (submission_id) DO UPDATE SET reviewer_user_id=EXCLUDED.reviewer_user_id,overall_feedback=EXCLUDED.overall_feedback,reviewed_at=now() RETURNING id`;
+      const assessments=await tx.$queryRaw<{id:string}[]>`INSERT INTO public.learning_assessments(submission_id,reviewer_user_id,overall_feedback,reviewed_at,published_at) VALUES(${submissionId}::uuid,${user.vistaUserId}::uuid,${dto.overallFeedback??null},now(),NULL) ON CONFLICT (submission_id) DO UPDATE SET reviewer_user_id=EXCLUDED.reviewer_user_id,overall_feedback=EXCLUDED.overall_feedback,reviewed_at=now(),published_at=NULL RETURNING id`;
       for(const score of dto.scores) await tx.$executeRaw`INSERT INTO public.learning_assessment_scores(assessment_id,criterion_id,awarded_points,comment) VALUES(${assessments[0].id}::uuid,${score.criterionId}::uuid,${score.awardedPoints},${score.comment??null}) ON CONFLICT (assessment_id,criterion_id) DO UPDATE SET awarded_points=EXCLUDED.awarded_points,comment=EXCLUDED.comment`;
       return this.detail(submissionId,tx);
     });
+  }
+
+  async publishAssessment(user:AuthenticatedUser,submissionId:string) {
+    const submission=await this.submissionScope(submissionId);
+    await this.scope.assertTeacherClassroomPermission(user,submission.classroom_id,["learning.work.review","learning.assessment.assess"]);
+    const rows=await this.prisma.$queryRaw<{id:string;published_at:Date}[]>`
+      UPDATE public.learning_assessments a SET published_at=COALESCE(a.published_at,now())
+      FROM public.learning_submissions s
+      WHERE a.submission_id=s.id AND s.id=${submissionId}::uuid AND s.status='submitted'
+      RETURNING a.id,a.published_at`;
+    if(rows.length!==1) throw new NotFoundException("A saved assessment for a submitted assignment was not found.");
+    return rows[0];
   }
 
   async feedback(user:AuthenticatedUser,submissionId:string,dto:CreateFeedbackDto) {
@@ -67,7 +80,7 @@ export class AssessmentService {
 
   async mySubmissions(user:AuthenticatedUser) {
     return this.prisma.$queryRaw`
-      SELECT s.id,s.assignment_id,s.program_id,s.program_version_id,s.status,s.submitted_at
+      SELECT s.id,s.assignment_id,ca.id AS classroom_assignment_id,s.program_id,s.program_version_id,s.status,s.submitted_at
       FROM public.learning_submissions s JOIN public.learning_assignment_attempts a ON a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id
       JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id AND ca.assignment_id=s.assignment_id
       JOIN public.learning_classroom_members cm ON cm.classroom_id=ca.classroom_id AND cm.user_id=s.learner_user_id AND cm.classroom_role='student' AND cm.status='active'
@@ -86,9 +99,10 @@ export class AssessmentService {
     const rows = await this.prisma.$queryRaw<Record<string, unknown>[]>`
       SELECT s.id,s.assignment_id,s.program_id,s.program_version_id,s.submitted_workspace,s.submitted_program,
         s.reflection,s.status,s.submitted_at,
+        CASE WHEN a.published_at IS NULL THEN NULL ELSE jsonb_build_object('id',a.id,'overallFeedback',a.overall_feedback,'reviewedAt',a.reviewed_at,'publishedAt',a.published_at,'scores',COALESCE((SELECT jsonb_agg(jsonb_build_object('criterionId',sc.criterion_id,'awardedPoints',sc.awarded_points,'comment',sc.comment)) FROM public.learning_assessment_scores sc WHERE sc.assessment_id=a.id),'[]'::jsonb)) END AS assessment,
         COALESCE((SELECT json_agg(json_build_object('id',r.id,'promptKey',r.prompt_key,'promptText',r.prompt_text,'responseText',r.response_text,'createdAt',r.created_at) ORDER BY r.created_at)
           FROM public.learning_reflections r WHERE r.submission_id=s.id AND r.learner_user_id=${user.vistaUserId}::uuid),'[]'::json) AS reflections
-      FROM public.learning_submissions s WHERE s.id=${submission.id}::uuid`;
+      FROM public.learning_submissions s LEFT JOIN public.learning_assessments a ON a.submission_id=s.id WHERE s.id=${submission.id}::uuid`;
     if (!rows[0]) throw new NotFoundException("Submission was not found.");
     return rows[0];
   }
@@ -114,7 +128,7 @@ export class AssessmentService {
     const rows=await this.prisma.$queryRaw<Record<string,unknown>[]>`
       SELECT e.id,e.execution_mode AS "executionMode",e.method,e.status,e.started_at AS "startedAt",
         e.ended_at AS "endedAt",e.created_at AS "createdAt",
-        jsonb_build_object('programVersionId',e.input_snapshot->>'programVersionId') AS provenance,
+        jsonb_build_object('programVersionId',e.input_snapshot->>'programVersionId','runtimeAdapterMode',e.input_snapshot->>'runtimeAdapterMode') AS provenance,
         CASE WHEN e.execution_mode='real_robot' THEN jsonb_build_object(
           'state',e.output_snapshot->>'state','errorCode',e.output_snapshot->>'errorCode',
           'startedAtMs',e.output_snapshot->'startedAtMs','endedAtMs',e.output_snapshot->'endedAtMs'
@@ -170,7 +184,8 @@ export class AssessmentService {
       WHERE e.submission_id=${submission.id}::uuid AND e.learner_user_id=${submission.learner_user_id}::uuid
         AND ca.classroom_id=${submission.classroom_id}::uuid
       ORDER BY e.created_at DESC`;
-    return rows??[];
+    // The execution source is derived here, on the server, from what was persisted at run time (see execution-provenance.ts); the web only displays it.
+    return (rows??[]).map((row)=>({...row,executionProvenance:classifyExecution({executionMode:String(row.executionMode),runtimeMode:(row.provenance as {runtimeAdapterMode?:string|null}|null)?.runtimeAdapterMode??null})}));
   }
   private detail(submissionId:string, db:Pick<PrismaService,"$queryRaw">=this.prisma){return db.$queryRaw<Record<string,unknown>[]>`
     SELECT s.id,s.assignment_id,s.learner_user_id,s.program_id,s.program_version_id,s.status,s.submitted_at,
@@ -178,7 +193,7 @@ export class AssessmentService {
       CASE WHEN pv.id IS NULL THEN NULL ELSE json_build_object('id',pv.id,'versionNumber',pv.version_number,'workspaceJson',pv.workspace_json,'robotProgram',pv.robot_program,'validationResult',pv.validation_result,'changeSummary',pv.change_summary,'createdAt',pv.created_at) END AS program_version,
       CASE WHEN se.id IS NULL THEN NULL ELSE json_build_object('id',se.id,'experimentId',se.experiment_id,'programVersionId',se.program_version_id,'evaluatorVersion',se.evaluator_version,'ruleSetSchemaVersion',se.rule_set_schema_version,'ruleSetHash',se.rule_set_hash,'verdict',se.verdict,'ruleResults',se.rule_results,'metrics',se.metrics,'createdAt',se.created_at) END AS symbolic_evaluation,
       CASE WHEN ex.id IS NULL THEN NULL ELSE json_build_object('id',ex.id,'status',ex.status,'executionMode',ex.execution_mode,'createdAt',ex.created_at,'endedAt',ex.ended_at) END AS experiment,
-      CASE WHEN a.id IS NULL THEN NULL ELSE json_build_object('id',a.id,'reviewerUserId',a.reviewer_user_id,'overallFeedback',a.overall_feedback,'reviewedAt',a.reviewed_at,'scores',COALESCE((SELECT json_agg(json_build_object('criterionId',sc.criterion_id,'awardedPoints',sc.awarded_points,'comment',sc.comment)) FROM public.learning_assessment_scores sc WHERE sc.assessment_id=a.id),'[]'::json)) END AS assessment,
+      CASE WHEN a.id IS NULL THEN NULL ELSE json_build_object('id',a.id,'reviewerUserId',a.reviewer_user_id,'overallFeedback',a.overall_feedback,'reviewedAt',a.reviewed_at,'publishedAt',a.published_at,'scores',COALESCE((SELECT json_agg(json_build_object('criterionId',sc.criterion_id,'awardedPoints',sc.awarded_points,'comment',sc.comment)) FROM public.learning_assessment_scores sc WHERE sc.assessment_id=a.id),'[]'::json)) END AS assessment,
       COALESCE((SELECT json_agg(json_build_object('id',f.id,'submissionId',f.submission_id,'authorUserId',f.author_user_id,'feedbackType',f.feedback_type,'content',f.content,'createdAt',f.created_at) ORDER BY f.created_at) FROM public.learning_feedback f WHERE f.submission_id=s.id),'[]'::json) AS feedback,
       COALESCE((SELECT json_agg(json_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points,'ordinal',rc.ordinal) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=s.assignment_id),'[]'::json) AS rubric_criteria
     FROM public.learning_submissions s JOIN public.users u ON u.id=s.learner_user_id JOIN public.learning_assignments la ON la.id=s.assignment_id

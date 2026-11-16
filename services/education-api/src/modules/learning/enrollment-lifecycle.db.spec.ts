@@ -7,14 +7,14 @@ const parsedUrl = configuredUrl ? new URL(configuredUrl) : undefined;
 const isolatedIdentity = Boolean(
   parsedUrl &&
   ['localhost', '127.0.0.1', '::1'].includes(parsedUrl.hostname) &&
-  parsedUrl.port === '55432' &&
+  parsedUrl.port === '55433' &&
   parsedUrl.pathname === '/vista_test_course_builder' &&
   parsedUrl.username === 'vista_test' &&
   process.env.VISTA_DATABASE_PROJECT_REF === 'vista-course-builder-test' &&
   !process.env.SUPABASE_URL,
 );
 if (requested && !isolatedIdentity) {
-  throw new Error('PostgreSQL integration tests require the dedicated vista_test_course_builder target on loopback port 55432.');
+  throw new Error('PostgreSQL integration tests require the approved vista_test_course_builder target on loopback port 55433.');
 }
 const enabled = requested && isolatedIdentity;
 const describeDb=enabled?describe:describe.skip;

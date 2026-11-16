@@ -2,11 +2,32 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 
+export const COURSE_AUTHOR_PERMISSION = "learning.course.author";
+
 @Injectable()
 export class LearningScopeService {
   constructor(private readonly prisma: PrismaService) {}
 
   isSystemAdministrator(user: AuthenticatedUser) { return user.systemPermissions.includes("org.manage"); }
+
+  /**
+   * Course/question/quiz authoring is a school-scoped capability, distinct from classroom delivery
+   * (`learning.delivery.manage`). Organization ids are never taken from the client: they come from the
+   * caller's own active memberships whose role carries `learning.course.author`.
+   */
+  authoringOrganizationIds(user: AuthenticatedUser): string[] {
+    if (user.status !== "active") return [];
+    return [...new Set(user.memberships
+      .filter((m) => m.status === "active" && m.permissions.includes(COURSE_AUTHOR_PERMISSION))
+      .map((m) => m.organizationId))];
+  }
+
+  /** True when the caller may author inside this school's content. A null organization is global content (System Administrator only). */
+  canAuthorOrganization(user: AuthenticatedUser, organizationId: string | null): boolean {
+    if (user.status !== "active") return false;
+    if (organizationId === null) return this.isSystemAdministrator(user);
+    return this.authoringOrganizationIds(user).includes(organizationId);
+  }
 
   async classroomIds(user: AuthenticatedUser): Promise<string[]> {
     if (this.isSystemAdministrator(user)) return [];

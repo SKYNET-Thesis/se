@@ -4,6 +4,7 @@ import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { ApiExceptionFilter } from "./common/filters/api-exception.filter";
 import { AppModule } from "./app.module";
+import { corsOrigins } from "./cors-origins";
 import { json, urlencoded } from "express";
 
 async function bootstrap(): Promise<void> {
@@ -19,7 +20,7 @@ async function bootstrap(): Promise<void> {
 
   app.setGlobalPrefix("api/v1");
   app.enableCors({
-    origin: process.env.WEB_ORIGIN?.split(",").map((origin) => origin.trim()) ?? false,
+    origin: corsOrigins(process.env.NODE_ENV, process.env.WEB_ORIGIN),
     credentials: true,
   });
   app.useGlobalFilters(new ApiExceptionFilter());

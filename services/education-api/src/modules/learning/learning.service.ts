@@ -28,17 +28,33 @@ export class LearningService {
   ) {}
   private readonly logger = new Logger(LearningService.name);
 
-  async createGlobalCourse(user: AuthenticatedUser, input: { title: string; description?: string }) {
-    this.assertSystemAdministrator(user);
+  /**
+   * Creates a draft course. A System Administrator without an organization creates global content (legacy behaviour).
+   * Everyone else creates content for their own school: the organization is derived from the caller's memberships
+   * that carry `learning.course.author`; a client-supplied organizationId is only accepted when it is one of those.
+   */
+  async createGlobalCourse(user: AuthenticatedUser, input: { title: string; description?: string; organizationId?: string }) {
+    const organizationId = this.resolveAuthoringOrganization(user, input.organizationId);
     return this.prisma.learning_courses.create({ data: {
       title: requiredTitle(input.title, 'Course title'), description: input.description?.trim(), status: 'draft', created_by: user.vistaUserId,
+      ...(organizationId ? { organization_id: organizationId } : {}),
     } });
   }
 
+  private resolveAuthoringOrganization(user: AuthenticatedUser, requested?: string): string | null {
+    const allowed = this.scope.authoringOrganizationIds(user);
+    if (requested !== undefined) {
+      if (!allowed.includes(requested)) throw new NotFoundException('Course was not found.');
+      return requested;
+    }
+    if (allowed.length === 1) return allowed[0];
+    if (allowed.length > 1) throw new BadRequestException('organizationId is required because you can author for more than one school.');
+    if (this.scope.isSystemAdministrator(user) && user.status === 'active') return null;
+    throw new NotFoundException('Course was not found.');
+  }
+
   async updateGlobalCourse(user: AuthenticatedUser, courseId: string, input: { title?: string; description?: string }) {
-    this.assertSystemAdministrator(user);
-    const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } });
-    if (!course) throw new NotFoundException('Course was not found.');
+    await this.authorCourse(user, courseId);
     return this.prisma.learning_courses.update({ where: { id: courseId }, data: {
       ...(input.title === undefined ? {} : { title: requiredTitle(input.title, 'Course title') }),
       ...(input.description === undefined ? {} : { description: input.description.trim() }),
@@ -46,9 +62,7 @@ export class LearningService {
   }
 
   async publishCourse(user: AuthenticatedUser, courseId: string) {
-    this.assertSystemAdministrator(user);
-    const course = await this.prisma.learning_courses.findUnique({ where: { id: courseId } });
-    if (!course || course.organization_id !== null) throw new NotFoundException('Course was not found.');
+    const course = await this.authorCourse(user, courseId);
     if (course.status === 'archived') throw new ConflictException('An archived course cannot be published.');
     const lessons = await curriculumDeliverability(this.prisma, courseId);
     if (!lessons.length) throw new ConflictException('A course needs at least one lesson before publishing.');
@@ -61,17 +75,20 @@ export class LearningService {
       );
     }
     const published = await this.prisma.learning_courses.update({ where: { id: courseId }, data: { status: 'published' } });
+    // A school-owned course is delivered through an offering of the owning school; create it once so classrooms can use it.
+    if (course.organization_id) await this.ensureSchoolOffering(course.organization_id, courseId, course.title, user.vistaUserId);
     // Existing classroom members become enrolled once every delivery condition holds (active offering and classroom).
     // The synchronization is idempotent, so a failure here must not undo or hide a successful publication.
-    try { await this.enrollmentDelivery?.synchronizeCourse(courseId); }
+    try {
+      const enrollmentSync = await this.enrollmentDelivery?.synchronizeCourse(courseId);
+      return enrollmentSync ? { ...published, enrollmentSync } : published;
+    }
     catch (error) { this.logger.error({ event: 'publish_enrollment_sync_failed', courseId, error: error instanceof Error ? error.message : String(error) }); }
     return published;
   }
 
   async archiveCourse(user: AuthenticatedUser, courseId: string) {
-    this.assertSystemAdministrator(user);
-    const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } });
-    if (!course) throw new NotFoundException('Course was not found.');
+    await this.authorCourse(user, courseId);
     const evidence = await deliveryEvidence(this.prisma, courseId);
     if (evidence.activeEnrollments > 0 || evidence.activeOfferings > 0 || evidence.activeClassrooms > 0) {
       throw new ConflictException(
@@ -82,14 +99,14 @@ export class LearningService {
   }
 
   async createCourseLesson(user: AuthenticatedUser, courseId: string, input: { title: string; content?: Record<string, unknown> }) {
-    this.assertSystemAdministrator(user); const course = await this.globalCourse(courseId);
+    const course = await this.authorCourse(user, courseId);
     await assertCurriculumMutable(this.prisma, courseId, 'Adding lessons');
     const ordinal = (await this.prisma.learning_lessons.aggregate({ where: { course_id: courseId }, _max: { ordinal: true } }))._max.ordinal ?? 0;
     return this.prisma.learning_lessons.create({ data: { course_id: courseId, title: requiredTitle(input.title, 'Lesson title')!, content: (input.content ?? {}) as Prisma.InputJsonValue, ordinal: ordinal + 1 } });
   }
 
   async updateCourseLesson(user: AuthenticatedUser, lessonId: string, input: { title?: string; content?: Record<string, unknown> }) {
-    this.assertSystemAdministrator(user); const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.globalCourse(lesson.course_id);
+    const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.authorCourse(user, lesson.course_id);
     if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
     // Titles are cosmetic; lesson body content is meaning-bearing for enrolled learners.
     if (input.content !== undefined) await assertCurriculumMutable(this.prisma, lesson.course_id, 'Changing lesson content');
@@ -97,7 +114,7 @@ export class LearningService {
   }
 
   async reorderCourseLessons(user: AuthenticatedUser, courseId: string, orderedIds: string[]) {
-    this.assertSystemAdministrator(user); const course = await this.globalCourse(courseId);
+    const course = await this.authorCourse(user, courseId);
     if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
     await assertCurriculumMutable(this.prisma, courseId, 'Reordering lessons');
     const current = await this.prisma.learning_lessons.findMany({ where: { course_id: courseId }, select: { id: true } });
@@ -120,7 +137,7 @@ export class LearningService {
   }
 
   async setLessonPrerequisites(user: AuthenticatedUser, lessonId: string, prerequisiteLessonIds: string[]) {
-    this.assertSystemAdministrator(user); const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.globalCourse(lesson.course_id);
+    const lesson = await this.prisma.learning_lessons.findUnique({ where: { id: lessonId } }); if (!lesson) throw new NotFoundException('Lesson was not found.'); const course = await this.authorCourse(user, lesson.course_id);
     if (course.status === 'archived') throw new ConflictException('An archived course cannot change curriculum.');
     if (prerequisiteLessonIds.includes(lessonId)) throw new BadRequestException('A lesson cannot require itself.'); const count = await this.prisma.learning_lessons.count({ where: { id: { in: prerequisiteLessonIds }, course_id: lesson.course_id } }); if (count !== prerequisiteLessonIds.length) throw new BadRequestException('Prerequisites must belong to the course.');
     if (prerequisiteLessonIds.length) {
@@ -135,18 +152,32 @@ export class LearningService {
     return this.prisma.$transaction(async tx => { await tx.learning_lesson_prerequisites.deleteMany({ where: { lesson_id: lessonId } }); if (prerequisiteLessonIds.length) await tx.learning_lesson_prerequisites.createMany({ data: prerequisiteLessonIds.map(prerequisite_lesson_id => ({ lesson_id: lessonId, prerequisite_lesson_id, required: true })) }); return { lessonId, prerequisiteLessonIds }; });
   }
 
-  private async globalCourse(courseId: string) { const course = await this.prisma.learning_courses.findFirst({ where: { id: courseId, organization_id: null } }); if (!course) throw new NotFoundException('Course was not found.'); return course; }
+  /** Authorizes authoring on one course: school courses need `learning.course.author` in that school; global courses need System Administrator. */
+  private async authorCourse(user: AuthenticatedUser, courseId: string) {
+    const course = await this.prisma.learning_courses.findUnique({ where: { id: courseId } });
+    if (!course || !this.scope.canAuthorOrganization(user, course.organization_id)) throw new NotFoundException('Course was not found.');
+    return course;
+  }
 
-  private assertSystemAdministrator(user: AuthenticatedUser) {
-    if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException('Course was not found.');
+  private async ensureSchoolOffering(organizationId: string, courseId: string, title: string, userId: string) {
+    const existing = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM public.learning_course_offerings WHERE course_id=${courseId}::uuid AND organization_id=${organizationId}::uuid LIMIT 1`;
+    if (existing.length) return existing[0].id;
+    const code = `C-${courseId.slice(0, 8).toUpperCase()}`;
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      INSERT INTO public.learning_course_offerings(course_id,organization_id,code,title,status,created_by)
+      VALUES(${courseId}::uuid,${organizationId}::uuid,${code},${title},'active',${userId}::uuid)
+      ON CONFLICT DO NOTHING RETURNING id`;
+    return rows[0]?.id ?? null;
   }
 
   async courses(user: AuthenticatedUser, page: PaginationDto) {
     const unrestricted = this.scope.isSystemAdministrator(user);
+    const authoredOrgs = this.scope.authoringOrganizationIds(user);
     const rows = await this.prisma.$queryRaw<CourseRow[]>`
-      SELECT DISTINCT c.id,c.title,c.description,c.status,c.created_at,c.updated_at
+      SELECT DISTINCT c.id,c.title,c.description,c.status,c.created_at,c.updated_at,c.organization_id AS "organizationId"
       FROM public.learning_courses c
-      WHERE ${unrestricted} OR (c.status='published' AND EXISTS (
+      WHERE ${unrestricted} OR c.organization_id = ANY(${authoredOrgs}::uuid[]) OR (c.status='published' AND EXISTS (
         SELECT 1 FROM public.learning_enrollments e
         JOIN public.learning_course_offerings o ON o.id=e.offering_id AND o.course_id=c.id AND o.status='active'
         JOIN public.learning_classrooms cl ON cl.id=e.classroom_id AND cl.offering_id=o.id AND cl.status='active'
@@ -162,9 +193,23 @@ export class LearningService {
   }
 
   async course(user: AuthenticatedUser, courseId: string) {
-    const row = (await this.courses(user, { page: 1, pageSize: 100 })).items.find((item) => item.id === courseId);
-    if (!row) throw new NotFoundException("Course was not found.");
-    return row;
+    const unrestricted=this.scope.isSystemAdministrator(user);
+    const authoredOrgs=this.scope.authoringOrganizationIds(user);
+    const rows=await this.prisma.$queryRaw<CourseRow[]>`
+      SELECT c.id,c.title,c.description,c.status,c.created_at,c.updated_at,c.organization_id AS "organizationId"
+      FROM public.learning_courses c
+      WHERE c.id=${courseId}::uuid AND (${unrestricted} OR c.organization_id = ANY(${authoredOrgs}::uuid[]) OR (c.status='published' AND EXISTS (
+        SELECT 1 FROM public.learning_enrollments e
+        JOIN public.learning_course_offerings o ON o.id=e.offering_id AND o.course_id=c.id AND o.status='active'
+        JOIN public.learning_classrooms cl ON cl.id=e.classroom_id AND cl.offering_id=o.id AND cl.status='active'
+        JOIN public.learning_classroom_members cm ON cm.classroom_id=cl.id AND cm.user_id=e.learner_user_id
+          AND cm.classroom_role='student' AND cm.status='active'
+        JOIN public.memberships m ON m.id=cm.membership_id AND m.user_id=e.learner_user_id
+          AND m.organization_id=cl.organization_id AND m.status='active'
+        WHERE e.course_id=c.id AND e.learner_user_id=${user.vistaUserId}::uuid AND e.status='active'
+      )))`;
+    if(!rows[0]) throw new NotFoundException("Course was not found.");
+    return rows[0];
   }
 
   async lessonsForCourse(user: AuthenticatedUser, courseId: string) {
@@ -181,7 +226,8 @@ export class LearningService {
     const lesson = rows[0]; if (!lesson) throw new NotFoundException("Lesson was not found.");
     const course = await this.course(user, lesson.course_id);
 
-    const path = this.progression && !this.scope.isSystemAdministrator(user)
+    const isAuthor = this.scope.isSystemAdministrator(user) || this.scope.authoringOrganizationIds(user).some((id) => id === (course as { organizationId?: string }).organizationId);
+    const path = this.progression && !isAuthor
       ? await this.progression.coursePath(user, lesson.course_id)
       : null;
     const progressionLesson = path?.lessons.find((l) => l.id === lesson.id) ?? null;

@@ -264,7 +264,7 @@ export class CurriculumService {
           JOIN public.role_permissions rp ON rp.role_id=m.role_id
           JOIN public.permissions p ON p.id=rp.permission_id
           WHERE m.user_id=${user.vistaUserId}::uuid AND m.organization_id=c.organization_id
-            AND m.status='active' AND p.code='learning.delivery.manage'
+            AND m.status='active' AND p.code='learning.course.author'
         )
       )`;
     const lesson = rows[0];

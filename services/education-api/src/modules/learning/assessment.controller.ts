@@ -17,6 +17,7 @@ export class AssessmentController {
   @Get("submissions/:submissionId/assessment") assessment(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string){return this.assessments.assessment(user,id)}
   @Get("submissions/:submissionId/feedback") instructorFeedback(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string){return this.assessments.instructorFeedback(user,id)}
   @Post("submissions/:submissionId/assessment") assess(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string,@Body() dto:AssessSubmissionDto){return this.assessments.assess(user,id,dto)}
+  @Post("submissions/:submissionId/assessment/publish") publishAssessment(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string){return this.assessments.publishAssessment(user,id)}
   @Post("submissions/:submissionId/feedback") feedback(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string,@Body() dto:CreateFeedbackDto){return this.assessments.feedback(user,id,dto)}
   @Get("me/submissions") mine(@CurrentUser() user: AuthenticatedUser){return this.assessments.mySubmissions(user)}
   @Get("me/submissions/:submissionId") mySubmission(@CurrentUser() user: AuthenticatedUser,@Param("submissionId",ParseUUIDPipe) id:string){return this.assessments.mySubmission(user,id)}

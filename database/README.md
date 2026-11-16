@@ -1,6 +1,10 @@
-# VISTA Database Script — Review 2 Baseline
+# VISTA Database Script — Review 2 Reference Schema
 
-This directory contains the authoritative executable PostgreSQL/Supabase database DDL schema script for the VISTA STEM Robotics & AI Education Platform, prepared for the **Review 2** evaluation baseline.
+This directory contains an executable PostgreSQL/Supabase DDL script prepared
+for the **Review 2** evaluation baseline.  It is a useful local fixture, but
+it is **not** a canonical production schema baseline: it predates the current
+production catalog evidence and does not encode the full production RLS,
+policy, trigger, function, or migration-history state.
 
 ## File Information
 - **File:** `vista_database_schema.sql`
@@ -15,7 +19,11 @@ This directory contains the authoritative executable PostgreSQL/Supabase databas
   - AI Models & Training Datasets (ai_models, dataset_versions, checkpoints)
 
 ## Execution
-To initialize a fresh database with this schema:
+To initialize a local fixture database with this schema:
 ```bash
 psql -h <hostname> -p <port> -U <username> -d <database_name> -f database/vista_database_schema.sql
 ```
+
+Do not use this file to reconcile an existing Supabase project or to infer
+Prisma migration history.  The controlled production-baseline process is in
+[`baselines/README.md`](baselines/README.md).
