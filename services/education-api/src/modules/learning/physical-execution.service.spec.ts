@@ -605,4 +605,21 @@ describe("PhysicalExecutionService Gate 1", () => {
       }));
     });
   });
+
+  it("records runtime loss without falsely terminating the session or confirming stop", async () => {
+    queryRaw.mockResolvedValueOnce([{
+      experiment_id: "exp-1", control_session_id: "sess-1",
+      robot_id: scope().robot_id, robot_name: scope().robot_name, robot_model: scope().robot_model, robot_serial: scope().robot_serial,
+      program_version_id: scope().program_version_id, status: "running", run_id: "wf03-exp-1",
+    }]);
+    runtime.cancelRun.mockRejectedValue(new ConflictException({ code: "ROBOT_RUNTIME_UNAVAILABLE" }));
+    await expect(service.stop(user as never, "exp-1")).rejects.toBeInstanceOf(ConflictException);
+    expect(executeRaw).toHaveBeenCalledTimes(3);
+    const persistedSql = executeRaw.mock.calls.map(([query]) => Array.isArray(query) ? query.join("?") : String(query)).join("\n");
+    expect(persistedSql).toContain("runtime_unavailable");
+    expect(JSON.stringify(executeRaw.mock.calls)).toContain("stopConfirmed");
+    expect(JSON.stringify(executeRaw.mock.calls)).toContain("false");
+    expect(persistedSql).toContain("ended_at IS NULL");
+    expect(progression.completeLesson).not.toHaveBeenCalled();
+  });
 });

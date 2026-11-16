@@ -328,7 +328,10 @@ export class PhysicalExecutionService {
       snapshot = await this.runtime.getRun(execution.robot_id, runId);
     } catch (error) {
       const code = error instanceof ConflictException ? (error.getResponse() as { code?: string }).code : null;
-      if (code === "ROBOT_RUNTIME_UNAVAILABLE") throw error;
+      if (code === "ROBOT_RUNTIME_UNAVAILABLE") {
+        await this.recordRuntimeUnavailable(execution.experiment_id, execution.control_session_id, runId, "status");
+        throw error;
+      }
       if (code === "ROBOT_RUNTIME_RUN_NOT_FOUND" && !execution.runtime_started) return this.executionDto(execution, { state: execution.status });
       snapshot = { state: "failed", errorCode: "runtime_run_lost" };
     }
@@ -343,7 +346,16 @@ export class PhysicalExecutionService {
       return this.executionDto(execution, { state: execution.status });
     }
     const runId = execution.run_id ?? `wf03-${execution.experiment_id}`;
-    const snapshot = await this.runtime.cancelRun(execution.robot_id, runId);
+    let snapshot: RuntimeSnapshot;
+    try {
+      snapshot = await this.runtime.cancelRun(execution.robot_id, runId);
+    } catch (error) {
+      const code = error instanceof ConflictException ? (error.getResponse() as { code?: string }).code : null;
+      if (code === "ROBOT_RUNTIME_UNAVAILABLE") {
+        await this.recordRuntimeUnavailable(execution.experiment_id, execution.control_session_id, runId, "stop");
+      }
+      throw error;
+    }
     await this.persistRuntimeSnapshot(execution.experiment_id, execution.control_session_id, runId, snapshot, "stop_requested");
     return this.executionDto(execution, snapshot);
   }
@@ -653,6 +665,28 @@ export class PhysicalExecutionService {
       if (mapped.experiment === "succeeded") {
         await this.handlePhysicalExperimentCompletion(tx, experimentId);
       }
+    });
+  }
+
+  /** A lost runtime is evidence of an unconfirmed stop, never evidence of a terminal stop. Keep ownership held. */
+  private async recordRuntimeUnavailable(experimentId: string, sessionId: string, runId: string, operation: "status" | "stop") {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        UPDATE public.learning_experiments
+        SET input_snapshot=input_snapshot || ${JSON.stringify({ runtimeUnavailable: true, stopConfirmed: false })}::jsonb
+        WHERE id=${experimentId}::uuid AND ended_at IS NULL`;
+      await tx.$executeRaw`
+        UPDATE public.control_sessions
+        SET metadata=metadata || ${JSON.stringify({ runtimeUnavailable: true, stopConfirmed: false })}::jsonb
+        WHERE id=${sessionId}::uuid AND ended_at IS NULL`;
+      await tx.$executeRaw`
+        INSERT INTO public.learning_experiment_events(experiment_id,event_index,event_type,event_data)
+        SELECT ${experimentId}::uuid,COALESCE(MAX(event_index),-1)+1,'runtime_unavailable',
+          ${JSON.stringify({ runtimeRunId: runId, operation, stopConfirmed: false })}::jsonb
+        FROM public.learning_experiment_events
+        WHERE experiment_id=${experimentId}::uuid
+          AND NOT EXISTS (SELECT 1 FROM public.learning_experiment_events WHERE experiment_id=${experimentId}::uuid AND event_type='runtime_unavailable')
+        ON CONFLICT (experiment_id,event_index) DO NOTHING`;
     });
   }
 
