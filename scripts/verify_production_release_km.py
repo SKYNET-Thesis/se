@@ -74,7 +74,7 @@ def verify(url: str, pre: dict, root: Path | None = None) -> list[tuple[str, boo
         check(f"ledger keeps {version}", bool(r) and r["sum"] == pinned.get(version))
     check("ledger gained exactly the K-M versions", set(pre["ledger"]) | set(scope["versions"]) == set(by_version))
 
-    role_codes = base.query(url, "SELECT COALESCE(array_agg(code ORDER BY code),'{}'::text[])::text FROM public.roles WHERE code = ANY(ARRAY['instructor','school_admin','student'])")
+    role_codes = base.query(url, "SELECT COALESCE(json_agg(code ORDER BY code),'[]'::json)::text FROM public.roles WHERE code = ANY(ARRAY['instructor','school_admin','student'])")
     check("required canonical roles are present", role_codes == ["instructor", "school_admin", "student"], f"found {role_codes}")
 
     caps = base.query(url, """SELECT json_build_object(
