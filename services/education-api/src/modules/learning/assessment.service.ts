@@ -212,7 +212,7 @@ export class AssessmentService {
         COALESCE((SELECT jsonb_agg(jsonb_build_object(
           'id',a.id,'type',a.artifact_type,'mimeType',a.mime_type,'createdAt',a.created_at,
           'availability',CASE WHEN a.storage_path IS NULL AND a.external_uri IS NULL THEN 'unavailable'
-            WHEN COALESCE(a.external_uri,'') LIKE 'local://%' THEN 'local_only' ELSE 'metadata_only' END
+            WHEN COALESCE(a.external_uri,'') LIKE 'local://%' THEN 'local_only' ELSE 'access_unverified' END
         ) ORDER BY a.created_at) FROM public.learning_experiment_artifacts a WHERE a.experiment_id=e.id),'[]'::jsonb) AS artifacts,
         CASE WHEN cs.id IS NULL THEN NULL ELSE jsonb_build_object(
           'id',cs.id,'state',cs.state,'startedAt',cs.started_at,'endedAt',cs.ended_at,
@@ -223,7 +223,7 @@ export class AssessmentService {
           'frameCount',d.frame_count,'checksum',d.checksum,
           'durationS',d.metrics->'durationS',
           'artifactAvailability',CASE WHEN d.storage_uri IS NULL THEN 'unavailable'
-            WHEN d.storage_uri LIKE 'local://%' THEN 'local_only' ELSE 'metadata_only' END,
+            WHEN d.storage_uri LIKE 'local://%' THEN 'local_only' ELSE 'access_unverified' END,
           'segments',COALESCE((SELECT jsonb_agg(jsonb_build_object(
             'index',seg.segment_index,'startMs',seg.start_ms,'endMs',seg.end_ms,
             'action',seg.semantic_action,'arm',seg.arm_side,'object',seg.object_label
@@ -236,7 +236,7 @@ export class AssessmentService {
           ) ORDER BY dv.created_at DESC) FROM public.dataset_episodes de JOIN public.dataset_versions dv ON dv.id=de.dataset_version_id
             WHERE de.demonstration_episode_id=d.id AND dv.organization_id=c.organization_id),'[]'::jsonb)
         ) END AS demonstration,
-        CASE WHEN er.id IS NULL THEN NULL ELSE jsonb_build_object(
+        CASE WHEN er.id IS NULL OR mc.id IS NULL OR model.id IS NULL THEN NULL ELSE jsonb_build_object(
           'evaluationRunId',er.id,'status',er.status,'outcome',er.outcome,'createdAt',er.created_at,
           'checkpoint',jsonb_build_object('id',mc.id,'version',mc.version,'step',mc.step),
           'model',jsonb_build_object('id',model.id,'name',model.name,'status',model.status)

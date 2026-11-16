@@ -113,6 +113,48 @@ describeDb('real PostgreSQL attempt-based submissions', () => {
     expect(listed.filter((r) => r.learner_user_id === f.s.user.id).map((r) => r.attempt_number).sort()).toEqual([1, 2]);
   });
 
+  it('projects only submission-owned experiment evidence and hides foreign model metadata', async () => {
+    const f = await fixture();
+    const submitted = await submitAttempt(f);
+    const submissionId = (submitted.submission as { id: string }).id;
+    const foreign = await createWorld(db);
+    const model = await db.ai_models.create({ data: {
+      name: 'private foreign model', owner_type: 'organization', owner_organization_id: foreign.org.id, visibility: 'private',
+    } });
+    const checkpoint = await db.model_checkpoints.create({ data: { ai_model_id: model.id, version: 'secret-v1', step: 900 } });
+    const task = await db.benchmark_tasks.create({ data: {
+      code: `wf04-${randomUUID()}`, name: 'Private evaluation task', object_type: 'block', target_container: 'box', pass_criterion: 'never fabricated',
+    } });
+    const scenario = await db.simulation_scenarios.create({ data: { benchmark_task_id: task.id, name: 'private-scenario', version: 1 } });
+    const evaluation = await db.evaluation_runs.create({ data: {
+      model_checkpoint_id: checkpoint.id, benchmark_task_id: task.id, simulation_scenario_id: scenario.id,
+      target_mode: 'simulation', status: 'succeeded', outcome: 'passed',
+    } });
+    const experiment = await db.learning_experiments.create({ data: {
+      submission_id: submissionId, learner_user_id: f.s.user.id, method: 'blockly', execution_mode: 'schematic', status: 'succeeded',
+      evaluation_run_id: evaluation.id, input_snapshot: { programVersionId: submitted.version.id },
+    } });
+    await db.learning_experiment_artifacts.create({ data: {
+      experiment_id: experiment.id, artifact_type: 'trajectory', storage_path: 'private/not-verified/trajectory.json', mime_type: 'application/json',
+    } });
+
+    const reviewed = await assessment.instructorSubmission(f.teacher, submissionId) as Record<string, any>;
+    expect(reviewed.learner_user_id).toBe(f.s.user.id);
+    expect(reviewed.experiments).toHaveLength(1);
+    expect(reviewed.experiments[0]).toMatchObject({ id: experiment.id, provenance: { programVersionId: submitted.version.id }, modelMetadata: null });
+    expect(reviewed.experiments[0].artifacts[0]).toMatchObject({ id: expect.any(String), availability: 'access_unverified' });
+    expect(JSON.stringify(reviewed)).not.toContain('private/not-verified');
+
+    const foreignRole = await db.roles.upsert({ where: { code: 'instructor' }, update: {}, create: { code: 'instructor', name: 'Instructor', scope: 'organization' } });
+    const reviewPermission = await db.permissions.upsert({ where: { code: 'learning.work.review' }, update: {}, create: { code: 'learning.work.review' } });
+    await db.$executeRaw`INSERT INTO public.role_permissions(role_id,permission_id) VALUES(${foreignRole.id}::uuid,${reviewPermission.id}::uuid) ON CONFLICT DO NOTHING`;
+    const foreignTeacher = await db.users.create({ data: { full_name: 'Foreign instructor', signup_method: 'admin_created', status: 'active' } });
+    const foreignMembership = await db.memberships.create({ data: { user_id: foreignTeacher.id, organization_id: foreign.org.id, role_id: foreignRole.id, status: 'active' } });
+    const foreignUser = { authUserId: 'foreign', vistaUserId: foreignTeacher.id, email: 'foreign@test', status: 'active', systemRoleCodes: [], systemPermissions: [],
+      memberships: [{ id: foreignMembership.id, organizationId: foreign.org.id, roleCode: 'instructor', status: 'active', permissions: ['learning.work.review'] }] } as never;
+    await expect(assessment.instructorSubmission(foreignUser, submissionId)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
   it('shows students nothing of their grading until the attempt is released, and only that attempt afterwards', async () => {
     const f = await fixture();
     const a1 = await submitAttempt(f); const a2 = await submitAttempt(f);
