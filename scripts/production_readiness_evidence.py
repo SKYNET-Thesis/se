@@ -62,6 +62,7 @@ def evidence_sql() -> str:
                WHEN c.relkind = 'S' THEN NOT has_sequence_privilege('{APPLY_ROLE}', c.oid, 'USAGE,SELECT,UPDATE') ELSE false END),
   'apply_role_platform_objects_without_privilege', (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema','public') AND n.nspname !~ '^pg_(toast|temp)' AND NOT has_function_privilege('{APPLY_ROLE}', p.oid, 'EXECUTE')),
   'public_has_temp', has_database_privilege('public', current_database(), 'TEMP'),
+  'public_schema_public_create', EXISTS (SELECT 1 FROM pg_namespace n, aclexplode(n.nspacl) a WHERE n.nspname = 'public' AND a.grantee = 0 AND a.privilege_type = 'CREATE'),
   'database_owner_has_temp', (SELECT has_database_privilege(d.datdba, current_database(), 'TEMP') FROM pg_database d WHERE d.datname = current_database()),
   'roles_relying_on_public_temp_not_in_m_allowlist', (SELECT count(*) FROM pg_roles r WHERE r.rolname !~ '^pg_' AND r.rolname <> ALL (ARRAY[{allow}])
       AND has_database_privilege(r.rolname, current_database(), 'TEMP')
@@ -80,7 +81,7 @@ INTEGER_KEYS = {"ledger_rows", "catalog_tables", "catalog_rls_enabled", "catalog
                 "runtime_role_inherited_access_outside_public", "runtime_role_function_execute_count", "apply_role_schemas_without_usage", "apply_role_public_objects_without_privilege",
                 "apply_role_platform_objects_without_privilege", "roles_relying_on_public_temp_not_in_m_allowlist", "m_allowlist_roles_missing", "sessions_using_temporary_relations"}
 BOOLEAN_KEYS = {"database_owner_is_apply_role", "apply_role_exists_and_cannot_be_superuser", "apply_role_can_create_roles", "reader_role_exists", "runtime_role_exists", "runtime_role_safe_if_present",
-                "public_has_temp", "database_owner_has_temp", "reader_role_relies_on_public_temp"}
+                "public_has_temp", "public_schema_public_create", "database_owner_has_temp", "reader_role_relies_on_public_temp"}
 RAW_KEYS = {"ledger_versions", "ledger_checksums"}  # reduced to booleans below; never emitted
 
 
@@ -93,7 +94,8 @@ def collect(url: str) -> dict:
     try:
         raw = base.query(url, evidence_sql())
     except SystemExit as exc:  # base.query exits with a scrubbed message
-        raise EvidenceIncomplete(str(exc)) from None
+        # The public log must not carry psql stderr (host, address or role names): a fixed sentence only.
+        raise EvidenceIncomplete("the evidence query failed (connection, authentication or permission error; details are withheld from the public log)") from None
     if not isinstance(raw, dict):
         raise EvidenceIncomplete("the evidence query returned no result")
     expected = INTEGER_KEYS | BOOLEAN_KEYS | RAW_KEYS
@@ -137,6 +139,7 @@ def evaluate(raw: dict, root: Path) -> dict:
         "runtime_role_has_no_inherited_role_access": raw["runtime_role_inherited_access_outside_public"] == 0,
         "runtime_role_has_no_function_execute_grants": raw["runtime_role_function_execute_count"] == 0,
         "runtime_role_has_no_public_object_access_before_release": raw["runtime_role_public_table_effective_privilege_count"] == 0 and raw["runtime_role_public_sequence_effective_privilege_count"] == 0 and raw["runtime_role_function_execute_count"] == 0,
+        "public_schema_has_no_create_for_public": not raw["public_schema_public_create"],  # K-L verifier fails the postflight otherwise
         "apply_role_can_use_every_schema": raw["apply_role_schemas_without_usage"] == 0,
         "apply_role_holds_a_privilege_on_every_public_object": raw["apply_role_public_objects_without_privilege"] == 0,
     }

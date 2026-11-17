@@ -70,13 +70,16 @@ Rule for every step: stop at the first failure, report it, do not retry blindly.
 * Pre: steps 3–4 reviewed. Merge the **unblock PR** (prepared on local branch `release/lms-k-l-unblock-after-evidence`, not pushed): removes `K-L` from `HOSTED_BLOCKED_SCOPES` only,
   marks the K–L scope `READY` with the evidence reference; M stays in `HOSTED_BLOCKED_SCOPES`.
 * Run `Production Database Release` (scope `K-L`): plan → reviewer approval in `production-database-apply` → snapshot → apply → verifier `kl`.
-* Expected: ledger D–L (9 rows), K and L applied once, verifier 46/46-equivalent, policy count 48, runtime role without privileges outside `public`. M unapplied.
+* Expected: ledger D–L (9 rows), K and L applied once, `kl` verifier all checks pass (46/46 on the Supabase-image rehearsal), policy count 48, runtime role without privileges outside `public`. M unapplied.
 * Fail: L raises "vista_app_runtime holds explicit privileges outside schema public" or any verifier failure → stop; transaction rolls back the migration.
 * Rollback: `docs/operations/sql/k-l-rollback.sql` (after confirming the restore point); last resort restore from step 4 evidence.
 
 ### 6. Runtime credential authorization — approval: owner
-* Pre: step 5 passed. Create/rotate `vista_app_runtime` credentials (separate approval), update secret `DATABASE_URL` using pooler user `vista_app_runtime.<project_ref>`; `deploy-api.sh` refuses any other user.
-* Expected: API starts, `/health` 200, `PrismaService` role assertion passes. Fail: deploy refuses or API cannot start → restore the previous secret version (Secrets Manager version staging) and run the API rollback.
+* Pre: step 5 passed. Create/rotate `vista_app_runtime` credentials (separate approval), update secret `DATABASE_URL` using pooler user `vista_app_runtime.<project_ref>`.
+* **Important (independent-review finding):** the deploy workflow only runs `/usr/local/bin/vista-deploy-api` over SSM; it does **not** ship `deploy-api.sh`, and Terraform ignores `user_data` changes. The live host therefore still runs the **old** script without the runtime-user guard.
+  Until the host script is refreshed by a separate, explicitly approved operator action (copy the repository `deploy-api.sh` and the updated `vista-rollback-api` wrapper to the host over SSM, then `chmod 700`), the effective protection is the API's own `PrismaService` role assertion: a container started with an owner-role `DATABASE_URL` crash-loops, fails the health check and the script restores the previous image. Add "refresh host deploy script" to the approvals for step 6.
+* Once refreshed, `deploy-api.sh` refuses any user other than `vista_app_runtime[.ref]` for deploys; `vista-rollback-api` sets `VISTA_ROLLBACK=1` so a rollback to an image that predates the runtime role is never refused; a refusal removes the plaintext secret file (`trap … EXIT`).
+* Expected: API starts, `/health` 200, role assertion passes. Fail: deploy refuses or API cannot start → restore the previous secret version and run `rollback`.
 * Rollback: previous secret version; `vista-rollback-api`.
 
 ### 7. Terraform apply authorization — approval: owner
@@ -97,5 +100,9 @@ Rule for every step: stop at the first failure, report it, do not retry blindly.
 * Smoke: login as instructor and student; course authoring publish; Learning Media upload from `https://skynex.best` (presigned POST succeeds, no CORS error); submission attachment upload; quiz attempt; no 5xx in CloudWatch.
 * Fail: any smoke failure → API `rollback`; for DB issues follow step 5 rollback. M stays staged; PUBLIC TEMP remains a documented residual risk until M has its own scope approval.
 
-## D. Remaining approvals
-PR review and merge; one hosted evidence run; backup readiness; unblock-PR merge; K–L apply; runtime credential change; Terraform apply; API deploy; web deploy.
+## D. Known test-coverage note
+The API runtime-role DB spec runs in CI against a database with staged M applied (TEMP revoked from PUBLIC). The K–L release state (M deferred, PUBLIC keeps TEMP) is covered by the `kl` verifier (deferred-TEMP branch) and its Postgres tests, not by that spec.
+Hosted evidence also fails closed if `PUBLIC` holds `CREATE` on schema `public` (`public_schema_has_no_create_for_public`), and if the database owner is not the apply role (expect to triage this on Supabase if the owner is `supabase_admin`).
+
+## E. Remaining approvals
+PR review and merge; one hosted evidence run; host deploy-script refresh; backup readiness; unblock-PR merge; K–L apply; runtime credential change; Terraform apply; API deploy; web deploy.

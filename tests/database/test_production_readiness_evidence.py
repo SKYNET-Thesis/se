@@ -21,7 +21,7 @@ def healthy_raw() -> dict:
     raw = {k: 0 for k in ev.INTEGER_KEYS}
     raw.update({k: False for k in ev.BOOLEAN_KEYS})
     raw.update({"database_owner_is_apply_role": True, "apply_role_exists_and_cannot_be_superuser": True, "apply_role_can_create_roles": True, "reader_role_exists": True,
-                "runtime_role_safe_if_present": True, "public_has_temp": True, "database_owner_has_temp": True,
+                "runtime_role_safe_if_present": True, "public_has_temp": True, "public_schema_public_create": False, "database_owner_has_temp": True,
                 "rbac_roles_present": 3, "ledger_rows": len(D_J), "ledger_versions": list(D_J), "ledger_checksums": {v: MANIFEST[v] for v in D_J},
                 "catalog_tables": before["tables"], "catalog_rls_enabled": before["rls_enabled"], "catalog_policies": before["policies"],
                 "catalog_triggers": before["triggers"], "catalog_functions": before["functions"]})
@@ -154,6 +154,14 @@ class EvidenceOnRealDatabaseTests(unittest.TestCase):
         # the bootstrapped test database is in the K-L state (not the D-J state Production is in), so the evidence must flag exactly that
         self.assertIn("k_and_l_not_yet_applied", result["blocking"])
         self.assertTrue(result["checks"]["m_not_applied"])
+
+    def test_query_failures_never_print_psql_stderr(self):
+        from unittest import mock
+        with mock.patch.object(ev.base, "query", side_effect=SystemExit("query failed: password authentication failed for user postgres.abc at 10.0.0.1")):
+            with self.assertRaises(ev.EvidenceIncomplete) as ctx:
+                ev.collect("postgresql://x")
+        self.assertNotIn("postgres", str(ctx.exception))
+        self.assertNotIn("10.0.0.1", str(ctx.exception))
 
 
 if __name__ == "__main__":

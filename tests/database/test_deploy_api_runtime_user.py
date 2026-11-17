@@ -14,13 +14,13 @@ REF = "ovijutkvaaxohauvuxbj"
 BASE = {"SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "k", "WEB_ORIGIN": "https://skynex.best"}
 
 
-def run_block(database_url) -> subprocess.CompletedProcess:
+def run_block(database_url, env=None) -> subprocess.CompletedProcess:
     block = re.search(r"python3 - <<'PY'\n(.*?)\nPY\n", SCRIPT, re.S).group(1)
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
         (tmp / "env.json").write_text(json.dumps({**BASE, **({} if database_url is None else {"DATABASE_URL": database_url})}))
         code = block.replace("/opt/vista/env.json", str(tmp / "env.json")).replace("/opt/vista/api.env", str(tmp / "api.env"))
-        done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+        done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", **(env or {})})
         done.api_env = (tmp / "api.env").read_text() if (tmp / "api.env").exists() else None  # type: ignore[attr-defined]
         return done
 
@@ -46,6 +46,13 @@ class DeployScriptRuntimeUserTests(unittest.TestCase):
         self.assertNotEqual(run_block(None).returncode, 0)  # the existing "required keys" rule
         block_env = run_block("x")
         self.assertNotEqual(block_env.returncode, 0)
+
+    def test_rollback_is_exempt_from_the_runtime_user_guard_and_cleans_up_the_secret(self):
+        owner = f"postgresql://postgres.{REF}:SECRETPW@pooler:6543/postgres"
+        self.assertNotEqual(run_block(owner).returncode, 0)
+        self.assertEqual(run_block(owner, {"VISTA_ROLLBACK": "1"}).returncode, 0)  # an image that predates the runtime role must stay restorable
+        self.assertIn("VISTA_ROLLBACK=1 exec /usr/local/bin/vista-deploy-api", (ROOT / "infra/terraform/user-data.sh.tftpl").read_text())
+        self.assertIn("trap 'rm -f /opt/vista/env.json' EXIT", SCRIPT)  # a refusal must not leave the plaintext secret on disk
 
 
 if __name__ == "__main__":

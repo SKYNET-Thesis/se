@@ -10,9 +10,11 @@ REGISTRY="${IMAGE%%/*}"
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY" >/dev/null
 docker pull "$IMAGE" >/dev/null
 umask 077
+trap 'rm -f /opt/vista/env.json' EXIT
 aws secretsmanager get-secret-value --secret-id "$SECRET_ID" --region "$AWS_REGION" --query SecretString --output text > /opt/vista/env.json
 python3 - <<'PY'
 import json
+import os
 from pathlib import Path
 data = json.loads(Path('/opt/vista/env.json').read_text())
 if not isinstance(data, dict):
@@ -26,7 +28,8 @@ import re
 from urllib.parse import unquote, urlsplit
 database_url = data.get('DATABASE_URL')
 user = unquote(urlsplit(database_url).username or '') if isinstance(database_url, str) else ''
-if not re.fullmatch(r'vista_app_runtime(\.[a-z0-9]{20})?', user):
+# Rollback (vista-rollback-api sets VISTA_ROLLBACK=1) must always be possible, also to an image that predates the runtime role.
+if os.environ.get('VISTA_ROLLBACK') != '1' and not re.fullmatch(r'vista_app_runtime(\.[a-z0-9]{20})?', user):
     raise SystemExit('DATABASE_URL must connect as the restricted runtime role vista_app_runtime (pooler form vista_app_runtime.<project_ref>); refusing to deploy')
 lines = []
 for key, value in data.items():

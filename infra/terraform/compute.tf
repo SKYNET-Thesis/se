@@ -147,7 +147,8 @@ resource "aws_instance" "api" {
     }
   )
   # The live instance is long-lived Production. user_data (first-boot script, embeds deploy-api.sh) and the "latest AL2023" AMI
-  # must never replace it: deployments reach the host through SSM (deploy-api.sh is shipped by the deploy workflow), not by re-creating it.
+  # must never replace it. The deploy workflow only runs /usr/local/bin/vista-deploy-api over SSM; it does NOT ship deploy-api.sh. A change to
+  # deploy-api.sh or user-data therefore reaches the running host only through a separate, explicitly approved operator action.
   user_data_replace_on_change = false
   lifecycle {
     ignore_changes  = [ami, user_data]
