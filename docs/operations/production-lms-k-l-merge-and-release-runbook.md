@@ -75,6 +75,7 @@ Rule for every step: stop at the first failure, report it, do not retry blindly.
 * Rollback: `docs/operations/sql/k-l-rollback.sql` (after confirming the restore point); last resort restore from step 4 evidence.
 
 ### 6. Runtime credential authorization — approval: owner
+> The executable, ordered procedure for steps 6–9 after K–L is `docs/operations/production-lms-rollout-after-k-l.md`.
 * Pre: step 5 passed. Create/rotate `vista_app_runtime` credentials (separate approval), update secret `DATABASE_URL` using pooler user `vista_app_runtime.<project_ref>`.
 * **Important (independent-review finding):** the deploy workflow only runs `/usr/local/bin/vista-deploy-api` over SSM; it does **not** ship `deploy-api.sh`, and Terraform ignores `user_data` changes. The live host therefore still runs the **old** script without the runtime-user guard.
   Until the host script is refreshed by a separate, explicitly approved operator action (copy the repository `deploy-api.sh` and the updated `vista-rollback-api` wrapper to the host over SSM, then `chmod 700`), the effective protection is the API's own `PrismaService` role assertion: a container started with an owner-role `DATABASE_URL` crash-loops, fails the health check and the script restores the previous image. Add "refresh host deploy script" to the approvals for step 6.

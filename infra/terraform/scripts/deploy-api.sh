@@ -31,6 +31,14 @@ user = unquote(urlsplit(database_url).username or '') if isinstance(database_url
 # Rollback (vista-rollback-api sets VISTA_ROLLBACK=1) must always be possible, also to an image that predates the runtime role.
 if os.environ.get('VISTA_ROLLBACK') != '1' and not re.fullmatch(r'vista_app_runtime(\.[a-z0-9]{20})?', user):
     raise SystemExit('DATABASE_URL must connect as the restricted runtime role vista_app_runtime (pooler form vista_app_runtime.<project_ref>); refusing to deploy')
+if os.environ.get('VISTA_ROLLBACK') != '1':
+    # The Education API refuses to start in production without these (production-config.ts, learning-media.storage.ts); fail before the image is started.
+    if data.get('DATABASE_RUNTIME_ROLE') != 'vista_app_runtime':
+        raise SystemExit('Secret key DATABASE_RUNTIME_ROLE must be vista_app_runtime; refusing to deploy')
+    if not str(data.get('LEARNING_MEDIA_BUCKET', '')).strip() or not str(data.get('AWS_REGION', '')).strip():
+        raise SystemExit('Secret keys LEARNING_MEDIA_BUCKET and AWS_REGION are required for Learning Media uploads; refusing to deploy')
+    if 'skynex.best' not in str(data.get('WEB_ORIGIN', '')):
+        raise SystemExit('WEB_ORIGIN must include the production web origin https://skynex.best; refusing to deploy')
 lines = []
 for key, value in data.items():
     if not key.replace('_', '').isalnum() or not key[0].isalpha() or not isinstance(value, str) or '\n' in value or '\r' in value:
