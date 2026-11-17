@@ -13,7 +13,7 @@ export function QuizResultsTable({ classroomId, token }: { classroomId: string; 
     {results.isLoading && <p className="mt-3 text-sm text-ink-muted">Loading quiz results…</p>}
     {results.error && <p role="alert" className="mt-3 text-sm text-danger">Quiz results could not be loaded.</p>}
     {results.data && !results.data.length && <p className="mt-3 text-sm text-ink-muted">No quiz attempts have been completed yet.</p>}
-    {!!results.data?.length && <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[36rem] text-left text-sm">
+    {!!results.data?.length && <div className="relative mt-4 overflow-x-auto"><table className="w-full min-w-[36rem] text-left text-sm">
       <thead className="text-xs text-ink-muted"><tr><th scope="col" className="py-2 pr-3 font-medium">Student</th><th scope="col" className="py-2 pr-3 font-medium">Quiz</th><th scope="col" className="py-2 pr-3 font-medium">Attempt</th><th scope="col" className="py-2 pr-3 font-medium">Points</th><th scope="col" className="py-2 pr-3 font-medium">Score</th><th scope="col" className="py-2 font-medium">Result</th></tr></thead>
       <tbody className="divide-y divide-line">{results.data.map((r) => <tr key={r.attemptId}>
         <td className="py-2 pr-3 font-medium text-ink">{r.fullName ?? 'Student'}</td><td className="py-2 pr-3">{r.quizTitle}</td><td className="py-2 pr-3">#{r.attemptNumber}</td>

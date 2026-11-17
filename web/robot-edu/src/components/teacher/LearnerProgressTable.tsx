@@ -29,7 +29,7 @@ export function LearnerProgressTable({ classroomId, token }: { classroomId: stri
     {progress.isLoading && <p className="mt-3 text-sm text-ink-muted">Loading learner progress…</p>}
     {progress.error && <p role="alert" className="mt-3 text-sm text-danger">Learner progress could not be loaded.</p>}
     {progress.data && !progress.data.length && <p className="mt-3 text-sm text-ink-muted">No enrolled students yet.</p>}
-    {!!progress.data?.length && <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[38rem] text-left text-sm">
+    {!!progress.data?.length && <div className="relative mt-4 overflow-x-auto"><table className="w-full min-w-[38rem] text-left text-sm">
       <thead className="text-xs text-ink-muted"><tr><th scope="col" className="py-2 pr-3 font-medium">Student</th><th scope="col" className="py-2 pr-3 font-medium">Course progress</th><th scope="col" className="py-2 pr-3 font-medium">Lessons</th><th scope="col" className="py-2 pr-3 font-medium">Attempts submitted</th><th scope="col" className="py-2 pr-3 font-medium">Best score</th><th scope="col" className="py-2 pr-3 font-medium">Last activity</th><th scope="col" className="py-2 font-medium"><span className="sr-only">Details</span></th></tr></thead>
       <tbody className="divide-y divide-line">{progress.data.map((p) => <Fragment key={p.learnerUserId}>
         <tr>

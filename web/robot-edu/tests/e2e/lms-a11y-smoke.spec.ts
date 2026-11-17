@@ -62,6 +62,30 @@ for (const [who, name, url] of pages) {
   });
 }
 
+for (const [who, name, url] of pages) {
+  test(`Keyboard focus is visible and the page fits a 390px screen: ${name} (${who})`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await signIn(page, who);
+    await page.goto(url());
+    await page.waitForLoadState('networkidle');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${name} overflows horizontally at 390px`).toBeLessThanOrEqual(0);
+    const invisible: string[] = [];
+    for (let i = 0; i < 8; i += 1) {
+      await page.keyboard.press('Tab');
+      const state = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        if (!el || el === document.body) return null;
+        const s = getComputedStyle(el);
+        const outline = s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0;
+        const ring = s.boxShadow !== 'none' && s.boxShadow !== '';
+        return { label: `${el.tagName.toLowerCase()} ${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 30)}`, visible: outline || ring };
+      });
+      if (state && !state.visible) invisible.push(state.label);
+    }
+    expect(invisible, `${name}: focused controls without a visible focus indicator`).toEqual([]);
+  });
+}
+
 test('Accessibility audit detects unnamed controls, unlabelled fields and images without alternatives (negative control)', async ({ page }) => {
   await page.setContent('<html><body><button></button><input type="text"><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></body></html>');
   const problems = await audit(page);
