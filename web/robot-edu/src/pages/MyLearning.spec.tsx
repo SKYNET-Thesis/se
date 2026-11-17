@@ -175,11 +175,11 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
   let root: Root;
   let client: QueryClient;
 
-  const renderRoute = async () => {
+  const renderRoute = async (path = '/my-learning') => {
     await act(async () => {
       root.render(
         <QueryClientProvider client={client}>
-          <MemoryRouter initialEntries={['/my-learning']}>
+          <MemoryRouter initialEntries={[path]}>
             <Routes>
               <Route path="/my-learning" element={<MyLearning />} />
               <Route path="/courses/:courseId" element={<div data-testid="course-path-page">Course Path Page</div>} />
@@ -291,7 +291,7 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
     });
 
     expect(container.textContent).toContain('Advanced Robot Kinematics');
-    expect(container.textContent).toContain('✓ Completed');
+    expect(container.textContent).toContain('Completed');
     expect(container.textContent).toContain('100%');
     expect(container.textContent).toContain('2 / 2 lessons completed');
     expect(container.textContent).not.toContain('Robotics Fundamentals');
@@ -332,7 +332,7 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
     expect(container.textContent).toContain('Meet Your Robot Knowledge Check');
     expect(container.textContent).toContain('Move the Robot Knowledge Check');
     expect(container.textContent).toContain('Grab & Release Knowledge Check');
-    expect(container.textContent).toContain('Robotics Fundamentals · Meet Your Robot');
+    expect(container.textContent).toContain('Robotics Fundamentals›Meet Your Robot');
   });
 
   // 6. quiz result uses authoritative result data
@@ -366,7 +366,7 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
     expect(container.textContent).toContain('Start Quiz');
 
     // Clicking CTA navigates to the knowledge check activity
-    const viewResultBtn = Array.from(container.querySelectorAll('button')).find((b) =>
+    const viewResultBtn = Array.from(container.querySelectorAll<HTMLElement>('a, button')).find((b) =>
       b.textContent?.includes('View Result')
     );
     await act(async () => {
@@ -386,5 +386,36 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
     await renderRoute();
 
     expect(container.textContent).toContain('No assigned learning');
+  });
+
+  it('restores the chosen tab from the link, and keeps courses visible when only quizzes fail (A05)', async () => {
+    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
+    mocks.coursePaths.mockResolvedValue([course1Path]);
+    mocks.quizzes.mockRejectedValue(new TypeError('Failed to fetch'));
+    await renderRoute('/my-learning?tab=quizzes');
+    expect(container.querySelector('#tab-quizzes')?.getAttribute('aria-selected')).toBe('true');
+    expect(container.querySelector('[role="tabpanel"] [role="alert"]')?.textContent).toContain('VISTA couldn’t be reached.');
+    await act(async () => { (container.querySelector('#tab-in-progress') as HTMLButtonElement).click(); });
+    expect(container.textContent).toContain('Robotics Fundamentals');
+    expect(container.textContent).toContain('Continue Learning');
+  });
+});
+
+describe('My Learning reliability (A05)', () => {
+  it('never turns a failed request into an empty course list', async () => {
+    const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api');
+    const json = (status: number, body: unknown) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      fetchMock.mockImplementationOnce(() => Promise.reject(new TypeError('Failed to fetch')));
+      await expect(actual.progressionApi.coursePaths('tok')).rejects.toBeInstanceOf(TypeError); // enrollments failed: an error, not []
+      fetchMock.mockImplementation((url: string) => String(url).includes('/me/enrollments')
+        ? json(200, [{ course_id: 'c1', status: 'active' }, { course_id: 'c2', status: 'active' }])
+        : String(url).includes('/me/courses/c1/') ? json(200, { course: { id: 'c1' }, lessons: [], progressPercent: 0, currentLessonId: null }) : json(404, { message: 'Course was not found.' }));
+      expect((await actual.progressionApi.coursePaths('tok')).map((p) => p.course.id)).toEqual(['c1']); // c2 is no longer available
+      fetchMock.mockImplementation((url: string) => String(url).includes('/me/enrollments') ? json(200, [{ course_id: 'c1', status: 'active' }]) : json(500, { message: 'boom' }));
+      await expect(actual.progressionApi.coursePaths('tok')).rejects.toMatchObject({ status: 500 }); // not silently dropped
+    } finally { vi.unstubAllGlobals(); }
   });
 });

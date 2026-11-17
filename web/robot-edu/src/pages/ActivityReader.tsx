@@ -13,6 +13,7 @@ import {
   ShieldCheckIcon,
   TargetIcon,
 } from 'lucide-react';
+import { LearningBreadcrumb } from '../components/learning/LearningBreadcrumb';
 import { CourseLearningShell } from '../components/learning/CourseLearningShell';
 import {
   buildLessonActivities,
@@ -1013,18 +1014,11 @@ export function ActivityReader() {
       activityId={activity.id}
     >
       <main className="min-h-[70vh] px-1 py-4 md:px-6 md:py-8">
-        <Link
-          to={`/courses/${courseId}/lessons/${lessonId}`}
-          className="inline-flex items-center gap-2 text-sm text-ink-muted transition-colors duration-150 ease-out hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          <ArrowLeftIcon className="h-4 w-4" /> Module overview
-        </Link>
+        <LearningBreadcrumb items={[{ label: 'My learning', to: '/my-learning' }, { label: lesson.course_title || 'Course Path', to: `/courses/${courseId}` }, { label: lesson.title, to: `/courses/${courseId}/lessons/${lessonId}` }, { label: activity.title }]} />
 
-        <header className="mt-8 border-b border-line pb-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent-ink">
-            {lesson.course_title}
-          </p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-ink md:text-4xl">
+        <header className="mt-6 border-b border-line pb-6">
+          <p className="text-sm font-medium tabular-nums text-ink-muted">Activity {index + 1} of {activities.length}</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight text-ink md:text-4xl">
             {activity.title}
           </h1>
           <div className="mt-3 flex items-center gap-2">
@@ -1037,7 +1031,7 @@ export function ActivityReader() {
           </div>
         </header>
 
-        <article className="mx-auto mt-8 max-w-3xl space-y-8 text-[16px] leading-7 text-ink">
+        <article className="mx-auto mt-8 max-w-3xl space-y-8 text-[16px] leading-7 text-ink [&_li]:max-w-[68ch] [&_p]:max-w-[68ch]">
           {activity.type === 'reading' && (
             activity.content?.version === 1 && Array.isArray(activity.content.blocks) ?
               <StudentActivityContent activityId={activity.id} content={activity.content} token={session?.access_token ?? ''} /> : <>
@@ -1408,7 +1402,7 @@ export function ActivityReader() {
           {(activity.type === 'reading' || activity.type === 'demonstration') && (
             <section className="border-t border-line pt-6" aria-busy={savingCompletion}>
               {completed ? (
-                <p className="text-sm font-semibold text-ok">✓ Activity completed</p>
+                <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-ok"><CheckCircle2Icon className="h-4 w-4" aria-hidden /> Activity completed</p>
               ) : (
                 <button
                   type="button"
@@ -1443,18 +1437,20 @@ export function ActivityReader() {
           <button
             type="button"
             disabled={index <= 0}
+            aria-label={activities[index - 1] ? `Previous activity: ${activities[index - 1].title}` : 'Previous activity'}
             onClick={() => go(-1)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink transition-colors duration-150 ease-out hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
           >
-            ← Previous
+            <ArrowLeftIcon className="h-4 w-4" aria-hidden /> Previous
           </button>
           <button
             type="button"
             disabled={index < 0 || index >= activities.length - 1}
+            aria-label={activities[index + 1] ? `Next activity: ${activities[index + 1].title}` : 'Next activity'}
             onClick={() => go(1)}
             className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors duration-150 ease-out hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Next item →
+            Next item <ArrowRightIcon className="h-4 w-4" aria-hidden />
           </button>
         </nav>
       </main>

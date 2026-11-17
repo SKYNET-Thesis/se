@@ -148,6 +148,20 @@ describe('ActivityReader loading isolation', () => {
       expect(container.textContent).toContain('Activity completed.');
     });
 
+    it('moves to the next activity without completing the current one', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
+      await act(async () => {
+        root.render(<MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/lesson-2-reading-1']}><Routes><Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} /></Routes></MemoryRouter>);
+        await Promise.resolve();
+      });
+      expect(container.textContent).toContain('Activity 1 of');
+      const next = container.querySelector('button[aria-label^="Next activity: "]') as HTMLButtonElement;
+      expect(next.getAttribute('aria-label')).toBe('Next activity: Robot Concept in Action');
+      await act(async () => { next.click(); await Promise.resolve(); });
+      expect(mocks.complete).not.toHaveBeenCalled(); // completion only ever comes from Mark as Completed
+      expect(container.textContent).toContain('Robot Concept in Action');
+    });
+
     it('keeps Reading unconfirmed when completion request fails', async () => {
       mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
       mocks.complete.mockRejectedValue(new Error('Connection lost'));

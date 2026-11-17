@@ -29,7 +29,7 @@ export function ActivityCard({
     </>
   );
   const className = `flex items-start gap-3 rounded-lg px-3 py-2.5 text-left ${
-    active ? 'bg-accent-soft text-accent-ink' : 'text-ink'
+    active ? 'bg-[rgb(var(--nav-active-bg))] text-ink [&_span]:font-semibold' : 'text-ink'
   }`;
 
   return locked || !href ? (
@@ -38,7 +38,7 @@ export function ActivityCard({
     <Link
       to={href}
       aria-current={active ? 'page' : undefined}
-      className={`${className} hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent`}
+      className={`${className} ${active ? '' : 'hover:bg-sunken'} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent`}
     >
       {content}
     </Link>

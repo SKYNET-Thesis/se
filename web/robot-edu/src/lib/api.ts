@@ -403,13 +403,22 @@ export const progressionApi = {
   quizzes: (token: string) => apiGet<ApiStudentQuiz[]>("/me/quizzes", token),
   qualifiedL4Version: (courseId: string, token: string) =>
     apiGet<ApiQualifiedProgramHandoff | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
+  /**
+   * The student's active enrolled courses with their server-computed paths. A failure to load enrollments is an error,
+   * never an empty list. A course whose path answers 404/403 is no longer available to the student (enrollment ended,
+   * classroom archived, course withdrawn) and is left out; any other failure is an error, so courses are never dropped
+   * silently.
+   */
   coursePaths: async (token: string): Promise<CoursePathResponse[]> => {
-    const enrollments = await learnerApi.enrollments(token).catch(() => [] as ApiEnrollment[]);
+    const enrollments = await learnerApi.enrollments(token);
     const courseIds = enrollments.filter((e) => e.status === "active" && e.course_id).map((e) => e.course_id);
     if (!courseIds.length) return [];
     const uniqueIds = Array.from(new Set(courseIds));
     const paths = await Promise.all(
-      uniqueIds.map((id) => progressionApi.coursePath(id, token).catch(() => null))
+      uniqueIds.map((id) => progressionApi.coursePath(id, token).catch((error: unknown) => {
+        if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return null;
+        throw error;
+      }))
     );
     return paths.filter((p): p is CoursePathResponse => Boolean(p));
   },

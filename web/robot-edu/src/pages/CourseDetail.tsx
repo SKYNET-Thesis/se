@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRightIcon, ChevronDownIcon, ChevronLeftIcon, CircleDotIcon, Clock3Icon, FileQuestionIcon, LockIcon } from 'lucide-react';
+import { ArrowRightIcon, CheckIcon, ChevronDownIcon, CircleDotIcon, Clock3Icon, FileQuestionIcon, LockIcon } from 'lucide-react';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -9,7 +9,9 @@ import { LinkButton } from '../components/ui/LinkButton';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { catalogApi, progressionApi, type CoursePathLesson } from '../lib/api';
+import { canRetry, learningErrorMessage, lessonStatusPresentation } from '../queries/studentLearningModel';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
+import { LearningBreadcrumb } from '../components/learning/LearningBreadcrumb';
 
 export function CourseDetail() {
   const { courseId = '' } = useParams();
@@ -48,16 +50,14 @@ export function CourseDetail() {
       <EmptyState
         icon={<FileQuestionIcon />}
         title="Course path unavailable"
-        description={
-          error instanceof Error
-            ? error.message
-            : 'This course path may no longer be available to your account.'
-        }
+        description={error ? learningErrorMessage(error, 'course') : 'This course isn’t available to you right now.'}
         action={
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => void pathQuery.refetch()}>
-              Try again
-            </Button>
+            {(!error || canRetry(error)) && (
+              <Button variant="secondary" onClick={() => void pathQuery.refetch()}>
+                Try again
+              </Button>
+            )}
             <LinkButton to="/my-learning">My Learning</LinkButton>
           </div>
         }
@@ -71,12 +71,7 @@ export function CourseDetail() {
 
   return (
     <main className="mx-auto w-full max-w-[1180px] px-4 py-6 md:px-8 md:py-10">
-      <Link
-        to="/my-learning"
-        className="inline-flex items-center gap-1 text-[13px] text-ink-muted hover:text-ink"
-      >
-        <ChevronLeftIcon className="h-4 w-4" /> My Learning
-      </Link>
+      <LearningBreadcrumb items={[{ label: 'My learning', to: '/my-learning' }, { label: course.title }]} />
 
       <header className="mt-5 grid gap-7 border-b border-line pb-9 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         <div className="max-w-3xl">
@@ -91,7 +86,7 @@ export function CourseDetail() {
         <aside className="rounded-xl border border-line bg-surface p-5 shadow-hairline" aria-label="Course progress">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-subtle">Your progress</p>
+              <p className="text-sm font-semibold text-ink">Your progress</p>
               <p className="mt-2 text-sm text-ink-muted">{completedLessons} / {totalLessons} lessons completed</p>
             </div>
             <span className="font-mono text-3xl font-semibold tabular-nums text-ink">{path.progressPercent}%</span>
@@ -107,8 +102,8 @@ export function CourseDetail() {
               Continue Learning
             </LinkButton>
           ) : isComplete ? (
-            <span className="text-sm font-semibold text-ok">
-              ✓ Course Completed
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-ok">
+              <CheckIcon className="h-4 w-4" aria-hidden /> Course completed
             </span>
           ) : null}
           </div>
@@ -117,9 +112,8 @@ export function CourseDetail() {
 
       <section className="mt-10" aria-labelledby="lessons-heading">
         <div className="max-w-3xl">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-accent-ink">Course path</p>
-          <h2 id="lessons-heading" className="mt-2 text-2xl font-semibold tracking-[-0.025em] text-ink">Curriculum</h2>
-          <p className="mt-2 text-sm leading-6 text-ink-muted">Explore all {totalLessons} lessons. Locked lessons can be previewed, but activities remain unavailable until prerequisites are complete.</p>
+          <h2 id="lessons-heading" className="text-2xl font-semibold tracking-[-0.025em] text-ink">Curriculum</h2>
+          <p className="mt-2 text-sm leading-6 text-ink-muted">{totalLessons} {totalLessons === 1 ? 'lesson' : 'lessons'}.{path.lessons.some((lesson) => lesson.status === 'locked') && ' Locked lessons open once you finish the lessons before them; you can still preview what they cover.'}</p>
         </div>
 
         {path.lessons.length === 0 ? (
@@ -147,9 +141,9 @@ function LessonRow({ lesson, courseId }: { lesson: CoursePathLesson; courseId: s
   return (
     <li data-testid="lesson-row" className={`overflow-hidden rounded-xl border bg-surface transition-colors ${isCurrent || isInProgress ? 'border-accent' : 'border-line'}`}>
       <div className="flex items-center gap-3 p-3 sm:p-4">
-        <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded((value) => !value)} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2">
+        <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded((value) => !value)} className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2">
           <span className="min-w-0 flex-1">
-            <span className="flex flex-wrap items-center gap-2"><span className="font-semibold text-ink">{lesson.title}</span><Badge tone={isCompleted ? 'ok' : isCurrent ? 'accent' : isInProgress ? 'warn' : 'neutral'}>{isCompleted ? '✓ Completed' : isCurrent ? '▶ Current' : isInProgress ? '• In Progress' : isLocked ? '🔒 Locked' : 'Available'}</Badge></span>
+            <span className="flex flex-wrap items-center gap-2"><span className="font-semibold text-ink">{lesson.title}</span><Badge tone={lessonStatusPresentation[lesson.status].tone}>{isCompleted ? <CheckIcon className="h-3.5 w-3.5" aria-hidden /> : isLocked ? <LockIcon className="h-3 w-3" aria-hidden /> : null}{lessonStatusPresentation[lesson.status].label}</Badge></span>
             <span className="mt-1 block line-clamp-1 text-sm text-ink-muted">{lesson.summary}</span>
             {isLocked && lesson.lockReason && <span className="mt-1 flex items-center gap-1.5 text-xs text-ink-muted"><LockIcon className="h-3.5 w-3.5 shrink-0" />{lesson.lockReason.message}</span>}
           </span>
@@ -164,7 +158,7 @@ function LessonRow({ lesson, courseId }: { lesson: CoursePathLesson; courseId: s
           <p className="max-w-[70ch] text-sm leading-6 text-ink-muted">{lesson.summary}</p>
           <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto]">
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-subtle">Learning steps</h3>
+              <h3 className="text-sm font-semibold text-ink">What you’ll do</h3>
               <ul className="mt-2 space-y-2">{lesson.learningItems.map((item) => <li key={item} className="flex items-start gap-2 text-sm text-ink"><CircleDotIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent-ink" />{item}</li>)}</ul>
             </div>
             {lesson.estimatedMinutes && <p className="flex items-center gap-2 text-sm text-ink-muted"><Clock3Icon className="h-4 w-4" />~{lesson.estimatedMinutes} min</p>}

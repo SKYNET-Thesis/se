@@ -216,7 +216,7 @@ describe('CourseDetail / Course Path', () => {
     const lesson1Item = container.querySelectorAll('[data-testid="lesson-row"]')[0];
     expect(lesson1Item.textContent).toContain('Meet Your Robot');
     expect(lesson1Item.textContent).not.toContain('C1-L1');
-    expect(lesson1Item.textContent).toContain('✓ Completed');
+    expect(lesson1Item.textContent).toContain('Completed');
     expect(lesson1Item.textContent).toContain('Review lesson');
 
     const reviewLink = lesson1Item.querySelector('a');
@@ -228,7 +228,7 @@ describe('CourseDetail / Course Path', () => {
 
     const lesson3Item = container.querySelectorAll('[data-testid="lesson-row"]')[2];
     expect(lesson3Item.textContent).toContain('Grab & Release');
-    expect(lesson3Item.textContent).toContain('▶ Current');
+    expect(lesson3Item.textContent).toContain('Up next');
     expect(lesson3Item.textContent).toContain('Start lesson');
 
     const startLink = lesson3Item.querySelector('a');
@@ -247,7 +247,7 @@ describe('CourseDetail / Course Path', () => {
 
     const lesson3Item = container.querySelectorAll('[data-testid="lesson-row"]')[2];
     expect(lesson3Item.textContent).toContain('Grab & Release');
-    expect(lesson3Item.textContent).toContain('• In Progress');
+    expect(lesson3Item.textContent).toContain('In progress');
     expect(lesson3Item.textContent).toContain('Continue lesson');
   });
 
@@ -256,7 +256,7 @@ describe('CourseDetail / Course Path', () => {
 
     const lesson4Item = container.querySelectorAll('[data-testid="lesson-row"]')[3];
     expect(lesson4Item.textContent).toContain('Pick & Place');
-    expect(lesson4Item.textContent).toContain('🔒 Locked');
+    expect(lesson4Item.textContent).toContain('Locked');
     expect(lesson4Item.textContent).toContain('Complete Grab & Release to unlock this lesson.');
 
     const lockedButton = lesson4Item.querySelector('button[disabled]');
@@ -292,7 +292,7 @@ describe('CourseDetail / Course Path', () => {
 
     expect(container.textContent).toContain('5 / 5 lessons completed');
     expect(container.textContent).toContain('100%');
-    expect(container.textContent).toContain('✓ Course Completed');
+    expect(container.textContent).toContain('Course completed');
     expect(container.querySelector('header')?.textContent).not.toContain('Continue Learning');
   });
 
@@ -317,7 +317,7 @@ describe('CourseDetail / Course Path', () => {
     await renderRoute();
 
     expect(container.textContent).toContain('Course path unavailable');
-    expect(container.textContent).toContain('Course path not found');
+    expect(container.textContent).toContain('This course couldn’t be loaded. Try again.');
 
     const retryButton = Array.from(container.querySelectorAll('button')).find((b) => b.textContent?.includes('Try again'));
     expect(retryButton).toBeDefined();

@@ -1,71 +1,118 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, Navigate } from "react-router-dom";
-import { ArrowRightIcon, BookOpenIcon, Clock3Icon, GraduationCapIcon, SearchIcon, SearchXIcon, SparklesIcon, UsersIcon } from "lucide-react";
-import { catalogApi, learnerApi, progressionApi, type ApiAttempt, type ApiCourse, type ApiEnrollment, type CoursePathResponse } from "../lib/api";
+import { ArrowRightIcon, BookOpenIcon, PlayCircleIcon, RotateCwIcon, SearchIcon, SearchXIcon } from "lucide-react";
+import { ApiError, catalogApi, learnerApi, progressionApi, type ApiCourse, type ApiEnrollment } from "../lib/api";
 import { useSupabaseSession } from "../contexts/SupabaseSessionContext";
 import { useRole } from "../contexts/RoleContext";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Badge } from "../components/ui/Badge";
 import { ProgressBar } from "../components/ui/ProgressBar";
+import { Button } from "../components/ui/Button";
+import { learningErrorMessage } from "../queries/studentLearningModel";
+import { studentLearningKeys } from "../queries/studentLearningQueries";
 
-interface CourseCard extends ApiCourse { lessonCount: number; access: "enrolled" | "teacher"; progressPercent: number; }
+/** Progress and lesson counts are null when the server could not tell us; they are never shown as 0 instead. */
+interface CourseCard extends ApiCourse { lessonCount: number | null; access: "enrolled" | "teacher"; progressPercent: number | null; }
+
+/** Plain messages for the course list. Raw API or database text is never shown to students. */
+/** Same wording as My Learning (learningErrorMessage); only the list-level permission answer differs. */
+function coursesLoadMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 403) return "Your account can’t open courses right now. Ask your teacher to check your access.";
+  return learningErrorMessage(error, "courses");
+}
+const canRetryCourses = (error: unknown) => !(error instanceof ApiError && (error.status === 401 || error.status === 403));
 
 /** The authenticated learner's course home; access is determined by Nest. */
 export function Courses() {
-  const { session } = useSupabaseSession();
+  const { session, sessionRevision } = useSupabaseSession();
   const { role } = useRole();
-  const [courses, setCourses] = useState<CourseCard[]>([]);
-  const [attempts, setAttempts] = useState<ApiAttempt[]>([]);
   const [query, setQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const token = session?.access_token ?? "";
+  const userId = session?.user.id;
+  const enabled = Boolean(token) && role !== "admin";
+  // The course list and enrollments decide what is shown, so they must load. Progress, lesson counts and practice
+  // missions are extras: if they fail, the page says so instead of failing or pretending they are zero. The app query
+  // client retries once, and the shared course-path cache keeps the burst of requests small.
+  const catalog = useQuery({ queryKey: ["student-courses", "catalog", userId, sessionRevision], queryFn: () => catalogApi.courses(token, 1, 100), enabled });
+  const enrollments = useQuery({ queryKey: ["student-courses", "enrollments", userId, sessionRevision], queryFn: () => learnerApi.enrollments(token), enabled });
+  const attempts = useQuery({ queryKey: ["student-courses", "attempts", userId, sessionRevision], queryFn: () => learnerApi.attempts(token), enabled });
+  const paths = useQuery({ queryKey: studentLearningKeys.coursePaths(userId, sessionRevision), queryFn: () => progressionApi.coursePaths(token), enabled, staleTime: 30_000 });
+  const courseIds = (catalog.data?.items ?? []).map((course) => course.id);
+  const lessonCounts = useQuery({
+    queryKey: ["student-courses", "lesson-counts", courseIds.join(","), sessionRevision],
+    queryFn: async () => {
+      const settled = await Promise.allSettled(courseIds.map((id) => catalogApi.lessons(id, token).then((lessons) => lessons.length)));
+      return Object.fromEntries(settled.map((result, index) => [courseIds[index], result.status === "fulfilled" ? result.value : null])) as Record<string, number | null>;
+    },
+    enabled: enabled && catalog.isSuccess && courseIds.length > 0,
+  });
 
-  useEffect(() => {
-    if (!session || role === 'admin') return;
-    let active = true;
-    void (async () => {
-      const [result, enrollments, ownAttempts, paths] = await Promise.all([
-        catalogApi.courses(session.access_token, 1, 100), learnerApi.enrollments(session.access_token), learnerApi.attempts(session.access_token), progressionApi.coursePaths(session.access_token),
-      ]);
-      const enrolled = new Set(enrollments.filter((entry: ApiEnrollment) => entry.status === "active").map((entry) => entry.course_id));
-      const lessonCounts = await Promise.all(result.items.map((course) => catalogApi.lessons(course.id, session.access_token).then((lessons) => lessons.length)));
-      if (!active) return;
-      const pathByCourse = new Map((paths as CoursePathResponse[]).map((path) => [path.course.id, path]));
-      setCourses(result.items.map((course, index) => ({ ...course, lessonCount: lessonCounts[index], access: enrolled.has(course.id) ? "enrolled" : "teacher", progressPercent: pathByCourse.get(course.id)?.progressPercent ?? 0 })));
-      setAttempts(ownAttempts);
-    })().catch((requestError: unknown) => { if (active) setError(requestError instanceof Error ? requestError.message : "Could not load your learning space."); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [session]);
+  const required = [catalog, enrollments];
+  const failed = required.find((item) => item.isError);
+  const hasData = Boolean(catalog.data && enrollments.data);
+  const loading = !hasData && !failed;
+  const courses: CourseCard[] = useMemo(() => {
+    if (!catalog.data || !enrollments.data) return [];
+    const enrolled = new Set(enrollments.data.filter((entry: ApiEnrollment) => entry.status === "active").map((entry) => entry.course_id));
+    const pathByCourse = paths.data ? new Map(paths.data.map((path) => [path.course.id, path])) : null;
+    return catalog.data.items.map((course) => ({
+      ...course,
+      lessonCount: lessonCounts.data?.[course.id] ?? null,
+      access: enrolled.has(course.id) ? "enrolled" : "teacher",
+      progressPercent: pathByCourse ? pathByCourse.get(course.id)?.progressPercent ?? 0 : null,
+    }));
+  }, [catalog.data, enrollments.data, paths.data, lessonCounts.data]);
+  const retry = () => { for (const item of [catalog, enrollments, attempts, paths]) if (item.isError) void item.refetch(); };
 
   const visible = useMemo(() => {
     const value = query.trim().toLowerCase();
     return courses.filter((course) => !value || `${course.title} ${course.description ?? ""}`.toLowerCase().includes(value));
   }, [courses, query]);
-  const inProgress = attempts.filter((attempt) => attempt.status === "in_progress").length;
-  const name = session?.user.email?.split("@")[0] ?? "Learner";
+  const inProgress = (attempts.data ?? []).filter((attempt) => attempt.status === "in_progress").length;
 
   if (role === 'admin') {
     return <Navigate to="/admin/courses" replace />;
   }
 
+  const summary = loading ? "Loading your courses…" : failed && !hasData ? "Course list unavailable" : `${courses.length} enrolled course${courses.length === 1 ? "" : "s"}${paths.isError ? ". Progress couldn’t be loaded." : ""}`;
+
+  // For a student, GET /courses returns the enrolled courses; My learning is where they resume, so this page is the list.
   return <main className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-8 md:py-9">
-    <header className="grid gap-6 border-b border-line pb-7 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-end">
-      <div><div className="flex items-center gap-2 text-sm font-medium text-accent-ink"><span className="grid h-7 w-7 place-items-center rounded-full bg-accent text-white"><GraduationCapIcon className="h-4 w-4" /></span>My learning</div><h1 className="mt-4 text-3xl font-semibold tracking-[-0.03em] text-ink md:text-4xl">Welcome back, {name}.</h1><p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-ink-muted">Everything your teacher has assigned is here. Pick up a course, complete a mission, and watch your robot skills grow.</p></div>
-      <div className="rounded-xl border border-line bg-surface p-4"><div className="flex items-start gap-3"><span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent text-white"><SparklesIcon className="h-4 w-4" /></span><div><p className="text-sm font-semibold text-ink">Learning updates</p><p className="mt-1 text-xs leading-relaxed text-ink-muted">{inProgress ? `${inProgress} practice ${inProgress === 1 ? "mission is" : "missions are"} ready to continue.` : "Your next robot mission is ready when you are."}</p></div></div></div>
+    <header className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-6">
+      <div>
+        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.015em] text-ink">Courses</h1>
+        <p className="mt-1.5 text-[15px] text-ink-muted">{summary}</p>
+      </div>
+      {hasData && courses.length > 0 && <label className="flex h-11 w-full items-center gap-2 rounded-lg border border-line-strong bg-surface px-3 focus-within:ring-2 focus-within:ring-accent sm:w-[260px]"><SearchIcon className="h-4 w-4 text-ink-subtle" aria-hidden /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search courses" aria-label="Search courses" className="w-full bg-transparent text-sm outline-none placeholder:text-ink-subtle" /></label>}
     </header>
 
-    {error && <p role="alert" className="mt-5 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>}
-    <div className="mt-7 grid gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
-      <section aria-labelledby="courses-heading"><div className="flex flex-wrap items-end justify-between gap-4"><div><h2 id="courses-heading" className="text-xl font-semibold tracking-[-0.02em] text-ink">Your courses</h2><p className="mt-1 text-sm text-ink-muted">{loading ? "Loading your course access…" : `${courses.length} course${courses.length === 1 ? "" : "s"} available to you`}</p></div><label className="flex h-10 w-full items-center gap-2 rounded-lg border border-line-strong bg-surface px-3 sm:w-[230px]"><SearchIcon className="h-4 w-4 text-ink-subtle" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search my courses" aria-label="Search my courses" className="w-full bg-transparent text-sm outline-none placeholder:text-ink-subtle" /></label></div>
-      {loading ? <CourseSkeletons /> : visible.length === 0 ? <EmptyState icon={<SearchXIcon />} title={courses.length ? "No matching courses" : "No courses yet"} description={courses.length ? "Try a different search." : "Ask your teacher to add you to a classroom or course."} /> : <div className="mt-5 grid gap-4 md:grid-cols-2">{visible.map((course) => <CourseTile key={course.id} course={course} />)}</div>}</section>
-      <aside className="space-y-5 xl:sticky xl:top-7 xl:self-start"><section className="rounded-xl border border-line bg-surface p-5"><div className="flex items-center gap-2"><SparklesIcon className="h-4 w-4 text-accent" /><h2 className="text-sm font-semibold text-ink">Keep going</h2></div><p className="mt-3 text-sm leading-relaxed text-ink-muted">{inProgress ? "You have an unfinished practice mission. Continue from the course where you left off." : "Start with the first lesson in one of your assigned courses. Every mission has a guided robot preview."}</p>{courses[0] && <Link to={`/courses/${courses[0].id}`} className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-accent-ink hover:text-accent">{inProgress ? "Continue learning" : "Begin a course"} <ArrowRightIcon className="h-4 w-4" /></Link>}</section>
-      <section className="rounded-xl border border-line bg-surface p-5"><div className="flex items-center gap-2"><UsersIcon className="h-4 w-4 text-accent" /><h2 className="text-sm font-semibold text-ink">How course access works</h2></div><ol className="mt-4 space-y-3 text-sm leading-relaxed text-ink-muted"><li className="flex gap-3"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-sunken text-[11px] font-semibold text-ink">1</span>Your teacher adds you to a class or course.</li><li className="flex gap-3"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-sunken text-[11px] font-semibold text-ink">2</span>The course appears here automatically.</li><li className="flex gap-3"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-sunken text-[11px] font-semibold text-ink">3</span>New missions show as updates when your teacher publishes them.</li></ol><p className="mt-4 rounded-md bg-sunken px-3 py-2 text-xs leading-relaxed text-ink-muted">Want a different course? Ask your teacher for an enrollment or classroom invite.</p></section></aside>
-    </div>
+    {failed && !hasData && (
+      <div role="alert" className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-danger-soft px-4 py-3 text-sm text-danger">
+        <span>{coursesLoadMessage(failed.error)}</span>
+        {canRetryCourses(failed.error) && <Button size="sm" variant="secondary" onClick={retry} loading={required.some((item) => item.isFetching)} icon={<RotateCwIcon className="h-4 w-4" aria-hidden />}>Try again</Button>}
+      </div>
+    )}
+    {hasData && [catalog, enrollments].some((item) => item.isError) && (
+      <p role="status" className="mt-5 rounded-lg bg-warn-soft px-4 py-2.5 text-sm text-ink">Your course list couldn’t be refreshed, so it may be out of date. <button type="button" onClick={retry} className="font-semibold text-accent underline underline-offset-4">Try again</button></p>
+    )}
+    {/* Only when the server reports an unfinished attempt; attempts belong to classroom assignments, so that is where they resume. */}
+    {inProgress > 0 && (
+      <p className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-muted">
+        <PlayCircleIcon className="h-4 w-4 text-accent" aria-hidden />
+        {inProgress === 1 ? "You have a practice mission in progress." : `You have ${inProgress} practice missions in progress.`}
+        <Link to="/assignments" className="inline-flex min-h-[32px] items-center font-semibold text-accent underline-offset-4 hover:underline">Open assignments</Link>
+      </p>
+    )}
+
+    <section aria-label="Enrolled courses">
+      {loading ? <CourseSkeletons /> : failed && !hasData ? null : visible.length === 0 ? <div className="mt-6"><EmptyState icon={<SearchXIcon />} title={courses.length ? "No matching courses" : "No courses yet"} description={courses.length ? "Try a different search." : "Ask your teacher to add you to a classroom or course."} /></div> : <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{visible.map((course) => <CourseTile key={course.id} course={course} />)}</div>}
+    </section>
   </main>;
 }
 
 function CourseTile({ course }: { course: CourseCard }) {
-  return <article className="group relative overflow-hidden rounded-xl border border-line bg-surface p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-[0_14px_28px_rgba(25,36,78,0.08)]"><div className="absolute inset-x-0 top-0 h-1 bg-accent opacity-0 transition-opacity group-hover:opacity-100" /><div className="flex items-start justify-between gap-3"><Badge tone={course.access === "enrolled" ? "ok" : "accent"} dot>{course.access === "enrolled" ? "Enrolled" : "Teacher assigned"}</Badge><span className="text-xs font-medium uppercase tracking-wide text-ink-subtle">{course.status}</span></div><h3 className="mt-5 text-xl font-semibold tracking-[-0.02em] text-ink">{course.title}</h3><p className="mt-2 min-h-10 text-sm leading-relaxed text-ink-muted">{course.description ?? "A guided VISTA robotics course."}</p><div className="mt-5 flex items-center justify-between text-xs text-ink-muted"><span className="inline-flex items-center gap-1.5"><BookOpenIcon className="h-3.5 w-3.5" />{course.lessonCount} lesson{course.lessonCount === 1 ? "" : "s"}</span><span className="inline-flex items-center gap-1.5"><Clock3Icon className="h-3.5 w-3.5" />Self-paced</span></div><div className="mt-5"><div className="mb-2 flex justify-between text-xs text-ink-muted"><span>{course.progressPercent > 0 ? "In progress" : "Ready to start"}</span><span>{course.progressPercent}%</span></div><ProgressBar value={course.progressPercent} label={`${course.title} progress`} /></div><Link to={`/courses/${course.id}`} className="mt-5 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-white transition-colors hover:bg-accent-hover active:scale-[0.98]">Open course<ArrowRightIcon className="h-4 w-4" /></Link></article>;
+  return <article className="flex flex-col rounded-xl border border-line bg-surface p-5 transition-colors duration-150 hover:border-line-strong">{course.access !== "enrolled" && <Badge tone="accent" dot>Teacher assigned</Badge>}<h3 className="mt-1 text-xl font-semibold tracking-[-0.02em] text-ink">{course.title}</h3>{course.description && <p className="mt-2 text-sm leading-relaxed text-ink-muted">{course.description}</p>}{course.lessonCount !== null && <p className="mt-4 inline-flex items-center gap-1.5 text-xs text-ink-muted"><BookOpenIcon className="h-3.5 w-3.5" aria-hidden />{course.lessonCount} lesson{course.lessonCount === 1 ? "" : "s"}</p>}<div className="mt-auto pt-5">{course.progressPercent === null ? <p className="text-xs text-ink-muted">Progress unavailable right now</p> : <><div className="mb-2 flex justify-between text-xs text-ink-muted"><span>{course.progressPercent >= 100 ? "Completed" : course.progressPercent > 0 ? "In progress" : "Ready to start"}</span><span>{course.progressPercent}%</span></div><ProgressBar value={course.progressPercent} label={`${course.title} progress`} /></>}</div><Link to={`/courses/${course.id}`} aria-label={`Open course: ${course.title}`} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-white transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2">Open course<ArrowRightIcon className="h-4 w-4" aria-hidden /></Link></article>;
 }
 
-function CourseSkeletons() { return <div className="mt-5 grid gap-4 md:grid-cols-2">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-[260px] animate-pulse rounded-xl border border-line bg-sunken/60" />)}</div>; }
+function CourseSkeletons() { return <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-[260px] animate-pulse rounded-xl border border-line bg-sunken/60" />)}</div>; }

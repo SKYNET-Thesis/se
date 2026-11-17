@@ -83,6 +83,15 @@ describe('SidebarNav role-based navigation', () => {
     expect(Array.from(learning?.querySelectorAll('a') ?? []).map((l) => l.textContent)).toEqual(['Course catalogue', 'Quizzes', 'Robot Lab']);
   });
 
+  it('keeps My Learning selected while a student studies a course or lesson, and Courses only on the list', async () => {
+    currentRole = 'student';
+    const selected = () => Array.from(container.querySelectorAll('a[aria-current="page"]')).map((a) => a.textContent);
+    for (const [route, expected] of [['/courses/c1/lessons/l2/activities/l2-reading-1', 'My Learning'], ['/courses/c1', 'My Learning'], ['/my-learning', 'My Learning'], ['/courses', 'Courses']] as const) {
+      await act(async () => { root.render(<MemoryRouter key={route} initialEntries={[route]}><SidebarNav /></MemoryRouter>); await Promise.resolve(); });
+      expect(selected()).toEqual([expected]);
+    }
+  });
+
   it('preserves Teacher navigation with Student catalogue pointing to /courses', async () => {
     await renderNav('teacher');
     const links = Array.from(container.querySelectorAll('a'));

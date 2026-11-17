@@ -19,6 +19,8 @@ export interface NavItem {
   label: string;
   icon: LucideIcon;
   end?: boolean;
+  /** Extra routes that belong to this item, e.g. a student's course and lesson pages belong to My Learning. */
+  activePattern?: RegExp;
 }
 
 export interface NavSection {
@@ -31,8 +33,9 @@ export const navigationByRole: Record<Role, NavSection[]> = {
   {
     items: [
     { to: '/', label: 'Dashboard', icon: LayoutDashboardIcon, end: true },
-    { to: '/courses', label: 'Courses', icon: BookOpenIcon },
-    { to: '/my-learning', label: 'My Learning', icon: ClipboardListIcon },
+    { to: '/courses', label: 'Courses', icon: BookOpenIcon, end: true },
+    // Course paths and lessons need an active enrollment, so for a student they are part of My Learning.
+    { to: '/my-learning', label: 'My Learning', icon: ClipboardListIcon, activePattern: /^\/courses\/[^/]+/ },
     { to: '/assignments', label: 'Assignments', icon: ClipboardCheckIcon }]
 
   },

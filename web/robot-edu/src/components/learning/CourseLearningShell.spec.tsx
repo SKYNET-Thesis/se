@@ -110,7 +110,7 @@ describe('CourseLearningShell', () => {
 
     expect(mocks.progress.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(container.querySelector('[aria-label="Understanding Robot Movement: completed"]')).not.toBeNull();
-    expect(container.textContent).toContain('✓ Activity completed');
+    expect(container.textContent).toContain('Activity completed');
   });
 
   it('does not remain in checking state when progress query is disabled without a session', async () => {
@@ -278,7 +278,7 @@ describe('CourseLearningShell', () => {
     expect(selectedLink).not.toBeNull();
     expect(selectedLink?.getAttribute('href')).toContain('lesson-2-reading-1');
     expect(selectedLink?.parentElement?.className).toContain('border-accent');
-    expect(selectedLink?.className).toContain('bg-accent-soft');
+    expect(selectedLink?.className).toContain('nav-active-bg'); // shared selected tint, distinct from the current lesson row
 
     // 4. Hover & focus classes exist on interactive items
     expect(selectedLink?.className).toContain('focus-visible:ring-accent');
@@ -533,5 +533,18 @@ describe('CourseLearningShell', () => {
     // Both L1 and L2 remain expanded! L2 was NOT collapsed by navigating to L1!
     expect(getBtn('C1-L1').getAttribute('aria-expanded')).toBe('true');
     expect(getBtn('C1-L2').getAttribute('aria-expanded')).toBe('true');
+  });
+  it('opens the mobile lesson list as a dialog that Escape closes, returning focus to its button', async () => {
+    await act(async () => { root.render(<QueryClientProvider client={client}><MemoryRouter><CourseLearningShell courseId="course-1" lessonId="lesson-2" lesson={lesson}><div>Lesson content</div></CourseLearningShell></MemoryRouter></QueryClientProvider>); });
+    const trigger = container.querySelector('button[aria-controls="course-material-nav"]') as HTMLButtonElement;
+    trigger.focus();
+    await act(async () => { trigger.click(); });
+    const drawer = container.querySelector('#course-material-nav') as HTMLElement;
+    expect(drawer.getAttribute('role')).toBe('dialog'); expect(drawer.getAttribute('aria-modal')).toBe('true');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Close course material');
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(drawer.getAttribute('role')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 });

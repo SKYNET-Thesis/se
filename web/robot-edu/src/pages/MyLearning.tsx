@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { ArrowRightIcon, CheckIcon, RotateCwIcon } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
-import { EmptyState } from '../components/ui/EmptyState';
+import { LinkButton } from '../components/ui/LinkButton';
 import { PageHeader } from '../components/ui/PageHeader';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { progressionApi, type ApiStudentQuiz, type CoursePathResponse } from '../lib/api';
+import { canRetry, learningErrorMessage } from '../queries/studentLearningModel';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
 import { cn } from '../utils/cn';
 
@@ -19,7 +21,7 @@ export interface TabConfig {
 }
 
 export const MY_LEARNING_TABS: TabConfig[] = [
-  { id: 'in-progress', label: 'In Progress' },
+  { id: 'in-progress', label: 'In progress' },
   { id: 'completed', label: 'Completed' },
   { id: 'quizzes', label: 'Quizzes' },
 ];
@@ -65,11 +67,19 @@ export function getQuizCta(
   }
 }
 
+const isTab = (value: string | null): value is MyLearningTabKey => MY_LEARNING_TABS.some((tab) => tab.id === value);
+const quizHref = (quiz: ApiStudentQuiz) => `/courses/${quiz.course_id}/lessons/${quiz.lesson_id}/activities/${quiz.lesson_id}-knowledge-check`;
+
+/**
+ * Student My Learning (A05): the courses the student is actually enrolled in, with server-computed progress and the
+ * server's current lesson. The tab lives in the URL so reloads and links keep it.
+ */
 export function MyLearning() {
   const { session, loading: authLoading, sessionRevision } = useSupabaseSession();
   const token = session?.access_token ?? '';
-  const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<MyLearningTabKey>('in-progress');
+  const [params, setParams] = useSearchParams();
+  const activeTab: MyLearningTabKey = isTab(params.get('tab')) ? (params.get('tab') as MyLearningTabKey) : 'in-progress';
+  const setActiveTab = (tab: MyLearningTabKey) => setParams(tab === 'in-progress' ? {} : { tab }, { replace: true });
 
   const coursePathsQuery = useQuery({
     queryKey: studentLearningKeys.coursePaths(session?.user.id, sessionRevision),
@@ -86,388 +96,177 @@ export function MyLearning() {
   });
 
   const loading = authLoading || coursePathsQuery.isLoading;
-  const error = coursePathsQuery.error || quizzesQuery.error;
   const courses = coursePathsQuery.data ?? [];
   const quizzes = quizzesQuery.data ?? [];
-
   const inProgressCourses = courses.filter((cp) => !isCourseCompleted(cp));
   const completedCourses = courses.filter((cp) => isCourseCompleted(cp));
-
   const hasAnyLearning = courses.length > 0 || quizzes.length > 0;
 
   const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
     let targetIndex = -1;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      targetIndex = (index + 1) % MY_LEARNING_TABS.length;
-    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      targetIndex = (index - 1 + MY_LEARNING_TABS.length) % MY_LEARNING_TABS.length;
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      targetIndex = 0;
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      targetIndex = MY_LEARNING_TABS.length - 1;
-    }
-
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') targetIndex = (index + 1) % MY_LEARNING_TABS.length;
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') targetIndex = (index - 1 + MY_LEARNING_TABS.length) % MY_LEARNING_TABS.length;
+    else if (e.key === 'Home') targetIndex = 0;
+    else if (e.key === 'End') targetIndex = MY_LEARNING_TABS.length - 1;
     if (targetIndex >= 0) {
+      e.preventDefault();
       const nextTab = MY_LEARNING_TABS[targetIndex];
       setActiveTab(nextTab.id);
-      const tabElement = document.getElementById(`tab-${nextTab.id}`);
-      tabElement?.focus();
+      document.getElementById(`tab-${nextTab.id}`)?.focus();
     }
   };
 
   return (
-    <main className="mx-auto max-w-5xl px-5 py-8 sm:px-8">
-      <PageHeader
-        title="My Learning"
-        description="Curriculum progress and course practice across your enrolled robotics tracks."
-      />
+    <main className="mx-auto w-full max-w-[980px] px-4 py-6 md:px-8 md:py-8">
+      <PageHeader title="My learning" description="Pick up where you left off." />
 
-      {loading && <p className="mt-6 text-sm text-ink-muted">Restoring your learning…</p>}
+      {loading && (
+        <ul aria-label="Loading your courses" className="mt-6 space-y-3">{[0, 1].map((item) => <li key={item} className="rounded-lg border border-line bg-surface p-5"><div className="h-5 w-1/3 rounded bg-sunken motion-safe:animate-pulse" /><div className="mt-4 h-2 w-full rounded bg-sunken motion-safe:animate-pulse" /></li>)}</ul>
+      )}
 
-      {error && (
-        <div role="alert" className="mt-6 bg-danger-soft p-3 text-sm text-danger">
-          <p>{error instanceof Error ? error.message : 'Unable to load learning.'}</p>
-          <Button
-            className="mt-3"
-            variant="secondary"
-            onClick={() => {
-              void coursePathsQuery.refetch();
-              void quizzesQuery.refetch();
-            }}
-          >
-            Retry
-          </Button>
+      {coursePathsQuery.isError && (
+        <div role="alert" className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-md bg-danger-soft p-3 text-sm text-danger">
+          <span>{learningErrorMessage(coursePathsQuery.error, 'courses')}</span>
+          {canRetry(coursePathsQuery.error) && <Button size="sm" variant="secondary" onClick={() => void coursePathsQuery.refetch()} loading={coursePathsQuery.isFetching} icon={<RotateCwIcon className="h-4 w-4" aria-hidden />}>Try again</Button>}
         </div>
       )}
 
-      {!loading && !error && !hasAnyLearning && (
-        <div className="mt-8">
-          <EmptyState
-            title="No assigned learning"
-            description="You do not have any enrolled courses or learning activities yet."
-          />
+      {!loading && !coursePathsQuery.isError && !hasAnyLearning && !quizzesQuery.isError && (
+        <div className="mt-8 max-w-[60ch]">
+          <h2 className="text-base font-semibold text-ink">No assigned learning</h2>
+          <p className="mt-1 text-sm text-ink-muted">You aren’t enrolled in a course yet. When your teacher adds you to a class, its course appears here.</p>
+          <Link to="/courses" className="mt-3 inline-flex h-9 items-center text-sm font-semibold text-accent underline underline-offset-4">Browse courses</Link>
         </div>
       )}
 
-      {!loading && !error && hasAnyLearning && (
-        <div className="mt-8 space-y-6">
-          <div className="border-b border-line">
-            <nav
-              role="tablist"
-              aria-label="My Learning Sections"
-              className="flex space-x-8 overflow-x-auto no-scrollbar"
-            >
-              {MY_LEARNING_TABS.map((tab, index) => {
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    id={`tab-${tab.id}`}
-                    role="tab"
-                    type="button"
-                    aria-selected={isActive}
-                    aria-controls={`panel-${tab.id}`}
-                    tabIndex={isActive ? 0 : -1}
-                    onClick={() => setActiveTab(tab.id)}
-                    onKeyDown={(e) => handleTabKeyDown(e, index)}
-                    className={cn(
-                      'relative pb-3 pt-1 text-sm font-medium border-b-2 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 whitespace-nowrap',
-                      isActive
-                        ? 'border-accent text-accent-ink font-semibold'
-                        : 'border-transparent text-ink-muted hover:border-line hover:text-ink'
-                    )}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </nav>
+      {!loading && !coursePathsQuery.isError && (hasAnyLearning || quizzesQuery.isError) && (
+        <div className="mt-6">
+          {/* The baseline is an inset shadow, not a border the tabs overlap with a negative margin: with overflow-x:auto the
+              browser also scrolls vertically, so a 1px overlap drew a native scrollbar. It still scrolls sideways when the
+              tabs genuinely do not fit. */}
+          <div role="tablist" aria-label="My learning sections" className="flex gap-6 overflow-x-auto shadow-[inset_0_-1px_0_rgb(var(--line))]">
+            {MY_LEARNING_TABS.map((tab, index) => {
+              const isActive = activeTab === tab.id;
+              const count = tab.id === 'in-progress' ? inProgressCourses.length : tab.id === 'completed' ? completedCourses.length : quizzes.length;
+              return (
+                <button key={tab.id} id={`tab-${tab.id}`} role="tab" type="button" aria-selected={isActive} aria-controls={`panel-${tab.id}`} tabIndex={isActive ? 0 : -1}
+                  onClick={() => setActiveTab(tab.id)} onKeyDown={(e) => handleTabKeyDown(e, index)}
+                  className={cn('inline-flex min-h-[44px] shrink-0 items-center gap-2 whitespace-nowrap border-b-2 text-sm font-medium transition-colors duration-150',
+                    isActive ? 'border-accent font-semibold text-ink' : 'border-transparent text-ink-muted hover:text-ink')}>
+                  {tab.label}<span className="tabular-nums text-xs text-ink-subtle">{count}</span>
+                </button>
+              );
+            })}
           </div>
 
-          <div
-            role="tabpanel"
-            id={`panel-${activeTab}`}
-            aria-labelledby={`tab-${activeTab}`}
-            tabIndex={0}
-            className="focus-visible:outline-none"
-          >
-            {activeTab === 'in-progress' && (
-              <div className="space-y-6">
-                {inProgressCourses.length === 0 ? (
-                  <EmptyState
-                    title="No courses in progress"
-                    description="You do not have any curriculum courses in progress right now."
-                  />
-                ) : (
-                  <div className="grid gap-6">
-                    {inProgressCourses.map((coursePath) => {
-                      const completedLessons = coursePath.lessons.filter(
-                        (l) => l.status === 'completed'
-                      ).length;
-                      const totalLessons = coursePath.lessons.length;
-                      const currentLesson = coursePath.currentLessonId
-                        ? coursePath.lessons.find((l) => l.id === coursePath.currentLessonId)
-                        : null;
+          <div role="tabpanel" id={`panel-${activeTab}`} aria-labelledby={`tab-${activeTab}`} tabIndex={0} className="pt-5 focus-visible:outline-none">
+            {activeTab === 'in-progress' && (inProgressCourses.length === 0
+              ? <p className="text-sm text-ink-muted">Nothing in progress. {completedCourses.length ? 'You’ve finished every course you’re enrolled in.' : 'Courses you’re enrolled in appear here.'}</p>
+              : <ul className="space-y-3">{inProgressCourses.map((coursePath) => <CourseInProgress key={coursePath.course.id} coursePath={coursePath} />)}</ul>)}
 
-                      return (
-                        <article
-                          key={coursePath.course.id}
-                          className="rounded-xl border border-line bg-surface p-6 shadow-sm"
-                          aria-labelledby={`course-title-${coursePath.course.id}`}
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider text-accent-ink">
-                                <span>Course Track</span>
-                                {coursePath.course.level && (
-                                  <>
-                                    <span>·</span>
-                                    <span>Level: {coursePath.course.level}</span>
-                                  </>
-                                )}
-                                {coursePath.course.recommendedGrades && (
-                                  <>
-                                    <span>·</span>
-                                    <span>Grades: {coursePath.course.recommendedGrades}</span>
-                                  </>
-                                )}
-                              </div>
-                              <h3
-                                id={`course-title-${coursePath.course.id}`}
-                                className="mt-1 text-2xl font-bold text-ink"
-                              >
-                                {coursePath.course.title}
-                              </h3>
-                            </div>
-                            <Badge tone="accent">{coursePath.progressPercent}%</Badge>
-                          </div>
+            {activeTab === 'completed' && (completedCourses.length === 0
+              ? <p className="text-sm text-ink-muted">No completed courses yet. Courses move here when you finish every lesson.</p>
+              : <ul className="space-y-3">{completedCourses.map((coursePath) => <CourseCompleted key={coursePath.course.id} coursePath={coursePath} />)}</ul>)}
 
-                          <div className="mt-5 space-y-2">
-                            <div className="flex items-center justify-between text-sm text-ink-muted">
-                              <span>
-                                {completedLessons} / {totalLessons} lessons completed
-                              </span>
-                              <span className="font-semibold text-ink">
-                                {coursePath.progressPercent}%
-                              </span>
-                            </div>
-                            <ProgressBar
-                              value={coursePath.progressPercent}
-                              label={`${coursePath.course.title} progress`}
-                            />
-                          </div>
-
-                          <div className="mt-5 rounded-lg bg-sunken p-4">
-                            <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-                              Current Lesson
-                            </span>
-                            {currentLesson ? (
-                              <p className="mt-1 text-base font-semibold text-ink">
-                                {currentLesson.title}
-                              </p>
-                            ) : (
-                              <p className="mt-1 text-sm text-ink-muted">
-                                All available lessons completed.
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="mt-6 flex flex-wrap items-center gap-3">
-                            {coursePath.currentLessonId ? (
-                              <Button
-                                variant="primary"
-                                onClick={() =>
-                                  navigate(
-                                    `/courses/${coursePath.course.id}/lessons/${coursePath.currentLessonId}`
-                                  )
-                                }
-                              >
-                                Continue Learning
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="secondary"
-                                onClick={() => navigate(`/courses/${coursePath.course.id}`)}
-                              >
-                                Review Course
-                              </Button>
-                            )}
-                            <Button
-                              variant="secondary"
-                              onClick={() => navigate(`/courses/${coursePath.course.id}`)}
-                            >
-                              View Course Path
-                            </Button>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
+            {activeTab === 'quizzes' && (quizzesQuery.isError ? (
+              <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-danger-soft p-3 text-sm text-danger">
+                <span>{learningErrorMessage(quizzesQuery.error, 'quizzes')}</span>
+                {canRetry(quizzesQuery.error) && <Button size="sm" variant="secondary" onClick={() => void quizzesQuery.refetch()} loading={quizzesQuery.isFetching} icon={<RotateCwIcon className="h-4 w-4" aria-hidden />}>Try again</Button>}
               </div>
-            )}
-
-            {activeTab === 'completed' && (
-              <div className="space-y-6">
-                {completedCourses.length === 0 ? (
-                  <EmptyState
-                    title="No completed courses"
-                    description="You have not completed any curriculum courses yet."
-                  />
-                ) : (
-                  <div className="grid gap-6">
-                    {completedCourses.map((coursePath) => {
-                      const totalLessons = coursePath.lessons.length;
-                      const completedDates = coursePath.lessons
-                        .map((l) => l.completedAt)
-                        .filter((d): d is string => Boolean(d));
-                      const latestCompletedAt =
-                        completedDates.length > 0
-                          ? [...completedDates].sort(
-                              (a, b) => new Date(b).getTime() - new Date(a).getTime()
-                            )[0]
-                          : null;
-
-                      return (
-                        <article
-                          key={coursePath.course.id}
-                          className="rounded-xl border border-line bg-surface p-6 shadow-sm"
-                          aria-labelledby={`completed-course-title-${coursePath.course.id}`}
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div>
-                              <span className="text-xs font-semibold uppercase tracking-wider text-ok">
-                                Completed Track
-                              </span>
-                              <h3
-                                id={`completed-course-title-${coursePath.course.id}`}
-                                className="mt-1 text-2xl font-bold text-ink"
-                              >
-                                {coursePath.course.title}
-                              </h3>
-                            </div>
-                            <Badge tone="ok">✓ Completed</Badge>
-                          </div>
-
-                          <div className="mt-5 space-y-2">
-                            <div className="flex items-center justify-between text-sm text-ink-muted">
-                              <span>
-                                {totalLessons} / {totalLessons} lessons completed
-                              </span>
-                              <span className="font-semibold text-ok">100%</span>
-                            </div>
-                            <ProgressBar
-                              value={100}
-                              label={`${coursePath.course.title} completed`}
-                            />
-                          </div>
-
-                          {latestCompletedAt && (
-                            <div className="mt-5 rounded-lg bg-sunken p-4">
-                              <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-                                Completion Date
-                              </span>
-                              <p className="mt-1 text-sm font-semibold text-ink">
-                                Completed on {new Date(latestCompletedAt).toLocaleDateString()}
-                              </p>
-                            </div>
-                          )}
-
-                          <div className="mt-6 flex flex-wrap items-center gap-3">
-                            <Button
-                              variant="secondary"
-                              onClick={() => navigate(`/courses/${coursePath.course.id}`)}
-                            >
-                              View Course Path
-                            </Button>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'quizzes' && (
-              <div className="space-y-6">
-                {quizzes.length === 0 ? (
-                  <EmptyState
-                    title="No practice quizzes"
-                    description="No practice quizzes or knowledge checks are available in your enrolled courses."
-                  />
-                ) : (
-                  <div className="grid gap-6">
-                    {quizzes.map((quiz) => {
-                      const badge = getQuizStatusBadge(quiz.status);
-                      const cta = getQuizCta(quiz.status);
-
-                      return (
-                        <article
-                          key={quiz.assignment_id || `${quiz.course_id}-${quiz.lesson_id}`}
-                          className="rounded-xl border border-line bg-surface p-6 shadow-sm"
-                          aria-labelledby={`quiz-title-${quiz.lesson_id}`}
-                        >
-                          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                            <div>
-                              <p className="text-sm text-ink-muted">
-                                {quiz.course_title} · {quiz.lesson_title}
-                              </p>
-                              <h3
-                                id={`quiz-title-${quiz.lesson_id}`}
-                                className="mt-1 text-xl font-bold text-ink"
-                              >
-                                {quiz.quiz_title}
-                              </h3>
-                            </div>
-                            <Badge tone={badge.tone}>{badge.label}</Badge>
-                          </div>
-
-                          {quiz.score !== null && quiz.score !== undefined && (
-                            <div className="mt-4 flex items-center gap-2 text-sm border-t border-line pt-3">
-                              <span className="text-ink-muted">Score:</span>
-                              <span
-                                className={cn(
-                                  'font-bold',
-                                  quiz.status === 'passed' ? 'text-ok' : 'text-danger'
-                                )}
-                              >
-                                {quiz.score}%
-                              </span>
-                              {quiz.pass_percent && (
-                                <span className="text-xs text-ink-subtle">
-                                  (Passing: {quiz.pass_percent}%)
-                                </span>
-                              )}
-                            </div>
-                          )}
-
-                          <div className="mt-5 flex flex-wrap items-center gap-3">
-                            <Button
-                              variant={cta.variant}
-                              onClick={() =>
-                                navigate(
-                                  `/courses/${quiz.course_id}/lessons/${quiz.lesson_id}/activities/${quiz.lesson_id}-knowledge-check`
-                                )
-                              }
-                            >
-                              {cta.label}
-                            </Button>
-                          </div>
-                        </article>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+            ) : quizzes.length === 0
+              ? <p className="text-sm text-ink-muted">No quizzes in your courses yet.</p>
+              : <ul className="divide-y divide-line rounded-lg border border-line bg-surface">{quizzes.map((quiz) => <QuizRow key={quiz.assignment_id || `${quiz.course_id}-${quiz.lesson_id}`} quiz={quiz} />)}</ul>)}
           </div>
         </div>
       )}
     </main>
+  );
+}
+
+function CourseMeta({ coursePath }: { coursePath: CoursePathResponse }) {
+  const { level, recommendedGrades } = coursePath.course;
+  if (!level && !recommendedGrades) return null;
+  return <p className="mt-1 flex flex-wrap gap-x-4 text-[13px] text-ink-muted">{level && <span>Level: {level}</span>}{recommendedGrades && <span>Grades: {recommendedGrades}</span>}</p>;
+}
+
+function CourseInProgress({ coursePath }: { coursePath: CoursePathResponse }) {
+  const { course } = coursePath;
+  const completed = coursePath.lessons.filter((l) => l.status === 'completed').length;
+  const total = coursePath.lessons.length;
+  const current = coursePath.currentLessonId ? coursePath.lessons.find((l) => l.id === coursePath.currentLessonId) : null;
+  return (
+    <li aria-labelledby={`course-title-${course.id}`} className="rounded-lg border border-line bg-surface p-5">
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+        <div className="min-w-0 flex-1 basis-64">
+          <h2 id={`course-title-${course.id}`} className="break-words text-lg font-semibold text-ink">
+            <Link to={`/courses/${course.id}`} className="hover:text-accent hover:underline hover:underline-offset-4">{course.title}</Link>
+          </h2>
+          <CourseMeta coursePath={coursePath} />
+          <div className="mt-4 max-w-md">
+            <div className="flex items-baseline justify-between gap-3 text-[13px] tabular-nums text-ink-muted">
+              <span>{completed} / {total} lessons completed</span>
+              <span className="font-semibold text-ink">{coursePath.progressPercent}%</span>
+            </div>
+            <div className="mt-1.5"><ProgressBar value={coursePath.progressPercent} label={`${course.title} progress`} /></div>
+          </div>
+        </div>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+          {current ? (
+            <>
+              <LinkButton to={`/courses/${course.id}/lessons/${current.id}`} variant="primary" icon={<ArrowRightIcon className="h-4 w-4" aria-hidden />} aria-label={`Continue Learning: ${current.title}`}>Continue Learning</LinkButton>
+              <p className="max-w-[16rem] break-words text-[13px] text-ink-muted sm:text-right">Next: <span className="font-medium text-ink">{current.title}</span></p>
+              <Link to={`/courses/${course.id}`} className="inline-flex min-h-[32px] items-center text-[13px] font-medium text-accent underline underline-offset-4">View Course Path</Link>
+            </>
+          ) : (
+            <>
+              <LinkButton to={`/courses/${course.id}`} variant="secondary">View Course Path</LinkButton>
+              <p className="max-w-[16rem] text-[13px] text-ink-muted sm:text-right">All available lessons completed.</p>
+            </>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+function CourseCompleted({ coursePath }: { coursePath: CoursePathResponse }) {
+  const { course } = coursePath;
+  const total = coursePath.lessons.length;
+  const latest = coursePath.lessons.map((l) => l.completedAt).filter((d): d is string => Boolean(d)).sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+  return (
+    <li aria-labelledby={`completed-course-title-${course.id}`} className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-line bg-surface p-5">
+      <div className="min-w-0 flex-1 basis-64">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 id={`completed-course-title-${course.id}`} className="break-words text-lg font-semibold text-ink">{course.title}</h2>
+          <Badge tone="ok"><CheckIcon className="h-3.5 w-3.5" aria-hidden />Completed</Badge>
+        </div>
+        <p className="mt-1 flex flex-wrap gap-x-4 text-[13px] tabular-nums text-ink-muted">
+          <span>{total} / {total} lessons completed</span>
+          <span className="sr-only">100%</span>
+          {latest && <span>Finished {new Date(latest).toLocaleDateString(undefined, { dateStyle: 'medium' })}</span>}
+        </p>
+      </div>
+      <LinkButton to={`/courses/${course.id}`} variant="secondary">View Course Path</LinkButton>
+    </li>
+  );
+}
+
+function QuizRow({ quiz }: { quiz: ApiStudentQuiz }) {
+  const badge = getQuizStatusBadge(quiz.status);
+  const cta = getQuizCta(quiz.status);
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-4 p-4">
+      <div className="min-w-0 flex-1 basis-64">
+        <h2 className="break-words text-[15px] font-semibold text-ink">{quiz.quiz_title}</h2>
+        <p className="mt-0.5 flex flex-wrap gap-x-3 text-[13px] text-ink-muted"><span>{quiz.course_title}</span><span aria-hidden>›</span><span>{quiz.lesson_title}</span></p>
+        {quiz.score !== null && quiz.score !== undefined && (
+          <p className="mt-1 text-[13px] tabular-nums text-ink-muted">Score <span className={cn('font-semibold', quiz.status === 'passed' ? 'text-ok' : 'text-danger')}>{quiz.score}%</span>{quiz.pass_percent ? <span className="ml-3">Pass mark {quiz.pass_percent}%</span> : null}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-3">
+        <Badge tone={badge.tone}>{badge.label}</Badge>
+        <LinkButton to={quizHref(quiz)} variant={cta.variant}>{cta.label}</LinkButton>
+      </div>
+    </li>
   );
 }

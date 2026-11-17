@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { BookOpenIcon, CheckIcon, ChevronDownIcon, MenuIcon, LockIcon } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { BookOpenIcon, CheckIcon, ChevronDownIcon, MenuIcon, LockIcon, XIcon } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { progressionApi, type CoursePathLesson, type LessonDetailResponse } from '../../lib/api';
@@ -53,6 +53,20 @@ export function CourseLearningShell({
   }, [courseId, lessonId]);
 
   useEffect(() => setMobileOpen(false), [location.pathname]);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (mobileOpen) {
+      wasOpen.current = true;
+      closeRef.current?.focus();
+      const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setMobileOpen(false); };
+      document.addEventListener('keydown', onKey);
+      return () => document.removeEventListener('keydown', onKey);
+    }
+    if (wasOpen.current) { wasOpen.current = false; triggerRef.current?.focus(); }
+    return undefined;
+  }, [mobileOpen]);
 
   const pathQuery = useQuery({
     queryKey: ['course-learning-shell', courseId, session?.user.id],
@@ -111,12 +125,13 @@ export function CourseLearningShell({
     >
       <button
         type="button"
-        className="inline-flex items-center gap-2 self-start rounded-lg border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink shadow-hairline transition-colors duration-150 ease-out hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
+        ref={triggerRef}
+        className="inline-flex min-h-[44px] items-center gap-2 self-start rounded-lg border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink shadow-hairline transition-colors duration-150 ease-out hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
         aria-expanded={mobileOpen}
         aria-controls="course-material-nav"
         onClick={() => setMobileOpen((open) => !open)}
       >
-        <MenuIcon className="h-4 w-4" /> Course Material
+        <MenuIcon className="h-4 w-4" aria-hidden /> Lessons
       </button>
 
       {focusedRoute && (
@@ -144,11 +159,13 @@ export function CourseLearningShell({
       <aside
         id="course-material-nav"
         aria-label="Course Material"
+        role={mobileOpen ? 'dialog' : undefined}
+        aria-modal={mobileOpen ? true : undefined}
         className={`${mobileOpen ? 'block' : 'hidden'} fixed inset-y-0 left-0 z-40 w-[min(90vw,22rem)] shrink-0 overflow-y-auto bg-surface transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none lg:static lg:z-auto lg:block lg:w-auto lg:overflow-visible ${
           focusedRoute
             ? focusedNavigatorCollapsed
               ? 'lg:w-0 lg:overflow-hidden lg:opacity-0'
-              : 'lg:w-80 lg:opacity-100'
+              : 'lg:w-72 lg:opacity-100'
             : 'lg:w-72'
         }`}
       >
@@ -165,7 +182,7 @@ export function CourseLearningShell({
             <BookOpenIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent-ink" />
             <span>{lesson.course_title}</span>
           </Link>
-          <button type="button" aria-label="Close course material" onClick={() => setMobileOpen(false)} className="rounded-lg px-2 py-1 text-xl text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden">×</button>
+          <button ref={closeRef} type="button" aria-label="Close course material" onClick={() => setMobileOpen(false)} className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-ink-muted hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"><XIcon className="h-5 w-5" aria-hidden /></button>
           </div>
           {pathOverride?.lessons || pathQuery.data?.lessons ? (
             <p className="px-2 pt-1 text-xs text-ink-muted">{completedLessonCount} of {lessons.length} lessons completed</p>
@@ -184,14 +201,14 @@ export function CourseLearningShell({
           )}
 
           <div className="flex items-center justify-between gap-2 px-2 pb-2 pt-5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-subtle">
-              Course Material
+            <p className="text-sm font-semibold text-ink">
+              Lessons
             </p>
-            <div className="flex items-center gap-1 text-[11px] font-semibold text-accent-ink">
+            <div className="flex items-center gap-1 text-xs font-medium text-accent">
               <button
                 type="button"
                 onClick={expandAll}
-                className="rounded px-1.5 py-1 transition-colors duration-150 ease-out hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex min-h-9 items-center rounded px-2 transition-colors duration-150 ease-out hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 aria-label="Expand all lessons"
               >
                 Expand all
@@ -202,7 +219,7 @@ export function CourseLearningShell({
               <button
                 type="button"
                 onClick={collapseAll}
-                className="rounded px-1.5 py-1 transition-colors duration-150 ease-out hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex min-h-9 items-center rounded px-2 transition-colors duration-150 ease-out hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 aria-label="Collapse all lessons"
               >
                 Collapse all
@@ -293,14 +310,14 @@ function LessonModuleNavItem({
         {lesson.status === 'completed' ? <CheckIcon aria-hidden="true" className="h-3 w-3" strokeWidth={3} /> : null}
         {locked ? <LockIcon aria-hidden="true" className="h-2.5 w-2.5" strokeWidth={2.5} /> : null}
       </span>
-      <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug">{lesson.title}</span>
+      <span className="min-w-0 flex-1 whitespace-normal break-words leading-snug"><span className="mr-1 tabular-nums text-ink-subtle">{lesson.ordinal}.</span>{lesson.title}</span>
     </>
   );
 
   const panelId = `course-module-${lesson.id}`;
 
   return (
-    <section className={`overflow-hidden rounded-lg transition-colors duration-150 ease-out ${active ? 'bg-accent-soft/40' : ''}`}>
+    <section className="overflow-hidden rounded-lg">
       <div className="flex items-center gap-1 px-1 py-1">
         {locked ? (
           <div
@@ -315,7 +332,7 @@ function LessonModuleNavItem({
             aria-current={active && !activityId ? 'page' : undefined}
             to={`/courses/${courseId}/lessons/${lesson.id}`}
             className={`group flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-              active ? 'font-semibold text-accent-ink' : 'text-ink hover:bg-sunken hover:text-accent-ink'
+              active ? 'bg-sunken font-semibold text-ink' : 'text-ink hover:bg-sunken hover:text-accent'
             }`}
           >
             {content}
@@ -359,7 +376,7 @@ function LessonModuleNavItem({
               <div className="space-y-5 pt-1">
                 {sections.map((section) => (
                   <div key={section.title} className="space-y-2">
-                    <p className="px-2 pt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-ink-subtle">
+                    <p className="px-2 pt-1 text-xs font-medium text-ink-muted">
                       {section.title}
                     </p>
                     <div className="space-y-1 pl-1">
