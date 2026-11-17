@@ -870,8 +870,12 @@ function StudentActivityContent({ activityId, content, token }: { activityId: st
   const mediaIds = [...ids];
   const queries = useQueries({ queries: mediaIds.map((mediaId) => ({ queryKey: ['activity-media-url', activityId, mediaId], queryFn: () => learningMediaApi.activityUrl(activityId, mediaId, token), enabled: Boolean(activityId && mediaId && token), staleTime: 30_000 })) });
   const mediaUrls = Object.fromEntries(mediaIds.flatMap((id, index) => queries[index]?.data?.url ? [[id, { url: queries[index].data!.url, filename: queries[index].data!.filename }]] : []));
-  if (queries.some((query) => query.isError)) return <p className="text-sm text-danger" role="alert">Learning media could not be loaded for this activity.</p>;
-  return <ActivityContentPreview content={content} mediaUrls={mediaUrls} />;
+  const failed = queries.filter((query) => query.isError).length;
+  // A missing or unavailable file must never hide the lesson text: show the content with what could be loaded, and say what is missing.
+  return <>
+    {failed > 0 && <p className="mb-4 rounded-md border border-danger/30 bg-danger-soft p-3 text-sm text-danger" role="alert">{failed === 1 ? '1 attached file is' : `${failed} attached files are`} unavailable right now. The rest of this lesson is shown below; try again later or ask your instructor.</p>}
+    <ActivityContentPreview content={content} mediaUrls={mediaUrls} />
+  </>;
 }
 
 export function ActivityReader() {

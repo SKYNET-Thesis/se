@@ -135,6 +135,16 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   await expect(dialog.getByRole('status').filter({ hasText: '4 rows · 0 valid · 1 with errors · 3 duplicates (skipped)' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 
+  // XLSX path in the browser: the downloaded XLSX template is itself a valid import file
+  await workspace.getByRole('button', { name: 'Import questions' }).click();
+  const xlsxDownload = page.waitForEvent('download');
+  await dialog.getByRole('button', { name: 'XLSX', exact: true }).click();
+  const xlsxTemplate = await xlsxDownload;
+  expect(xlsxTemplate.suggestedFilename()).toBe('question-bank-template.xlsx');
+  await dialog.getByLabel('Question file').setInputFiles({ name: xlsxTemplate.suggestedFilename(), mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: await readFile((await xlsxTemplate.path())!) });
+  await expect(dialog.getByRole('status').filter({ hasText: '2 rows · 2 valid · 0 with errors · 0 duplicates (skipped)' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+
   const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && r.url().includes('/author/activities/'));
   await workspace.getByRole('button', { name: 'Save Quiz Activity' }).click();
   expect((await saved).ok()).toBeTruthy();

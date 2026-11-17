@@ -162,5 +162,11 @@ test('Lesson text and attached media authored in the UI are what the enrolled st
   expect((await api(page, otherStudent, 'GET', `/activities/${activityId}/media/${pdfId}/url`)).status).toBe(404);
   expect((await api(page, studentToken, 'GET', `/activities/${activityId}/media/${crypto.randomUUID()}/url`)).status).toBe(404);
   expect((await api(page, studentToken, 'GET', `/admin/courses/${courseId}/media`)).status).toBe(404);
+
+  // an unavailable attachment is reported accurately and never hides the lesson text (media URL requests fail in the browser)
+  await page.route(/\/activities\/[^/]+\/media\/[^/]+\/url/, (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{"message":"Learning media was not found."}' }));
+  await page.goto(`/courses/${courseId}/lessons/${lessonId}/activities/${activityId}`);
+  await expect(page.getByText(text)).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: /attached files? (is|are) unavailable/ })).toBeVisible();
   expect(errors).toEqual([]);
 });
