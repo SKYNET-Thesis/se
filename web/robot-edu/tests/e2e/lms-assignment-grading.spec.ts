@@ -100,6 +100,10 @@ test('Journey: instructor builds an assignment with rubric and schedule; student
   if (await confirm.isVisible().catch(() => false)) await confirm.getByRole('button', { name: /Release/ }).click();
   await expect(page.getByText(/^Released /)).toBeVisible();
   expect(await (await page.request.get(`${apiBase}/me/attempts/${attempt.id}/grading`, { headers: student })).json()).toMatchObject({ released: true, assessment: { overallFeedback: 'First grade.' } });
+  // the review screen itself shows the grade as locked: inputs and the save button are disabled until grading is reopened
+  await expect(page.getByRole('status').filter({ hasText: 'released to the student and is locked' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save assessment' })).toBeDisabled();
+  await expect(page.getByPlaceholder('Overall assessment feedback')).toBeDisabled();
   const silent = await page.request.post(`${apiBase}/submissions/${submission.id}/assessment`, { headers: teacher, data: { scores: [{ criterionId: rubric.criteria[0].id, awardedPoints: 1 }] } });
   expect(silent.status()).toBe(409);
   expect((await silent.json() as { code?: string }).code).toBe('GRADE_RELEASED');

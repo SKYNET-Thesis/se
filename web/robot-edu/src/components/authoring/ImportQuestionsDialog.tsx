@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { Dialog } from '../ui/Dialog';
 import { quizAuthoringApi, type QuestionImportPreview, type QuestionImportResult } from '../../lib/api';
@@ -38,9 +39,9 @@ export function ImportQuestionsDialog({ open, onClose, lessonId, token, onImport
       {previewMutation.isPending && <p className="text-sm">Checking file…</p>}
       {error && <p role="alert" className="text-sm text-danger">{error instanceof Error ? error.message : 'Import failed.'}</p>}
       {preview && !result && <>
-        <p className="text-sm" role="status">{preview.total} rows · {preview.valid} valid · {preview.invalid} with errors · {preview.duplicates} duplicates (skipped)</p>
+        <p className="text-sm" role="status">{preview.total} rows · {preview.valid} valid · {preview.invalid} with errors · {preview.duplicates} {preview.duplicates === 1 ? 'duplicate' : 'duplicates'} (skipped)</p>
         <div className="max-h-56 overflow-auto rounded-md border border-line"><table className="w-full text-left text-xs"><thead><tr><th className="p-2">Row</th><th className="p-2">Status</th><th className="p-2">Question</th><th className="p-2">Details</th></tr></thead><tbody>
-          {preview.items.map((i) => <tr key={i.rowNumber} className="border-t border-line"><td className="p-2">{i.rowNumber}</td><td className="p-2">{i.status}</td><td className="p-2">{i.stem ?? ''}</td><td className="p-2">{i.errors.join(' ') || (i.duplicateOf ? (i.duplicateOf.row ? `Same as row ${i.duplicateOf.row}` : `Already in Question Bank (${i.duplicateOf.existingCode})`) : '')}</td></tr>)}
+          {preview.items.map((i) => <tr key={i.rowNumber} className="border-t border-line"><td className="p-2">{i.rowNumber}</td><td className="p-2"><Badge tone={i.status === 'valid' ? 'ok' : i.status === 'duplicate' ? 'warn' : 'danger'}>{i.status}</Badge></td><td className="p-2">{i.stem ?? ''}</td><td className="p-2">{i.errors.join(' ') || (i.duplicateOf ? (i.duplicateOf.row ? `Same as row ${i.duplicateOf.row}` : `Already in Question Bank (${i.duplicateOf.existingCode})`) : '')}</td></tr>)}
         </tbody></table></div>
         <label className="block text-sm font-medium">Learning Outcome for imported questions
           <select className={field} value={objectiveId} onChange={(e) => setObjectiveId(e.target.value)}><option value="">New outcome…</option>{objectives.data?.map((o) => <option key={o.id} value={o.id}>{o.code}: {o.description}</option>)}</select></label>

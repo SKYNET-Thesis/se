@@ -34,7 +34,8 @@ describe('ImportQuestionsDialog', () => {
     const onImported = await mount();
     const file = await pick();
     expect(api.importPreview).toHaveBeenCalledWith('l1', 't', file);
-    expect(document.body.textContent).toContain('1 valid · 1 with errors · 1 duplicates');
+    expect(document.body.textContent).toContain('1 valid · 1 with errors · 1 duplicate');
+    expect([...document.querySelectorAll('tbody td span')].map((el) => el.textContent)).toEqual(expect.arrayContaining(['valid', 'invalid', 'duplicate']));
     expect(document.body.textContent).toContain('correct is required.');
     expect(document.body.textContent).toContain('Already in Question Bank (Q-1)');
     expect(button('Import 1 valid')!.disabled).toBe(true);

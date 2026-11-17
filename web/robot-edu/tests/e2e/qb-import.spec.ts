@@ -60,6 +60,20 @@ async function authorReadingCourse(page: Page, title: string) {
 
 test.describe.configure({ mode: 'serial' });
 
+
+/** Optional visual-audit capture (Phase 1F): only when VISTA_VISUAL_AUDIT_DIR is set; captures desktop and mobile widths. */
+async function shot(page: Page, name: string) {
+  const dir = process.env.VISTA_VISUAL_AUDIT_DIR;
+  if (!dir) return;
+  const original = page.viewportSize();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 1700 });
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: `${dir}/${name}-${width}.png` });
+  }
+  if (original) await page.setViewportSize(original);
+}
+
 test('Question Bank import: template, preview with row errors and duplicates, import, quiz with imported points, student weighted result', async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
@@ -100,10 +114,11 @@ test('Question Bank import: template, preview with row errors and duplicates, im
     ',single_choice,easy,remember,Broken row,Yes,No,,,,,Z,1,bad answer key,',
   ].join('\r\n') + '\r\n';
   await dialog.getByLabel('Question file').setInputFiles({ name: 'questions.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
-  await expect(dialog.getByRole('status').filter({ hasText: '4 rows · 2 valid · 1 with errors · 1 duplicates (skipped)' })).toBeVisible();
+  await expect(dialog.getByRole('status').filter({ hasText: '4 rows · 2 valid · 1 with errors · 1 duplicate (skipped)' })).toBeVisible();
   await expect(dialog.getByRole('row', { name: /3\s+valid.*Which part is a robot sensor/ })).toBeVisible();
   await expect(dialog.getByRole('row', { name: /4\s+duplicate.*Same as row 2/ })).toBeVisible();
   await expect(dialog.getByRole('row', { name: /5\s+invalid.*does not exist/ })).toBeVisible();
+  await shot(page, 'qb-import-preview');
   // nothing is written by a preview
   const lessonId = (await api(page, instructorToken, 'GET', `/courses/${courseId}/lessons`)).body[0].id as string;
   expect((await api(page, instructorToken, 'GET', `/author/question-bank/quiz-authoring/lessons/${lessonId}/questions`)).body.total).toBe(0);
@@ -127,6 +142,7 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   await expect(heavy.getByRole('button', { name: 'Added' })).toBeVisible();
   await light.getByRole('button', { name: 'Add', exact: true }).click();
   await expect(light.getByRole('button', { name: 'Added' })).toBeVisible();
+  await shot(page, 'qb-quiz-builder');
   const quiz = await api(page, instructorToken, 'GET', `/author/question-bank/quiz-authoring/lessons/${lessonId}/assignment`);
   expect(quiz.body.questions.map((q: { stem: string; points: number }) => [q.stem, Number(q.points)]).sort()).toEqual([['Which control stops the robot instantly?', 3], ['Which part is a robot sensor?', 1]]);
   // re-importing the same file now reports the existing questions as duplicates (nothing new to import)
@@ -200,12 +216,14 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   // 11. student: heavy (3 pt) wrong, light (1 pt) right => 1 of 4 = 25%, not passed; then both right => 100%
   const studentToken = await signIn(page, fixture.users.student.authUserId);
   await page.goto(`/my-learning/${delivery.id}`);
+  await shot(page, 'student-quiz-assignment');
   await page.getByRole('button', { name: /^(Start|Continue) attempt$/ }).click();
   await expect(page).toHaveURL(/\/practice\//);
   const attemptId = page.url().match(/practice\/([0-9a-f-]{36})/)![1];
   expect(JSON.stringify((await api(page, studentToken, 'GET', `/me/attempts/${attemptId}`)).body)).not.toMatch(/answerKey|answer_key/);
   await expect(page.getByTestId('quiz-total-points')).toHaveText('Total: 4 points · Pass at 70%');
   await expect(page.getByTestId('question-points')).toHaveText(['· 3 points', '· 1 point']);
+  await shot(page, 'student-quiz-taking');
   await page.getByText('Slow down', { exact: true }).click();
   await page.getByText('Camera', { exact: true }).click();
   await page.getByRole('button', { name: 'Submit quiz' }).click();
@@ -213,6 +231,7 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   await expect(page.getByRole('heading', { name: 'Not passed yet' })).toBeVisible();
   await expect(page.getByText(/Score: 25% · Required: 70%/)).toBeVisible();
   await expect(page.getByTestId('quiz-earned-points')).toHaveText('1 of 4 points earned');
+  await shot(page, 'student-quiz-not-passed');
   await page.goto(`/my-learning/${delivery.id}`);
   await page.getByRole('button', { name: 'Start a new attempt' }).click();
   await page.getByText('Emergency stop', { exact: true }).click();
@@ -221,6 +240,7 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   await page.getByRole('dialog', { name: 'Submit this quiz?' }).getByRole('button', { name: 'Submit quiz' }).click();
   await expect(page.getByRole('heading', { name: 'Passed' })).toBeVisible();
   await expect(page.getByTestId('quiz-earned-points')).toHaveText('4 of 4 points earned');
+  await shot(page, 'student-quiz-passed');
   const scores = ((await api(page, studentToken, 'GET', '/me/attempts')).body as Array<{ classroom_assignment_id?: string; score: number | null }>).filter((a) => a.classroom_assignment_id === delivery.id).map((a) => Number(a.score)).sort((x, y) => x - y);
   expect(scores).toEqual([25, 100]);
 

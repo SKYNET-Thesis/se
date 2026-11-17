@@ -20,6 +20,10 @@ const screens: Array<[string, string, (f: Fixture) => string]> = [
   ['student', 'student-course', (f) => `/courses/${f.courseId}`],
   ['student', 'student-lesson', (f) => `/courses/${f.courseId}/lessons/${f.lessonId}`],
   ['student', 'student-activity', (f) => `/courses/${f.courseId}/lessons/${f.lessonId}/activities/${f.readingActivityId}`],
+  ['student', 'student-quiz', (f) => `/courses/${f.courseId}/lessons/${f.lessonId}/activities/${(f as unknown as { quizActivityId: string }).quizActivityId}`],
+  ['instructor', 'teacher-assignment-edit', (f) => `/teacher/assignments/${f.classroomId}/2091a24b-938b-4819-b562-9d8b767fb3a9/edit`],
+  ['instructor', 'teacher-submission-review', (f) => `/teacher/classes/${f.classroomId}/submissions/ff575d88-58f0-44a4-b667-d4eda1630901`],
+  ['student', 'student-quiz-delivery', () => '/my-learning/8b45e60b-a4e1-45a7-956c-dd1361e8835f'],
   ['student', 'student-assignment', (f) => `/my-learning/${f.programDeliveryId}`],
   ['instructor', 'teacher-overview', () => '/teacher'],
   ['instructor', 'teacher-classes', () => '/teacher/classes'],
@@ -63,4 +67,29 @@ test('capture LMS screens at 1440/1024/768/390', async ({ page }) => {
     }
   }
   await writeFile(`${outDir}/overflow.json`, JSON.stringify(report, null, 2));
+});
+
+test('capture course builder tabs and editors (interactive states)', async ({ page }) => {
+  test.setTimeout(300_000);
+  await mkdir(outDir, { recursive: true });
+  await signIn(page, 'instructor');
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 2000 });
+    const open = async () => { await page.goto('/admin/courses/7d208138-f365-4509-932b-9d12c89e4dcb'); await page.getByRole('tab', { name: /Curriculum/ }).click().catch(() => undefined); await page.waitForTimeout(800); };
+    await open();
+    await page.getByText('Gate quiz').first().click().catch(() => undefined); await page.waitForTimeout(1000);
+    await page.screenshot({ path: `${outDir}/builder-quiz-editor-${width}.png` });
+    await open();
+    await page.getByRole('button', { name: /Module 2: Second module/ }).first().click().catch(() => undefined); await page.waitForTimeout(800);
+    await page.screenshot({ path: `${outDir}/builder-module-editor-${width}.png` });
+    await open();
+    await page.getByRole('tab', { name: /Structure & Publishing/ }).click().catch(() => undefined); await page.waitForTimeout(800);
+    await page.screenshot({ path: `${outDir}/builder-publishing-${width}.png` });
+    await open();
+    await page.getByRole('tab', { name: /Media Library/ }).click().catch(() => undefined); await page.waitForTimeout(800);
+    await page.screenshot({ path: `${outDir}/builder-media-library-${width}.png` });
+    await open();
+    await page.getByRole('tab', { name: /Course Details/ }).click().catch(() => undefined); await page.waitForTimeout(800);
+    await page.screenshot({ path: `${outDir}/builder-details-${width}.png` });
+  }
 });
