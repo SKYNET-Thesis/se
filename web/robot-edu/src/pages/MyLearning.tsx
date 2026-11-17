@@ -237,12 +237,12 @@ export function MyLearning() {
                                   </>
                                 )}
                               </div>
-                              <h3
+                              <h2
                                 id={`course-title-${coursePath.course.id}`}
                                 className="mt-1 text-2xl font-bold text-ink"
                               >
                                 {coursePath.course.title}
-                              </h3>
+                              </h2>
                             </div>
                             <Badge tone="accent">{coursePath.progressPercent}%</Badge>
                           </div>
@@ -344,12 +344,12 @@ export function MyLearning() {
                               <span className="text-xs font-semibold uppercase tracking-wider text-ok">
                                 Completed Track
                               </span>
-                              <h3
+                              <h2
                                 id={`completed-course-title-${coursePath.course.id}`}
                                 className="mt-1 text-2xl font-bold text-ink"
                               >
                                 {coursePath.course.title}
-                              </h3>
+                              </h2>
                             </div>
                             <Badge tone="ok">✓ Completed</Badge>
                           </div>
@@ -418,12 +418,12 @@ export function MyLearning() {
                               <p className="text-sm text-ink-muted">
                                 {quiz.course_title} · {quiz.lesson_title}
                               </p>
-                              <h3
+                              <h2
                                 id={`quiz-title-${quiz.lesson_id}`}
                                 className="mt-1 text-xl font-bold text-ink"
                               >
                                 {quiz.quiz_title}
-                              </h3>
+                              </h2>
                             </div>
                             <Badge tone={badge.tone}>{badge.label}</Badge>
                           </div>

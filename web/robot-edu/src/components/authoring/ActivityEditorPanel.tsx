@@ -73,7 +73,7 @@ export function ActivityEditorPanel({ activity, draft, onChange, onEdit, onSave,
 export function ActivityContentPreview({ content, mediaUrls = {} }: { content: Record<string, unknown>; mediaUrls?: Record<string, { url: string; filename: string }> }) {
   const blocks = Array.isArray(content.blocks) ? content.blocks as ReadingBlock[] : [];
   return <div className="mt-4 space-y-3 text-sm leading-6 text-ink">{typeof content.videoMediaId === 'string' && content.videoMediaId && mediaUrls[content.videoMediaId] && <video controls playsInline preload="metadata" className="max-h-96 w-full rounded-md bg-black" src={mediaUrls[content.videoMediaId].url} aria-label="Video preview" />}{blocks.map((block, index) => {
-    if (block.type === 'heading') return <h5 key={index} className="text-base font-semibold">{block.text}</h5>;
+    if (block.type === 'heading') return <h2 key={index} className="text-base font-semibold">{block.text}</h2>;
     if (block.type === 'paragraph') return <p key={index}>{block.text}</p>;
     if (block.type === 'link') return /^https:\/\//i.test(block.url) ? <a key={index} className="text-accent-ink underline" href={block.url} rel="noreferrer">{block.text}</a> : null;
     if (block.type === 'image') return mediaUrls[block.mediaId] ? <InlineLessonImage key={index} src={mediaUrls[block.mediaId].url} alt={block.alt} /> : <p key={index} className="text-xs text-ink-muted">Image unavailable in this preview.</p>;
