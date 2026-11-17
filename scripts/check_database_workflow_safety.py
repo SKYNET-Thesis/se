@@ -37,6 +37,7 @@ FORBIDDEN = (
 
 RELEASE_WORKFLOW = "production-database-release.yml"
 CI_WORKFLOW = "backend-ci.yml"
+AUTO_DEPLOY_WORKFLOW = "auto-deploy.yml"
 
 def _logical_end(content: str, pos: int) -> int:
     """End index of the shell command line that continues at `pos` (following backslash continuations)."""
@@ -277,6 +278,66 @@ def backend_ci_problems(content: str) -> list[str]:
             problems.append(f"{name} may bypass schema-gate only through the API rollback exemption")
         if "github.event_name == 'push'" in condition or "pull_request" in condition:
             problems.append(f"{name} must not be started by push or pull_request")
+    # a deployed commit must be validated in the same run, current (not superseded) after approval, and observable afterwards
+    api, web = jobs.get("deploy-api", ""), jobs.get("deploy-web", "")
+    if api.count("ci_required_checks.py is-head") < 2 or web.count("ci_required_checks.py is-head") < 1:
+        problems.append("the deploy jobs must refuse a superseded commit after the reviewer approval (ci_required_checks.py is-head)")
+    if "api/v1/version" not in api or "GITHUB_SHA" not in api.split("api/v1/version", 1)[-1]:
+        problems.append("deploy-api must verify the deployed Git SHA through /api/v1/version")
+    if "> dist/version.json" not in web or "skynex.best/version.json" not in web or "GITHUB_SHA" not in web.split("skynex.best/version.json", 1)[-1]:
+        problems.append("deploy-web must publish and verify version.json with the deployed Git SHA")
+    if "--build-arg GIT_SHA" not in api or "--build-arg GIT_SHA" not in jobs.get("docker", ""):
+        problems.append("the images must be built with --build-arg GIT_SHA so the deployed commit is observable")
+    if "workflow_dispatch" not in content.split("\njobs:\n", 1)[0] or "run-name:" not in content.split("\njobs:\n", 1)[0]:
+        problems.append("a dispatched deployment must be reported as its own, identifiable run (run-name)")
+    return problems
+
+
+def auto_deploy_problems(content: str) -> list[str]:
+    """auto-deploy.yml may only START the gated deployment path after a verified, still-current, successful push run of main.
+
+    It must hold no cloud or Production credential and must not be able to deploy, roll back, migrate or release by itself.
+    """
+    problems: list[str] = []
+    on_block = re.search(r"(?ms)^on:\n(.*?)(?=^\S)", content)
+    triggers = re.findall(r"^  ([a-z_]+):", on_block.group(1), re.M) if on_block else []
+    if triggers != ["workflow_run"]:
+        problems.append(f"Auto Deploy must be triggered only by workflow_run of Education CI (found {triggers})")
+    if on_block and not re.search(r'workflows: \["Education CI"\]', on_block.group(1)):
+        problems.append("Auto Deploy must listen only to the Education CI workflow")
+    if on_block and not re.search(r"types: \[completed\]", on_block.group(1)):
+        problems.append("Auto Deploy must run only when Education CI completed")
+    if on_block and not re.search(r"branches: \[main\]", on_block.group(1)):
+        problems.append("Auto Deploy must be limited to the main branch")
+    for forbidden in ("pull_request", "workflow_dispatch", "secrets.", "id-token", "configure-aws-credentials", "environment:", "continue-on-error", "contents: write", "secrets: inherit",
+                      "production_db_release", "sql_migration_runner", "aws ssm", "aws ecr", "docker "):
+        if forbidden in content:
+            problems.append(f"Auto Deploy must not contain {forbidden!r}: it only starts the gated deployment")
+    permissions = re.search(r"(?ms)^permissions:\n(.*?)(?=^\S)", content)
+    granted = dict(re.findall(r"^  ([a-z-]+): (\w+)", permissions.group(1), re.M)) if permissions else {}
+    if granted != {"contents": "read", "actions": "write", "checks": "read"}:
+        problems.append(f"Auto Deploy permissions must be exactly contents: read, actions: write, checks: read (found {granted})")
+    concurrency = re.search(r"(?ms)^concurrency:\n(.*?)(?=^\S)", content)
+    if not concurrency or "group: auto-deploy-main" not in concurrency.group(1) or "cancel-in-progress: true" not in concurrency.group(1):
+        problems.append("Auto Deploy must cancel superseded dispatchers (concurrency group auto-deploy-main, cancel-in-progress: true)")
+    jobs = _jobs(content)
+    dispatch = jobs.get("dispatch", "")
+    condition = re.search(r"(?ms)^    if: >-\n(.*?)(?=^    [a-z-]+:)", dispatch)
+    text = " ".join(condition.group(1).split()) if condition else _job_if(dispatch)
+    for clause in ("github.event.workflow_run.conclusion == 'success'", "github.event.workflow_run.event == 'push'", "github.event.workflow_run.head_branch == 'main'",
+                   "github.event.workflow_run.head_repository.full_name == github.repository", "vars.AWS_DEPLOY_ENABLED == 'true'"):
+        if clause not in text:
+            problems.append(f"the dispatch job must require {clause}")
+    if set(jobs) != {"dispatch"}:
+        problems.append(f"Auto Deploy must contain only the dispatch job (found {sorted(jobs)})")
+    if "ci_required_checks.py checks" not in dispatch or dispatch.count("ci_required_checks.py is-head") < 2:
+        problems.append("the dispatch job must verify the required checks and re-check that the commit is still the head of main before and after waiting")
+    runs = re.findall(r"gh workflow run (\S+)(.*)", dispatch)
+    if len(runs) != 1 or runs[0][0] != "backend-ci.yml" or "-f action=deploy" not in runs[0][1] or "--ref main" not in runs[0][1]:
+        problems.append("the only thing Auto Deploy may start is: gh workflow run backend-ci.yml --ref main -f action=deploy")
+    start = dispatch.rfind("gh workflow run")
+    if "steps.fresh.outputs.superseded == 'false'" not in dispatch[:start][dispatch[:start].rfind("- name:"):] + dispatch[start - 400:start]:
+        problems.append("the dispatch step must be skipped when the commit was superseded")
     return problems
 
 
@@ -305,6 +366,10 @@ def inspect_workflows(directory: Path) -> list[str]:
             errors.extend(f"{path.relative_to(repo_root)}: {problem}" for problem in other_workflow_problems(content))
         if path.name == CI_WORKFLOW:
             errors.extend(f"{path.relative_to(repo_root)}: {problem}" for problem in backend_ci_problems(content))
+        if path.name == AUTO_DEPLOY_WORKFLOW:
+            errors.extend(f"{path.relative_to(repo_root)}: {problem}" for problem in auto_deploy_problems(content))
+        elif re.search(r"(?m)^\s*workflow_run:", content) and not is_release_workflow:
+            errors.append(f"{path.relative_to(repo_root)}: workflow_run triggers are reserved for {AUTO_DEPLOY_WORKFLOW}")
         for label, pattern in FORBIDDEN:
             if is_release_workflow and label == "Production release wrapper apply":
                 continue  # the single allowlisted entry point; its structure is verified above

@@ -1,0 +1,75 @@
+name: Auto Deploy
+
+# Restores push-to-deploy WITHOUT reconnecting Production deployment to code validation.
+#
+#   push to main -> Education CI (validation only; see backend-ci.yml) -> [success] -> this workflow
+#   -> verifies that every required check of that exact commit succeeded and that the commit is still the head of main
+#   -> dispatches `Education CI` with action=deploy, which re-validates the commit it deploys and then passes, in order:
+#        schema-gate (read-only Production schema compatibility) -> deploy-api / deploy-web behind the reviewer-gated `aws-demo` environment.
+#
+# It holds NO AWS, Production database or Supabase credential and cannot deploy, migrate or roll back by itself: it can only start the
+# gated path. It never dispatches the rollback action and never starts the Production Database Release. If the schema gate blocks the
+# deployment (for example while K-M are not released), the dispatched run fails there and nothing is touched; the validation run stays green.
+# Pull requests and forks cannot trigger it (push events of this repository's main only).
+# scripts/check_database_workflow_safety.py enforces these properties.
+
+on:
+  workflow_run:
+    workflows: ["Education CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write
+  checks: read
+
+concurrency:
+  # Only the newest successful main run matters: a newer run cancels an older dispatcher that is still waiting for checks.
+  group: auto-deploy-main
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      vars.AWS_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha }}
+      GITHUB_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The validated commit is still the head of main
+        id: fresh
+        run: |
+          if python scripts/ci_required_checks.py is-head --repo "$GITHUB_REPOSITORY" --sha "$CANDIDATE_SHA" --branch main; then
+            echo "superseded=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Superseded::main moved past $CANDIDATE_SHA; the newer commit is deployed by its own run"
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Every required check of that commit succeeded
+        if: steps.fresh.outputs.superseded == 'false'
+        run: python scripts/ci_required_checks.py checks --repo "$GITHUB_REPOSITORY" --sha "$CANDIDATE_SHA"
+      - name: Still the head of main after waiting
+        id: fresh_after
+        if: steps.fresh.outputs.superseded == 'false'
+        run: |
+          if python scripts/ci_required_checks.py is-head --repo "$GITHUB_REPOSITORY" --sha "$CANDIDATE_SHA" --branch main; then
+            echo "superseded=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Superseded::main moved while waiting for checks; the newer commit is deployed by its own run"
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Start the gated deployment (schema gate, then aws-demo reviewers)
+        if: steps.fresh.outputs.superseded == 'false' && steps.fresh_after.outputs.superseded == 'false'
+        run: gh workflow run backend-ci.yml --repo "$GITHUB_REPOSITORY" --ref main -f action=deploy

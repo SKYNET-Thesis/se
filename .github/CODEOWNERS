@@ -44,6 +44,7 @@
 /scripts/run_database_safety_tests.py               @leduc121
 /.github/workflows/production-database-release.yml  @leduc121
 /.github/workflows/database-bootstrap.yml           @leduc121
+/.github/workflows/auto-deploy.yml                  @leduc121
 /.github/workflows/database-migration-safety.yml    @leduc121
 /.github/workflows/backend-ci.yml                   @leduc121
 /infra/terraform/db-backup.tf                       @leduc121
