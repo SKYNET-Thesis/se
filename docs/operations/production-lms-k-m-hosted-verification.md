@@ -29,7 +29,9 @@ The approved read-only Production credential (`PRODUCTION_DATABASE_READONLY_URL`
 - *Security effect of deferring M.* TEMP stays inherited from PUBLIC: the runtime role (and every role) can create session-local temp tables. All other L restrictions are unchanged. The K–M verifier's "runtime role cannot use temp tables" check cannot hold for K–L; a `kl` mode must replace it with an explicit "PUBLIC TEMP unchanged, M absent" check — not a silent skip — and the owner must accept the residual risk in writing. PostgreSQL has no per-role revocation of a PUBLIC privilege, and the other temp-related settings are superuser-only on hosted Supabase.
 - *If M is released later (option B):* extend its allowlist to the five roles in F4 (or prove they do not need TEMP) and extend the verifier to cover them.
 
-## 3. Release-tooling changes required (none made)
+## 3. Release-tooling changes required
+> **Implementation status (branch `release/lms-k-l-supabase-ready`):** items 1, 2, 3, 4, 6, 7, 8 and 9 are implemented and tested (see `production-lms-k-l-release-readiness.md`); item 5 (a hosted rehearsal target mode) is not: it still needs a reviewed design. Item 4's workflow option is `K-L`; the redacted evidence workflow is `production-readiness-evidence.yml`.
+
 1. Replace L with a hosted-compatible version (F3); regenerate manifest/scope pins and the bootstrap expectation; keep tests that exercise L on a Supabase-image database.
 2. Scopes: add `K-L`, a separate `M` scope (staged, BLOCKED); retire the composite `K-M` or keep it BLOCKED. Generalise the planner's "K-M is BLOCKED" rule so approval is an explicit reviewed marker per scope.
 3. Verifier: `kl` mode; extend the M checks to platform roles beyond the 8.

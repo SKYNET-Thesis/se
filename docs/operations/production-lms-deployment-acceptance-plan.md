@@ -13,7 +13,7 @@ Prepared, not executed. Every check below is for the **eventual approved release
 ## Release acceptance checklist
 | # | Check | Evidence |
 |---|---|---|
-| 1 | K–M postflight (`verify_production_release_km.py`, ledger, grants, runtime allowlist, TEMP) 0 failed | [disposable] 32/32; [hosted] required |
+| 1 | K-L postflight (`verify_production_release_kl.py`: ledger, grants, runtime allowlist, least privilege, M absent + PUBLIC TEMP unchanged) 0 failed | [disposable] 36/36 (Supabase image + bootstrapped DBs); [hosted] required |
 | 2 | API connects as `vista_app_runtime` (PrismaService startup check passes; `current_user` confirmed by the postflight) | [hosted] |
 | 3 | `GET https://api.skynex.best/api/v1/health` = ok and `GET /api/v1/version` returns the release commit (the workflow compares it to `GITHUB_SHA`) | [hosted] |
 | 4 | `https://skynex.best/version.json` returns the release commit (compared by the workflow after the CloudFront invalidation) | [hosted] |

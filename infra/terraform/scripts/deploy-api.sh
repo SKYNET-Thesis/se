@@ -20,6 +20,14 @@ if not isinstance(data, dict):
 required = {'DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'WEB_ORIGIN'}
 if not required.issubset(data):
     raise SystemExit('Required secret keys are missing')
+# The API must connect as the restricted runtime role (plain or Supabase pooler form `vista_app_runtime.<project_ref>`), never as the owner/migration role
+# or the backup reader. The message never echoes the URL.
+import re
+from urllib.parse import unquote, urlsplit
+database_url = data.get('DATABASE_URL')
+user = unquote(urlsplit(database_url).username or '') if isinstance(database_url, str) else ''
+if not re.fullmatch(r'vista_app_runtime(\.[a-z0-9]{20})?', user):
+    raise SystemExit('DATABASE_URL must connect as the restricted runtime role vista_app_runtime (pooler form vista_app_runtime.<project_ref>); refusing to deploy')
 lines = []
 for key, value in data.items():
     if not key.replace('_', '').isalnum() or not key[0].isalpha() or not isinstance(value, str) or '\n' in value or '\r' in value:

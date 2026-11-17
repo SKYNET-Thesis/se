@@ -1,6 +1,8 @@
-# Production release K–M recovery and approval runbook
+# Production release K–L (and staged M) recovery and approval runbook
 
-Status: **K–M production rollout BLOCKED**. K–L are structurally reviewable, but M changes database-wide `TEMP` inheritance and hosted Supabase compatibility has not been demonstrated. A PostgreSQL 17 disposable test is not hosted evidence. No K–M migration has been applied to Production.
+> **Scope update (this branch):** the release is split. Scope `K-L` (K + a hosted-compatible revision of L) is the next release candidate; migration M is staged in `database/staged-migrations/` as scope `M`. Both remain production-BLOCKED in code. The M text below still applies to the later M release. The L rollback order is: drop the role's policies, explicit `REVOKE ALL` on each granted object, verify nothing depends on the role, `DROP ROLE` (`DROP OWNED BY` is refused to the apply role on PostgreSQL 17); tested sequence in `docs/operations/sql/k-l-rollback.sql`. See `production-lms-k-m-hosted-verification.md`.
+
+Status (historical wording, K–M composite): **K–M production rollout BLOCKED**. K–L are structurally reviewable, but M changes database-wide `TEMP` inheritance and hosted Supabase compatibility has not been demonstrated. A PostgreSQL 17 disposable test is not hosted evidence. No K–M migration has been applied to Production.
 
 ## Scope and order
 

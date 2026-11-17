@@ -12,6 +12,7 @@ on:
       - "database/**"
       - "scripts/**"
       - "tests/database/**"
+      - "tests/database_staged/**"
       - "services/education-api/**"
       - ".github/workflows/database-bootstrap.yml"
   push:
@@ -20,6 +21,7 @@ on:
       - "database/**"
       - "scripts/**"
       - "tests/database/**"
+      - "tests/database_staged/**"
       - "services/education-api/**"
       - ".github/workflows/database-bootstrap.yml"
   workflow_dispatch:
@@ -129,6 +131,14 @@ jobs:
           # d03_mig_* databases (and build their own pre-D03 template) on this disposable service container. Without this variable the strict runner would fail them as skipped.
           VISTA_D03_MIGRATION_TEST_URL: ${{ env.MAIN_DB_URL }}
         run: python scripts/run_database_safety_tests.py
+      - name: Apply staged migration M to the DISPOSABLE runner database only (final-schema tests; never a release, writes no ledger row)
+        shell: bash
+        run: |
+          python scripts/apply_staged_migration_to_test_database.py --database-url "$MAIN_DB_URL" database/staged-migrations/20261116_m_revoke_public_temp_privilege.sql
+      - name: Staged migration M tests (isolated path; none skipped)
+        env:
+          VISTA_STAGED_M_DATABASE_URL: ${{ env.MAIN_DB_URL }}
+        run: python scripts/run_database_safety_tests.py --start-directory tests/database_staged
       - name: Install backend dependencies
         working-directory: services/education-api
         run: npm ci

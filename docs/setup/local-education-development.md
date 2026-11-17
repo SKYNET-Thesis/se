@@ -58,7 +58,7 @@ python3 scripts/bootstrap_dev_database.py --verify-only
 ```
 
 The expected fresh PostgreSQL 17 inventory is pinned in `database/baselines/dev-schema-expectation.json`.
-The local bootstrap does not establish that K–M are approved or compatible with hosted Supabase.
+The local bootstrap does not establish that K–L (or the staged M) are approved or compatible with hosted Supabase. Developer databases bootstrapped before the L revision recorded the earlier L checksum: drop and re-bootstrap them (disposable databases only).
 
 Migration L creates `vista_app_runtime` without a password. Set a random local password only inside this
 disposable database; this command changes no shared or hosted role:

@@ -45,6 +45,9 @@
 /.github/workflows/production-database-release.yml  @leduc121
 /.github/workflows/database-bootstrap.yml           @leduc121
 /.github/workflows/auto-deploy.yml                  @leduc121
+/.github/workflows/production-readiness-evidence.yml @leduc121
+/scripts/production_readiness_evidence.py           @leduc121
+/scripts/verify_production_release_kl.py           @leduc121
 /.github/workflows/database-migration-safety.yml    @leduc121
 /.github/workflows/backend-ci.yml                   @leduc121
 /infra/terraform/db-backup.tf                       @leduc121
