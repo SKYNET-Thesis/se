@@ -8,7 +8,8 @@ import { LinkButton } from '../components/ui/LinkButton';
 import { PageHeader } from '../components/ui/PageHeader';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
-import { progressionApi, type ApiStudentQuiz, type CoursePathResponse } from '../lib/api';
+import { learnerApi, progressionApi, type ApiStudentQuiz, type CoursePathResponse } from '../lib/api';
+import { formatQuizDate } from '../queries/quizAttemptModel';
 import { canRetry, learningErrorMessage } from '../queries/studentLearningModel';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
 import { cn } from '../utils/cn';
@@ -42,12 +43,12 @@ export function getQuizStatusBadge(
     case 'passed':
       return { tone: 'ok', label: 'Passed' };
     case 'failed':
-      return { tone: 'danger', label: 'Failed' };
+      return { tone: 'warn', label: 'Not passed' };
     case 'in_progress':
-      return { tone: 'accent', label: 'In Progress' };
+      return { tone: 'accent', label: 'In progress' };
     case 'not_started':
     default:
-      return { tone: 'neutral', label: 'Not Started' };
+      return { tone: 'neutral', label: 'Not started' };
   }
 }
 
@@ -56,19 +57,20 @@ export function getQuizCta(
 ): { label: string; variant: 'primary' | 'secondary' } {
   switch (status) {
     case 'passed':
-      return { label: 'View Result', variant: 'secondary' };
     case 'failed':
-      return { label: 'Retry Quiz', variant: 'primary' };
+      // Whether a retake is allowed depends on the delivery; the quiz page decides and offers Try again.
+      return { label: 'View result', variant: 'secondary' };
     case 'in_progress':
-      return { label: 'Continue Quiz', variant: 'primary' };
+      return { label: 'Continue quiz', variant: 'primary' };
     case 'not_started':
     default:
-      return { label: 'Start Quiz', variant: 'primary' };
+      return { label: 'Start quiz', variant: 'primary' };
   }
 }
 
 const isTab = (value: string | null): value is MyLearningTabKey => MY_LEARNING_TABS.some((tab) => tab.id === value);
-const quizHref = (quiz: ApiStudentQuiz) => `/courses/${quiz.course_id}/lessons/${quiz.lesson_id}/activities/${quiz.lesson_id}-knowledge-check`;
+/** A06: every classroom quiz opens on its quiz page; without a published delivery for the class there is nothing to open. */
+const quizHref = (quiz: ApiStudentQuiz) => (quiz.classroom_assignment_id ? `/my-learning/${quiz.classroom_assignment_id}` : null);
 
 /**
  * Student My Learning (A05): the courses the student is actually enrolled in, with server-computed progress and the
@@ -95,9 +97,23 @@ export function MyLearning() {
     staleTime: 30_000,
   });
 
+  // GET /me/quizzes has no open/close dates. GET /me/learning (shared with Assignments) lists only deliveries that are
+  // open right now, with their due date, so the Quizzes tab can tell an open quiz from one that is not open yet or closed.
+  const openDeliveriesQuery = useQuery({
+    queryKey: studentLearningKeys.list(session?.user.id, sessionRevision),
+    queryFn: () => learnerApi.myLearning(token),
+    enabled: Boolean(!authLoading && token) && activeTab === 'quizzes',
+    staleTime: 30_000,
+  });
+  const openDeliveries = openDeliveriesQuery.data ? new Map(openDeliveriesQuery.data.map((item) => [item.classroom_assignment_id, item.due_at ?? null])) : null;
+
   const loading = authLoading || coursePathsQuery.isLoading;
   const courses = coursePathsQuery.data ?? [];
-  const quizzes = quizzesQuery.data ?? [];
+  // GET /me/quizzes lists every knowledge-check assignment of the student's lessons, including ones never delivered to
+  // their class (curriculum quizzes not yet assigned, and older per-classroom copies made for other classes). Only a
+  // published delivery to the student's own class is something they can take, so only those are listed, once each.
+  const quizzes = (quizzesQuery.data ?? []).filter((quiz, index, all) => quiz.classroom_assignment_id
+    && all.findIndex((other) => other.classroom_assignment_id === quiz.classroom_assignment_id) === index);
   const inProgressCourses = courses.filter((cp) => !isCourseCompleted(cp));
   const completedCourses = courses.filter((cp) => isCourseCompleted(cp));
   const hasAnyLearning = courses.length > 0 || quizzes.length > 0;
@@ -174,8 +190,8 @@ export function MyLearning() {
                 {canRetry(quizzesQuery.error) && <Button size="sm" variant="secondary" onClick={() => void quizzesQuery.refetch()} loading={quizzesQuery.isFetching} icon={<RotateCwIcon className="h-4 w-4" aria-hidden />}>Try again</Button>}
               </div>
             ) : quizzes.length === 0
-              ? <p className="text-sm text-ink-muted">No quizzes in your courses yet.</p>
-              : <ul className="divide-y divide-line rounded-lg border border-line bg-surface">{quizzes.map((quiz) => <QuizRow key={quiz.assignment_id || `${quiz.course_id}-${quiz.lesson_id}`} quiz={quiz} />)}</ul>)}
+              ? <p className="text-sm text-ink-muted">No quizzes have been assigned to your class yet.</p>
+              : <ul className="divide-y divide-line rounded-lg border border-line bg-surface">{quizzes.map((quiz) => <QuizRow key={quiz.assignment_id || `${quiz.course_id}-${quiz.lesson_id}`} quiz={quiz} openDeliveries={openDeliveries} />)}</ul>)}
           </div>
         </div>
       )}
@@ -251,21 +267,27 @@ function CourseCompleted({ coursePath }: { coursePath: CoursePathResponse }) {
   );
 }
 
-function QuizRow({ quiz }: { quiz: ApiStudentQuiz }) {
-  const badge = getQuizStatusBadge(quiz.status);
-  const cta = getQuizCta(quiz.status);
+function QuizRow({ quiz, openDeliveries }: { quiz: ApiStudentQuiz; openDeliveries: Map<string, string | null> | null }) {
+  const href = quizHref(quiz);
+  // Known only when GET /me/learning loaded; until then an unstarted quiz offers a neutral "Open quiz".
+  const open = openDeliveries && quiz.classroom_assignment_id ? openDeliveries.has(quiz.classroom_assignment_id) : null;
+  const due = open && quiz.classroom_assignment_id ? openDeliveries?.get(quiz.classroom_assignment_id) : null;
+  const notOpen = open === false && quiz.status !== 'passed' && quiz.status !== 'failed';
+  const badge = notOpen ? { tone: 'neutral' as BadgeTone, label: 'Not open now' } : getQuizStatusBadge(quiz.status);
+  const cta = notOpen ? { label: 'View quiz', variant: 'secondary' as const } : quiz.status === 'not_started' && open === null ? { label: 'Open quiz', variant: 'primary' as const } : getQuizCta(quiz.status);
   return (
     <li className="flex flex-wrap items-center justify-between gap-4 p-4">
       <div className="min-w-0 flex-1 basis-64">
         <h2 className="break-words text-[15px] font-semibold text-ink">{quiz.quiz_title}</h2>
-        <p className="mt-0.5 flex flex-wrap gap-x-3 text-[13px] text-ink-muted"><span>{quiz.course_title}</span><span aria-hidden>›</span><span>{quiz.lesson_title}</span></p>
+        <p className="mt-0.5 text-pretty text-[13px] text-ink-muted">{quiz.course_title}<span className="mx-1.5" aria-label=", ">›</span>{quiz.lesson_title}</p>
+        {due && quiz.status !== 'passed' && quiz.status !== 'failed' && <p className="mt-1 text-[13px] text-ink-muted">Due {formatQuizDate(due)}</p>}
         {quiz.score !== null && quiz.score !== undefined && (
-          <p className="mt-1 text-[13px] tabular-nums text-ink-muted">Score <span className={cn('font-semibold', quiz.status === 'passed' ? 'text-ok' : 'text-danger')}>{quiz.score}%</span>{quiz.pass_percent ? <span className="ml-3">Pass mark {quiz.pass_percent}%</span> : null}</p>
+          <p className="mt-1 text-[13px] tabular-nums text-ink-muted">Score <span className="font-semibold text-ink">{quiz.score}%</span>{quiz.pass_percent ? <span className="ml-3">Pass mark {quiz.pass_percent}%</span> : null}</p>
         )}
       </div>
       <div className="flex items-center gap-3">
         <Badge tone={badge.tone}>{badge.label}</Badge>
-        <LinkButton to={quizHref(quiz)} variant={cta.variant}>{cta.label}</LinkButton>
+        {href ? <LinkButton to={href} variant={cta.variant} className="h-10" aria-label={`${cta.label}: ${quiz.quiz_title}`}>{cta.label}</LinkButton> : <span className="text-[13px] text-ink-muted">Not open for your class</span>}
       </div>
     </li>
   );

@@ -52,7 +52,9 @@ describe('CourseLearningShell', () => {
     expect(menu?.getAttribute('aria-expanded')).toBe('false');
     expect(container.textContent).toContain('Lesson content');
     expect(container.textContent).not.toContain('Learning activities');
-    expect(container.querySelector('.lg\\:w-72')).not.toBeNull();
+    // A fixed 320px list; `lg:w-auto` is gone (it outranked the width and let the list grow to its content).
+    expect(container.querySelector('#course-material-nav.lg\\:w-80')).not.toBeNull();
+    expect(container.querySelector('#course-material-nav.lg\\:w-auto')).toBeNull();
     expect(container.querySelector('a[href="/courses/course-1/lessons/lesson-3"]')).toBeNull();
   });
 
@@ -95,7 +97,7 @@ describe('CourseLearningShell', () => {
 
     await renderReader();
     expect(container.querySelector('[aria-label="Understanding Robot Movement: not completed"]')).not.toBeNull();
-    const markButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Mark as Completed');
+    const markButton = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Mark as complete');
     expect(markButton).toBeTruthy();
     await act(async () => { markButton?.click(); await Promise.resolve(); });
     expect(mocks.complete).toHaveBeenCalledWith('lesson-2-reading-1', 'token');
@@ -156,14 +158,27 @@ describe('CourseLearningShell', () => {
   it('collapses and restores the focused navigator without changing the selected activity', async () => {
     const pathOverride = { lessons: [] as never };
     await act(async () => { root.render(<QueryClientProvider client={client}><MemoryRouter><CourseLearningShell courseId="course-1" lessonId="lesson-2" lesson={lesson} pathOverride={pathOverride} focused activityId="lesson-2-reading-1"><div data-testid="activity-content">Activity content</div></CourseLearningShell></MemoryRouter></QueryClientProvider>); await Promise.resolve(); });
-    const toggle = container.querySelector('button[aria-label="Hide course material"]') as HTMLButtonElement;
+    window.sessionStorage.clear();
+    const toggleNamed = (name: string) => [...container.querySelectorAll('button[aria-controls="course-material-nav"]')].find((button) => button.textContent === name) as HTMLButtonElement | undefined;
+    const toggle = toggleNamed('Hide lessons') as HTMLButtonElement;
     expect(toggle).toBeTruthy();
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     await act(async () => { toggle.click(); });
-    expect(container.querySelector('button[aria-label="Show course material"]')?.getAttribute('aria-expanded')).toBe('false');
+    expect(toggleNamed('Show lessons')?.getAttribute('aria-expanded')).toBe('false');
     expect(container.querySelector('[data-testid="activity-content"]')).not.toBeNull();
-    await act(async () => { (container.querySelector('button[aria-label="Show course material"]') as HTMLButtonElement).click(); });
-    expect(container.querySelector('button[aria-label="Hide course material"]')?.getAttribute('aria-expanded')).toBe('true');
+    expect(window.sessionStorage.getItem('vista.lessonList.hidden.content')).toBe('1'); // remembered across activities
+    await act(async () => { (toggleNamed('Show lessons') as HTMLButtonElement).click(); });
+    expect(toggleNamed('Hide lessons')?.getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('starts a quiz with the lesson list hidden so the question has the room, and remembers a reopened list', async () => {
+    window.sessionStorage.clear();
+    const pathOverride = { lessons: [] as never };
+    await act(async () => { root.render(<QueryClientProvider client={client}><MemoryRouter><CourseLearningShell courseId="course-1" lessonId="lesson-2" lesson={lesson} pathOverride={pathOverride} focused mode="quiz" activityId="lesson-2-reading-1"><div>Quiz</div></CourseLearningShell></MemoryRouter></QueryClientProvider>); await Promise.resolve(); });
+    const toggle = [...container.querySelectorAll('button[aria-controls="course-material-nav"]')].find((button) => button.textContent === 'Show lessons') as HTMLButtonElement;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => { toggle.click(); });
+    expect(window.sessionStorage.getItem('vista.lessonList.hidden.quiz')).toBe('0');
   });
 
   it('expands individual course modules independently and supports expand/collapse all', async () => {

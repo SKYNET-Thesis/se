@@ -119,7 +119,9 @@ export function buildLessonActivitySections(lesson: LessonSummaryOrDetail): Less
         const description = instruction || readingText || '';
         const estimated = content?.estimatedMinutes;
         const supportedType = (Object.hasOwn(activityTypeLabels, type));
-        const assignmentLinked = item.content_ref?.kind === 'assignment' && item.content_ref.id === lesson.assignment?.id;
+        // A06: a quiz activity opens its own assignment (ActivityReader resolves the class delivery by this id), so any
+        // assignment link is routable, not only the single assignment that lesson detail returns.
+        const assignmentLinked = item.content_ref?.kind === 'assignment';
         const unavailable = !supportedType || type === 'physical_lab' || type === 'video' || (type === 'knowledge_check' && !assignmentLinked);
         const action = type === 'reading' || type === 'demonstration' || type === 'result' || type === 'reflection'
           ? 'reading'

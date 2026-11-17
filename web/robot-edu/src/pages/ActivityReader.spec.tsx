@@ -8,7 +8,7 @@ import { ActivityReader } from './ActivityReader';
 const mocks = vi.hoisted(() => ({ query: vi.fn(), complete: vi.fn(), invalidate: vi.fn(), setQueryData: vi.fn(), progressData: { courseId: 'course-1', activities: [] as Array<{ activityId: string; status: 'completed' | 'not_started'; completedAt: string | null }> } }));
 
 vi.mock('@tanstack/react-query', () => ({
-  useQuery: () => mocks.query(),
+  useQuery: (options: unknown) => mocks.query(options),
   useQueryClient: () => ({ invalidateQueries: mocks.invalidate, setQueryData: mocks.setQueryData }),
 }));
 vi.mock('../lib/api', async (importOriginal) => {
@@ -106,7 +106,7 @@ describe('ActivityReader loading isolation', () => {
       created_at: '',
     };
 
-    it('renders Learn the Concepts and Safety Protocols in the Reading activity', async () => {
+    it('renders the lesson’s own concept sections and the safety checklist in the Reading activity', async () => {
       mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
       await act(async () => {
         root.render(
@@ -121,15 +121,18 @@ describe('ActivityReader loading isolation', () => {
 
       expect(container.textContent).toContain('Understanding Robot Movement');
       expect(container.textContent).not.toMatch(/C1-L[1-5]/);
-      expect(container.textContent).toContain('Mark as Completed');
+      expect(container.textContent).toContain('Mark as complete');
       expect(container.textContent).toContain('Reading');
       expect(container.textContent).toContain('4 min');
-      expect(container.textContent).toContain('Learn the Concepts');
-      expect(container.textContent).toContain('Deterministic Sequencing');
-      expect(container.textContent).toContain('Target Positioning');
-      expect(container.textContent).toContain('Pauses & Motion Timing');
-      expect(container.textContent).toContain('Safety Protocols');
-      expect(container.textContent).toContain('Confirm the target coordinates are within the safe reachable envelope.');
+      // Authored content from the lesson (not fixed text in the page): summary, every concept section, safety notes.
+      expect(container.textContent).toContain('Learn deterministic motion sequencing');
+      expect([...container.querySelectorAll('article h2')].map((h) => h.textContent)).toEqual(['Deterministic Sequencing', 'Target Positioning', 'Pauses & Motion Timing', 'Before operating the robot']);
+      expect(container.textContent).toContain('Instead of manual joint angles, VISTA specifies target positions in 3D.');
+      // Safety guidance is an ordered checklist, not an error-coloured alert.
+      const safety = container.querySelector('section[aria-labelledby="safety-heading"]') as HTMLElement;
+      expect([...safety.querySelectorAll('ol > li')].map((li) => li.textContent)).toEqual(['1Confirm the target coordinates are within the safe reachable envelope.', '2Always include a home step at the start of a program to reset joint state.']);
+      expect(safety.className).not.toMatch(/danger/);
+      expect(container.textContent).not.toContain('Safety Protocols');
     });
 
     it('marks Reading only after a server-confirmed completion response', async () => {
@@ -139,13 +142,46 @@ describe('ActivityReader loading isolation', () => {
         root.render(<MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/lesson-2-reading-1']}><Routes><Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} /></Routes></MemoryRouter>);
         await Promise.resolve();
       });
-      const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent === 'Mark as Completed');
+      const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent === 'Mark as complete');
       expect(mocks.complete).not.toHaveBeenCalled();
       await act(async () => { button?.click(); await Promise.resolve(); });
       expect(mocks.complete).toHaveBeenCalledWith('lesson-2-reading-1', 'token');
       expect(mocks.setQueryData).toHaveBeenCalled();
       expect(mocks.invalidate).toHaveBeenCalled();
       expect(container.textContent).toContain('Activity completed.');
+    });
+
+    it('hands a classroom quiz off to its quiz page instead of a dead end (A06)', async () => {
+      const quizLesson = { ...l2Data, assignment: { ...l2Data.assignment, title: 'Movement basics', instructions: 'Five questions.', constraints: { kind: 'knowledge_check', passPercent: 80 } }, activeAttempt: { id: 'att-1', status: 'in_progress', score: null },
+        databaseSections: [{ id: 's1', title: 'Check your understanding', ordinal: 1, activities: [{ id: 'kc-1', type: 'knowledge_check', title: 'Movement basics', ordinal: 1, required: true, content: {}, content_ref: { kind: 'assignment', id: 'a2' } }] }] };
+      mocks.query.mockReturnValue({ isLoading: false, data: quizLesson });
+      await act(async () => {
+        root.render(<MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/kc-1']}><Routes><Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} /></Routes></MemoryRouter>);
+        await Promise.resolve();
+      });
+      expect(container.textContent).not.toContain('Knowledge check content is unavailable');
+      expect(container.textContent).toContain('You have an attempt in progress.');
+      const link = [...container.querySelectorAll('a')].find((a) => a.textContent?.includes('Continue quiz'));
+      expect(link?.getAttribute('href')).toBe('/my-learning/ca2');
+    });
+
+    it('opens the quiz an activity links even when lesson detail returned a different assignment (lesson with two quizzes)', async () => {
+      const twoQuizzes = { ...l2Data, assignment: { ...l2Data.assignment, constraints: { kind: 'knowledge_check', passPercent: 80 } }, activeAttempt: { id: 'att-1', status: 'in_progress', score: null },
+        databaseSections: [{ id: 's1', title: 'Check your understanding', ordinal: 1, activities: [
+          { id: 'kc-1', type: 'knowledge_check', title: 'Reach Target A', ordinal: 1, required: true, content: {}, content_ref: { kind: 'assignment', id: 'a2' } },
+          { id: 'kc-2', type: 'knowledge_check', title: 'Timing review', ordinal: 2, required: true, content: {}, content_ref: { kind: 'assignment', id: 'a-timing' } },
+        ] }] };
+      const quizRows = [{ assignment_id: 'a-timing', classroom_assignment_id: 'ca-timing', quiz_title: 'Timing review', status: 'failed', score: 40, attempt_id: 'att-9' }];
+      mocks.query.mockImplementation((options?: { queryKey?: unknown[] }) => ({ isLoading: false, data: options?.queryKey?.includes('quizzes') ? quizRows : twoQuizzes }));
+      await act(async () => {
+        root.render(<MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/kc-2']}><Routes><Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} /></Routes></MemoryRouter>);
+        await Promise.resolve();
+      });
+      expect(container.querySelector('main h1')?.textContent).toBe('Timing review');
+      expect(container.textContent).toContain('Your latest score is 40%.');
+      expect(container.textContent).not.toContain('You have an attempt in progress.'); // that attempt belongs to the other quiz
+      expect([...container.querySelectorAll('a')].find((a) => a.textContent?.includes('Open quiz'))?.getAttribute('href')).toBe('/my-learning/ca-timing');
+      mocks.query.mockReset();
     });
 
     it('moves to the next activity without completing the current one', async () => {
@@ -169,15 +205,15 @@ describe('ActivityReader loading isolation', () => {
         root.render(<MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/lesson-2-reading-1']}><Routes><Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} /></Routes></MemoryRouter>);
         await Promise.resolve();
       });
-      const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent === 'Mark as Completed');
+      const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent === 'Mark as complete');
       await act(async () => { button?.click(); await Promise.resolve(); });
       expect(container.textContent).toContain('Connection lost');
       expect(container.textContent).not.toContain('Activity completed.');
       expect(mocks.setQueryData).not.toHaveBeenCalled();
-      expect(container.textContent).toContain('Mark as Completed');
+      expect(container.textContent).toContain('Mark as complete');
     });
 
-    it('renders Robot Concept in Action in the Demonstration activity', async () => {
+    it('presents the demonstration as an honest written walkthrough of this lesson’s robot concept', async () => {
       mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
       await act(async () => {
         root.render(
@@ -193,10 +229,13 @@ describe('ActivityReader loading isolation', () => {
       expect(container.textContent).toContain('Robot Concept in Action');
       expect(container.textContent).toContain('Demonstration');
       expect(container.textContent).toContain('3 min');
-      expect(container.textContent).toContain('How the Robot Interprets the Target');
-      expect(container.textContent).toContain('Deterministic Motion Sequencing');
-      expect(container.textContent).toContain('Simulation Preview');
-      expect(container.textContent).not.toContain('Safety Protocols');
+      expect(container.textContent).toContain('written walkthrough'); // there is no demonstration media for Course 1
+      expect(container.textContent).toContain('The robot computes the required arm pose to place the gripper at the commanded 3D coordinates.');
+      expect(container.textContent).toContain('Program the left arm to home, move to Target A, and wait for motion stabilization.');
+      // The fixed copy and the text-only preview box are gone.
+      expect(container.textContent).not.toContain('Simulation Preview');
+      expect(container.textContent).not.toContain('How the Robot Interprets the Target');
+      expect(container.textContent).not.toContain('Before operating the robot');
     });
 
     it('owns Your Practice Mission and allowed commands in Guided Practice activity', async () => {

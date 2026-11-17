@@ -27,6 +27,7 @@ import { VrPractice } from './VrPractice';
 import { DemonstrationPractice } from './DemonstrationPractice';
 import { recoverEvidence, runC1Evidence, type EvidenceStage } from '../lib/c1EvidenceOrchestrator';
 import { KnowledgeCheckAttempt, type PublicQuizSnapshot } from '../components/learning/KnowledgeCheckAttempt';
+import { QuizResultActions } from '../components/learning/QuizResultActions';
 import { AttachmentUploader } from '../components/submission/AttachmentUploader';
 import { acceptsAttachments } from '../components/submission/submissionState';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
@@ -169,12 +170,14 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
   const curriculumToolbox = useMemo(() => isCurriculumProgramming ? buildCurriculumToolbox(allowedBlocks) : null, [allowedBlocks, isCurriculumProgramming]);
   const allowedBlockTypes = useMemo(() => new Set(curriculumToolbox?.ok ? curriculumToolbox.blockTypes : []), [curriculumToolbox]);
   useEffect(() => load(), [load]);
+  const dataReady = Boolean(data);
   useEffect(() => {
-    if (!session || !attemptId || assignmentConstraints.kind === 'knowledge_check' || isCurriculumProgramming || isReachTarget || mode !== 'physical-enabled') return;
+    // Wait for the attempt: until it loads the assignment kind is unknown, and quizzes never talk to the robot.
+    if (!dataReady || !session || !attemptId || assignmentConstraints.kind === 'knowledge_check' || isCurriculumProgramming || isReachTarget || mode !== 'physical-enabled') return;
     let active = true;
     void Promise.all([executionClient.getRobotStatus(session.access_token,attemptId),executionClient.restoreExecution({accessToken:session.access_token,attemptId})]).then(([status,execution]) => { if (active) { setRobotStatus(status); setRobotExecution(execution); } }).catch((requestError:unknown) => { if (active) setRobotStatus({ state: 'offline', robotName: 'Robot', message: requestError instanceof Error?requestError.message:'Physical eligibility could not be checked.', isMock: false, eligible:false }); });
     return () => { active = false; };
-  }, [assignmentConstraints.kind, attemptId, executionClient, isCurriculumProgramming, isReachTarget, mode, session]);
+  }, [assignmentConstraints.kind, attemptId, dataReady, executionClient, isCurriculumProgramming, isReachTarget, mode, session]);
   useEffect(() => {
     if (mode !== 'physical-enabled' || !session || !robotExecution || !['pending','queued', 'running'].includes(robotExecution.state)) return undefined;
     const timer = window.setInterval(() => void executionClient.getExecution({ accessToken: session.access_token, executionId: robotExecution.id }).then(setRobotExecution).catch((requestError: unknown) => setRobotError(requestError instanceof Error ? requestError.message : 'Could not read robot execution.')), 700);
@@ -374,7 +377,23 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
     if (publicQuiz?.kind === 'question_bank_quiz' && publicQuiz.schemaVersion === 1 && Array.isArray(publicQuiz.questions) && session) {
     const prior = data.attempt.result_snapshot && typeof data.attempt.result_snapshot === 'object'
       ? data.attempt.result_snapshot as import('../lib/api').KnowledgeCheckSubmissionResult : null;
-    return <KnowledgeCheckAttempt title={data.assignment.title} snapshot={publicQuiz} result={prior} initialDraft={data.attempt.draft_response?.answers} draftSavedAt={data.attempt.draft_saved_at} readOnly={data.attempt.status !== 'in_progress'} confirmSubmit onSaveDraft={(answers) => learnerApi.saveQuizDraft(data.attempt.id, answers, session.access_token).then(() => undefined)} onSubmit={(answers) => learnerApi.submitKnowledgeCheck(data.attempt.id, { answers }, session.access_token)} />;
+    const quizToken = session.access_token;
+    const lesson = data.lesson;
+    // My learning › quiz › attempt. The quiz page one step up names the course and lesson; keeping the trail short
+    // leaves the question as the first thing a student sees, especially on a phone.
+    const crumbs = [{ label: 'My learning', to: '/my-learning?tab=quizzes' },
+      { label: data.assignment.title, to: `/my-learning/${data.assignment.id}` }, { label: `Attempt ${data.attempt.attempt_number ?? 1}` }];
+    return <KnowledgeCheckAttempt key={data.attempt.id} title={data.assignment.title} snapshot={publicQuiz} result={prior} initialDraft={data.attempt.draft_response?.answers} draftSavedAt={data.attempt.draft_saved_at} readOnly={data.attempt.status !== 'in_progress'} confirmSubmit
+      context={{ crumbs, submittedAt: data.attempt.submitted_at ?? null }}
+      resultActions={(graded) => <QuizResultActions result={graded} assignment={data.assignment} token={quizToken} courseId={lesson?.course_id} />}
+      onSaveDraft={(answers) => learnerApi.saveQuizDraft(data.attempt.id, answers, quizToken).then(() => undefined)}
+      onSubmit={async (answers) => {
+        const graded = await learnerApi.submitKnowledgeCheck(data.attempt.id, { answers }, quizToken);
+        // Lesson and course progress change only after the server has graded the attempt.
+        void queryClient.invalidateQueries({ queryKey: studentLearningKeys.all });
+        void queryClient.invalidateQueries({ queryKey: ['course-learning-shell'] });
+        return graded;
+      }} />;
     }
     return <EmptyState icon={<FileQuestionIcon />} title="Knowledge Check stays in Lesson Detail" description="This attempt does not contain a published server-graded quiz snapshot. Return to the lesson to open its quiz." action={<Link to={data.lesson ? `/courses/${data.lesson.course_id}/lessons/${data.lesson.id}` : '/courses'} className="inline-flex h-9 items-center rounded-md border border-line-strong px-3.5 text-sm font-medium text-ink hover:bg-sunken">Return to lesson</Link>} />;
   }

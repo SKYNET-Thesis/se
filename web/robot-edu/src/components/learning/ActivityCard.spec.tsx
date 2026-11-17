@@ -23,6 +23,17 @@ async function renderCard(props: Partial<React.ComponentProps<typeof ActivityCar
 }
 
 describe('activity completion', () => {
+  it('says Passed for a quiz the server marks done, so the tick is not read as the latest attempt passing', async () => {
+    const quiz: LessonActivity = { ...activity, id: 'lesson-1-knowledge-check', type: 'knowledge_check', title: 'Safety Knowledge Check', action: 'knowledge_check' };
+    const { container, unmount } = await renderCard({ activity: quiz, completion: 'completed' });
+    expect(container.textContent).toContain('Passed');
+    expect(container.querySelector('[aria-label="Safety Knowledge Check: passed"]')).not.toBeNull();
+    unmount();
+    const reading = await renderCard({ completion: 'completed' });
+    expect(reading.container.textContent).not.toContain('Passed');
+    reading.unmount();
+  });
+
   it('does not infer activity completion from a completed lesson or visiting the reading', () => {
     expect(activityCompletionState(activity.id, { lessonStatus: 'completed' })).toBe('incomplete');
     expect(activityCompletionState(activity.id, { visitedActivityIds: [activity.id] })).toBe('incomplete');

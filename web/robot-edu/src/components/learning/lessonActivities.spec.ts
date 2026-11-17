@@ -51,14 +51,19 @@ describe('lesson activity model', () => {
     });
   });
 
-  it('only routes a database knowledge check to the learner assignment linked by its content reference', () => {
+  it('routes every database knowledge check that links an assignment, and only those (A06: the quiz page resolves the class delivery)', () => {
     const linked = buildLessonActivities(lesson({
       databaseSections: [{ id: 'section-1', title: 'Assessment', ordinal: 1, activities: [{ id: 'quiz-1', title: 'Quiz', type: 'knowledge_check', ordinal: 1, required: true, content_ref: { kind: 'assignment', id: 'assignment-1' } }] }],
     }));
     expect(linked[0]).toMatchObject({ actionable: true, action: 'knowledge_check' });
 
-    const unlinked = buildLessonActivities(lesson({
+    const secondQuiz = buildLessonActivities(lesson({
       databaseSections: [{ id: 'section-1', title: 'Assessment', ordinal: 1, activities: [{ id: 'quiz-2', title: 'Quiz', type: 'knowledge_check', ordinal: 1, required: true, content_ref: { kind: 'assignment', id: 'different-assignment' } }] }],
+    }));
+    expect(secondQuiz[0]).toMatchObject({ actionable: true, action: 'knowledge_check' });
+
+    const unlinked = buildLessonActivities(lesson({
+      databaseSections: [{ id: 'section-1', title: 'Assessment', ordinal: 1, activities: [{ id: 'quiz-3', title: 'Quiz', type: 'knowledge_check', ordinal: 1, required: true, content_ref: { kind: 'none' } }] }],
     }));
     expect(unlinked[0]).toMatchObject({ actionable: false, status: 'unavailable' });
   });

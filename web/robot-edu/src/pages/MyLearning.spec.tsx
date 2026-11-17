@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   },
   coursePaths: vi.fn(),
   quizzes: vi.fn(),
+  myLearning: vi.fn(),
 }));
 
 vi.mock('../contexts/SupabaseSessionContext', () => ({
@@ -24,7 +25,7 @@ vi.mock('../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api')>();
   return {
     ...actual,
-    learnerApi: { ...actual.learnerApi, coursePaths: mocks.coursePaths, quizzes: mocks.quizzes },
+    learnerApi: { ...actual.learnerApi, coursePaths: mocks.coursePaths, quizzes: mocks.quizzes, myLearning: mocks.myLearning },
     progressionApi: { ...actual.progressionApi, coursePaths: mocks.coursePaths, quizzes: mocks.quizzes },
   };
 });
@@ -128,7 +129,7 @@ const mockQuizzes: ApiStudentQuiz[] = [
     lesson_ordinal: 1,
     assignment_id: 'asg-quiz-1',
     quiz_title: 'Meet Your Robot Knowledge Check',
-    classroom_assignment_id: null,
+    classroom_assignment_id: 'ca-quiz-1',
     attempt_status: 'submitted',
     passed: true,
     status: 'passed',
@@ -144,7 +145,7 @@ const mockQuizzes: ApiStudentQuiz[] = [
     lesson_ordinal: 2,
     assignment_id: 'asg-quiz-2',
     quiz_title: 'Move the Robot Knowledge Check',
-    classroom_assignment_id: null,
+    classroom_assignment_id: 'ca-quiz-2',
     attempt_status: 'submitted',
     passed: false,
     status: 'failed',
@@ -160,7 +161,7 @@ const mockQuizzes: ApiStudentQuiz[] = [
     lesson_ordinal: 3,
     assignment_id: 'asg-quiz-3',
     quiz_title: 'Grab & Release Knowledge Check',
-    classroom_assignment_id: null,
+    classroom_assignment_id: 'ca-quiz-3',
     attempt_status: null,
     passed: null,
     status: 'not_started',
@@ -182,6 +183,7 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
           <MemoryRouter initialEntries={[path]}>
             <Routes>
               <Route path="/my-learning" element={<MyLearning />} />
+              <Route path="/my-learning/:classroomAssignmentId" element={<div>Quiz Page</div>} />
               <Route path="/courses/:courseId" element={<div data-testid="course-path-page">Course Path Page</div>} />
               <Route
                 path="/courses/:courseId/lessons/:lessonId"
@@ -204,6 +206,7 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
   };
 
   beforeEach(() => {
+    mocks.myLearning.mockResolvedValue([{ classroom_assignment_id: 'ca-quiz-1', due_at: null }, { classroom_assignment_id: 'ca-quiz-2', due_at: null }, { classroom_assignment_id: 'ca-quiz-3', due_at: null }]);
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -351,28 +354,60 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
       quizzesTab?.click();
     });
 
+    for (let i = 0; i < 4; i += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); }); // open deliveries load
+
     // Authoritative Passed status and score
     expect(container.textContent).toContain('Passed');
     expect(container.textContent).toContain('100%');
-    expect(container.textContent).toContain('View Result');
 
-    // Authoritative Failed status and score
-    expect(container.textContent).toContain('Failed');
+    // Not passed: the quiz page decides whether a retake is allowed, so the row offers the result
+    expect(container.textContent).toContain('Not passed');
     expect(container.textContent).toContain('50%');
-    expect(container.textContent).toContain('Retry Quiz');
+    expect(container.textContent).not.toContain('Retry');
+    const links = Array.from(container.querySelectorAll<HTMLAnchorElement>('a')).map((a) => [a.getAttribute('aria-label'), a.getAttribute('href')]);
+    expect(links).toContainEqual(['View result: Meet Your Robot Knowledge Check', '/my-learning/ca-quiz-1']);
+    expect(links).toContainEqual(['View result: Move the Robot Knowledge Check', '/my-learning/ca-quiz-2']);
 
-    // Not Started
-    expect(container.textContent).toContain('Not Started');
-    expect(container.textContent).toContain('Start Quiz');
+    // Not started and open now
+    expect(container.textContent).toContain('Not started');
+    expect(links).toContainEqual(['Start quiz: Grab & Release Knowledge Check', '/my-learning/ca-quiz-3']);
 
-    // Clicking CTA navigates to the knowledge check activity
-    const viewResultBtn = Array.from(container.querySelectorAll<HTMLElement>('a, button')).find((b) =>
-      b.textContent?.includes('View Result')
-    );
+    // Every classroom quiz opens on its quiz page
+    const viewResultBtn = Array.from(container.querySelectorAll<HTMLElement>('a')).find((b) => b.textContent === 'View result');
     await act(async () => {
       viewResultBtn?.click();
     });
-    expect(container.textContent).toContain('Activity Reader Page');
+    expect(container.textContent).toContain('Quiz Page');
+  });
+
+  it('A06: tells an open quiz from one that is not open now, using the open deliveries from GET /me/learning', async () => {
+    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
+    mocks.coursePaths.mockResolvedValue([course1Path]);
+    mocks.quizzes.mockResolvedValue([
+      { ...mockQuizzes[2], quiz_title: 'Open quiz', assignment_id: 'x1', classroom_assignment_id: 'ca-open' },
+      { ...mockQuizzes[2], quiz_title: 'Scheduled quiz', assignment_id: 'x2', classroom_assignment_id: 'ca-later' },
+    ]);
+    mocks.myLearning.mockResolvedValue([{ classroom_assignment_id: 'ca-open', due_at: '2026-11-20T10:00:00Z' }]);
+    await renderRoute('/my-learning?tab=quizzes');
+    for (let i = 0; i < 4; i += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    const rows = [...container.querySelectorAll('[role="tabpanel"] li')].map((li) => li.textContent);
+    expect(rows[0]).toContain('Not started'); expect(rows[0]).toContain('Start quiz'); expect(rows[0]).toMatch(/Due \w{3}, Nov 20/);
+    expect(rows[1]).toContain('Not open now'); expect(rows[1]).toContain('View quiz'); expect(rows[1]).not.toContain('Start quiz');
+  });
+
+  it('A06: lists only quizzes delivered to the student’s class, once each', async () => {
+    mocks.sessionState = { session: { access_token: 'ready-token', expires_at: 10, user: { id: 'student-1' } }, loading: false, sessionRevision: 1 };
+    mocks.coursePaths.mockResolvedValue([course1Path]);
+    mocks.quizzes.mockResolvedValue([
+      { ...mockQuizzes[0], quiz_title: 'Delivered quiz', assignment_id: 'y1', classroom_assignment_id: 'ca-quiz-1' },
+      { ...mockQuizzes[0], quiz_title: 'Delivered quiz', assignment_id: 'y1', classroom_assignment_id: 'ca-quiz-1' },
+      { ...mockQuizzes[2], quiz_title: 'Another class copy', assignment_id: 'y2', classroom_assignment_id: null },
+    ]);
+    await renderRoute('/my-learning?tab=quizzes');
+    for (let i = 0; i < 4; i += 1) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(container.querySelectorAll('[role="tabpanel"] li')).toHaveLength(1);
+    expect(container.textContent).not.toContain('Another class copy');
+    expect(container.querySelector('#tab-quizzes')?.textContent).toContain('1');
   });
 
   it('renders genuine empty state when no courses and no quizzes exist', async () => {

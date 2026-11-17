@@ -1,6 +1,7 @@
 /** NestJS is the only application-data boundary for the browser. */
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
+  /** `code` is the machine-readable reason some endpoints send (e.g. ASSIGNMENT_CLOSED); absent when the server sends none. */
+  constructor(readonly status: number, message: string, readonly code?: string) { super(message); }
 }
 
 const baseUrl = (((import.meta as any).env?.VITE_API_BASE_URL as string | undefined) ?? "/api/v1").replace(/\/$/, "");
@@ -11,8 +12,8 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Cache-Control": "no-store" },
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as { message?: string } | null;
-    throw new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`);
+    const body = await response.json().catch(() => null) as { message?: string; code?: string } | null;
+    throw new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`, typeof body?.code === "string" ? body.code : undefined);
   }
   return response.json() as Promise<T>;
 }
@@ -24,8 +25,8 @@ export async function apiGetOptional<T>(path: string, accessToken: string): Prom
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Cache-Control": "no-store" },
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as { message?: string } | null;
-    throw new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`);
+    const body = await response.json().catch(() => null) as { message?: string; code?: string } | null;
+    throw new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`, typeof body?.code === "string" ? body.code : undefined);
   }
   const text = await response.text();
   return text.trim() ? JSON.parse(text) as T : null;
@@ -223,11 +224,17 @@ export interface KnowledgeCheckSubmissionResult {
   passPercent: number;
   completedLessonId: string | null;
   newlyUnlockedLessonIds: string[];
+  /** Question Bank quizzes only (POST knowledge-check and the stored result_snapshot). Correct answers are never included. */
+  earnedPoints?: number;
+  possiblePoints?: number;
+  feedback?: KnowledgeCheckQuestionFeedback[];
 }
+
+export interface KnowledgeCheckQuestionFeedback { questionVersionId: string; correct: boolean; earnedPoints: number; possiblePoints: number; explanation: string | null; }
 
 export async function apiRequest<T>(path: string, accessToken: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { method, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
-  if (!response.ok) { const payload = await response.json().catch(() => null) as { message?: string } | null; throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`); }
+  if (!response.ok) { const payload = await response.json().catch(() => null) as { message?: string; code?: string } | null; throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`, typeof payload?.code === "string" ? payload.code : undefined); }
   return response.json() as Promise<T>;
 }
 

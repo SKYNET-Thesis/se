@@ -3,6 +3,8 @@ import React, { useRef, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AttemptHistory } from '../components/submission/AttemptHistory';
+import { QuizOverview } from '../components/learning/QuizOverview';
+import { quizErrorMessage } from '../queries/quizAttemptModel';
 import { assignmentKind, kindLabel, nextAction, windowLabel, windowState } from '../components/submission/submissionState';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -35,8 +37,11 @@ export function StudentAssignmentDetail() {
     onSettled: () => { actionLock.current = false; },
   });
 
-  if (assignment.isLoading || history.isLoading) return <main className="mx-auto max-w-4xl px-5 py-10 text-sm text-ink-muted">Loading assignment…</main>;
-  if (assignment.error || !assignment.data) return <main className="mx-auto max-w-4xl px-5 py-10"><EmptyState title="Assignment unavailable" description={assignment.error instanceof Error ? assignment.error.message : 'This assignment is unavailable.'} /></main>;
+  if (assignment.isLoading || history.isLoading) return <main aria-busy="true" className="mx-auto max-w-4xl px-5 py-10 text-sm text-ink-muted">Loading…</main>;
+  // Raw API text is never shown; the server answers 404 for anything the student may not open.
+  if (assignment.error || !assignment.data) return <main className="mx-auto max-w-4xl px-5 py-10"><EmptyState title="Assignment unavailable" description={quizErrorMessage(assignment.error, 'load').replace('This quiz', 'This assignment')} action={<Link to="/my-learning" className="inline-flex min-h-[44px] items-center text-sm font-semibold text-accent hover:text-accent-hover">Back to My learning</Link>} /></main>;
+  // A06: quizzes get the focused quiz page; programming and other assignments keep this view.
+  if (assignmentKind(assignment.data.constraints) === 'quiz') return <QuizOverview assignment={assignment.data} attempts={history.data ?? []} historyFailed={history.isError} token={token} userId={session?.user.id} />;
 
   const item = assignment.data;
   const attempts = history.data ?? [];

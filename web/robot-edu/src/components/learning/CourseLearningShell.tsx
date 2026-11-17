@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BookOpenIcon, CheckIcon, ChevronDownIcon, MenuIcon, LockIcon, XIcon } from 'lucide-react';
+import { BookOpenIcon, CheckIcon, ChevronDownIcon, MenuIcon, LockIcon, PanelLeftCloseIcon, PanelLeftOpenIcon, XIcon } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { progressionApi, type CoursePathLesson, type LessonDetailResponse } from '../../lib/api';
@@ -13,6 +13,15 @@ import { ActivityCard } from './ActivityCard';
 import { activityCompletionState } from './activityCompletionState';
 import { useActivityProgress } from './useActivityProgress';
 
+/** Whether the desktop lesson list is hidden, remembered for this browser session (storage may be unavailable). */
+function readCollapsed(mode: 'content' | 'quiz'): boolean {
+  try { const stored = window.sessionStorage.getItem(`vista.lessonList.hidden.${mode}`); if (stored !== null) return stored === '1'; } catch { /* private mode */ }
+  return mode === 'quiz';
+}
+function writeCollapsed(mode: 'content' | 'quiz', hidden: boolean) {
+  try { window.sessionStorage.setItem(`vista.lessonList.hidden.${mode}`, hidden ? '1' : '0'); } catch { /* private mode */ }
+}
+
 export function CourseLearningShell({
   courseId,
   lessonId,
@@ -20,6 +29,7 @@ export function CourseLearningShell({
   pathOverride,
   focused = false,
   activityId,
+  mode = 'content',
   children,
 }: {
   courseId: string;
@@ -28,13 +38,21 @@ export function CourseLearningShell({
   pathOverride?: { lessons: CoursePathLesson[] };
   focused?: boolean;
   activityId?: string;
+  /** 'quiz' starts with the lesson list hidden on desktop so the question has the room; either choice is remembered. */
+  mode?: 'content' | 'quiz';
   children: React.ReactNode;
 }) {
   const { session } = useSupabaseSession();
   const location = useLocation();
   const focusedRoute = focused || /\/activities\//.test(location.pathname);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [focusedNavigatorCollapsed, setFocusedNavigatorCollapsed] = useState(false);
+  const [focusedNavigatorCollapsed, setFocusedNavigatorCollapsedState] = useState(() => readCollapsed(mode));
+  useEffect(() => setFocusedNavigatorCollapsedState(readCollapsed(mode)), [mode]);
+  const setFocusedNavigatorCollapsed = (update: (collapsed: boolean) => boolean) => setFocusedNavigatorCollapsedState((current) => {
+    const next = update(current);
+    writeCollapsed(mode, next);
+    return next;
+  });
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>(() => {
     const cached = sessionExpandedState[courseId] ?? {};
     return {
@@ -137,13 +155,13 @@ export function CourseLearningShell({
       {focusedRoute && (
         <button
           type="button"
-          className="hidden h-10 w-10 shrink-0 items-center justify-center self-start rounded-lg border border-line bg-surface text-ink transition-colors duration-150 ease-out hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-reduce:transition-none lg:inline-flex"
-          aria-label={focusedNavigatorCollapsed ? 'Show course material' : 'Hide course material'}
+          className="hidden min-h-[40px] shrink-0 items-center gap-2 self-start rounded-lg border border-line bg-surface px-3 text-sm font-medium text-ink transition-colors duration-150 ease-out hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent motion-reduce:transition-none lg:inline-flex"
           aria-expanded={!focusedNavigatorCollapsed}
           aria-controls="course-material-nav"
           onClick={() => setFocusedNavigatorCollapsed((collapsed) => !collapsed)}
         >
-          <MenuIcon className="h-4 w-4" />
+          {focusedNavigatorCollapsed ? <PanelLeftOpenIcon className="h-4 w-4" aria-hidden /> : <PanelLeftCloseIcon className="h-4 w-4" aria-hidden />}
+          {focusedNavigatorCollapsed ? 'Show lessons' : 'Hide lessons'}
         </button>
       )}
 
@@ -161,12 +179,10 @@ export function CourseLearningShell({
         aria-label="Course Material"
         role={mobileOpen ? 'dialog' : undefined}
         aria-modal={mobileOpen ? true : undefined}
-        className={`${mobileOpen ? 'block' : 'hidden'} fixed inset-y-0 left-0 z-40 w-[min(90vw,22rem)] shrink-0 overflow-y-auto bg-surface transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none lg:static lg:z-auto lg:block lg:w-auto lg:overflow-visible ${
-          focusedRoute
-            ? focusedNavigatorCollapsed
-              ? 'lg:w-0 lg:overflow-hidden lg:opacity-0'
-              : 'lg:w-72 lg:opacity-100'
-            : 'lg:w-72'
+        // No `lg:w-auto` here: it outranked lg:w-72 / lg:w-0 in the generated CSS, so the list grew to ~500px and "hiding"
+        // it only made it transparent while it kept its space. Hidden now means `lg:hidden` (out of layout and tab order).
+        className={`${mobileOpen ? 'block' : 'hidden'} fixed inset-y-0 left-0 z-40 w-[min(90vw,22rem)] shrink-0 overflow-y-auto bg-surface motion-reduce:transition-none lg:static lg:z-auto lg:overflow-visible ${
+          focusedRoute && focusedNavigatorCollapsed ? 'lg:hidden' : 'lg:block lg:w-80'
         }`}
       >
         <div
@@ -208,7 +224,7 @@ export function CourseLearningShell({
               <button
                 type="button"
                 onClick={expandAll}
-                className="inline-flex min-h-9 items-center rounded px-2 transition-colors duration-150 ease-out hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex min-h-9 items-center whitespace-nowrap rounded px-2 transition-colors duration-150 ease-out hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 aria-label="Expand all lessons"
               >
                 Expand all
@@ -219,7 +235,7 @@ export function CourseLearningShell({
               <button
                 type="button"
                 onClick={collapseAll}
-                className="inline-flex min-h-9 items-center rounded px-2 transition-colors duration-150 ease-out hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="inline-flex min-h-9 items-center whitespace-nowrap rounded px-2 transition-colors duration-150 ease-out hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 aria-label="Collapse all lessons"
               >
                 Collapse all

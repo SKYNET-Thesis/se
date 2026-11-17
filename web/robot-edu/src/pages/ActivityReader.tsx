@@ -6,7 +6,6 @@ import {
   ArrowRightIcon,
   CheckCircle2Icon,
   ClockIcon,
-  InfoIcon,
   LockIcon,
   RotateCcwIcon,
   ShieldAlertIcon,
@@ -22,10 +21,15 @@ import {
 import { catalogApi, learnerApi, learningMediaApi, progressionApi, type LessonDetailResponse } from '../lib/api';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
+import { isLessonKnowledgeCheck } from '../queries/quizAttemptModel';
+import { learningErrorMessage } from '../queries/studentLearningModel';
 import { Badge } from '../components/ui/Badge';
 import { ActivityContentPreview } from '../components/authoring/ActivityEditorPanel';
 import { createRobotExecutionClient, type PhysicalExecution } from '../lib/robotExecution';
 import { useActivityProgress } from '../components/learning/useActivityProgress';
+import { DemonstrationWalkthrough, ReadingChapter } from '../components/learning/InstructionalContent';
+import { LegacyKnowledgeCheck } from '../components/learning/LegacyKnowledgeCheck';
+import { readingPlan } from '../components/learning/lessonTeaching';
 
 function RobotReadinessPanel({
   lesson,
@@ -625,240 +629,59 @@ function PhysicalReflectionPanel({
   );
 }
 
-function PracticeQuiz({
-  lesson,
-  courseId,
-}: {
-  lesson: LessonDetailResponse;
-  courseId: string;
-}) {
-  const { session } = useSupabaseSession();
-  const queryClient = useQueryClient();
-  const [started, setStarted] = useState(false);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [index, setIndex] = useState(0);
-  const [result, setResult] = useState<{ passed: boolean; score: number } | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const questions =
-    lesson.assignment?.constraints?.kind === 'knowledge_check'
-      ? lesson.assignment.constraints.questions ?? []
-      : [];
-  const question = questions[index];
-
-  const submit = async () => {
-    if (!session || !lesson.assignment?.classroomAssignmentId) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      let attemptId = lesson.activeAttempt?.id;
-      if (!attemptId) {
-        attemptId = (
-          await learnerApi.createAttempt(
-            lesson.assignment.classroomAssignmentId,
-            session.access_token,
-          )
-        ).id;
-      }
-      const graded = await learnerApi.submitKnowledgeCheck(
-        attemptId,
-        {
-          answers: Object.entries(answers).map(([questionId, optionId]) => ({
-            questionId,
-            optionId,
-          })),
-        },
-        session.access_token,
-      );
-      setResult({ passed: graded.passed, score: graded.score });
-      if (graded.passed) {
-        void queryClient.invalidateQueries({ queryKey: studentLearningKeys.all });
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not submit this knowledge check.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (!started) {
-    return (
-      <main className="mx-auto w-full max-w-4xl px-2 py-8 md:px-8">
-        <section className="overflow-hidden rounded-2xl border border-line bg-surface">
-          <header className="bg-accent-soft px-7 py-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-accent-ink">
-              Practice Quiz
-            </p>
-            <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-ink md:text-4xl">
-              {lesson.assignment?.title ?? 'Knowledge Check'}
-            </h1>
-            <button
-              type="button"
-              onClick={() => setStarted(true)}
-              className="mt-6 inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white transition-colors duration-150 ease-out hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              Start assignment <ArrowRightIcon className="h-4 w-4" />
-            </button>
-          </header>
-          <div className="grid gap-8 px-7 py-8 md:grid-cols-[1fr_260px]">
-            <div>
-              <p className="text-base leading-7 text-ink-muted">
-                {lesson.assignment?.instructions ?? lesson.content?.summary}
-              </p>
-            </div>
-            <aside className="rounded-xl border border-line bg-surface p-5">
-              <h2 className="font-semibold text-ink">What to expect</h2>
-              <dl className="mt-4 space-y-3 text-sm text-ink-muted">
-                <div>
-                  <dt className="font-medium text-ink">Questions</dt>
-                  <dd>{questions.length || 'Provided by your instructor'}</dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-ink">Passing requirement</dt>
-                  <dd>Server-authoritative evaluation</dd>
-                </div>
-              </dl>
-            </aside>
-          </div>
-        </section>
-      </main>
-    );
+/** The assignment a database-section quiz activity links through content_ref; null for lessons without database sections. */
+function quizAssignmentRef(lesson: LessonDetailResponse, activityId: string): string | null {
+  for (const section of lesson.databaseSections ?? []) {
+    const ref = section.activities.find((item) => item.id === activityId)?.content_ref;
+    if (ref?.kind === 'assignment') return ref.id;
   }
+  return null;
+}
 
-  if (result) {
-    return (
-      <main className="mx-auto w-full max-w-3xl px-2 py-12 md:px-8">
-        <section
-          aria-live="polite"
-          className={`rounded-2xl border p-8 ${
-            result.passed
-              ? 'border-ok/30 bg-ok-soft/60'
-              : 'border-danger/30 bg-danger-soft/60'
-          }`}
-        >
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-accent-ink">
-            Practice Quiz result
-          </p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-ink">
-            {result.passed ? 'Knowledge Check Passed!' : 'Did not meet passing criteria'}
-          </h1>
-          <p className="mt-3 text-base text-ink-muted">
-            Score: {result.score}% — verified by the server.
-          </p>
-          <div className="mt-7 flex flex-wrap gap-3">
-            {result.passed ? (
-              <Link
-                to={`/courses/${courseId}`}
-                className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white transition-colors duration-150 ease-out hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              >
-                Continue learning <ArrowRightIcon className="h-4 w-4" />
-              </Link>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setResult(null);
-                    setAnswers({});
-                    setIndex(0);
-                  }}
-                  className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white transition-colors duration-150 ease-out hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  <RotateCcwIcon className="h-4 w-4" /> Try again
-                </button>
-                <Link
-                  to={`/courses/${courseId}/lessons/${lesson.id}`}
-                  className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface px-4 py-2.5 text-sm font-semibold text-ink transition-colors duration-150 ease-out hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  Review module overview
-                </Link>
-              </>
-            )}
-          </div>
-        </section>
-      </main>
-    );
-  }
-
-  if (!question) {
-    return <main className="p-8 text-ink-muted">Knowledge check content is unavailable.</main>;
-  }
-
+/** The lesson's quiz activity for a classroom quiz: what it is, where the student stands, and one link to the quiz page. */
+function QuizHandoff({ lesson, assignmentRefId }: { lesson: LessonDetailResponse; assignmentRefId?: string | null }) {
+  const { session, sessionRevision } = useSupabaseSession();
+  // Lesson detail carries ONE assignment per lesson. When this activity links a different quiz (a lesson with two
+  // quizzes), its delivery for the student's class is looked up in GET /me/quizzes by the activity's assignment id.
+  const ownAssignment = lesson.assignment && (!assignmentRefId || lesson.assignment.id === assignmentRefId) ? lesson.assignment : null;
+  const quizzes = useQuery({
+    queryKey: studentLearningKeys.quizzes(session?.user.id, sessionRevision),
+    queryFn: () => progressionApi.quizzes(session?.access_token ?? ''),
+    enabled: Boolean(session?.access_token) && !ownAssignment && Boolean(assignmentRefId),
+    staleTime: 30_000,
+  });
+  const listed = !ownAssignment && assignmentRefId ? quizzes.data?.find((quiz) => quiz.assignment_id === assignmentRefId && quiz.classroom_assignment_id) : undefined;
+  const assignment = ownAssignment ?? (listed ? { title: listed.quiz_title, instructions: null as string | null, classroomAssignmentId: listed.classroom_assignment_id as string } : null);
+  const active = ownAssignment ? lesson.activeAttempt : listed?.status === 'in_progress' ? { id: listed.attempt_id } : null;
+  const prior = ownAssignment ? lesson.priorAttempt : listed && listed.score !== null ? { score: listed.score } : null;
+  if (!ownAssignment && assignmentRefId && quizzes.isLoading) return <main aria-busy="true" className="mx-auto w-full max-w-3xl px-2 py-8 text-sm text-ink-muted md:px-8">Loading quiz…</main>;
   return (
     <main className="mx-auto w-full max-w-3xl px-2 py-8 md:px-8">
-      <section className="rounded-2xl border border-line bg-surface p-7 shadow-hairline">
-        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-accent-ink">
-          Practice Quiz
-        </p>
-        <h1 className="mt-2 text-2xl font-bold text-ink md:text-3xl">
-          {lesson.assignment?.title}
-        </h1>
-        <p className="mt-4 text-xs font-medium text-ink-muted">
-          Question {index + 1} of {questions.length}
-        </p>
-        <fieldset className="mt-5">
-          <legend className="text-lg font-semibold text-ink leading-snug">
-            {question.prompt}
-          </legend>
-          <div className="mt-5 space-y-3">
-            {question.options.map((option) => (
-              <label
-                key={option}
-                className={`flex cursor-pointer items-center gap-3 rounded-lg border p-4 text-sm transition-colors duration-150 ease-out ${
-                  answers[question.id] === option
-                    ? 'border-accent bg-accent-soft font-medium text-accent-ink'
-                    : 'border-line hover:bg-sunken text-ink'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name={question.id}
-                  checked={answers[question.id] === option}
-                  onChange={() =>
-                    setAnswers((value) => ({ ...value, [question.id]: option }))
-                  }
-                  className="h-4 w-4 text-accent"
-                />
-                <span className="capitalize">{option.replace(/_/g, ' ')}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        {error && (
-          <p role="alert" className="mt-4 text-sm font-medium text-danger">
-            {error}
+      <header className="border-b border-line pb-5">
+        <p className="text-sm font-medium text-ink-muted">Quiz</p>
+        <h1 className="mt-1 text-3xl font-bold tracking-tight text-ink md:text-4xl">{assignment?.title ?? 'Knowledge check'}</h1>
+      </header>
+      {quizzes.isError && !assignment && <p role="alert" className="mt-6 rounded-lg bg-danger-soft px-4 py-3 text-sm text-danger">{learningErrorMessage(quizzes.error, 'quizzes')}</p>}
+      {assignment ? (
+        <>
+          {assignment.instructions && <p className="mt-6 max-w-[68ch] whitespace-pre-wrap text-[16px] leading-7 text-ink">{assignment.instructions}</p>}
+          <p className="mt-6 text-[15px] text-ink-muted">
+            {active
+              ? 'You have an attempt in progress. Your answers were saved.'
+              : prior && prior.score !== null
+                ? `Your latest score is ${Number(prior.score)}%.`
+                : 'The quiz opens on its own page, where you can see when it closes and how many attempts you have.'}
           </p>
-        )}
-        <div className="mt-8 flex items-center justify-between border-t border-line pt-4">
-          <button
-            type="button"
-            disabled={index === 0}
-            onClick={() => setIndex((value) => value - 1)}
-            className="rounded-lg border border-line px-4 py-2 text-sm font-semibold transition-colors duration-150 ease-out hover:bg-sunken disabled:opacity-40 disabled:cursor-not-allowed"
+          <Link
+            to={`/my-learning/${assignment.classroomAssignmentId}`}
+            className="mt-6 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-accent px-5 text-sm font-semibold text-white transition-colors duration-150 ease-out hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
           >
-            Previous
-          </button>
-          {index === questions.length - 1 ? (
-            <button
-              type="button"
-              disabled={submitting}
-              onClick={() => void submit()}
-              className="rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-white transition-colors duration-150 ease-out hover:bg-accent-hover disabled:opacity-50"
-            >
-              {submitting ? 'Submitting…' : 'Submit assignment'}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setIndex((value) => value + 1)}
-              className="rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-white transition-colors duration-150 ease-out hover:bg-accent-hover"
-            >
-              Next
-            </button>
-          )}
-        </div>
-      </section>
+            {active ? 'Continue quiz' : prior ? 'Open quiz' : 'Go to quiz'} <ArrowRightIcon className="h-4 w-4" aria-hidden />
+          </Link>
+        </>
+      ) : quizzes.isError ? null : (
+        <p className="mt-6 text-[15px] text-ink-muted">This quiz isn’t open for your class yet. Your teacher will open it when it’s time.</p>
+      )}
     </main>
   );
 }
@@ -998,9 +821,17 @@ export function ActivityReader() {
         lessonId={lessonId}
         lesson={lesson}
         focused
+        mode="quiz"
         activityId={activity.id}
       >
-        <PracticeQuiz lesson={lesson} courseId={courseId} />
+        {(() => {
+          const assignmentRefId = quizAssignmentRef(lesson, activity.id);
+          // Course 1 knowledge checks carry their questions in the lesson assignment; classroom quizzes are taken on their quiz page.
+          if (!isLessonKnowledgeCheck(lesson.assignment?.constraints) || (assignmentRefId && lesson.assignment?.id !== assignmentRefId)) return <QuizHandoff lesson={lesson} assignmentRefId={assignmentRefId} />;
+          const firstReading = activities.find((item) => item.type === 'reading');
+          return <LegacyKnowledgeCheck lesson={lesson} courseId={courseId} previouslyPassed={completed}
+            reviewHref={firstReading ? `/courses/${courseId}/lessons/${lessonId}/activities/${firstReading.id}` : null} />;
+        })()}
       </CourseLearningShell>
     );
   }
@@ -1016,90 +847,23 @@ export function ActivityReader() {
       <main className="min-h-[70vh] px-1 py-4 md:px-6 md:py-8">
         <LearningBreadcrumb items={[{ label: 'My learning', to: '/my-learning' }, { label: lesson.course_title || 'Course Path', to: `/courses/${courseId}` }, { label: lesson.title, to: `/courses/${courseId}/lessons/${lessonId}` }, { label: activity.title }]} />
 
-        <header className="mt-6 border-b border-line pb-6">
-          <p className="text-sm font-medium tabular-nums text-ink-muted">Activity {index + 1} of {activities.length}</p>
-          <h1 className="mt-1 text-3xl font-bold tracking-tight text-ink md:text-4xl">
+        <header className="mx-auto mt-6 max-w-3xl border-b border-line pb-6">
+          <p className="flex flex-wrap items-center gap-x-2 text-sm tabular-nums text-ink-muted">
+            <span className="font-semibold text-accent">{activityTypeLabels[activity.type]}{activity.type === 'demonstration' && lesson.ordinal !== 5 && activity.content?.version !== 1 ? ' · written walkthrough' : ''}</span>
+            <span aria-hidden>·</span><span>Activity {index + 1} of {activities.length}</span>
+            {activity.durationMinutes ? <><span aria-hidden>·</span><span>{activity.durationMinutes} min</span></> : null}
+          </p>
+          <h1 className="mt-2 text-balance text-[30px] font-semibold leading-tight tracking-[-0.02em] text-ink md:text-[36px]">
             {activity.title}
           </h1>
-          <div className="mt-3 flex items-center gap-2">
-            <Badge tone="accent">{activityTypeLabels[activity.type]}</Badge>
-            {activity.durationMinutes && (
-              <span className="text-xs font-medium text-ink-muted">
-                {activity.durationMinutes} min
-              </span>
-            )}
-          </div>
         </header>
 
         <article className="mx-auto mt-8 max-w-3xl space-y-8 text-[16px] leading-7 text-ink [&_li]:max-w-[68ch] [&_p]:max-w-[68ch]">
           {activity.type === 'reading' && (
             activity.content?.version === 1 && Array.isArray(activity.content.blocks) ?
-              <StudentActivityContent activityId={activity.id} content={activity.content} token={session?.access_token ?? ''} /> : <>
-              <p className="text-lg leading-relaxed text-ink-muted">
-                {activity.description}
-              </p>
-
-              <section className="space-y-6">
-                <h2 className="text-2xl font-bold tracking-tight text-ink">
-                  Learn the Concepts
-                </h2>
-
-                {lesson.ordinal === 2 ? (
-                  <div className="space-y-6">
-                    <div>
-                      <h3 className="text-lg font-semibold text-ink">
-                        Deterministic Sequencing
-                      </h3>
-                      <p className="mt-2 text-ink/90">
-                        Robots execute instructions one step at a time in sequence. The home
-                        command ensures the robot starts from an exact, known position.
-                      </p>
-                    </div>
-
-                    <div>
-                      <h3 className="text-lg font-semibold text-ink">
-                        Target Positioning
-                      </h3>
-                      <p className="mt-2 text-ink/90">
-                        Instead of manual joint angles, VISTA specifies target positions in the
-                        robot&apos;s 3D workspace. The system determines the movement required to
-                        reach the target.
-                      </p>
-                    </div>
-
-                    <div>
-                      <h3 className="text-lg font-semibold text-ink">
-                        Pauses &amp; Motion Timing
-                      </h3>
-                      <p className="mt-2 text-ink/90">
-                        Wait commands allow motion to stabilize between consecutive actions.
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  lesson.content?.conceptSections?.map((section) => (
-                    <div key={section.title}>
-                      <h3 className="text-lg font-semibold text-ink">{section.title}</h3>
-                      <p className="mt-2 text-ink/90">{section.content}</p>
-                    </div>
-                  ))
-                )}
-              </section>
-
-              {lesson.content?.safetyNotes?.length ? (
-                <section className="rounded-xl border border-danger/30 bg-danger-soft/60 p-6">
-                  <div className="flex items-center gap-2">
-                    <ShieldAlertIcon className="h-5 w-5 text-danger" />
-                    <h3 className="text-lg font-semibold text-danger">Safety Protocols</h3>
-                  </div>
-                  <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-relaxed text-ink/90">
-                    {lesson.content.safetyNotes.map((note) => (
-                      <li key={note}>{note}</li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-            </>
+              <StudentActivityContent activityId={activity.id} content={activity.content} token={session?.access_token ?? ''} />
+              // Course 1 content: this reading's own concept section(s) from the lesson, never another lesson's text.
+              : <ReadingChapter plan={readingPlan(lesson.content, activities, activity.id)} title={activity.title} fallback={activity.description} />
           )}
 
           {activity.type === 'video' && <StudentActivityContent activityId={activity.id} content={activity.content ?? {}} token={session?.access_token ?? ''} />}
@@ -1107,9 +871,9 @@ export function ActivityReader() {
           {activity.type === 'demonstration' && (
             <>
               {activity.content?.version === 1 && typeof activity.content.instructions === 'string' && <ActivityContentPreview content={activity.content} />}
-              <p className="text-lg leading-relaxed text-ink-muted">
+              {lesson.ordinal === 5 && <p className="text-lg leading-relaxed text-ink-muted">
                 {activity.description}
-              </p>
+              </p>}
 
               {lesson.ordinal === 5 ? (
                 <section className="space-y-6">
@@ -1191,53 +955,15 @@ export function ActivityReader() {
                     </div>
                   )}
                 </section>
-              ) : (
-                <section className="space-y-6">
-                  <h2 className="text-2xl font-bold tracking-tight text-ink">
-                    Robot Concept in Action
-                  </h2>
-
-                  <div className="space-y-4">
-                    <p className="text-ink/90">
-                      The robot computes the required arm pose to place the gripper at the commanded 3D
-                      coordinates. Sequencing <code className="rounded bg-sunken px-1.5 py-0.5 font-mono text-sm">home → move to target → wait</code> creates
-                      safe, reproducible movement.
-                    </p>
-
-                    <div className="space-y-3 pt-2">
-                      <h3 className="text-lg font-semibold text-ink">How the Robot Interprets the Target</h3>
-                      <p className="text-ink/90">
-                        Instead of manual joint angles, target positions exist in 3D Cartesian workspace coordinates (X, Y, Z). The system solves inverse kinematics to position the end-effector accurately.
-                      </p>
-                    </div>
-
-                    <div className="space-y-3">
-                      <h3 className="text-lg font-semibold text-ink">Deterministic Motion Sequencing</h3>
-                      <p className="text-ink/90">
-                        Executing <code className="rounded bg-sunken px-1.5 py-0.5 font-mono text-sm">home → move to target → wait</code> ensures predictable state: homing resets the baseline, target motion plans safe interpolation, and wait dampens vibrations.
-                      </p>
-                    </div>
-
-                    <div className="space-y-3">
-                      <h3 className="text-lg font-semibold text-ink">Preview Simulation Verification</h3>
-                      <p className="text-ink/90">
-                        Before sending execution commands to physical hardware, preview simulation calculates and visualizes the complete trajectory to verify coordinate reachability and obstacle clearance.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-accent/20 bg-accent-soft/50 p-6">
-                    <div className="flex items-center gap-2">
-                      <InfoIcon className="h-5 w-5 text-accent-ink" />
-                      <h3 className="text-base font-semibold text-accent-ink">
-                        Simulation Preview
-                      </h3>
-                    </div>
-                    <p className="mt-2 text-sm leading-relaxed text-ink/90">
-                      Observe the preview simulation to verify the robot trajectory before execution.
-                    </p>
-                  </div>
-                </section>
+              ) : activity.content?.version === 1 ? null : (
+                // Course 1 has no demonstration media, so this is a written walkthrough of THIS lesson's robot concept
+                // (it used to show the same fixed Lesson 2 text and a text-only "Simulation Preview" box in every lesson).
+                <DemonstrationWalkthrough
+                  concept={lesson.content?.robotConcept || activity.description}
+                  task={lesson.content?.taskPreview}
+                  nextHref={activities[index + 1] && activities[index + 1].type !== 'demonstration' ? `/courses/${courseId}/lessons/${lessonId}/activities/${activities[index + 1].id}` : null}
+                  nextTitle={activities[index + 1]?.title}
+                />
               )}
             </>
           )}
@@ -1400,21 +1126,25 @@ export function ActivityReader() {
           )}
 
           {(activity.type === 'reading' || activity.type === 'demonstration') && (
-            <section className="border-t border-line pt-6" aria-busy={savingCompletion}>
+            // A line, not a card: completion is a quiet status at the end of the reading.
+            <section aria-label="Your progress" className="flex max-w-[68ch] flex-wrap items-center justify-between gap-x-6 gap-y-3 text-[17px]" aria-busy={savingCompletion}>
               {completed ? (
-                <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-ok"><CheckCircle2Icon className="h-4 w-4" aria-hidden /> Activity completed</p>
+                <p className="inline-flex items-center gap-2 text-[15px] font-semibold text-ok"><CheckCircle2Icon className="h-5 w-5" aria-hidden /> Activity completed</p>
               ) : (
-                <button
-                  type="button"
-                  disabled={savingCompletion || !session || !progressQuery.data?.activities}
-                  onClick={() => void markCompleted()}
-                  className="min-h-11 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
-                >
-                  {savingCompletion ? 'Saving…' : 'Mark as Completed'}
-                </button>
+                <>
+                  <p className="text-[15px] text-ink-muted">Finished? Mark this {activity.type === 'demonstration' ? 'demonstration' : 'reading'} complete to track your progress.</p>
+                  <button
+                    type="button"
+                    disabled={savingCompletion || !session || !progressQuery.data?.activities}
+                    onClick={() => void markCompleted()}
+                    className="min-h-11 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white transition-colors duration-150 hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50"
+                  >
+                    {savingCompletion ? 'Saving…' : 'Mark as complete'}
+                  </button>
+                </>
               )}
-              {completionError && <p role="alert" className="mt-2 text-sm text-danger">{completionError}</p>}
-              {completionNotice && <p role="status" className="mt-2 text-sm text-ok">{completionNotice}</p>}
+              {completionError && <p role="alert" className="basis-full text-sm text-danger">{completionError}</p>}
+              {completionNotice && <p role="status" className="sr-only">{completionNotice}</p>}
             </section>
           )}
 
@@ -1432,7 +1162,7 @@ export function ActivityReader() {
 
         <nav
           aria-label="Activity navigation"
-          className="mt-14 flex items-center justify-between border-t border-line pt-6"
+          className="mt-10 flex items-center justify-between border-t border-line pt-6"
         >
           <button
             type="button"
