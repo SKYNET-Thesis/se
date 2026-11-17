@@ -171,7 +171,12 @@ class StaticSafeguardTests(unittest.TestCase):
         self.assertEqual(d_i["versions"], [e["version"] for e in manifest["migrations"]][: len(d_i["versions"])])
         self.assertIn("20261114_j_one_submission_per_attempt", d_i["excludedVersions"])  # Stage J can never ride along with D-I
         registered = [e["version"] for e in manifest["migrations"]]
-        self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"] + scopes["K-M"]["versions"])  # J precedes K-M in the manifest
+        reviewed = d_i["versions"] + scopes["J"]["versions"] + scopes["K-M"]["versions"]
+        self.assertEqual(registered[:len(reviewed)], reviewed)  # J precedes K-M in the manifest
+        # WF-01 migration N is local-only pending its own reviewed release scope.
+        unscoped = registered[len(reviewed):]
+        self.assertEqual(unscoped, ["20261117_n_wf01_robot_allocation_permission"])
+        self.assertNotIn(unscoped[0], {version for scope in scopes.values() for version in scope["versions"]})
         self.assertEqual(scopes["K-M"]["requiresApplied"], d_i["versions"] + scopes["J"]["versions"])  # K-M needs exactly D-J applied: J is a hard prerequisite
         self.assertEqual(scopes["K-M"]["excludedVersions"], [])
         self.assertEqual(scopes["K-M"]["productionStatus"].split()[0], "BLOCKED")
@@ -536,6 +541,9 @@ class ReleaseFlowTests(unittest.TestCase):
         manifest = json.loads(manifest_path.read_text())
         # Later, separately reviewed scopes (K-M) are never part of the D-I/J scenarios either.
         later = set(json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"].get("K-M", {}).get("versions", []))
+        # Local workflow candidates without a reviewed Production scope are not
+        # copied into synthetic Production release repositories.
+        later.update({"20261117_n_wf01_robot_allocation_permission"})
         manifest["migrations"] = [e for e in manifest["migrations"] if e["version"] != J_VERSION and e["version"] not in later]  # D-I scenarios never see Stage J
         (repo / "database/migrations" / f"{J_VERSION}.sql").unlink(missing_ok=True)
         for version in later:

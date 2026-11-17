@@ -349,7 +349,15 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertEqual(j["requiresApplied"], d_i["versions"])
         manifest = json.loads((ROOT / "database/migrations/manifest.json").read_text())["migrations"]
         km = scopes["scopes"]["K-M"]  # authoring capabilities, runtime role and PUBLIC TEMP revocation: their own scope
-        self.assertEqual([e["version"] for e in manifest], d_i["versions"] + j["versions"] + km["versions"])  # J precedes K-M in source ordering
+        approved = d_i["versions"] + j["versions"] + km["versions"]
+        registered = [e["version"] for e in manifest]
+        self.assertEqual(registered[:len(approved)], approved)  # J precedes K-M in source ordering
+        # A locally verified workflow migration may be in the development manifest
+        # before it has a reviewed Production release scope. Keep that state
+        # explicit: no scope can apply the extra migration until it is reviewed.
+        unscoped = registered[len(approved):]
+        self.assertEqual(unscoped, ["20261117_n_wf01_robot_allocation_permission"])
+        self.assertNotIn(unscoped[0], {version for scope in scopes["scopes"].values() for version in scope["versions"]})
         self.assertEqual(km["requiresApplied"], d_i["versions"] + j["versions"])  # J is a hard prerequisite of K-M
         self.assertIn("BLOCKED", km["productionStatus"])  # hosted M compatibility remains unproven
 
