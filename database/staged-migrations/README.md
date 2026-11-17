@@ -1,6 +1,6 @@
 # Staged migrations (not part of the active release manifest)
 
-_Currently empty: D03 Stage 2 (`20261114_j_one_submission_per_attempt`) was activated and now lives in `database/migrations/` (manifest order 7). Release rules for it: [d03-stage2-release-runbook.md](../../docs/operations/d03-stage2-release-runbook.md)._
+_Currently holds only migration M (below). D03 Stage 2 (`20261114_j_one_submission_per_attempt`) was activated and now lives in `database/migrations/` (manifest order 7). Release rules for it: [d03-stage2-release-runbook.md](../../docs/operations/d03-stage2-release-runbook.md)._
 
 SQL here is **prepared but deliberately not registered** in `database/migrations/manifest.json`, and the manifest
 validator ignores this directory (it only scans `database/migrations/`). A staged migration is released separately,
@@ -9,6 +9,7 @@ after its prerequisites, by the procedure in its own header and in
 
 | File | Depends on | Release rule |
 | --- | --- | --- |
+| `20261116_m_revoke_public_temp_privilege.sql` (database-wide TEMP revocation) | L applied (K-L released and verified) | **Production-BLOCKED and unreleased.** Moved here byte-identical (SHA-256 `80619e7d…9f38`) so K and L can be released first (scope `K-L`); never marked applied. Hosted compatibility is unproven (platform roles beyond M's allowlist lose TEMP; see `docs/operations/production-lms-k-m-hosted-verification.md`). Released later only through its own reviewed scope `M`; PUBLIC TEMP stays an explicitly tracked residual risk until then. CI applies it to the disposable runner database so its tests keep running. |
 | `20261114_j_one_submission_per_attempt.sql` (D03 Stage 2) | `20261113_i_attempt_submission_foundation` applied | Released only through the approval-gated `Production Database Release` workflow with **scope `J`** (defined in `database/release-scopes.json`, pinned SHA-256, strict pre/post catalog counts, hash-bound data preview, J-specific postflight verifier `scripts/verify_production_release_j.py`). It is plannable only after its separately reviewed manifest activation. No automatic rollback (see the ops doc). The pre-D03 API must not be running (production already runs the D03 API). |
 
 To release a staged migration: move the file into `database/migrations/`, add its manifest entry (next contiguous
