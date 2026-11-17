@@ -28,7 +28,7 @@ cat > /usr/local/bin/vista-rollback-api <<'ROLLBACK'
 #!/bin/bash
 set -euo pipefail
 IMAGE="$(cat /opt/vista/previous-image)"
-exec /usr/local/bin/vista-deploy-api "$IMAGE"
+VISTA_ROLLBACK=1 exec /usr/local/bin/vista-deploy-api "$IMAGE"
 ROLLBACK
 chmod 700 /usr/local/bin/vista-rollback-api
 cat > /etc/vista-deploy.conf <<'CONF'

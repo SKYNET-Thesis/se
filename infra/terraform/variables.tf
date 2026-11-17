@@ -18,6 +18,12 @@ variable "github_repository" {
   default = "SKYNET-Thesis/se"
 }
 
+variable "github_deploy_environment" {
+  type        = string
+  default     = "aws-demo"
+  description = "GitHub environment whose OIDC subject may assume the deploy roles (must have required reviewers)."
+}
+
 variable "deploy_branch" {
   type    = string
   default = "main"
@@ -44,6 +50,24 @@ variable "enable_insecure_api_origin" {
   default     = false
   description = "Explicit approval gate: forwards Bearer tokens from CloudFront to EC2 over plaintext HTTP. Leave false until approved or replaced with TLS ingress."
 
+}
+
+variable "cloudfront_aliases" {
+  type        = list(string)
+  default     = ["skynex.best", "www.skynex.best"]
+  description = "Alternate domain names served by the web distribution (live Production)."
+}
+
+variable "cloudfront_acm_certificate_arn" {
+  type        = string
+  default     = "arn:aws:acm:us-east-1:157098813811:certificate/34e06040-c1ca-417a-944d-df194e1ed7f3"
+  description = "ACM certificate (us-east-1) for the aliases. Empty string uses the CloudFront default certificate and requires no aliases."
+}
+
+variable "api_origin_domain" {
+  type        = string
+  default     = "api.skynex.best"
+  description = "Public HTTPS hostname of the API origin (nginx + TLS on the EC2 instance)."
 }
 
 variable "web_bucket_name" {

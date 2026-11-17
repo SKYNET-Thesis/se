@@ -55,7 +55,7 @@ What the script does, in order:
 3. Creates the `NOLOGIN` roles that the baseline grants reference (`anon`, `authenticated`, `service_role`, `postgres`, `supabase_admin`) if missing.
 4. Restores the baseline in one transaction and compares catalog object counts with the dump.
 5. Applies the manifest migrations through `scripts/sql_migration_runner.py` (advisory lock, one transaction, ledger rows with checksums).
-6. Verifies the ledger equals the manifest, required objects and constraints, the K–M authorization/runtime-role/TEMP contracts, and the pinned `baselines/dev-schema-expectation.json`; a second run has nothing pending.
+6. Verifies the ledger equals the manifest, required objects and constraints, the K–L authorization/runtime-role contracts (M is staged and applied only to disposable CI databases), and the pinned `baselines/dev-schema-expectation.json`; a second run has nothing pending.
 7. Prints the schema fingerprint. Any database bootstrapped from the same commit prints the same fingerprint, and verification fails with "schema drift" if it differs from the pinned value (the fingerprint assumes a database owned by `vista_test`, as in the commands above).
 
 Expected PostgreSQL 17 result: 91 tables, 814 columns, 502 constraints, 246 indexes, 48 RLS policies,

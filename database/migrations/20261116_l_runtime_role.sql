@@ -2,9 +2,19 @@
 -- (The Question Bank global-scope changes that an earlier draft contained are migration F and are not repeated here.)
 -- The role is created LOGIN but password-less: set its password out of band after review; this migration never stores a secret.
 -- Table allowlist = tables referenced by runtime code (including learning_submission_files from migration I).
--- Public-schema TEMP privilege inherited from PUBLIC is handled separately by migration M.
+-- Public-schema TEMP privilege inherited from PUBLIC is handled separately by the staged migration M (database/staged-migrations).
 -- Future public tables are denied by default; update this frozen allowlist only through reviewed migration L' changes and runtime privilege tests.
--- Recovery: stop API use of this role, revoke its explicit grants/policies, and only then drop it after proving no ownership/dependencies remain.
+--
+-- REVISION (before any release): the first draft swept REVOKE ALL over EVERY non-system schema. On hosted Supabase the apply role `postgres` is not a
+-- superuser and has no privilege on platform-owned objects (for example pgbouncer.get_auth, functions in vault), so PostgreSQL raised
+-- "permission denied" and the whole migration aborted (reproduced on the Supabase PostgreSQL image). This version changes privileges only in the
+-- application schema `public` and instead ASSERTS (fail closed) that the role holds no explicit privilege on any object of another schema. A new role
+-- starts with none, so the narrower sweep is equivalent for a fresh role. This file was never applied to Production (its ledger ends at J) and never
+-- released; only disposable databases ever recorded the earlier checksum.
+--
+-- Recovery: stop API use of the role; drop its RLS policy (vista_app_runtime_backend_access) on each table that has it; REVOKE ALL explicitly on the
+-- database, schema public, every granted table and the one sequence; verify pg_shdepend holds nothing for the role; DROP ROLE. (DROP OWNED BY is not
+-- available to the apply role on PostgreSQL 17.) docs/operations/sql/k-l-rollback.sql is the tested sequence.
 -- Prisma connects directly as this single trusted backend identity. It cannot
 -- carry the end-user identity into PostgreSQL, so tenant checks remain in the
 -- NestJS service layer. These permissive policies are intentionally scoped to
@@ -49,7 +59,7 @@ BEGIN
   EXECUTE format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM vista_app_runtime', current_database());
   EXECUTE format('GRANT CONNECT ON DATABASE %I TO vista_app_runtime', current_database());
   FOR item IN SELECT nspname FROM pg_namespace
-    WHERE nspname NOT IN ('pg_catalog','information_schema')
+    WHERE nspname = 'public'  -- application schema only: platform-owned schemas are never touched
   LOOP
     EXECUTE format('REVOKE ALL PRIVILEGES ON SCHEMA %I FROM vista_app_runtime', item.nspname);
     EXECUTE format('REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I FROM vista_app_runtime', item.nspname);
@@ -58,6 +68,28 @@ BEGIN
   END LOOP;
 END $$;
 GRANT USAGE ON SCHEMA public TO vista_app_runtime;
+
+-- Fail closed if the role holds ANY explicit privilege outside the application schema (a pre-existing, previously granted role must be cleaned
+-- deliberately, not silently kept). PUBLIC-derived access is not a per-role privilege and is tracked separately (TEMP: staged migration M).
+DO $$
+DECLARE
+  runtime_oid oid := (SELECT oid FROM pg_roles WHERE rolname='vista_app_runtime');
+  offending text;
+BEGIN
+  SELECT string_agg(DISTINCT found.kind || ' ' || found.name, ', ') INTO offending FROM (
+    SELECT 'schema' AS kind, n.nspname::text AS name FROM pg_namespace n, LATERAL aclexplode(n.nspacl) a
+      WHERE a.grantee = runtime_oid AND n.nspname <> 'public'
+    UNION ALL
+    SELECT 'relation', n.nspname || '.' || c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace, LATERAL aclexplode(c.relacl) a
+      WHERE a.grantee = runtime_oid AND n.nspname <> 'public'
+    UNION ALL
+    SELECT 'function', n.nspname || '.' || p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace, LATERAL aclexplode(p.proacl) a
+      WHERE a.grantee = runtime_oid AND n.nspname <> 'public'
+  ) found;
+  IF offending IS NOT NULL THEN
+    RAISE EXCEPTION 'vista_app_runtime holds explicit privileges outside schema public (%); clean them up deliberately before running L', offending;
+  END IF;
+END $$;
 
 DO $$
 DECLARE

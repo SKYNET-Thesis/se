@@ -9,8 +9,9 @@ name: Production Database Release
 # proves it restores into a disposable PostgreSQL 17, stores it SSE-KMS encrypted in a private bucket (never a workflow artifact) and binds
 # the evidence to the project, scope, manifest, release commit and plan hash. The `apply` job (human approval) re-verifies that evidence.
 #
-# Scope: only reviewed scopes from database/release-scopes.json can be chosen: D-I, J (D03 Stage 2), and K-M.
-# K-M requires D-J already applied (J is a hard prerequisite); it never applies J itself. M remains production-blocked until hosted Supabase role compatibility is evidenced.
+# Scope: only reviewed scopes from database/release-scopes.json can be chosen: D-I, J (D03 Stage 2), and K-L (authoring capabilities + restricted runtime role).
+# K-L requires D-J already applied (J is a hard prerequisite); it never applies J itself and it EXCLUDES migration M (staged, unreleased; PUBLIC TEMP stays a tracked
+# residual risk). K-L is production-BLOCKED in code (HOSTED_BLOCKED_SCOPES) until the hosted read-only evidence, the restore rehearsal and the independent review are approved.
 
 on:
   workflow_dispatch:
@@ -18,7 +19,7 @@ on:
       scope:
         description: "Approved release scope"
         type: choice
-        options: ["D-I", "J", "K-M"]
+        options: ["D-I", "J", "K-L"]
         default: "J"
       backup_mode:
         description: "managed = verify Supabase managed backup/PITR (paid plans); logical = logical-dump backup + restore test (Supabase Free)"

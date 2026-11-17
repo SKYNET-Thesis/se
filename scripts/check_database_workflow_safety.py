@@ -38,6 +38,7 @@ FORBIDDEN = (
 RELEASE_WORKFLOW = "production-database-release.yml"
 CI_WORKFLOW = "backend-ci.yml"
 AUTO_DEPLOY_WORKFLOW = "auto-deploy.yml"
+EVIDENCE_WORKFLOW = "production-readiness-evidence.yml"
 
 def _logical_end(content: str, pos: int) -> int:
     """End index of the shell command line that continues at `pos` (following backslash continuations)."""
@@ -79,8 +80,8 @@ def other_workflow_problems(content: str) -> list[str]:
     """Every workflow except the release workflow: no apply path, no privileged secret, no way to start the release."""
     problems = []
     for sub in wrapper_subcommands(content):
-        if sub != "compat":
-            problems.append(f"only the read-only 'compat' subcommand of production_db_release may be used here (found {sub or 'unknown'!r})")
+        if sub not in ("compat", "evidence"):
+            problems.append(f"only the read-only 'compat' and 'evidence' subcommands of production_db_release may be used here (found {sub or 'unknown'!r})")
     if "PRODUCTION_DATABASE_APPLY_URL" in content:
         problems.append("the privileged production database credential may only be referenced by the release workflow")
     if BACKUP_SCRIPT in content or "DB_BACKUP_" in content:
@@ -341,6 +342,35 @@ def auto_deploy_problems(content: str) -> list[str]:
     return problems
 
 
+def evidence_workflow_problems(content: str) -> list[str]:
+    """production-readiness-evidence.yml: manual, main-only, read-only, redacted, no artifacts, no apply/plan/deploy."""
+    problems: list[str] = []
+    on_block = re.search(r"(?ms)^on:\n(.*?)(?=^\S)", content)
+    triggers = re.findall(r"^  ([a-z_]+):", on_block.group(1), re.M) if on_block else []
+    if triggers != ["workflow_dispatch"]:
+        problems.append(f"the evidence workflow must be triggered only by workflow_dispatch (found {triggers})")
+    jobs = _jobs(content)
+    if set(jobs) != {"evidence"}:
+        problems.append(f"the evidence workflow must contain only the evidence job (found {sorted(jobs)})")
+    job = jobs.get("evidence", "")
+    if not re.search(r"(?m)^    environment: production-database-preflight\s*$", job) or not re.search(r"(?m)^    if: github\.ref == 'refs/heads/main'\s*$", job):
+        problems.append("the evidence job must use the production-database-preflight environment and run only on refs/heads/main")
+    for forbidden in ("upload-artifact", "id-token", "configure-aws-credentials", "continue-on-error", "set -x", "xtrace", "PRODUCTION_DATABASE_APPLY_URL", "SUPABASE_ACCESS_TOKEN",
+                      "production_db_backup", "DB_BACKUP_", "sql_migration_runner", "aws ", "docker ", "gh workflow", "secrets: inherit", "pull_request", "contents: write", "actions: write"):
+        if forbidden in content:
+            problems.append(f"the evidence workflow must not contain {forbidden!r}")
+    used = set(re.findall(r"secrets\.([A-Z_]+)", content))
+    if used != {"PRODUCTION_DATABASE_READONLY_URL", "PRODUCTION_SUPABASE_URL"}:
+        problems.append(f"the evidence workflow may use only the two read-only Production secrets (found {sorted(used)})")
+    if wrapper_subcommands(content) != ["evidence"]:
+        problems.append("the evidence workflow may run only: production_db_release.py evidence")
+    permissions = re.search(r"(?ms)^permissions:\n(.*?)(?=^\S)", content)
+    granted = dict(re.findall(r"^  ([a-z-]+): (\w+)", permissions.group(1), re.M)) if permissions else {}
+    if granted != {"contents": "read"}:
+        problems.append(f"the evidence workflow permissions must be exactly contents: read (found {granted})")
+    return problems
+
+
 def inspect_workflows(directory: Path) -> list[str]:
     errors: list[str] = []
     if not directory.is_dir():
@@ -366,6 +396,8 @@ def inspect_workflows(directory: Path) -> list[str]:
             errors.extend(f"{path.relative_to(repo_root)}: {problem}" for problem in other_workflow_problems(content))
         if path.name == CI_WORKFLOW:
             errors.extend(f"{path.relative_to(repo_root)}: {problem}" for problem in backend_ci_problems(content))
+        if path.name == EVIDENCE_WORKFLOW:
+            errors.extend(f"{path.relative_to(repo_root)}: {problem}" for problem in evidence_workflow_problems(content))
         if path.name == AUTO_DEPLOY_WORKFLOW:
             errors.extend(f"{path.relative_to(repo_root)}: {problem}" for problem in auto_deploy_problems(content))
         elif re.search(r"(?m)^\s*workflow_run:", content) and not is_release_workflow:

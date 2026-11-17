@@ -11,6 +11,7 @@ resource "aws_cloudfront_origin_access_control" "web" {
 resource "aws_cloudfront_distribution" "web" {
 
   enabled             = true
+  aliases             = var.cloudfront_aliases
   is_ipv6_enabled     = true
   default_root_object = "index.html"
   price_class         = "PriceClass_200"
@@ -22,21 +23,19 @@ resource "aws_cloudfront_distribution" "web" {
 
   }
 
-  dynamic "origin" {
+  # Live Production API origin: HTTPS-only to the public API hostname (nginx + TLS on the EC2 instance).
+  origin {
 
-    for_each = var.enable_insecure_api_origin ? [1] : []
-    content {
+    domain_name = var.api_origin_domain
+    origin_id   = "vista-api"
+    custom_origin_config {
 
-      domain_name = aws_eip.api.public_dns
-      origin_id   = "api-ec2-http"
-      custom_origin_config {
-
-        http_port              = 80
-        https_port             = 443
-        origin_protocol_policy = "http-only"
-        origin_ssl_protocols   = ["TLSv1.2"]
-
-      }
+      http_port                = 80
+      https_port               = 443
+      origin_protocol_policy   = "https-only"
+      origin_ssl_protocols     = ["TLSv1.2"]
+      origin_read_timeout      = 30
+      origin_keepalive_timeout = 5
 
     }
 
@@ -59,21 +58,16 @@ resource "aws_cloudfront_distribution" "web" {
 
   }
 
-  dynamic "ordered_cache_behavior" {
+  ordered_cache_behavior {
 
-    for_each = var.enable_insecure_api_origin ? [1] : []
-    content {
-
-      path_pattern             = "/api/v1/*"
-      target_origin_id         = "api-ec2-http"
-      viewer_protocol_policy   = "https-only"
-      allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-      cached_methods           = ["GET", "HEAD"]
-      cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
-      origin_request_policy_id = aws_cloudfront_origin_request_policy.api.id
-      compress                 = true
-
-    }
+    path_pattern             = "/api/v1/*"
+    target_origin_id         = "vista-api"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods           = ["GET", "HEAD"]
+    cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+    compress                 = true
 
   }
 
@@ -84,8 +78,12 @@ resource "aws_cloudfront_distribution" "web" {
 
   }
 
+  # Live Production certificate (ACM, us-east-1, SNI). An empty ARN falls back to the CloudFront default certificate (no aliases allowed then).
   viewer_certificate {
-    cloudfront_default_certificate = true
+    cloudfront_default_certificate = var.cloudfront_acm_certificate_arn == ""
+    acm_certificate_arn            = var.cloudfront_acm_certificate_arn == "" ? null : var.cloudfront_acm_certificate_arn
+    ssl_support_method             = var.cloudfront_acm_certificate_arn == "" ? null : "sni-only"
+    minimum_protocol_version       = var.cloudfront_acm_certificate_arn == "" ? null : "TLSv1.2_2021"
   }
 
   tags = {
@@ -96,6 +94,10 @@ resource "aws_cloudfront_distribution" "web" {
 
 data "aws_cloudfront_cache_policy" "optimized" {
   name = "Managed-CachingOptimized"
+}
+
+data "aws_cloudfront_origin_request_policy" "all_viewer" {
+  name = "Managed-AllViewerExceptHostHeader"
 }
 
 data "aws_cloudfront_cache_policy" "disabled" {
@@ -112,6 +114,7 @@ resource "aws_cloudfront_function" "spa" {
 
 }
 
+# Kept (already in state; not used by the live behavior, which uses the managed AllViewer policy) so that no resource is destroyed.
 resource "aws_cloudfront_origin_request_policy" "api" {
 
   name    = "${var.project}-${var.environment}-api-all-viewer"

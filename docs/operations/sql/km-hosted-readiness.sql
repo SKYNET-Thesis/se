@@ -25,10 +25,6 @@ FROM pg_roles WHERE rolname !~ '^pg_' ORDER BY rolname;
 SELECT allowlist.role, EXISTS (SELECT 1 FROM pg_roles r WHERE r.rolname = allowlist.role) AS exists_here
 FROM unnest(ARRAY['postgres','supabase_admin','supabase_auth_admin','supabase_storage_admin','authenticator','anon','authenticated','service_role']) AS allowlist(role);
 
--- 6. Migration K prerequisites: canonical roles and the two permission codes (must exist / must not yet exist before K).
-SELECT code FROM public.roles WHERE code IN ('instructor', 'school_admin', 'student') ORDER BY code;
-SELECT code FROM public.permissions WHERE code IN ('learning.course.author', 'learning.course.publish') ORDER BY code;
-
 -- 7. Migration L: the runtime role must not exist yet (or exist with safe attributes) and must own nothing.
 SELECT rolname, rolcanlogin, rolsuper, rolinherit, rolbypassrls FROM pg_roles WHERE rolname = 'vista_app_runtime';
 
@@ -36,8 +32,25 @@ SELECT rolname, rolcanlogin, rolsuper, rolinherit, rolbypassrls FROM pg_roles WH
 SELECT n.nspname, pg_get_userbyid(n.nspowner) AS owner, has_schema_privilege(current_user, n.nspname, 'USAGE') AS reader_usage
 FROM pg_namespace n WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname !~ '^pg_(toast|temp)' ORDER BY 1;
 
+-- 8b. Migration L sweep PREVIEW for the apply role `postgres`: the sweep REVOKEs in every schema above. On PostgreSQL a REVOKE by a role that has no
+-- USAGE on the schema (even an empty one) or no privilege at all on a table raises "permission denied" and aborts the whole migration
+-- (verified on a disposable PostgreSQL 17 and on the Supabase PostgreSQL image, where `pgbouncer.get_auth` aborts L). Any row with apply_has_usage = false,
+-- or a non-zero count in a column, predicts that failure.
+SELECT n.nspname,
+       has_schema_privilege('postgres', n.nspname, 'USAGE') AS apply_has_usage,
+       (SELECT count(*) FROM pg_class c WHERE c.relnamespace = n.oid
+          AND CASE WHEN c.relkind IN ('r','p','v','m','f') THEN NOT has_table_privilege('postgres', c.oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') ELSE false END) AS tables_without_any_apply_privilege,
+       (SELECT count(*) FROM pg_class c WHERE c.relnamespace = n.oid
+          AND CASE WHEN c.relkind = 'S' THEN NOT has_sequence_privilege('postgres', c.oid, 'USAGE,SELECT,UPDATE') ELSE false END) AS sequences_without_any_apply_privilege,
+       (SELECT count(*) FROM pg_proc p WHERE p.pronamespace = n.oid AND NOT has_function_privilege('postgres', p.oid, 'EXECUTE')) AS functions_without_any_apply_privilege
+FROM pg_namespace n WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname !~ '^pg_(toast|temp)' ORDER BY 1;
+
 -- 9. Candidate TEMP consumers right now: connected roles/applications and sessions holding temporary schemas.
 SELECT usename, application_name, count(*) AS sessions FROM pg_stat_activity WHERE datname = current_database() GROUP BY 1, 2 ORDER BY 3 DESC;
 SELECT n.nspname AS temp_schema, count(*) AS temp_relations FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname ~ '^pg_temp_' GROUP BY 1;
+
+-- 6. Migration K prerequisites (kept LAST: it reads the application's own tables, so on a database without them it fails, and a failure aborts the rest of this read-only transaction): canonical roles and the two permission codes (must exist / must not yet exist before K).
+SELECT code FROM public.roles WHERE code IN ('instructor', 'school_admin', 'student') ORDER BY code;
+SELECT code FROM public.permissions WHERE code IN ('learning.course.author', 'learning.course.publish') ORDER BY code;
 
 ROLLBACK;

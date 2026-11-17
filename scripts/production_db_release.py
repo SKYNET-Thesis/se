@@ -39,6 +39,8 @@ try:
     from scripts import verify_production_release_d_i as verifier
     from scripts import verify_production_release_j as verifier_j
     from scripts import verify_production_release_km as verifier_km
+    from scripts import verify_production_release_kl as verifier_kl
+    from scripts import production_readiness_evidence as readiness
     from scripts.verify_schema_baseline import verify_baseline
 except ModuleNotFoundError:  # executed as a script from the repository root
     import sql_migration_runner as runner_module  # type: ignore
@@ -46,6 +48,8 @@ except ModuleNotFoundError:  # executed as a script from the repository root
     import verify_production_release_d_i as verifier  # type: ignore
     import verify_production_release_j as verifier_j  # type: ignore
     import verify_production_release_km as verifier_km  # type: ignore
+    import verify_production_release_kl as verifier_kl  # type: ignore
+    import production_readiness_evidence as readiness  # type: ignore
     from verify_schema_baseline import verify_baseline  # type: ignore
 
 MigrationRunner = runner_module.MigrationRunner
@@ -56,7 +60,10 @@ class ReleaseError(Exception):
 
 
 SCOPE_FILE = "database/release-scopes.json"
-VERIFIERS = {"d_i": verifier, "j": verifier_j, "km": verifier_km}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
+# Scopes that may never be planned or applied against Production until a reviewed code change removes them from this tuple (release metadata alone
+# cannot unblock them). K-L needs the hosted read-only evidence + restore rehearsal; M additionally needs its platform-role allowlist reviewed.
+HOSTED_BLOCKED_SCOPES = ("K-L", "M")
+VERIFIERS = {"d_i": verifier, "j": verifier_j, "kl": verifier_kl, "km": verifier_km}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
 
 
 def load_scopes(root: Path) -> dict:
@@ -186,8 +193,20 @@ def _catalog(runner: MigrationRunner, connection) -> dict:
     return _last_json(runner._psql(connection, sql))
 
 
+def refuse_blocked_scope(root: Path, args) -> dict:
+    """Fail closed BEFORE any database connection: a hosted-blocked scope is never planned or applied against a hosted database."""
+    definition = scope_definition(root, args.scope)
+    if args.scope in HOSTED_BLOCKED_SCOPES:
+        if not str(definition.get("productionStatus", "")).startswith("BLOCKED"):
+            raise ReleaseError(f"{args.scope} cannot be unblocked by release metadata; a dedicated reviewed change (hosted Supabase evidence, rehearsal, independent review) that removes it from HOSTED_BLOCKED_SCOPES is required")
+        if not args.allow_local_test_database:
+            raise ReleaseError(f"{args.scope} is marked production BLOCKED: hosted Supabase compatibility/recovery evidence is required before any hosted plan or apply")
+    return definition
+
+
 def build_plan(args, operation: str = "read") -> dict:
     root = _root(args)
+    definition = refuse_blocked_scope(root, args)
     env = _env_for(args)
     ref = _check_target(args, env, operation)
     (_require_reader_access if operation == "read" else _require_apply_role)(args, env)
@@ -199,12 +218,6 @@ def build_plan(args, operation: str = "read") -> dict:
         pending, already = runner._classify(entries, state["ledger_rows"])  # checksum/ordering/drift of the ledger
     except RunnerError as exc:
         raise ReleaseError(str(exc)) from None
-    definition = scope_definition(root, args.scope)
-    if args.scope == "K-M":
-        if not definition.get("productionStatus", "").startswith("BLOCKED"):
-            raise ReleaseError("K-M cannot be unblocked by release metadata; a dedicated reviewed implementation of hosted Supabase compatibility and recovery evidence is required")
-        if not args.allow_local_test_database:
-            raise ReleaseError("K-M is marked production BLOCKED: hosted Supabase compatibility/recovery evidence is required before any hosted plan or apply")
     versions = [e["version"] for e in entries]
     expected = list(definition["requiresApplied"]) + list(definition["versions"])
     if versions != expected:
@@ -225,7 +238,7 @@ def build_plan(args, operation: str = "read") -> dict:
     catalog = None
     data_preview = None
     if pending and definition.get("expectedCatalogBefore"):
-        # K-M requires the exact D-J catalog before it runs (L adds the runtime role's RLS policies; the pinned "after" reflects that).
+        # K-L requires the exact D-J catalog before it runs (L adds the runtime role's RLS policies; the pinned "after" reflects that).
         catalog = _catalog(runner, connection)
         drift = {k: (definition["expectedCatalogBefore"][k], catalog[k]) for k in CATALOG_KEYS if definition["expectedCatalogBefore"][k] != catalog[k]}
         if drift:
@@ -394,6 +407,7 @@ def apply_release(args) -> dict:
         raise ReleaseError("State changed since the approved plan (manifest, ledger, catalog or commit drift); refusing to apply")
 
     root = _root(args)
+    refuse_blocked_scope(root, args)  # before any database connection (the evidence files above are local reads)
     env = _env_for(args)
     ref = _check_target(args, env, "apply")
     _require_apply_role(args, env)
@@ -416,6 +430,20 @@ def apply_release(args) -> dict:
     if failed:
         raise ReleaseError("APPLIED, BUT POSTFLIGHT VERIFICATION FAILED: " + "; ".join(failed) + " | evidence: " + _canonical(evidence))
     return evidence
+
+
+def evidence(args) -> dict:
+    """Read-only hosted readiness evidence (booleans and counts only; see scripts/production_readiness_evidence.py). Fails closed when incomplete."""
+    root = _root(args)
+    env = _env_for(args)
+    _check_target(args, env, "read")
+    _require_reader_access(args, env)
+    try:
+        result = readiness.run(env["DATABASE_URL"], root)
+        readiness.assert_redacted(result)
+    except readiness.EvidenceIncomplete as exc:
+        raise ReleaseError(f"hosted evidence is incomplete (failing closed): {exc}") from None
+    return result
 
 
 def compat(args) -> dict:
@@ -455,11 +483,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--operator-id", required=True); p.add_argument("--output", type=Path)
     p.add_argument("--backup-mode", choices=["managed", "logical"], default="managed")
     p = sub.add_parser("compat"); common(p)
+    p = sub.add_parser("evidence"); common(p)
     args = parser.parse_args(argv)
     try:
         if args.command == "plan":
             out = build_plan(args)
         elif args.command == "snapshot":
+            refuse_blocked_scope(_root(args), args)
             env = _env_for(args)
             _check_target(args, env, "read")
             _require_reader_access(args, env)
@@ -468,6 +498,8 @@ def main(argv: list[str] | None = None) -> int:
             out = check_backup(args)
         elif args.command == "apply":
             out = apply_release(args)
+        elif args.command == "evidence":
+            out = evidence(args)
         else:
             out = compat(args)
     except ReleaseError as exc:
@@ -477,6 +509,8 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "output", None):
         args.output.write_text(text + "\n")
     print(text)
+    if args.command == "evidence" and out.get("blocking"):
+        return 1  # the redacted result is printed above; blocking findings must turn the workflow red
     return 0
 
 

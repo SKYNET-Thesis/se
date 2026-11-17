@@ -1,6 +1,6 @@
 # Full LMS Phase 1 — Production K–M readiness review (hosted Supabase)
 
-Status: **review only. K–M remain BLOCKED for Production.** Nothing here was run against Production, hosted Supabase or AWS.
+Status: **review only. K–M remain BLOCKED for Production.** Nothing here was run against Production, hosted Supabase or AWS. **Superseded where it conflicts by `production-lms-k-m-hosted-verification.md`** (Supabase-image evidence: migration L fails as written; some M findings corrected below).
 Evidence is labelled **[disposable]** (local PostgreSQL 17, repository tooling) or **[hosted]** (must still be produced).
 
 ## Where Production is (read-only facts)
@@ -18,7 +18,7 @@ Evidence is labelled **[disposable]** (local PostgreSQL 17, repository tooling) 
 - Creates a LOGIN, password-less, NOSUPERUSER/NOCREATEDB/NOCREATEROLE/NOINHERIT/NOBYPASSRLS role; REVOKEs everything from it in every non-system schema, then grants a frozen table allowlist (catalogs SELECT-only, `audit_logs` INSERT-only, `auth_tokens` S/I/U) plus a permissive RLS policy scoped to this role.
 - [disposable] The full LMS (Playwright 44 browser tests, the HTTP/DB Jest suites, the runtime-role security suite) ran with the API connected as `vista_app_runtime`: the allowlist covers everything the LMS code touches.
 - **Hosted blockers / open questions**
-  1. The privilege sweep loops over *every* non-system schema (`auth`, `storage`, `realtime`, `vault`, `extensions`, …). By PostgreSQL's rules a REVOKE by a role that holds no privilege at all on the object is expected to raise a permission error rather than a warning (to be confirmed on the rehearsal copy), and the hosted `postgres` role is not a superuser. If any schema holds objects `postgres` cannot see, L would abort (fail-closed, single transaction). This is a hypothesis; it needs a hosted dry run on a restored copy. [hosted]
+  1. **Confirmed failure (see the hosted-verification document):** on the Supabase PostgreSQL image, L aborts as the non-superuser `postgres` role at `REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA pgbouncer` (`permission denied for function get_auth`); `vault` has the same problem. A candidate fix (limit the sweep to `public`, assert no explicit privileges elsewhere) applies cleanly. [disposable, Supabase image]
   2. `CREATE POLICY … TO vista_app_runtime` needs table ownership: hosted public tables are owned by `postgres` (apply role) — verify with query 8. [hosted]
   3. The role has no password: it must be set out of band, and the API must reach it through the Supabase pooler with user `vista_app_runtime.<project_ref>` (the repo's `supabase_identity` enforces `<role>.<project_ref>`). Session vs transaction pool mode must be chosen for Prisma. [hosted]
   4. **Rollback hazard:** `vista-rollback-api` redeploys the *previous* image with the *current* secret. After the credential switch, the pre-LMS image (`b8ac12f`) would run as `vista_app_runtime`; it must be proven to work with that role before the switch (run the old image against a disposable database as the runtime role). [disposable, not yet done]
@@ -26,8 +26,8 @@ Evidence is labelled **[disposable]** (local PostgreSQL 17, repository tooling) 
 
 ## Migration M — database-wide TEMP revocation
 - `REVOKE TEMPORARY ON DATABASE … FROM PUBLIC`, then re-grants TEMP to eight named platform roles; fails closed if the apply role is not the **database owner**, or if any listed platform role loses TEMP.
-- Findings: [disposable] the local baseline contains `dashboard_user` and `pgbouncer`; both lose TEMP after M because they are not on the allowlist. Hosted Supabase also runs services under roles such as `supabase_read_only_user`, `supabase_replication_admin`, `supabase_etl_admin`, `supabase_functions_admin`, `supabase_realtime_admin`, `cli_login_postgres` and the project's own `vista_backup_reader`. Whether any of them needs TEMP is **unknown** and cannot be proven locally. [hosted]
-- The database owner on hosted Supabase may be `supabase_admin` rather than the customer-facing `postgres` role (not verified); if so, M's "apply role must be the database owner" check would abort. [hosted: queries 1–2]
+- Findings (corrected): on the Supabase image `dashboard_user` keeps TEMP through an explicit grant; the roles that lose it after M are `pgbouncer`, `supabase_etl_admin`, `supabase_privileged_role`, `supabase_read_only_user` and `supabase_replication_admin` (not on M's allowlist, and the K–M verifier does not check them). Whether any of them needs TEMP is unknown. [hosted]
+- In the Supabase image the `postgres` database is owned by `postgres`, so M's owner check passes there; the hosted project's owner is still unverified (queries 1–2 of the readiness SQL). [hosted]
 - Supported hardening strategy: PostgreSQL has no per-role revocation of a PUBLIC privilege. Options: (A) accept PUBLIC TEMP on hosted Supabase (low impact: the runtime role can create session-local temp tables only) and release **K+L only**; (B) apply M only if queries 1–5 and 9 prove ownership and that no platform service depends on PUBLIC TEMP, with the allowlist extended after review. Recommendation: **A first.** This needs a reviewed release-scope decision, because the manifest/gate require all manifest migrations: a `K-L` scope plus moving M out of the release manifest (or a separate later scope) — an owner/reviewer decision, not something to change to obtain a green workflow.
 
 ## Release preparation

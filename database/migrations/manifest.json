@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "baselineSha256": "5b140ce7b5f9b71e5c013f45ec9298cde48db29ac5e6a979b78aea694c2ef962",
-  "sourceCommit": "486fc3ec009d279b59b44142bee85cb27951f7b0",
+  "sourceCommit": "9de296cec15f0ed77be887447597034436e1930e",
   "migrations": [
     {
       "version": "20261110_d_activity_content",
@@ -54,14 +54,8 @@
     {
       "version": "20261116_l_runtime_role",
       "path": "database/migrations/20261116_l_runtime_role.sql",
-      "sha256": "5a4db3dea8f3e87f027f2d23ef5af02282c1b408c41218676db104925e680352",
+      "sha256": "5b49e05050cf9e5f0a9cc751ce04d3de1d81abfb817da21d8ef5aad5cd4761bb",
       "order": 9
-    },
-    {
-      "version": "20261116_m_revoke_public_temp_privilege",
-      "path": "database/migrations/20261116_m_revoke_public_temp_privilege.sql",
-      "sha256": "80619e7d76e86db4eb29a819d3b9003e0684161c248a2a9b47a411b51bc39f38",
-      "order": 10
     }
   ]
 }

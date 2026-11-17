@@ -1,0 +1,45 @@
+name: Production Readiness Evidence
+
+# READ-ONLY hosted evidence for the K-L release (and the staged M): the approved read-only Production reader runs ONE SELECT statement inside BEGIN READ ONLY and the
+# job prints booleans and counts only (no role, schema, table or function names, no ACLs, no row data, no secrets). The repository is public, so the log is public:
+# nothing here is uploaded as an artifact and the output is redacted by construction and re-checked (assert_redacted). It fails closed when the evidence is incomplete
+# and turns red when a BLOCKING finding exists. It never plans, applies, deploys or approves anything.
+#
+# Manual only (workflow_dispatch) and only on main; it uses the same `production-database-preflight` environment and read-only secrets as the schema gate.
+# scripts/check_database_workflow_safety.py enforces this structure.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-readiness-evidence
+  cancel-in-progress: false
+
+jobs:
+  evidence:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production-database-preflight
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL 17 client
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Read-only hosted readiness evidence (redacted booleans and counts)
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_READONLY_URL }}
+          SUPABASE_URL: ${{ secrets.PRODUCTION_SUPABASE_URL }}
+        run: |
+          test -n "$DATABASE_URL" && test -n "$SUPABASE_URL" || { echo 'Read-only Production secrets are not configured in production-database-preflight; refusing (fail closed)' >&2; exit 1; }
+          python scripts/production_db_release.py evidence --expected-project-ref ovijutkvaaxohauvuxbj
