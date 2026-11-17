@@ -137,7 +137,7 @@ test('Lesson text and attached media authored in the UI are what the enrolled st
   await page.getByRole('button', { name: /^Safe robot motion/ }).first().click();
   await page.getByRole('button', { name: 'Read and check', exact: true }).click();
   await page.getByRole('button', { name: 'Publish Read and check' }).click();
-  await expect(page.getByText('Section published.')).toBeVisible();
+  await expect(page.getByText('Lesson published.')).toBeVisible();
   await page.getByRole('button', { name: /^Publish Safety reading/ }).click();
   await expect(page.getByText('Activity published.')).toBeVisible();
   await page.getByRole('button', { name: /^Publish Demo video/ }).click();

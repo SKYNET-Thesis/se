@@ -139,13 +139,20 @@ test('Unlock rule: failing the weighted quiz keeps module two locked; a passing 
   await page.getByRole('button', { name: /Module 2: Second module/ }).click();
   await expect(page.getByRole('form', { name: 'Module information' }).getByLabel('Complete “Safe robot motion” first')).toBeChecked();
 
+  // the outline shows the rule next to the module (with a full-sentence accessible name) and the structure view reads in the same Module/Lesson words
+  await expect(page.getByLabel('Unlock rule: complete Module 1: Safe robot motion first')).toBeVisible();
+  await page.getByRole('tab', { name: /Structure & Publishing/ }).click();
+  await expect(page.getByRole('heading', { name: 'Modules', level: 3 })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add module' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Outline & Editor' }).click();
+
   // publish everything
   await page.getByRole('tab', { name: /Structure & Publishing/ }).click();
   for (const [moduleName, lessonName, activity] of [['Safe robot motion', 'Read and check', 'Gate quiz'], ['Second module', 'Second lesson', 'Second reading']] as const) {
     await page.getByRole('button', { name: new RegExp(`^${moduleName}`) }).first().click();
     await page.getByRole('button', { name: lessonName, exact: true }).click();
     await page.getByRole('button', { name: `Publish ${lessonName}` }).click();
-    await expect(page.getByText('Section published.')).toBeVisible();
+    await expect(page.getByText('Lesson published.')).toBeVisible();
     await page.getByRole('button', { name: new RegExp(`^Publish ${activity}`) }).click();
     await expect(page.getByText('Activity published.')).toBeVisible();
   }
@@ -154,6 +161,17 @@ test('Unlock rule: failing the weighted quiz keeps module two locked; a passing 
   await page.getByRole('dialog', { name: 'Review & Publish Course' }).getByRole('button', { name: 'Publish Course' }).click();
   await expect(page.getByText('Published', { exact: true }).first()).toBeVisible();
   const quizId = (await api(page, instructorToken, 'GET', `/author/question-bank/quiz-authoring/lessons/${lessons[0].id}/assignment`)).body.id as string;
+
+  // Settings tab: shows the real status, and archiving asks for confirmation; cancelling changes nothing
+  await page.getByRole('tab', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('tabpanel', { name: 'Settings' }).getByText('published', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Archive course' }).first().click();
+  const archive = page.getByRole('dialog');
+  await expect(archive).toBeVisible();
+  await archive.getByRole('button', { name: 'Cancel' }).click();
+  await expect(archive).not.toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Course workspace · Published')).toBeVisible();
 
   // deliver
   const adminToken = await signIn(page, fixture.users.schoolAdmin.authUserId);

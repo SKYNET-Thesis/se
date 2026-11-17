@@ -132,7 +132,7 @@ describe('CanonicalCurriculumEditor', () => {
   it('edits a lesson and persists selected prerequisites', async () => {
     button('Edit').click();
     await tick();
-    await change('Lesson title', 'Introduction');
+    await change('Module title', 'Introduction');
     input('Require Motion').click();
     button('Save').click();
     await tick();
@@ -155,16 +155,16 @@ describe('CanonicalCurriculumEditor', () => {
   it('creates and edits a section', async () => {
     button('Intro').click();
     await tick();
-    button('Add section').click();
+    button('Add lesson').click();
     await tick();
-    await change('Section title', 'New section');
+    await change('Lesson title', 'New section');
     button('Save').click();
     await tick();
     expect(api.createSection).toHaveBeenCalledWith('lesson-a', 'token', { title: 'New section', ordinal: 3 });
     const read = Array.from(container.querySelectorAll('button')).find((item) => item.textContent === 'Read') as HTMLButtonElement;
     (read.parentElement?.querySelectorAll('button')[1] as HTMLButtonElement).click();
     await tick();
-    await change('Section title', 'Reading');
+    await change('Lesson title', 'Reading');
     button('Save').click();
     await tick();
     expect(api.updateSection).toHaveBeenCalledWith('section-a', 'token', { title: 'Reading' });
@@ -284,7 +284,7 @@ describe('CanonicalCurriculumEditor', () => {
     });
     await tick();
 
-    const addLessonBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Add lesson');
+    const addLessonBtn = Array.from(container.querySelectorAll('button')).find((b) => b.textContent === 'Add module');
     expect(addLessonBtn).toBeDefined();
     expect((addLessonBtn as HTMLButtonElement).disabled).toBe(true);
 
@@ -434,8 +434,8 @@ describe('CanonicalCurriculumEditor', () => {
   describe('metadata dialogs keep the draft until the API succeeds', () => {
     const openSectionDialog = async () => {
       button('Intro').click(); await tick();
-      button('Add section').click(); await tick();
-      await change('Section title', 'Draft section');
+      button('Add lesson').click(); await tick();
+      await change('Lesson title', 'Draft section');
     };
     // the dialog leaves the DOM after its exit animation
     const dialogGone = () => vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull(), { timeout: 3000 });
@@ -448,7 +448,7 @@ describe('CanonicalCurriculumEditor', () => {
       const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
       expect(dialog).not.toBeNull();
       expect(dialog.querySelector('[role="alert"]')?.textContent).toContain('Ordinal is already in use.');
-      expect((input('Section title') as HTMLInputElement).value).toBe('Draft section');
+      expect((input('Lesson title') as HTMLInputElement).value).toBe('Draft section');
       // retry succeeds and only then the dialog closes
       api.createSection.mockResolvedValueOnce({ id: 'section-new' });
       button('Save').click(); await tick(); await tick();
@@ -458,11 +458,11 @@ describe('CanonicalCurriculumEditor', () => {
 
     it('keeps the lesson and activity dialogs open with their drafts when saving fails', async () => {
       api.createLesson.mockRejectedValueOnce(new Error('Lesson service unavailable'));
-      button('Add lesson').click(); await tick();
-      await change('Lesson title', 'Draft lesson');
+      button('Add module').click(); await tick();
+      await change('Module title', 'Draft lesson');
       button('Save').click(); await tick(); await tick();
       expect(document.querySelector('[role="dialog"] [role="alert"]')?.textContent).toContain('Lesson service unavailable');
-      expect((input('Lesson title') as HTMLInputElement).value).toBe('Draft lesson');
+      expect((input('Module title') as HTMLInputElement).value).toBe('Draft lesson');
       button('Cancel').click(); await tick();
       await dialogGone();
 
@@ -482,7 +482,7 @@ describe('CanonicalCurriculumEditor', () => {
       await openSectionDialog();
       button('Save').click(); await tick();
       for (const extra of saveButtons()) await act(async () => { extra.click(); });
-      await act(async () => { (document.querySelector('[aria-label="Section title"]') as HTMLInputElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+      await act(async () => { (document.querySelector('[aria-label="Lesson title"]') as HTMLInputElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
       expect(api.createSection).toHaveBeenCalledTimes(1);
       await act(async () => { release({ id: 'section-new' }); });
       await tick();

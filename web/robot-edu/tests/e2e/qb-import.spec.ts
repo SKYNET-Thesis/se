@@ -170,7 +170,7 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   await page.getByRole('button', { name: /^Safe robot motion/ }).first().click();
   await page.getByRole('button', { name: 'Read and check', exact: true }).click();
   await page.getByRole('button', { name: 'Publish Read and check' }).click();
-  await expect(page.getByText('Section published.')).toBeVisible();
+  await expect(page.getByText('Lesson published.')).toBeVisible();
   await page.getByRole('button', { name: /^Publish Imported quiz/ }).click();
   await expect(page.getByText('Activity published.')).toBeVisible();
   await page.getByRole('button', { name: 'Review & Publish' }).click();

@@ -91,5 +91,8 @@ test('capture course builder tabs and editors (interactive states)', async ({ pa
     await open();
     await page.getByRole('tab', { name: /Course Details/ }).click().catch(() => undefined); await page.waitForTimeout(800);
     await page.screenshot({ path: `${outDir}/builder-details-${width}.png` });
+    await open();
+    await page.getByRole('tab', { name: /^Settings/ }).click().catch(() => undefined); await page.waitForTimeout(800);
+    await page.screenshot({ path: `${outDir}/builder-settings-${width}.png` });
   }
 });

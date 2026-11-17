@@ -85,7 +85,7 @@ test('Journey 1: instructor authors, previews and publishes a school course; an 
   await page.getByRole('button', { name: /^Safe robot motion/ }).first().click();
   await page.getByRole('button', { name: 'Read and check', exact: true }).click();
   await page.getByRole('button', { name: 'Publish Read and check' }).click();
-  await expect(page.getByText('Section published.')).toBeVisible();
+  await expect(page.getByText('Lesson published.')).toBeVisible();
   await page.getByRole('button', { name: /^Publish Safety reading/ }).click();
   await expect(page.getByText('Activity published.')).toBeVisible();
 
@@ -256,7 +256,7 @@ test('Journey 2: instructor authors a school question, builds and configures a q
   await page.getByRole('button', { name: /^Safe robot motion/ }).first().click();
   await page.getByRole('button', { name: 'Read and check', exact: true }).click();
   await page.getByRole('button', { name: 'Publish Read and check' }).click();
-  await expect(page.getByText('Section published.')).toBeVisible();
+  await expect(page.getByText('Lesson published.')).toBeVisible();
   await page.getByRole('button', { name: /^Publish Safety quiz/ }).click();
   await expect(page.getByText('Activity published.')).toBeVisible();
   await page.getByRole('button', { name: 'Review & Publish' }).click();
