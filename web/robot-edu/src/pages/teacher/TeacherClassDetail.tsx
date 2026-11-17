@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { assignmentKind } from '../../components/submission/submissionState';
 import { Link, useParams } from 'react-router-dom';
 import { ClipboardCheckIcon, FileQuestionIcon } from 'lucide-react';
+import { QuizResultsTable } from '../../components/teacher/QuizResultsTable';
 import { LearnerProgressTable } from '../../components/teacher/LearnerProgressTable';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
@@ -83,6 +84,7 @@ export function TeacherClassDetail() {
       </section>
 
       <LearnerProgressTable classroomId={classroomId} token={token} />
+      <QuizResultsTable classroomId={classroomId} token={token} />
 
       <section className="mt-10">
         <h2 className="text-xl font-semibold text-ink">Submitted results</h2>

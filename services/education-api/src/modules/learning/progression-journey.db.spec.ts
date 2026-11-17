@@ -128,4 +128,28 @@ describeDb('real PostgreSQL learning progression journey', () => {
     const a = await learning.startAttempt(f.user, f.quizDelivery.id) as { id: string };
     await expect(progression.submitKnowledgeCheck(stranger, a.id, answers(f, 'a', 'a'))).rejects.toThrow();
   });
+
+  it('lets the instructor review weighted quiz results and one learner\'s per-lesson progress, only within the classroom', async () => {
+    const f = await fixture();
+    await activities.completeSelfReport(f.user, f.reading1.id);
+    const a1 = await learning.startAttempt(f.user, f.quizDelivery.id) as { id: string };
+    await progression.submitKnowledgeCheck(f.user, a1.id, answers(f, 'b', 'a'));
+    const a2 = await learning.startAttempt(f.user, f.quizDelivery.id) as { id: string };
+    await progression.submitKnowledgeCheck(f.user, a2.id, answers(f, 'a', 'a'));
+
+    const results = await insights.quizResults(f.admin, f.x.room.id) as Array<Record<string, any>>;
+    expect(results.map((r) => [r.attemptNumber, r.score, r.passed, r.earnedPoints, r.possiblePoints, r.passPercent])).toEqual([[2, 100, true, 4, 4, 60], [1, 25, false, 1, 4, 60]]);
+    expect(results[0]).toMatchObject({ learnerUserId: f.s.user.id, quizTitle: 'Quiz' });
+
+    const drill = await insights.learnerLessonProgress(f.admin, f.x.room.id, f.s.user.id);
+    expect(drill.lessons.map((l) => [l.ordinal, l.status, l.bestQuizScore, l.attempts])).toEqual([[1, 'completed', 100, 2], [2, 'not_started', null, 0]]);
+
+    // another school's admin, a student, and a learner who is not enrolled in this classroom are all refused
+    const outsider = schoolAdminUser((await createWorld(db)).org.id);
+    await expect(insights.quizResults(outsider, f.x.room.id)).rejects.toThrow();
+    await expect(insights.learnerLessonProgress(outsider, f.x.room.id, f.s.user.id)).rejects.toThrow();
+    await expect(insights.quizResults(f.user, f.x.room.id)).rejects.toThrow();
+    const other = await createWorld(db); const os = await createStudent(db, other); await joinClassroom(db, os, other.room.id); await enrollments.synchronizeClassroom(other.room.id);
+    await expect(insights.learnerLessonProgress(f.admin, f.x.room.id, os.user.id)).rejects.toThrow(/not found/i);
+  });
 });

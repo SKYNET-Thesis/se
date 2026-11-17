@@ -77,6 +77,44 @@ export class LearningInsightsService {
       WHERE e.classroom_id=${classroomId}::uuid AND e.status='active' ORDER BY u.full_name NULLS LAST,u.id`;
     return rows.map((r) => ({ ...r, progressPercent: r.lessonCount ? Math.round(r.lessonsCompleted / r.lessonCount * 100) : 0 }));
   }
+  /**
+   * Per-lesson progress of ONE learner of this classroom (drill-down of `learnerProgress`). The learner must hold an
+   * active enrollment in this classroom, so an instructor can never read a learner of another school or classroom.
+   */
+  async learnerLessonProgress(user: AuthenticatedUser, classroomId: string, learnerUserId: string) {
+    await this.scope.assertTeacherClassroomPermission(user, classroomId, ["learning.work.review"]);
+    const enrolled = await this.prisma.$queryRaw<{ course_id: string; full_name: string | null }[]>`
+      SELECT e.course_id,u.full_name FROM public.learning_enrollments e JOIN public.users u ON u.id=e.learner_user_id
+      WHERE e.classroom_id=${classroomId}::uuid AND e.learner_user_id=${learnerUserId}::uuid AND e.status='active'`;
+    if (!enrolled[0]) throw new NotFoundException("Learner was not found in this classroom.");
+    const lessons = await this.prisma.$queryRaw<Array<{ lessonId: string; ordinal: number; title: string; status: string; completedAt: Date | null; bestQuizScore: number | null; attempts: number }>>`
+      SELECT l.id AS "lessonId",l.ordinal,l.title,COALESCE(lp.status,'not_started') AS status,lp.completed_at AS "completedAt",
+        (SELECT MAX(att.score)::float FROM public.learning_assignment_attempts att JOIN public.learning_classroom_assignments ca ON ca.id=att.classroom_assignment_id
+          JOIN public.learning_assignments a ON a.id=ca.assignment_id
+          WHERE ca.classroom_id=${classroomId}::uuid AND a.lesson_id=l.id AND att.learner_user_id=${learnerUserId}::uuid AND att.status='evaluated') AS "bestQuizScore",
+        (SELECT COUNT(*)::int FROM public.learning_assignment_attempts att JOIN public.learning_classroom_assignments ca ON ca.id=att.classroom_assignment_id
+          JOIN public.learning_assignments a ON a.id=ca.assignment_id
+          WHERE ca.classroom_id=${classroomId}::uuid AND a.lesson_id=l.id AND att.learner_user_id=${learnerUserId}::uuid) AS attempts
+      FROM public.learning_lessons l LEFT JOIN public.learning_lesson_progress lp ON lp.lesson_id=l.id AND lp.learner_user_id=${learnerUserId}::uuid
+      WHERE l.course_id=${enrolled[0].course_id}::uuid ORDER BY l.ordinal`;
+    return { learnerUserId, fullName: enrolled[0].full_name, lessons };
+  }
+
+  /** Every finished quiz attempt of this classroom with its weighted result (instructor review of quiz results). */
+  async quizResults(user: AuthenticatedUser, classroomId: string) {
+    await this.scope.assertTeacherClassroomPermission(user, classroomId, ["learning.work.review"]);
+    return this.prisma.$queryRaw`
+      SELECT att.id AS "attemptId",u.id AS "learnerUserId",u.full_name AS "fullName",a.title AS "quizTitle",att.attempt_number AS "attemptNumber",
+        att.score::float AS score,(att.result_snapshot->>'passed')::boolean AS passed,(att.result_snapshot->>'passPercent')::int AS "passPercent",
+        (att.result_snapshot->>'earnedPoints')::float AS "earnedPoints",(att.result_snapshot->>'possiblePoints')::float AS "possiblePoints",att.submitted_at AS "submittedAt"
+      FROM public.learning_assignment_attempts att
+      JOIN public.learning_classroom_assignments ca ON ca.id=att.classroom_assignment_id
+      JOIN public.learning_assignments a ON a.id=ca.assignment_id AND a.constraints->>'kind'='knowledge_check'
+      JOIN public.learning_enrollments e ON e.classroom_id=ca.classroom_id AND e.learner_user_id=att.learner_user_id AND e.status='active'
+      JOIN public.users u ON u.id=att.learner_user_id
+      WHERE ca.classroom_id=${classroomId}::uuid AND att.status='evaluated'
+      ORDER BY att.submitted_at DESC NULLS LAST LIMIT 500`;
+  }
   async classroomSubmissionSummary(user: AuthenticatedUser, classroomId: string) {
     await this.scope.assertTeacherClassroomPermission(user, classroomId, ["learning.work.review"]);
     return this.prisma.$queryRaw`SELECT s.status,COUNT(*)::int AS submission_count FROM public.learning_submissions s JOIN public.learning_assignment_attempts a ON (a.id=s.attempt_id OR (s.attempt_id IS NULL AND a.program_id=s.program_id AND a.learner_user_id=s.learner_user_id)) JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id WHERE ca.classroom_id=${classroomId}::uuid AND s.status<>'draft' GROUP BY s.status ORDER BY s.status`;

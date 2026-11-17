@@ -228,6 +228,15 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   expect(monitored.find((m) => m.fullName === 'Phase 2.4.3 Test Student')).toMatchObject({ progressPercent: 100, lessonsCompleted: 1, attemptsSubmitted: 2, bestScore: 100 });
   await page.goto(`/teacher/classes/${classroomId}`);
   await expect(page.getByLabel('Learner progress').getByRole('row', { name: /Phase 2\.4\.3 Test Student.*100%.*1 \/ 1.*2.*100%/ })).toBeVisible();
+  // instructor reviews the weighted quiz attempts and drills into the student's lessons (browser UI)
+  const quizResults = page.getByLabel('Quiz results');
+  await expect(quizResults.getByRole('row', { name: /Phase 2\.4\.3 Test Student.*Imported quiz.*#1.*1 \/ 4.*25% \(pass 70%\).*Not passed/ })).toBeVisible();
+  await expect(quizResults.getByRole('row', { name: /Phase 2\.4\.3 Test Student.*Imported quiz.*#2.*4 \/ 4.*100%.*Passed/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Show lessons for Phase 2.4.3 Test Student' }).click();
+  await expect(page.getByLabel('Lessons of Phase 2.4.3 Test Student').getByText(/1\. Safe robot motion/)).toBeVisible();
+  await expect(page.getByLabel('Lessons of Phase 2.4.3 Test Student').getByText('Completed')).toBeVisible();
+  await expect(page.getByLabel('Lessons of Phase 2.4.3 Test Student').getByText('Best 100%')).toBeVisible();
+  expect([403, 404]).toContain((await api(page, studentToken, 'GET', `/classrooms/${classroomId}/quiz-results`)).status);
   // students cannot read instructor monitoring, and another school's admin cannot either
   expect([403, 404]).toContain((await api(page, studentToken, 'GET', `/classrooms/${classroomId}/learner-progress`)).status);
   expect([403, 404]).toContain((await api(page, (await session(page, fixture.users.otherSchoolAdmin.authUserId)).access_token, 'GET', `/classrooms/${classroomId}/learner-progress`)).status);
