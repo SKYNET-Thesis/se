@@ -18,6 +18,12 @@ variable "github_repository" {
   default = "SKYNET-Thesis/se"
 }
 
+variable "github_deploy_environment" {
+  type        = string
+  default     = "aws-demo"
+  description = "GitHub environment whose OIDC subject may assume the deploy roles (must have required reviewers)."
+}
+
 variable "deploy_branch" {
   type    = string
   default = "main"

@@ -140,7 +140,13 @@ resource "aws_instance" "api" {
 
     }
   )
-  user_data_replace_on_change = true
+  # The live instance is long-lived Production. user_data (first-boot script, embeds deploy-api.sh) and the "latest AL2023" AMI
+  # must never replace it: deployments reach the host through SSM (deploy-api.sh is shipped by the deploy workflow), not by re-creating it.
+  user_data_replace_on_change = false
+  lifecycle {
+    ignore_changes  = [ami, user_data]
+    prevent_destroy = true
+  }
   tags = {
     Name = "${var.project}-${var.environment}-education-api"
   }
