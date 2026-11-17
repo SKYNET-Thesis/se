@@ -63,7 +63,7 @@
     },
     "K-L": {
       "description": "School authoring/publishing capabilities (K) and the restricted runtime role (L, hosted-compatible revision); requires D-J applied. Migration M (PUBLIC TEMP revocation) is staged and deliberately NOT part of this release.",
-      "productionStatus": "BLOCKED until the hosted read-only evidence, the restore rehearsal and the independent review are approved; unblocking requires a reviewed code change (HOSTED_BLOCKED_SCOPES in scripts/production_db_release.py), not release metadata",
+      "productionStatus": "READY for the approval-gated Production Database Release only after the reviewed hosted read-only evidence, the restore rehearsal and the independent review (attached to the unblocking PR); apply still requires the production-database-apply reviewer approval",
       "residualRisk": "PUBLIC keeps the database TEMP privilege (the runtime role can create session-local temporary tables) until scope M is released; the owner must accept this in writing",
       "requiresApplied": [
         "20261110_d_activity_content",
