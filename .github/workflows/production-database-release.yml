@@ -11,7 +11,7 @@ name: Production Database Release
 #
 # Scope: only reviewed scopes from database/release-scopes.json can be chosen: D-I, J (D03 Stage 2), and K-L (authoring capabilities + restricted runtime role).
 # K-L requires D-J already applied (J is a hard prerequisite); it never applies J itself and it EXCLUDES migration M (staged, unreleased; PUBLIC TEMP stays a tracked
-# residual risk). K-L is production-BLOCKED in code (HOSTED_BLOCKED_SCOPES) until the hosted read-only evidence, the restore rehearsal and the independent review are approved.
+# residual risk). K-L was unblocked in code (removed from HOSTED_BLOCKED_SCOPES) only after the hosted read-only evidence, the restore rehearsal and the independent review were approved; M stays blocked.
 
 on:
   workflow_dispatch:

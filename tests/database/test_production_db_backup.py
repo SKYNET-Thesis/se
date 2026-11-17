@@ -351,7 +351,7 @@ class WorkflowSafetyTests(unittest.TestCase):
         kl = scopes["scopes"]["K-L"]  # authoring capabilities and the restricted runtime role: their own scope; M is staged outside the manifest
         self.assertEqual([e["version"] for e in manifest], d_i["versions"] + j["versions"] + kl["versions"])  # J precedes K-L in source ordering
         self.assertEqual(kl["requiresApplied"], d_i["versions"] + j["versions"])  # J is a hard prerequisite of K-L
-        self.assertIn("BLOCKED", kl["productionStatus"])  # the hosted evidence and rehearsal are still outstanding
+        self.assertTrue(kl["productionStatus"].startswith("READY"))  # unblocked only by this reviewed change, after the hosted evidence review
         self.assertIn("BLOCKED", scopes["scopes"]["M"]["productionStatus"])  # hosted M compatibility remains unproven
 
     def test_aws_deploy_flag_and_api_web_deploy_jobs_are_untouched(self):

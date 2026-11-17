@@ -176,18 +176,18 @@ class StaticSafeguardTests(unittest.TestCase):
         self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"] + scopes["K-L"]["versions"])  # J precedes K-L in the manifest; M is staged, not manifested
         self.assertEqual(scopes["K-L"]["requiresApplied"], d_i["versions"] + scopes["J"]["versions"])  # K-L needs exactly D-J applied: J is a hard prerequisite
         self.assertEqual(scopes["K-L"]["excludedVersions"], ["20261116_m_revoke_public_temp_privilege"])  # M can never ride along with K-L
-        self.assertEqual(scopes["K-L"]["productionStatus"].split()[0], "BLOCKED")
+        self.assertEqual(scopes["K-L"]["productionStatus"].split()[0], "READY")
         before, after = scopes["K-L"]["expectedCatalogBefore"], scopes["K-L"]["expectedCatalogAfter"]
         self.assertEqual(before, scopes["J"]["expectedCatalogAfter"])  # K-L starts from exactly the schema J leaves behind
         self.assertEqual({k: v for k, v in after.items() if k != "policies"}, {k: v for k, v in before.items() if k != "policies"})  # and adds only the runtime role's RLS policies
         self.assertGreater(after["policies"], before["policies"])
 
     def test_kl_and_m_hosted_releases_are_blocked_until_hosted_compatibility_evidence_exists(self):
-        for name in ("K-L", "M"):
+        for name in ("M",):
             definition = prm.scope_definition(ROOT, name)
             self.assertTrue(definition["productionStatus"].startswith("BLOCKED"), name)
         self.assertIn("hosted Supabase", prm.scope_definition(ROOT, "M")["productionStatus"])
-        self.assertEqual(prm.HOSTED_BLOCKED_SCOPES, ("K-L", "M"))
+        self.assertEqual(prm.HOSTED_BLOCKED_SCOPES, ("M",))
         source = (ROOT / "scripts/production_db_release.py").read_text()
         self.assertIn("cannot be unblocked by release metadata", source)
         self.assertIn("is marked production BLOCKED", source)

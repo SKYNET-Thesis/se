@@ -57,7 +57,7 @@ class KmMigrationContractTests(unittest.TestCase):
         self.assertEqual(kl["excludedVersions"], ["20261116_m_revoke_public_temp_privilege"])  # M must be absent from manifest, migrations dir and ledger
         self.assertEqual(kl["verifier"], "kl")
         self.assertIn("residualRisk", kl)  # PUBLIC TEMP stays an explicitly tracked residual risk
-        self.assertIn("BLOCKED", kl["productionStatus"])
+        self.assertTrue(kl["productionStatus"].startswith("READY"))
         self.assertEqual(kl["expectedCatalogBefore"], j["expectedCatalogAfter"])
         self.assertEqual(m["versions"], ["20261116_m_revoke_public_temp_privilege"])
         self.assertEqual(m["requiresApplied"], kl["requiresApplied"] + kl["versions"])  # M requires K-L applied first
@@ -115,7 +115,7 @@ class KmMigrationContractTests(unittest.TestCase):
 
     def test_hosted_blocked_scopes_cannot_be_unblocked_by_metadata(self):
         source = (ROOT / "scripts/production_db_release.py").read_text()
-        self.assertRegex(source, r'HOSTED_BLOCKED_SCOPES = \("K-L", "M"\)')
+        self.assertRegex(source, r'HOSTED_BLOCKED_SCOPES = \("M",\)')
         self.assertIn("cannot be unblocked by release metadata", source)
         self.assertIn("is marked production BLOCKED", source)
 
@@ -144,7 +144,7 @@ class HostedBlockedScopesRefuseBeforeAnyConnectionTests(unittest.TestCase):
         return code, err.getvalue()
 
     def test_plan_snapshot_and_apply_are_refused_for_k_l_and_m(self):
-        for scope in ("K-L", "M"):
+        for scope in ("M",):
             for argv in (["plan", "--scope", scope], ["snapshot", "--scope", scope, "--output", "/tmp/never.json"],
                          ["apply", "--scope", scope, "--plan", "/tmp/none.json", "--backup-evidence", "/tmp/none2.json", "--approval-reference", "X", "--operator-id", "x"]):
                 with self.subTest(scope=scope, command=argv[0]):
