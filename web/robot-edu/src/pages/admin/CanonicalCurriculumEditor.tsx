@@ -281,7 +281,7 @@ export function CanonicalCurriculumEditor({
       }
       return created;
     },
-    onSuccess: async () => { await done('Lesson created.', invalidateLessons)(); closeDialogAfterSuccess(); },
+    onSuccess: async () => { await done('Module created.', invalidateLessons)(); closeDialogAfterSuccess(); },
     onError: failDialog,
   });
 
@@ -291,7 +291,7 @@ export function CanonicalCurriculumEditor({
         catalogApi.updateLesson(id, token, { title: x.title, content: { summary: x.summary } }),
         catalogApi.setLessonPrerequisites(id, token, x.prerequisiteLessonIds),
       ]),
-    onSuccess: async () => { await done('Lesson saved.', invalidateLessons)(); closeDialogAfterSuccess(); },
+    onSuccess: async () => { await done('Module saved.', invalidateLessons)(); closeDialogAfterSuccess(); },
     onError: failDialog,
   });
 
@@ -301,14 +301,14 @@ export function CanonicalCurriculumEditor({
         title: x.title,
         ordinal: (sectionList.length ?? 0) + 1,
       }),
-    onSuccess: async () => { await done('Section created.', invalidateSections)(); closeDialogAfterSuccess(); },
+    onSuccess: async () => { await done('Lesson created.', invalidateSections)(); closeDialogAfterSuccess(); },
     onError: failDialog,
   });
 
   const saveSection = useMutation({
     mutationFn: ({ id, x }: { id: string; x: SectionDraft }) =>
       curriculumApi.updateSection(id, token, { title: x.title }),
-    onSuccess: async () => { await done('Section saved.', invalidateSections)(); closeDialogAfterSuccess(); },
+    onSuccess: async () => { await done('Lesson saved.', invalidateSections)(); closeDialogAfterSuccess(); },
     onError: failDialog,
   });
 
@@ -343,7 +343,7 @@ export function CanonicalCurriculumEditor({
     mutationFn: ({ id, status }: { id: string; status: 'draft' | 'published' }) =>
       curriculumApi.setSectionStatus(id, token, status),
     onSuccess: (_, vars) => {
-      done(vars.status === 'published' ? 'Section published.' : 'Section unpublished.', invalidateSections)();
+      done(vars.status === 'published' ? 'Lesson published.' : 'Lesson unpublished.', invalidateSections)();
     },
     onError: fail,
   });
@@ -655,7 +655,7 @@ export function CanonicalCurriculumEditor({
             </Badge>
           </div>
           <p className="mt-1 text-xs text-ink-muted">
-            Manage curriculum: Canonical course → lesson → section → activity authoring studio.
+            Manage curriculum: Canonical course → module → lesson → activity authoring studio.
           </p>
         </div>
 
@@ -796,10 +796,10 @@ export function CanonicalCurriculumEditor({
             <p className="font-medium text-ink">Curriculum Authoring &amp; Publication Lifecycle:</p>
             <ul className="list-disc pl-4 space-y-0.5 text-ink-subtle">
               <li>
-                <strong>Independent publication:</strong> Publishing a course does not automatically publish nested sections or activities. Each section and activity manages its own publishing status.
+                <strong>Independent publication:</strong> Publishing a course does not automatically publish nested lessons or activities. Each lesson and activity manages its own publishing status.
               </li>
               <li>
-                <strong>Section prerequisites:</strong> An activity can only be published once its parent section is published.
+                <strong>Lesson prerequisites:</strong> An activity can only be published once its parent lesson is published.
               </li>
               {course.status === 'published' && (
                 <li className="text-amber-700 dark:text-amber-400 font-medium">
@@ -828,9 +828,9 @@ export function CanonicalCurriculumEditor({
       <div className="grid gap-4 lg:grid-cols-3">
         {/* Pane 1: Lessons */}
         <Pane
-          title="Lessons"
+          title="Modules"
           badge={lessonList.length}
-          add="Add lesson"
+          add="Add module"
           disabled={isArchived}
           onAdd={() => {
             setEditId(null);
@@ -838,7 +838,7 @@ export function CanonicalCurriculumEditor({
           }}
         >
           {lessonList.length === 0 ? (
-            <p className="py-8 text-center text-xs text-ink-muted">No lessons yet. Add the first lesson to start.</p>
+            <p className="py-8 text-center text-xs text-ink-muted">No modules yet. Add the first module to start.</p>
           ) : (
             <Reorder.Group
               axis="y"
@@ -887,9 +887,9 @@ export function CanonicalCurriculumEditor({
 
         {/* Pane 2: Sections */}
         <Pane
-          title={lesson ? 'Sections' : 'Select a lesson'}
+          title={lesson ? 'Lessons' : 'Select a module'}
           badge={lesson ? sectionList.length : undefined}
-          add="Add section"
+          add="Add lesson"
           disabled={!lesson || isArchived}
           onAdd={() => {
             setEditId(null);
@@ -897,9 +897,9 @@ export function CanonicalCurriculumEditor({
           }}
         >
           {!lesson ? (
-            <p className="py-8 text-center text-xs text-ink-muted">Select a lesson on the left to view its sections.</p>
+            <p className="py-8 text-center text-xs text-ink-muted">Select a module on the left to view its lessons.</p>
           ) : sectionList.length === 0 ? (
-            <p className="py-8 text-center text-xs text-ink-muted">No sections yet. Click "Add section" to create one.</p>
+            <p className="py-8 text-center text-xs text-ink-muted">No lessons yet. Click "Add lesson" to create one.</p>
           ) : (
             <Reorder.Group
               axis="y"
@@ -959,7 +959,7 @@ export function CanonicalCurriculumEditor({
 
         {/* Pane 3: Activities */}
         <Pane
-          title={section ? 'Activities' : 'Select a section'}
+          title={section ? 'Activities' : 'Select a lesson'}
           badge={section ? activityList.length : undefined}
           add="Add activity"
           disabled={!section || isArchived}
@@ -991,7 +991,7 @@ export function CanonicalCurriculumEditor({
           )}
 
           {!section ? (
-            <p className="py-8 text-center text-xs text-ink-muted">Select a section to view its activities.</p>
+            <p className="py-8 text-center text-xs text-ink-muted">Select a lesson to view its activities.</p>
           ) : activityList.length === 0 ? (
             <p className="py-8 text-center text-xs text-ink-muted">No activities yet. Click "Add activity" to create one.</p>
           ) : (
@@ -1373,8 +1373,8 @@ function LessonDialog({
     <Dialog
       open={Boolean(draft)}
       onClose={onClose}
-      title={editingId ? 'Edit lesson' : 'Create lesson'}
-      description="Configure lesson title, summary, and prerequisite constraints."
+      title={editingId ? 'Edit module' : 'Create module'}
+      description="Configure module title, summary, and prerequisite constraints."
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={loading}>
@@ -1390,9 +1390,9 @@ function LessonDialog({
         <div className="space-y-4">
           {error && <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{error}</p>}
           <label className="block text-sm font-medium text-ink">
-            Lesson title
+            Module title
             <input
-              aria-label="Lesson title"
+              aria-label="Module title"
               required
               value={draft.title}
               onChange={(e) => onChange({ ...draft, title: e.target.value })}
@@ -1403,11 +1403,11 @@ function LessonDialog({
           <label className="block text-sm font-medium text-ink">
             Summary
             <textarea
-              aria-label="Lesson summary"
+              aria-label="Module summary"
               value={draft.summary}
               onChange={(e) => onChange({ ...draft, summary: e.target.value })}
               className="mt-1.5 min-h-24 w-full rounded-md border border-line-strong bg-surface p-3 text-sm text-ink outline-none focus:border-accent focus:ring-2 focus:ring-accent/20"
-              placeholder="Brief summary of the lesson concepts and goals..."
+              placeholder="Brief summary of the module concepts and goals..."
             />
           </label>
           <fieldset className="rounded-lg border border-line p-3 bg-sunken/20">
@@ -1416,7 +1416,7 @@ function LessonDialog({
             </legend>
             <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
               {lessons.filter((x) => x.id !== editingId).length === 0 ? (
-                <p className="text-xs text-ink-muted">No other lessons available to set as prerequisite.</p>
+                <p className="text-xs text-ink-muted">No other modules available to set as prerequisite.</p>
               ) : (
                 lessons
                   .filter((x) => x.id !== editingId)
@@ -1469,8 +1469,8 @@ function SectionDialog({
     <Dialog
       open={Boolean(draft)}
       onClose={onClose}
-      title={editing ? 'Edit section' : 'Create section'}
-      description="Sections organize activities within a lesson."
+      title={editing ? 'Edit lesson' : 'Create lesson'}
+      description="Lessons organize activities within a module."
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={loading}>
@@ -1486,9 +1486,9 @@ function SectionDialog({
         <div className="space-y-3">
         {error && <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{error}</p>}
         <label className="block text-sm font-medium text-ink">
-          Section title
+          Lesson title
           <input
-            aria-label="Section title"
+            aria-label="Lesson title"
             required
             value={draft.title}
             onChange={(e) => onChange({ title: e.target.value })}

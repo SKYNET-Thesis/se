@@ -83,7 +83,7 @@ const coursePathFixture = {
         code: 'PREREQUISITE_NOT_COMPLETED' as const,
         prerequisiteLessonId: 'lesson-3-uuid',
         prerequisiteLessonTitle: 'Grab & Release',
-        message: 'Complete Grab & Release to unlock this lesson.',
+        message: 'Complete Grab & Release to unlock this module.',
       },
       completedAt: null,
       summary: 'Build and verify a complete pick-and-place sequence.', learningItems: ['Pick & Place program', 'Authoritative simulation'], estimatedMinutes: 35,
@@ -100,7 +100,7 @@ const coursePathFixture = {
         code: 'PREREQUISITE_NOT_COMPLETED' as const,
         prerequisiteLessonId: 'lesson-4-uuid',
         prerequisiteLessonTitle: 'Pick & Place',
-        message: 'Complete Pick & Place to unlock this lesson.',
+        message: 'Complete Pick & Place to unlock this module.',
       },
       completedAt: null,
       summary: 'Execute the qualified program under physical lab safety controls.', learningItems: ['Readiness review', 'Physical experiment'], estimatedMinutes: 30,
@@ -164,7 +164,7 @@ describe('CourseDetail / Course Path', () => {
 
     expect(mocks.coursePath).toHaveBeenCalledWith('c1-uuid', 'valid-token');
     expect(container.textContent).toContain('Robotics Fundamentals');
-    expect(container.textContent).toContain('2 / 5 lessons completed');
+    expect(container.textContent).toContain('2 of 5 modules completed');
     expect(container.textContent).toContain('40%');
     expect(container.textContent).not.toMatch(/C1-L[1-5]/);
 
@@ -205,7 +205,7 @@ describe('CourseDetail / Course Path', () => {
     expect(toggle?.getAttribute('aria-expanded')).toBe('true');
     expect(lesson4Item.textContent).toContain('Build and verify a complete pick-and-place sequence.');
     expect(lesson4Item.textContent).toContain('Pick & Place program');
-    expect(lesson4Item.textContent).toContain('Complete Grab & Release to unlock this lesson.');
+    expect(lesson4Item.textContent).toContain('Complete Grab & Release to unlock this module.');
     expect(lesson4Item.querySelector('a')).toBeNull();
     expect(lesson4Item.querySelector('button[disabled]')).not.toBeNull();
   });
@@ -217,7 +217,7 @@ describe('CourseDetail / Course Path', () => {
     expect(lesson1Item.textContent).toContain('Meet Your Robot');
     expect(lesson1Item.textContent).not.toContain('C1-L1');
     expect(lesson1Item.textContent).toContain('✓ Completed');
-    expect(lesson1Item.textContent).toContain('Review lesson');
+    expect(lesson1Item.textContent).toContain('Review module');
 
     const reviewLink = lesson1Item.querySelector('a');
     expect(reviewLink?.getAttribute('href')).toBe('/courses/c1-uuid/lessons/lesson-1-uuid');
@@ -229,7 +229,7 @@ describe('CourseDetail / Course Path', () => {
     const lesson3Item = container.querySelectorAll('[data-testid="lesson-row"]')[2];
     expect(lesson3Item.textContent).toContain('Grab & Release');
     expect(lesson3Item.textContent).toContain('▶ Current');
-    expect(lesson3Item.textContent).toContain('Start lesson');
+    expect(lesson3Item.textContent).toContain('Start module');
 
     const startLink = lesson3Item.querySelector('a');
     expect(startLink?.getAttribute('href')).toBe('/courses/c1-uuid/lessons/lesson-3-uuid');
@@ -248,7 +248,7 @@ describe('CourseDetail / Course Path', () => {
     const lesson3Item = container.querySelectorAll('[data-testid="lesson-row"]')[2];
     expect(lesson3Item.textContent).toContain('Grab & Release');
     expect(lesson3Item.textContent).toContain('• In Progress');
-    expect(lesson3Item.textContent).toContain('Continue lesson');
+    expect(lesson3Item.textContent).toContain('Continue module');
   });
 
   it('locked lesson displays locked state with server lock reason and disabled button', async () => {
@@ -257,7 +257,7 @@ describe('CourseDetail / Course Path', () => {
     const lesson4Item = container.querySelectorAll('[data-testid="lesson-row"]')[3];
     expect(lesson4Item.textContent).toContain('Pick & Place');
     expect(lesson4Item.textContent).toContain('🔒 Locked');
-    expect(lesson4Item.textContent).toContain('Complete Grab & Release to unlock this lesson.');
+    expect(lesson4Item.textContent).toContain('Complete Grab & Release to unlock this module.');
 
     const lockedButton = lesson4Item.querySelector<HTMLButtonElement>('button[disabled]');
     expect(lockedButton).toBeDefined();
@@ -290,7 +290,7 @@ describe('CourseDetail / Course Path', () => {
     mocks.coursePath.mockResolvedValue(completeFixture);
     await renderRoute();
 
-    expect(container.textContent).toContain('5 / 5 lessons completed');
+    expect(container.textContent).toContain('5 of 5 modules completed');
     expect(container.textContent).toContain('100%');
     expect(container.textContent).toContain('✓ Course Completed');
     expect(container.querySelector('header')?.textContent).not.toContain('Continue Learning');
@@ -309,7 +309,7 @@ describe('CourseDetail / Course Path', () => {
 
     expect(mocks.coursePath).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('Grab & Release');
-    expect(container.textContent).toContain('2 / 5 lessons completed');
+    expect(container.textContent).toContain('2 of 5 modules completed');
   });
 
   it('renders error state on API failure and provides retry', async () => {

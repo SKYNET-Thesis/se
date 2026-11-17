@@ -6,6 +6,7 @@ import { SupabaseAuthGuard } from "../identity/auth/supabase-auth.guard";
 import { AssessSubmissionDto } from "./dto/assess-submission.dto";
 import { CreateFeedbackDto } from "./dto/create-feedback.dto";
 import { CreateReflectionDto } from "./dto/create-reflection.dto";
+import { ReopenGradingDto } from "./dto/assignment-config.dto";
 import { AssessmentService } from "./assessment.service";
 
 @ApiTags("Learning assessment") @ApiBearerAuth() @UseGuards(SupabaseAuthGuard)
@@ -22,6 +23,7 @@ export class AssessmentController {
   @Get("me/submissions/:submissionId") mySubmission(@CurrentUser() user: AuthenticatedUser,@Param("submissionId",ParseUUIDPipe) id:string){return this.assessments.mySubmission(user,id)}
   @Post("submissions/:submissionId/release") release(@CurrentUser() user: AuthenticatedUser,@Param("submissionId",ParseUUIDPipe) id:string){return this.assessments.releaseSubmission(user,id)}
   @Post("attempts/:attemptId/release") releaseAttempt(@CurrentUser() user: AuthenticatedUser,@Param("attemptId",ParseUUIDPipe) id:string){return this.assessments.releaseAttempt(user,id)}
+  @Post("attempts/:attemptId/grading/reopen") reopen(@CurrentUser() user: AuthenticatedUser,@Param("attemptId",ParseUUIDPipe) id:string,@Body() dto:ReopenGradingDto){return this.assessments.reopenGrading(user,id,dto.reason)}
   @Get("me/attempts/:attemptId/grading") myGrading(@CurrentUser() user: AuthenticatedUser,@Param("attemptId",ParseUUIDPipe) id:string){return this.assessments.myGrading(user,id)}
   @Get("me/submissions/:submissionId/feedback") myFeedback(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string){return this.assessments.myFeedback(user,id)}
   @Get("me/submissions/:submissionId/reflections") reflections(@CurrentUser() user: AuthenticatedUser,@Param("submissionId",ParseUUIDPipe) id:string){return this.assessments.myReflections(user,id)}

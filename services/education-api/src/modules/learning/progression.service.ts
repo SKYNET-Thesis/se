@@ -551,8 +551,8 @@ export class ProgressionService {
 function firstLockReason(prerequisites: Array<{ lessonId: string; title: string; required: boolean; minimumScore: number | null; status: string | null; progressPercent: number | string | null }>): CoursePathLockReason | null {
   for (const prerequisite of prerequisites) {
     if (!prerequisite.required) continue;
-    if (prerequisite.status !== "completed") return { code: "PREREQUISITE_NOT_COMPLETED", prerequisiteLessonId: prerequisite.lessonId, prerequisiteLessonTitle: prerequisite.title, message: `Complete ${prerequisite.title} to unlock this lesson.` };
-    if (prerequisite.minimumScore !== null && Number(prerequisite.progressPercent ?? 0) < prerequisite.minimumScore) return { code: "PREREQUISITE_MINIMUM_SCORE_NOT_MET", prerequisiteLessonId: prerequisite.lessonId, prerequisiteLessonTitle: prerequisite.title, message: `Reach ${prerequisite.minimumScore}% in ${prerequisite.title} to unlock this lesson.` };
+    if (prerequisite.status !== "completed") return { code: "PREREQUISITE_NOT_COMPLETED", prerequisiteLessonId: prerequisite.lessonId, prerequisiteLessonTitle: prerequisite.title, message: `Complete ${prerequisite.title} to unlock this module.` };
+    if (prerequisite.minimumScore !== null && Number(prerequisite.progressPercent ?? 0) < prerequisite.minimumScore) return { code: "PREREQUISITE_MINIMUM_SCORE_NOT_MET", prerequisiteLessonId: prerequisite.lessonId, prerequisiteLessonTitle: prerequisite.title, message: `Reach ${prerequisite.minimumScore}% in ${prerequisite.title} to unlock this module.` };
   }
   return null;
 }

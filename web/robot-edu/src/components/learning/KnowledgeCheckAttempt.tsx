@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { ApiDraftAnswer, KnowledgeCheckSubmissionResult } from '../../lib/api';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 
@@ -14,7 +15,7 @@ const toSelection = (draft?: ApiDraftAnswer[]): Record<string, string[]> =>
   Object.fromEntries((draft ?? []).map((answer) => [answer.questionId, answer.optionIds ?? (answer.optionId ? [answer.optionId] : [])]));
 
 export function KnowledgeCheckAttempt({
-  title, snapshot, result, onSubmit, initialDraft, draftSavedAt, readOnly, onSaveDraft, confirmSubmit,
+  title, snapshot, result, onSubmit, initialDraft, draftSavedAt, readOnly, onSaveDraft, confirmSubmit, backTo,
 }: {
   title: string;
   snapshot: PublicQuizSnapshot;
@@ -26,6 +27,8 @@ export function KnowledgeCheckAttempt({
   readOnly?: boolean;
   onSaveDraft?: (answers: ApiDraftAnswer[]) => Promise<void>;
   confirmSubmit?: boolean;
+  /** Where to continue after a result (the quiz page lists attempts, remaining attempts and retake). */
+  backTo?: { to: string; label: string };
 }) {
   const [answers, setAnswers] = useState<Record<string, string[]>>(() => toSelection(initialDraft));
   const [draftState, setDraftState] = useState<'idle' | 'saving' | 'saved' | 'error'>(draftSavedAt ? 'saved' : 'idle');
@@ -68,7 +71,7 @@ export function KnowledgeCheckAttempt({
     <div className="mt-8 space-y-6">{snapshot.questions.map((question, index) => <fieldset key={question.questionVersionId} disabled={Boolean(submitted) || Boolean(readOnly)} className="rounded-xl border border-line p-5">
       <legend className="px-2 font-medium">Question {index + 1}{typeof question.points === 'number' && <span className="ml-2 text-sm font-normal text-ink-muted" data-testid="question-points">· {pointsLabel(question.points)}</span>}</legend>
       <p className="mb-4">{question.stem}</p>
-      <div className="space-y-2">{question.options.map((option) => <label key={option.id} className="flex cursor-pointer items-start gap-3 rounded-md border border-line p-3 hover:bg-sunken">
+      <div className="space-y-2">{question.options.map((option) => <label key={option.id} className="flex cursor-pointer items-center gap-3 rounded-md border border-line p-3 hover:bg-sunken focus-within:ring-2 focus-within:ring-accent">
         <input type={question.type === 'multiple_choice' ? 'checkbox' : 'radio'} name={question.questionVersionId} value={option.id} checked={(answers[question.questionVersionId] ?? []).includes(option.id)} onChange={(event) => { touched.current = true; setAnswers((current) => {
           const selected = current[question.questionVersionId] ?? [];
           const next = question.type === 'multiple_choice' ? event.target.checked ? [...selected, option.id] : selected.filter((id) => id !== option.id) : [option.id];
@@ -83,6 +86,7 @@ export function KnowledgeCheckAttempt({
       {typeof submitted.earnedPoints === 'number' && typeof submitted.possiblePoints === 'number' && <p className="mt-1 text-sm" data-testid="quiz-earned-points">{submitted.earnedPoints} of {pointsLabel(submitted.possiblePoints)} earned</p>}
       {submitted.feedback && <ul className="mt-3 space-y-1 text-sm" aria-label="Points per question">{submitted.feedback.map((item, index) => <li key={item.questionVersionId} data-testid="question-result">Question {index + 1}: {item.correct ? 'correct' : 'not correct'} · {item.earnedPoints} / {item.possiblePoints}{item.explanation ? <span className="block text-ink-muted">{item.explanation}</span> : null}</li>)}</ul>}
     </section>}
+    {(submitted || readOnly) && backTo && <p className="mt-4 text-sm"><Link to={backTo.to} className="font-medium text-accent-ink underline">{backTo.label}</Link></p>}
     <div className="mt-6 flex flex-wrap items-center gap-4">
       <button type="button" className="inline-flex h-10 items-center rounded-md bg-accent px-4 text-sm font-medium text-white disabled:opacity-50" onClick={() => (confirmSubmit ? setConfirming(true) : void submit())} disabled={!canSubmit || busy || Boolean(submitted) || Boolean(readOnly)}>{busy ? 'Submitting…' : submitted ? 'Submitted' : 'Submit quiz'}</button>
       {onSaveDraft && !submitted && !readOnly && <p aria-live="polite" className="text-xs text-ink-subtle">{draftState === 'saving' ? 'Saving draft…' : draftState === 'saved' ? 'Draft saved' : draftState === 'error' ? 'Draft could not be saved. Your answers are still on this page.' : 'Your answers are saved as a draft while you work.'}</p>}

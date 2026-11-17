@@ -194,5 +194,11 @@ test('Core LMS pages do not overflow at supported viewport widths', async ({ pag
     await expect(page.getByRole('heading', { name: 'Classrooms' })).toBeVisible();
     const classroomOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     expect(classroomOverflow, `School Classrooms overflowed at ${width}px`).toBe(false);
+
+    await signIn(page, fixture.users.instructor.authUserId);
+    await page.goto(`/teacher/classes/${fixture.classroomId}`);
+    await expect(page.getByRole('heading', { name: 'Learner progress' })).toBeVisible();
+    const teacherOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+    expect(teacherOverflow, `Teacher classroom (learner progress table) overflowed at ${width}px`).toBe(false);
   }
 });

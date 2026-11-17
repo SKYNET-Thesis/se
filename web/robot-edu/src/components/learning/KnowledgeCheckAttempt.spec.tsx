@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KnowledgeCheckAttempt, type PublicQuizSnapshot } from './KnowledgeCheckAttempt';
@@ -79,5 +80,13 @@ describe('KnowledgeCheckAttempt', () => {
       await act(async () => { confirm.click(); });
       expect(onSubmit).toHaveBeenCalledWith([{ questionId: 'question-v1', optionId: 'stop' }]);
     });
+  });
+  it('links back to the quiz page after a result so the learner can see remaining attempts and retake', async () => {
+    const onSubmit = vi.fn().mockResolvedValue({ attemptId: 'attempt-1', passed: false, score: 0, passPercent: 80, completedLessonId: null, newlyUnlockedLessonIds: [] });
+    await act(async () => { root.render(<MemoryRouter><KnowledgeCheckAttempt title="Robot Safety" snapshot={snapshot} onSubmit={onSubmit} backTo={{ to: '/my-learning/ca-1', label: 'Back to this quiz' }} /></MemoryRouter>); });
+    expect(container.querySelector('a[href="/my-learning/ca-1"]')).toBeNull();
+    await act(async () => { container.querySelector('input')!.click(); });
+    await act(async () => { [...container.querySelectorAll('button')].find((b) => b.textContent === 'Submit quiz')!.click(); });
+    expect(container.querySelector('a[href="/my-learning/ca-1"]')?.textContent).toBe('Back to this quiz');
   });
 });

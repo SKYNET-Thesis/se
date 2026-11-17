@@ -73,8 +73,8 @@ export class AssessmentService {
   /**
    * Released grades are immutable: once an attempt's grading is released the student can see it, so a later assessment or
    * feedback write would silently change what they were shown. The check locks the attempt row, which is the same row
-   * `releaseAttemptGrading` locks, so a write can never interleave with a release. Correcting a released grade needs an
-   * explicit, audited "revoke release" step that does not exist yet (it would need a schema change).
+   * `releaseAttemptGrading` locks, so a write can never interleave with a release. Correcting a released grade goes through
+   * the explicit, audited `reopenGrading` step.
    */
   private async assertNotReleased(tx:Pick<PrismaService,"$queryRaw">,attemptId:string|null){
     if(!attemptId) return;
@@ -163,6 +163,35 @@ export class AssessmentService {
         UPDATE public.learning_assignment_attempts SET grading_released_at=now(),grading_released_by=${user.vistaUserId}::uuid,grading_release_origin='instructor'
         WHERE id=${attemptId}::uuid AND grading_released_at IS NULL RETURNING grading_released_at`;
       return { attemptId, released:true, releasedAt:released[0].grading_released_at };
+    });
+  }
+
+  /**
+   * Audited correction path for a released grade: an instructor with review+assess rights withdraws the release with a
+   * recorded reason. The withdrawn grade (scores, overall feedback, attempt score, who/when released) is preserved in
+   * audit_logs (write-only for the runtime role, which has no SELECT on it), the student immediately stops seeing it, and the instructor may then assess again and re-release.
+   * System auto-released results (machine-graded quizzes) are objective and cannot be reopened.
+   */
+  async reopenGrading(user:AuthenticatedUser,attemptId:string,reason:string) {
+    const rows=await this.prisma.$queryRaw<{classroom_id:string;organization_id:string}[]>`
+      SELECT ca.classroom_id,c.organization_id FROM public.learning_assignment_attempts a JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id JOIN public.learning_classrooms c ON c.id=ca.classroom_id WHERE a.id=${attemptId}::uuid`;
+    if(!rows[0]) throw new NotFoundException("Attempt was not found.");
+    await this.scope.assertTeacherClassroomPermission(user,rows[0].classroom_id,["learning.work.review","learning.assessment.assess"]);
+    const text=reason?.trim(); if(!text||text.length<5) throw new BadRequestException("A reason of at least 5 characters is required.");
+    return this.prisma.$transaction(async tx=>{
+      const attempts=await tx.$queryRaw<{grading_released_at:Date|null;grading_released_by:string|null;grading_release_origin:string|null;score:number|null}[]>`
+        SELECT grading_released_at,grading_released_by,grading_release_origin,score::float AS score FROM public.learning_assignment_attempts WHERE id=${attemptId}::uuid FOR UPDATE`;
+      const attempt=attempts[0];
+      if(!attempt.grading_released_at) throw new ConflictException({code:"GRADE_NOT_RELEASED",message:"This grade has not been released."});
+      if(attempt.grading_release_origin==="system_auto") throw new ConflictException({code:"AUTO_GRADE_NOT_REOPENABLE",message:"Automatically graded results cannot be reopened."});
+      const previous=await tx.$queryRaw<Record<string,unknown>[]>`
+        SELECT ass.id AS "assessmentId",ass.overall_feedback AS "overallFeedback",ass.reviewed_at AS "reviewedAt",
+          COALESCE((SELECT json_agg(json_build_object('criterionId',sc.criterion_id,'awardedPoints',sc.awarded_points,'comment',sc.comment)) FROM public.learning_assessment_scores sc WHERE sc.assessment_id=ass.id),'[]'::json) AS scores
+        FROM public.learning_submissions s JOIN public.learning_assessments ass ON ass.submission_id=s.id WHERE s.attempt_id=${attemptId}::uuid`;
+      const details={reason:text,withdrawn:{releasedAt:attempt.grading_released_at,releasedBy:attempt.grading_released_by,origin:attempt.grading_release_origin,attemptScore:attempt.score,assessment:previous[0]??null}};
+      await tx.$executeRaw`INSERT INTO public.audit_logs(actor_user_id,organization_id,action,target_type,target_id,details) VALUES(${user.vistaUserId}::uuid,${rows[0].organization_id}::uuid,'grading.release_withdrawn','learning_assignment_attempt',${attemptId}::uuid,${JSON.stringify(details)}::jsonb)`;
+      await tx.$executeRaw`UPDATE public.learning_assignment_attempts SET grading_released_at=NULL,grading_released_by=NULL,grading_release_origin=NULL WHERE id=${attemptId}::uuid`;
+      return {attemptId,released:false,reopened:true};
     });
   }
 

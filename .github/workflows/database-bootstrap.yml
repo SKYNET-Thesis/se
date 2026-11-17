@@ -3,7 +3,8 @@ name: Database Bootstrap
 # Builds a throw-away PostgreSQL 17 service container from the repository alone (verified baseline + release
 # migrations), verifies ledger/checksums/schema fingerprint, then runs Prisma checks, the backend build and the
 # PostgreSQL integration suites against it. The database exists only for this job on the runner loopback
-# interface; no secrets, Supabase credentials or Production endpoints are used.
+# interface; no secrets, Supabase credentials or Production endpoints are used. A second throw-away service container
+# (RustFS, an S3-compatible server on tmpfs, pinned by digest) backs the Learning Media integration suite; it is never AWS.
 
 on:
   pull_request:
@@ -46,6 +47,18 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U vista_test -d vista_test_course_builder"
           --health-interval 5s --health-timeout 5s --health-retries 20
+      s3:
+        # Disposable S3-compatible storage for learning-media.s3.db.spec.ts (matches the db\.spec pattern, so it must really run).
+        image: rustfs/rustfs@sha256:b81d16a90ee25bd9511280127ca1471788c6e874cf0f0da759645f46b2dc1d74
+        env:
+          RUSTFS_ACCESS_KEY: vista_media_test
+          RUSTFS_SECRET_KEY: vista_media_test_only_password
+          RUSTFS_VOLUMES: /data
+        ports:
+          - 9000
+        options: >-
+          --tmpfs /data:rw,size=512m,mode=1777
+          --tmpfs /logs:rw,size=64m,mode=1777
     env:
       PGPASSWORD: ci-disposable-local-only
       VISTA_DATABASE_PROJECT_REF: vista-course-builder-test
@@ -56,6 +69,7 @@ jobs:
       - name: Resolve the PostgreSQL service's dynamic host port
         env:
           POSTGRES_SERVICE_PORT: ${{ job.services.postgres.ports[5432] }}
+          S3_SERVICE_PORT: ${{ job.services.s3.ports[9000] }}
         shell: bash
         run: |
           {
@@ -65,6 +79,7 @@ jobs:
             echo "VISTA_TEST_DATABASE_PORT=$POSTGRES_SERVICE_PORT"
             echo "MAIN_DB_URL=postgresql://vista_test:ci-disposable-local-only@127.0.0.1:$POSTGRES_SERVICE_PORT/vista_test_course_builder"
             echo "SECOND_DB_URL=postgresql://vista_test:ci-disposable-local-only@127.0.0.1:$POSTGRES_SERVICE_PORT/vista_baseline_test_second"
+            echo "LEARNING_MEDIA_S3_ENDPOINT=http://127.0.0.1:$S3_SERVICE_PORT"
           } >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
@@ -140,6 +155,15 @@ jobs:
             echo "VISTA_RUNTIME_FIXTURE_COURSE_ID=$COURSE_ID"
             echo "VISTA_RUNTIME_FIXTURE_USER_ID=$USER_ID"
           } >> "$GITHUB_ENV"
+      - name: Wait for the disposable S3-compatible service
+        shell: bash
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS "$LEARNING_MEDIA_S3_ENDPOINT/health" >/dev/null 2>&1; then echo "S3-compatible service is up after ${i}s"; exit 0; fi
+            sleep 1
+          done
+          echo "S3-compatible service did not become healthy" >&2
+          exit 1
       - name: PostgreSQL integration tests (real database; none skipped)
         working-directory: services/education-api
         env:
@@ -147,6 +171,14 @@ jobs:
           DIRECT_URL: ${{ env.MAIN_DB_URL }}?schema=public
           RUN_POSTGRES_INTEGRATION: "1"
           RUN_RUNTIME_ROLE_SECURITY: "1"
+          RUN_LOCAL_S3_INTEGRATION: "1"
+          # The suite signs uploads through the application's storage client, which uses the default AWS credential chain;
+          # these are the disposable keys of the throw-away S3-compatible service above (never real AWS credentials).
+          AWS_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: vista_media_test
+          AWS_SECRET_ACCESS_KEY: vista_media_test_only_password
+          LEARNING_MEDIA_S3_ACCESS_KEY: vista_media_test
+          LEARNING_MEDIA_S3_SECRET_KEY: vista_media_test_only_password
         run: |
           npx jest --runInBand --testPathPatterns 'db\.spec' --json --outputFile="$RUNNER_TEMP/db-tests.json"
           python - <<'PY'
@@ -155,6 +187,10 @@ jobs:
           print("passed", d["numPassedTests"], "failed", d["numFailedTests"], "skipped", d["numPendingTests"])
           if d["numFailedTests"] or d["numPendingTests"] or d["numPassedTests"] < 60 or d["numTotalTestSuites"] < 8:
               sys.exit("PostgreSQL integration tests failed, were skipped, or too few ran")
+          media = [r for r in d["testResults"] if r["name"].endswith("learning-media.s3.db.spec.ts")]
+          if len(media) != 1 or sum(1 for a in media[0]["assertionResults"] if a["status"] == "passed") < 4:
+              sys.exit("Learning Media S3 integration suite must run and pass all of its tests against the S3-compatible service")
+          print("learning-media.s3.db.spec.ts passed", sum(1 for a in media[0]["assertionResults"] if a["status"] == "passed"), "tests")
           PY
       - name: Full backend test suite against the bootstrapped database
         working-directory: services/education-api
