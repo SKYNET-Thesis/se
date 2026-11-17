@@ -29,3 +29,37 @@ auto-graded score and last activity. The Teacher classroom page renders it.
   AWS bucket, IAM policy or CORS configuration.
 - Browser journeys: see `docs/operations/phase-2-4-3-local-acceptance.md` (fixtures, local JWKS signer, API as
   `vista_app_runtime`).
+
+## Phase 1E acceptance map (local, disposable resources)
+
+The repository documents only the Release-Candidate journeys 1–3 (`docs/agent-reports/`). The 18-journey list used for
+this phase comes from the Phase 1 task definition and is mapped to tests below; it is not a repository requirement
+document.
+
+| # | Journey | Evidence |
+|---|---|---|
+| 1 | Instructor creates a course | `lms-authoring.spec.ts` Journey 1 |
+| 2 | Modules and lessons (incl. unlock rule) | Journey 1, `lms-unlock-rule.spec.ts` |
+| 3 | Learning materials uploaded and attached | `lms-lesson-media.spec.ts` (real browser, local S3-compatible storage), `learning-media.s3.db.spec.ts` |
+| 4 | Questions created manually | Journey 2 |
+| 5 | CSV import | `qb-import.spec.ts` |
+| 6 | XLSX import | `qb-import.spec.ts` (downloaded XLSX template re-imported), `question-bank-import.http.db.spec.ts` |
+| 7 | Weighted quiz from Question Bank | `qb-import.spec.ts`, `lms-unlock-rule.spec.ts` |
+| 8 | Assignment and rubric | `lms-assignment-grading.spec.ts` |
+| 9 | Preview and publish | Journey 1, `lms-unlock-rule.spec.ts` |
+| 10 | Student opens an authorized course | Journey 1, `lms-lesson-media.spec.ts` |
+| 11 | Lessons completed, progress shown | `qb-import.spec.ts`, `lms-unlock-rule.spec.ts`, `progression-journey.db.spec.ts` |
+| 12 | Weighted quiz result | Journey 2, `qb-import.spec.ts` (25% then 100%) |
+| 13 | Assignment submitted | `lms-assignment-grading.spec.ts` |
+| 14 | Automatic grading | Quiz only (exact match, weighted). Blockly verdicts do not become rubric grades. |
+| 15 | Teacher reviews and releases | `lms-assignment-grading.spec.ts` |
+| 16 | Student sees feedback and progress | `lms-assignment-grading.spec.ts`, `lms-independent.spec.ts` |
+| 17 | Unauthorized users denied | all journeys, `assignment-grading-lifecycle.db.spec.ts` |
+| 18 | Cross-school denied | all journeys, `lms-independent.spec.ts`, DB-backed specs |
+
+Database paths verified on disposable PostgreSQL 17: fresh bootstrap (10 migrations, deterministic schema fingerprint) and
+`scripts/check_local_upgrade_path.py` (baseline + D..J with data, then K..M: data preserved, idempotent re-run,
+least-privilege runtime role, same fingerprint). K–M remain unapproved for Production.
+
+Known limits: Learning Media has no delete endpoint (an attachment is removed from a lesson, the stored file remains);
+the Playwright JWKS port (54321/54323) is shared by every agent, so runs must not overlap.
