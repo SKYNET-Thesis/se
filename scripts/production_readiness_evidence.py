@@ -15,8 +15,10 @@ from pathlib import Path
 
 try:
     from scripts import verify_production_release_d_i as base
+    from scripts.sql_migration_runner import LEGACY_SQL_VERSIONS
 except ModuleNotFoundError:  # executed as a script from the repository root
     import verify_production_release_d_i as base  # type: ignore
+    from sql_migration_runner import LEGACY_SQL_VERSIONS  # type: ignore
 
 APPLY_ROLE = "postgres"
 READER_ROLE = "vista_backup_reader"
@@ -116,8 +118,13 @@ def evaluate(raw: dict, root: Path) -> dict:
     scopes = json.loads((root / "database/release-scopes.json").read_text())["scopes"]
     kl, m = scopes["K-L"], scopes["M"]
     pinned = {e["version"]: e["sha256"] for e in manifest}
-    versions = set(raw["ledger_versions"])
+    all_versions = set(raw["ledger_versions"])
     required = list(kl["requiresApplied"])
+    # Same ledger rule as the migration runner (_classify): rows of the legacy, pre-manifest stream are tolerated; every other ledger version must be a manifested
+    # current-stream version. Exact equality with D-J is therefore evaluated on the current stream only; anything unexpected there still blocks.
+    first_version = min(pinned)
+    legacy_rows = {v for v in all_versions if v in LEGACY_SQL_VERSIONS or v < first_version}
+    versions = all_versions - legacy_rows
     k_l = list(kl["versions"])
     before = kl["expectedCatalogBefore"]
     checks = {
@@ -146,6 +153,7 @@ def evaluate(raw: dict, root: Path) -> dict:
     # L (revised) changes privileges only in `public`, so platform-object gaps no longer block K-L; they are reported because the earlier L draft failed on them.
     informational = {
         "apply_role_platform_function_gaps": raw["apply_role_platform_objects_without_privilege"],
+        "ledger_legacy_rows_tolerated": len(legacy_rows),
         "public_has_temp_residual_risk_if_m_deferred": raw["public_has_temp"],
         "database_owner_has_temp": raw["database_owner_has_temp"],
         "roles_that_would_lose_temp_if_m_were_released": raw["roles_relying_on_public_temp_not_in_m_allowlist"],
