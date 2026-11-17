@@ -333,7 +333,7 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
     expect(container.textContent).toContain('Simulation Passed');
     expect(container.textContent).toContain('Target A reached successfully.');
     expect(container.textContent).toContain('Move the Robot completed.');
-    expect(container.textContent).toContain('Next lesson unlocked:');
+    expect(container.textContent).toContain('Next module unlocked:');
     expect(container.textContent).toContain('Grab & Release');
     expect(container.textContent).toContain('Continue to Course Path');
 
@@ -386,7 +386,7 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
     expect(container.textContent).toContain('Edit Program');
     expect(container.textContent).toContain('Preview Again');
     expect(container.textContent).not.toContain('Simulation Passed');
-    expect(container.textContent).not.toContain('Next lesson unlocked:');
+    expect(container.textContent).not.toContain('Next module unlocked:');
   });
 
   it('P0. Run simulation may be repeated without finalizing; Submit assignment is a separate, confirmed, one-time final action that locks the attempt', async () => {
@@ -676,7 +676,7 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
       expect(container.textContent).toContain('Simulation Passed');
       expect(container.textContent).toContain('You successfully grasped, lifted, and released the object.');
       expect(container.textContent).toContain('Grab & Release completed.');
-      expect(container.textContent).toContain('Next lesson unlocked:');
+      expect(container.textContent).toContain('Next module unlocked:');
       expect(container.textContent).toContain('Pick & Place');
       expect(container.textContent).toContain('Continue to Course Path');
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: studentLearningKeys.all });
@@ -716,7 +716,7 @@ describe('Course 1 Practice integration & L2 Authoritative Task Simulation', () 
       expect(container.textContent).toContain('Simulation Needs Changes');
       expect(container.textContent).toContain('The gripper closed, but the object was not grasped.');
       expect(container.textContent).toContain('Review your approach and gripper blocks, then try again.');
-      expect(container.textContent).not.toContain('Next lesson unlocked:');
+      expect(container.textContent).not.toContain('Next module unlocked:');
       expect(container.textContent).not.toContain('Pick & Place');
     });
 

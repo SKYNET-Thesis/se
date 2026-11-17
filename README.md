@@ -184,38 +184,15 @@ se/
 
 ## Local development
 
-### Prerequisites
-
-- Git.
-- Node.js and the package manager versions required by each application's manifest/lockfile.
-- Access to the project's configured PostgreSQL database and Supabase Auth environment.
-- Any required Prisma tooling and environment variables described by the Education API source.
-- For physical experiments: a compatible local Ubuntu robotics workstation, Robot Runtime, CHECKIK and SO-101 hardware.
-
-### Clone the repository
+Use Node.js 22+, npm, Python 3, Docker Compose, and a PostgreSQL 17-compatible `psql` client. The Education API and Web can run against a disposable local PostgreSQL database; Production database access is not needed.
 
 ```bash
 git clone https://github.com/SKYNET-Thesis/se.git
 cd se
+sh scripts/setup-dev.sh
 ```
 
-### Start the Web and Education API
-
-The following commands navigate to the **confirmed directories**. Install/start commands are intentionally not asserted because the handoff does not specify package manager, script names or environment-file contracts.
-
-```bash
-# Terminal 1 — Web
-cd web/robot-edu
-# Inspect package.json and the lockfile, install dependencies,
-# configure the required environment, then run the development script.
-
-# Terminal 2 — Education API
-cd services/education-api
-# Inspect package.json, Prisma configuration and environment contracts,
-# install dependencies, run required DB setup, then start the API.
-```
-
-Before testing integration, verify that the Web is configured to call the correct Education API endpoint and that authentication, CORS, database connectivity and seeded Course 1 data work together.
+Follow [`docs/setup/local-education-development.md`](docs/setup/local-education-development.md) for an isolated database, Prisma generation, API/Web startup, and health checks. Authenticated sign-in and demo identity seeding need a dedicated non-Production Supabase Auth project or local Supabase Auth configuration; the database remains local.
 
 ### Start the local robot stack
 
@@ -225,7 +202,7 @@ cd services/robot-runtime
 # found in the current source repository.
 ```
 
-**Do not attempt physical motion** until the correct robot, calibration, E-stop, safe workspace and authorized ControlSession have been verified locally. The Desktop startup/package command must be documented from its actual source once identified.
+The root [`docker-compose.yml`](docker-compose.yml) is a separate legacy service stack and is not the Education API quickstart. **Do not attempt physical motion** until the correct robot, calibration, E-stop, safe workspace and authorized ControlSession have been verified locally.
 
 ### Validation expectations
 

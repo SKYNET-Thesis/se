@@ -177,7 +177,7 @@ export function AdminCourses() {
           <div>
             <div className="flex items-center gap-2 text-accent">
               <BookOpenIcon className="h-5 w-5" />
-              <h3 className="font-bold text-sm text-ink">Course Outline</h3>
+              <h2 className="font-bold text-sm text-ink">Course Outline</h2>
             </div>
             <p className="mt-2 text-xs text-ink-muted leading-relaxed">
               The course outline is where you organize and structure your course content. Add lessons, quizzes, labs and instructional robotics activities.
@@ -203,7 +203,7 @@ export function AdminCourses() {
             <div className="flex items-center gap-2 text-blue-500">
               <FolderOpenIcon className="h-5 w-5" />
               <div className="flex items-center gap-1.5">
-                <h3 className="font-bold text-sm text-ink">Manage Your Files</h3>
+                <h2 className="font-bold text-sm text-ink">Manage Your Files</h2>
                 <span className="rounded bg-blue-500/10 px-1.5 py-0.2 text-3xs font-bold text-blue-600">BETA</span>
               </div>
             </div>
@@ -226,7 +226,7 @@ export function AdminCourses() {
           <div>
             <div className="flex items-center gap-2 text-emerald-500">
               <FolderOpenIcon className="h-5 w-5" />
-              <h3 className="font-bold text-sm text-ink">Asset Library</h3>
+              <h2 className="font-bold text-sm text-ink">Asset Library</h2>
             </div>
             <p className="mt-2 text-xs text-ink-muted leading-relaxed">
               Contains publicly accessible links and common instructional assets for VISTA robotics courses.

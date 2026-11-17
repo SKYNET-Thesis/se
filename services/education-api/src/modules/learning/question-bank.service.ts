@@ -5,8 +5,11 @@ import { assertCourseNotArchived } from './course-lifecycle';
 import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
 import { AddAssignmentQuestionDto, CreateQuestionDto, ObjectiveMappingDto, QuestionSearchDto, ReorderAssignmentQuestionsDto, UpdateVersionDto, VersionContentDto } from './dto/question-bank.dto';
 
+import { ImportFileError, ParsedRow, normalizeStem, parseQuestionRows, readImportTable } from './question-import';
+
 const cognitiveLevels = ['remember', 'understand', 'apply', 'analyze', 'evaluate', 'create'];
 type Content = VersionContentDto;
+export type ImportRowResult = { rowNumber: number; status: 'created' | 'failed'; message?: string; versionId?: string; points?: number };
 
 @Injectable()
 export class QuestionBankService {
@@ -108,6 +111,55 @@ export class QuestionBankService {
     await this.submitReview(user, version.id);
     await this.publish(user, version.id);
     return { questionId: question.id, versionId: version.id, status: 'published' };
+  }
+
+  /** Parses an uploaded CSV/XLSX and reports per-row validity and duplicates; writes nothing. */
+  async importPreview(user: AuthenticatedUser, lessonId: string, filename: string, file: Buffer) {
+    const lesson = await this.lessonOrg(user, lessonId);
+    if (!lesson.learning_courses.organization_id) throw new NotFoundException('Lesson was not found.');
+    let rows: ParsedRow[];
+    try { rows = parseQuestionRows(readImportTable(filename, file)); } catch (error) {
+      if (error instanceof ImportFileError) throw new BadRequestException(error.message);
+      throw error;
+    }
+    const existing = await this.prisma.learning_question_versions.findMany({ where: { status: { not: 'archived' }, question: { is: { lesson_id: lessonId } } }, select: { stem: true, question: { select: { code: true } } } });
+    const byStem = new Map(existing.map((v) => [normalizeStem(v.stem), v.question.code]));
+    const codes = new Set((await this.prisma.learning_questions.findMany({ where: { organization_id: lesson.learning_courses.organization_id, code: { in: rows.flatMap((r) => (r.code ? [r.code] : [])) } }, select: { code: true } })).map((q) => q.code));
+    const fileCodes = new Set<string>();
+    const items = rows.map((r) => {
+      const errors = [...r.errors];
+      if (r.code) { if (codes.has(r.code)) errors.push('code already exists in this organization.'); else if (fileCodes.has(r.code)) errors.push('code is repeated in the file.'); fileCodes.add(r.code); }
+      const duplicateOf = r.duplicateOfRow !== undefined ? { row: r.duplicateOfRow } : r.content && byStem.has(normalizeStem(r.content.stem)) ? { existingCode: byStem.get(normalizeStem(r.content.stem)) } : undefined;
+      const status = errors.length ? 'invalid' : duplicateOf ? 'duplicate' : 'valid';
+      return { rowNumber: r.rowNumber, status, errors, duplicateOf, points: r.points, stem: r.content?.stem, type: r.content?.type };
+    });
+    const count = (st: string) => items.filter((i) => i.status === st).length;
+    return { total: items.length, valid: count('valid'), invalid: count('invalid'), duplicates: count('duplicate'), items };
+  }
+
+  /** Imports every valid, non-duplicate row as a published question of the lesson. Rows succeed or fail independently. */
+  async importCommit(user: AuthenticatedUser, lessonId: string, filename: string, file: Buffer, opts: { objectiveId?: string; newObjective?: string; publish: boolean }) {
+    const preview = await this.importPreview(user, lessonId, filename, file);
+    const importable = preview.items.filter((i) => i.status === 'valid');
+    if (!importable.length) return { ...preview, created: 0, failed: 0, results: [] as ImportRowResult[] };
+    let objectiveId = opts.objectiveId;
+    if (!objectiveId) {
+      if (!opts.newObjective?.trim()) throw new BadRequestException('Choose or enter a Learning Outcome for the imported questions.');
+      objectiveId = (await this.createObjective(user, lessonId, opts.newObjective)).id;
+    } else if (!(await this.prisma.learning_objectives.count({ where: { id: objectiveId, lesson_id: lessonId } }))) throw new BadRequestException('Learning Outcome must belong to the lesson.');
+    const parsed = new Map(parseQuestionRows(readImportTable(filename, file)).map((r) => [r.rowNumber, r]));
+    const batch = Date.now().toString(36).toUpperCase();
+    const results: ImportRowResult[] = [];
+    for (const item of importable) {
+      const row = parsed.get(item.rowNumber)!;
+      try {
+        const out = await this.authorLessonQuestion(user, lessonId, { code: row.code ?? `IMP-${batch}-${item.rowNumber}`, content: row.content as VersionContentDto, objectiveId, publish: opts.publish });
+        results.push({ rowNumber: item.rowNumber, status: 'created', versionId: out.versionId, points: row.points });
+      } catch (error) {
+        results.push({ rowNumber: item.rowNumber, status: 'failed', message: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+    return { ...preview, created: results.filter((r) => r.status === 'created').length, failed: results.filter((r) => r.status === 'failed').length, results };
   }
 
   private async lessonOrg(user: AuthenticatedUser, lessonId: string) {

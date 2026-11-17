@@ -27,25 +27,34 @@ export interface MediaAssetLibraryModalProps {
   onSelectAsset?: (asset: MediaAsset) => void;
   selectionMode?: boolean;
   initialKind?: LearningMediaKind;
+  /** Kinds that cannot be chosen here (shown, but "Use file" is disabled with the reason). */
+  disallowKinds?: Partial<Record<LearningMediaKind, string>>;
   /** Render as a page section (Course Builder Media Library tab) instead of a dialog. */
   inline?: boolean;
 }
 
 const kindOf = kindOfMime;
 /** Short badge text; the MIME subtype alone reads badly for MP3 (`mpeg`) and MOV (`quicktime`). */
-const formatLabel = (mime: string) => ({ 'audio/mpeg': 'MP3', 'video/quicktime': 'MOV' } as Record<string, string>)[mime] ?? mime.split('/').at(-1)?.toUpperCase() ?? mime;
+const FORMAT_LABELS: Record<string, string> = {
+  'audio/mpeg': 'MP3', 'video/quicktime': 'MOV', 'video/mp4': 'MP4', 'video/webm': 'WebM', 'application/pdf': 'PDF',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'DOCX',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'PPTX',
+  'image/png': 'PNG', 'image/jpeg': 'JPG', 'image/webp': 'WebP',
+};
+export const formatLabel = (mime: string) => FORMAT_LABELS[mime] ?? mime.split('/').at(-1)?.toUpperCase() ?? mime;
+export const formatSize = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`);
 const assetOf = (row: ApiLearningMedia, url = ''): MediaAsset => ({
   id: row.id,
   name: row.original_filename,
   type: kindOf(row.mime_type),
   format: formatLabel(row.mime_type),
-  size: `${(row.size_bytes / (1024 * 1024)).toFixed(row.size_bytes > 1024 * 1024 ? 1 : 2)} MB`,
+  size: formatSize(row.size_bytes),
   url,
   uploadedAt: new Date(row.created_at).toLocaleDateString(),
   description: row.mime_type,
 });
 
-export function MediaAssetLibraryModal({ open, onClose, courseId, token, onSelectAsset, selectionMode = false, initialKind, inline = false }: MediaAssetLibraryModalProps) {
+export function MediaAssetLibraryModal({ open, onClose, courseId, token, onSelectAsset, selectionMode = false, initialKind, disallowKinds, inline = false }: MediaAssetLibraryModalProps) {
   const client = useQueryClient();
   const [filterType, setFilterType] = useState(initialKind ?? '');
   const [search, setSearch] = useState('');
@@ -95,7 +104,7 @@ export function MediaAssetLibraryModal({ open, onClose, courseId, token, onSelec
     {error && <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{error}</p>}
     {mediaQuery.isError && <p role="alert" className="text-sm text-danger">Learning Media library could not be loaded.</p>}
     <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
-      {mediaQuery.isLoading ? <p role="status" className="p-8 text-center text-sm text-ink-muted">Loading course media…</p> : rows.length === 0 ? <p className="rounded-lg border border-dashed border-line p-8 text-center text-sm text-ink-muted" role="status">{search ? 'No files match your search.' : 'No learning media is available in this course yet.'}</p> : rows.map((row) => { const asset = assetOf(row); return <div key={row.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface p-3.5"><div className="flex min-w-0 flex-1 items-start gap-3"><div className="mt-0.5 shrink-0">{icon(asset.type)}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h5 className="truncate text-sm font-semibold text-ink">{asset.name}</h5><Badge tone="neutral">{asset.format}</Badge></div><p className="mt-1 text-xs text-ink-muted">{asset.size} · {asset.uploadedAt} · Ready</p></div></div><div className="ml-3 flex shrink-0 items-center gap-2"><Button size="sm" variant="ghost" icon={<EyeIcon className="h-3.5 w-3.5" />} onClick={() => setPreviewAsset(row)} aria-label={`Preview ${asset.name}`}>Preview</Button>{selectionMode && <Button size="sm" variant="primary" onClick={() => { onSelectAsset?.(asset); onClose(); }}>Use file</Button>}</div></div>; })}
+      {mediaQuery.isLoading ? <p role="status" className="p-8 text-center text-sm text-ink-muted">Loading course media…</p> : rows.length === 0 ? <p className="rounded-lg border border-dashed border-line p-8 text-center text-sm text-ink-muted" role="status">{search ? 'No files match your search.' : 'No learning media is available in this course yet.'}</p> : rows.map((row) => { const asset = assetOf(row); return <div key={row.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface p-3.5"><div className="flex min-w-0 flex-1 items-start gap-3"><div className="mt-0.5 shrink-0">{icon(asset.type)}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h5 className="min-w-0 truncate text-sm font-semibold text-ink" title={asset.name}>{asset.name}</h5><Badge tone="neutral" className="shrink-0">{asset.format}</Badge></div><p className="mt-1 text-xs text-ink-muted">{asset.size} · {asset.uploadedAt} · Ready</p></div></div><div className="ml-3 flex shrink-0 items-center gap-2"><Button size="sm" variant="ghost" icon={<EyeIcon className="h-3.5 w-3.5" />} onClick={() => setPreviewAsset(row)} aria-label={`Preview ${asset.name}`}>Preview</Button>{selectionMode && (disallowKinds?.[asset.type] ? <span className="max-w-[11rem] text-right text-xs text-ink-muted">{disallowKinds[asset.type]}</span> : <Button size="sm" variant="primary" onClick={() => { onSelectAsset?.(asset); onClose(); }}>Use file</Button>)}</div></div>; })}
     </div>
   </div>
   );

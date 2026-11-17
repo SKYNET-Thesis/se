@@ -8,6 +8,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { LinkButton } from '../components/ui/LinkButton';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
+import { countLabel } from '../lib/terms';
 import { catalogApi, progressionApi, type CoursePathLesson } from '../lib/api';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
 
@@ -92,7 +93,7 @@ export function CourseDetail() {
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-subtle">Your progress</p>
-              <p className="mt-2 text-sm text-ink-muted">{completedLessons} / {totalLessons} lessons completed</p>
+              <p className="mt-2 text-sm text-ink-muted">{completedLessons} of {countLabel(totalLessons, 'module')} completed</p>
             </div>
             <span className="font-mono text-3xl font-semibold tabular-nums text-ink">{path.progressPercent}%</span>
           </div>
@@ -119,11 +120,11 @@ export function CourseDetail() {
         <div className="max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-accent-ink">Course path</p>
           <h2 id="lessons-heading" className="mt-2 text-2xl font-semibold tracking-[-0.025em] text-ink">Curriculum</h2>
-          <p className="mt-2 text-sm leading-6 text-ink-muted">Explore all {totalLessons} lessons. Locked lessons can be previewed, but activities remain unavailable until prerequisites are complete.</p>
+          <p className="mt-2 text-sm leading-6 text-ink-muted">This course has {countLabel(totalLessons, 'module')}. Locked modules can be previewed, but their activities stay unavailable until the modules they depend on are complete.</p>
         </div>
 
         {path.lessons.length === 0 ? (
-          <p className="mt-3 text-sm text-ink-muted">No lessons have been published yet.</p>
+          <p className="mt-3 text-sm text-ink-muted">No modules have been published yet.</p>
         ) : (
           <ol className="mt-6 space-y-3">
             {path.lessons.map((lesson: CoursePathLesson) => {
@@ -147,16 +148,16 @@ function LessonRow({ lesson, courseId }: { lesson: CoursePathLesson; courseId: s
   return (
     <li data-testid="lesson-row" className={`overflow-hidden rounded-xl border bg-surface transition-colors ${isCurrent || isInProgress ? 'border-accent' : 'border-line'}`}>
       <div className="flex items-center gap-3 p-3 sm:p-4">
-        <button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded((value) => !value)} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2">
+        <h3 className="flex min-w-0 flex-1"><button type="button" aria-expanded={expanded} aria-controls={panelId} onClick={() => setExpanded((value) => !value)} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2">
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-2"><span className="font-semibold text-ink">{lesson.title}</span><Badge tone={isCompleted ? 'ok' : isCurrent ? 'accent' : isInProgress ? 'warn' : 'neutral'}>{isCompleted ? '✓ Completed' : isCurrent ? '▶ Current' : isInProgress ? '• In Progress' : isLocked ? '🔒 Locked' : 'Available'}</Badge></span>
             <span className="mt-1 block line-clamp-1 text-sm text-ink-muted">{lesson.summary}</span>
             {isLocked && lesson.lockReason && <span className="mt-1 flex items-center gap-1.5 text-xs text-ink-muted"><LockIcon className="h-3.5 w-3.5 shrink-0" />{lesson.lockReason.message}</span>}
           </span>
           <ChevronDownIcon aria-hidden="true" className={`h-5 w-5 shrink-0 text-ink-subtle transition-transform ${expanded ? 'rotate-180' : ''}`} />
-        </button>
+        </button></h3>
         <div className="hidden shrink-0 sm:block">
-          {isLocked ? <Button variant="secondary" disabled aria-disabled="true">Locked</Button> : <LinkButton to={`/courses/${courseId}/lessons/${lesson.id}`} variant={isCurrent || isInProgress ? 'primary' : 'secondary'}>{isCompleted ? 'Review lesson' : isInProgress ? 'Continue lesson' : 'Start lesson'}</LinkButton>}
+          {isLocked ? <Button variant="secondary" disabled aria-disabled="true">Locked</Button> : <LinkButton to={`/courses/${courseId}/lessons/${lesson.id}`} variant={isCurrent || isInProgress ? 'primary' : 'secondary'}>{isCompleted ? 'Review module' : isInProgress ? 'Continue module' : 'Start module'}</LinkButton>}
         </div>
       </div>
       {expanded && (
@@ -164,13 +165,13 @@ function LessonRow({ lesson, courseId }: { lesson: CoursePathLesson; courseId: s
           <p className="max-w-[70ch] text-sm leading-6 text-ink-muted">{lesson.summary}</p>
           <div className="mt-4 grid gap-4 md:grid-cols-[1fr_auto]">
             <div>
-              <h3 className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-subtle">Learning steps</h3>
+              <h4 className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-subtle">Learning steps</h4>
               <ul className="mt-2 space-y-2">{lesson.learningItems.map((item) => <li key={item} className="flex items-start gap-2 text-sm text-ink"><CircleDotIcon className="mt-0.5 h-4 w-4 shrink-0 text-accent-ink" />{item}</li>)}</ul>
             </div>
             {lesson.estimatedMinutes && <p className="flex items-center gap-2 text-sm text-ink-muted"><Clock3Icon className="h-4 w-4" />~{lesson.estimatedMinutes} min</p>}
           </div>
           {isLocked && lesson.lockReason && <div className="mt-4 flex items-start gap-2 rounded-lg border border-line bg-surface p-3 text-sm text-ink-muted"><LockIcon className="mt-0.5 h-4 w-4 shrink-0" /><span>{lesson.lockReason.message}</span></div>}
-          <div className="mt-4 sm:hidden">{isLocked ? <Button variant="secondary" disabled aria-disabled="true" className="w-full">Locked</Button> : <LinkButton to={`/courses/${courseId}/lessons/${lesson.id}`} variant={isCurrent || isInProgress ? 'primary' : 'secondary'} className="w-full">{isCompleted ? 'Review lesson' : isInProgress ? 'Continue lesson' : 'Start lesson'}</LinkButton>}</div>
+          <div className="mt-4 sm:hidden">{isLocked ? <Button variant="secondary" disabled aria-disabled="true" className="w-full">Locked</Button> : <LinkButton to={`/courses/${courseId}/lessons/${lesson.id}`} variant={isCurrent || isInProgress ? 'primary' : 'secondary'} className="w-full">{isCompleted ? 'Review module' : isInProgress ? 'Continue module' : 'Start module'}</LinkButton>}</div>
         </div>
       )}
     </li>

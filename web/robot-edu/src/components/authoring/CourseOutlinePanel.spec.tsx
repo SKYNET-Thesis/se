@@ -117,4 +117,24 @@ describe('CourseOutlinePanel', () => {
     renderComponent({ lessons: [], sectionsByLesson: {} });
     expect(footerButton().disabled).toBe(true);
   });
+
+  it('shows an unlock-rule chip on a module that requires earlier modules, and none otherwise', () => {
+    renderComponent({ lessons: [{ id: 'lesson-1', title: 'Introduction', ordinal: 1 }, { id: 'lesson-2', title: 'Robot Control', ordinal: 2, prerequisiteLessonIds: ['lesson-1'] }] as never });
+    const chips = container.querySelectorAll('[aria-label^="Unlock rule"]');
+    expect(chips).toHaveLength(1);
+    expect(chips[0].getAttribute('aria-label')).toBe('Unlock rule: complete Module 1: Introduction first');
+    expect(chips[0].textContent).toContain('After M1');
+  });
+
+  it('keeps reorder controls always visible (touch-friendly) with names that identify the item', () => {
+    renderComponent({ onMoveLesson: vi.fn(), onMoveSection: vi.fn(), onMoveActivity: vi.fn() });
+    const moves = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label^="Move "]')];
+    expect(moves.length).toBeGreaterThan(0);
+    expect(container.querySelector('button[aria-label="Move module 2, Robot Control, up"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Move activity What is Robotics? down"]')).not.toBeNull();
+    for (const button of moves) {
+      expect(button.closest('[class*="opacity-0"]'), `${button.getAttribute('aria-label')} must not be hidden until hover`).toBeNull();
+      expect(button.className).toContain('h-8');
+    }
+  });
 });

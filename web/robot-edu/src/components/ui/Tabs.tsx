@@ -44,7 +44,7 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
             onKeyDown={(e) => onKeyDown(e, i)}
             className={cn(
               '-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 font-medium transition-colors duration-150',
-              size === 'sm' ? 'px-2 pb-2 pt-2.5 text-[13px]' : 'px-3 pb-2.5 pt-2 text-sm',
+              size === 'sm' ? 'px-2 pb-2 pt-2.5 text-[13px]' : 'px-2 pb-2.5 pt-2 text-[13px] sm:px-3 sm:text-sm',
               selected ? 'border-accent text-ink' : 'border-transparent text-ink-muted hover:text-ink'
             )}>
             

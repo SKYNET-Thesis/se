@@ -23,8 +23,8 @@ export function AttemptHistory({ attempts, kind, token, onOpen }: { attempts: Ap
               {kind === 'quiz' && attempt.score !== null && attempt.status === 'evaluated' ? ` · Score ${Number(attempt.score)}%` : ''}</p>
           </div>
           <div className="flex gap-2">
-            {!view.final && <button type="button" className="text-sm font-medium text-accent hover:text-accent-hover" onClick={() => onOpen(attempt.id)}>Continue</button>}
-            {view.final && <button type="button" aria-expanded={open} className="text-sm font-medium text-accent hover:text-accent-hover" onClick={() => setExpanded(open ? null : attempt.id)}>{open ? 'Hide details' : 'View details'}</button>}
+            {!view.final && <button type="button" className="inline-flex min-h-8 items-center px-1 text-sm font-medium text-accent hover:text-accent-hover" onClick={() => onOpen(attempt.id)}>Continue</button>}
+            {view.final && <button type="button" aria-expanded={open} className="inline-flex min-h-8 items-center px-1 text-sm font-medium text-accent hover:text-accent-hover" onClick={() => setExpanded(open ? null : attempt.id)}>{open ? 'Hide details' : 'View details'}</button>}
           </div>
         </div>
         {open && <div className="mt-3">

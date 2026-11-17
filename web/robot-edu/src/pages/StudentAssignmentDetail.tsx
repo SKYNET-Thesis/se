@@ -60,7 +60,7 @@ export function StudentAssignmentDetail() {
     <div className="mt-3 flex flex-wrap items-center gap-2"><Badge tone={win === 'closed' ? 'danger' : win === 'past_due' || win === 'due_soon' ? 'warn' : 'ok'}>{windowLabel[win]}</Badge></div>
     <p className="mt-4 max-w-2xl whitespace-pre-wrap text-ink-muted">{item.instructions ?? 'Follow the lesson instructions and submit your work.'}</p>
     <dl className="mt-8 grid gap-4 border-y border-line py-5 sm:grid-cols-4">
-      <div><dt className="text-xs text-ink-subtle">Lesson</dt><dd className="mt-1 font-medium text-ink">{item.lesson_title ?? 'Lesson'}</dd></div>
+      <div><dt className="text-xs text-ink-subtle">Module</dt><dd className="mt-1 font-medium text-ink">{item.lesson_title ?? 'Module'}</dd></div>
       <div><dt className="text-xs text-ink-subtle">Available</dt><dd className="mt-1 font-medium text-ink">{fmt(item.available_from) ?? 'Now'}{item.close_at ? ` – ${fmt(item.close_at)}` : ''}</dd></div>
       <div><dt className="text-xs text-ink-subtle">Due</dt><dd className="mt-1 font-medium text-ink">{fmt(item.due_at) ?? 'No due date'}</dd></div>
       <div><dt className="text-xs text-ink-subtle">Attempts</dt><dd className="mt-1 font-medium text-ink">{attempts.length}{typeof max === 'number' ? ` of ${max}` : ''} used</dd></div>

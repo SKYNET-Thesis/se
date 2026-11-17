@@ -377,7 +377,7 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
     // `result_snapshot` is `{}` (NOT NULL default) until the server grades the attempt; only a graded snapshot is a prior result.
     const prior = data.attempt.result_snapshot && typeof data.attempt.result_snapshot === 'object' && typeof (data.attempt.result_snapshot as { score?: unknown }).score === 'number'
       ? data.attempt.result_snapshot as import('../lib/api').KnowledgeCheckSubmissionResult : null;
-    return <KnowledgeCheckAttempt title={data.assignment.title} snapshot={publicQuiz} result={prior} initialDraft={data.attempt.draft_response?.answers} draftSavedAt={data.attempt.draft_saved_at} readOnly={data.attempt.status !== 'in_progress'} confirmSubmit onSaveDraft={(answers) => learnerApi.saveQuizDraft(data.attempt.id, answers, session.access_token).then(() => undefined)} onSubmit={(answers) => learnerApi.submitKnowledgeCheck(data.attempt.id, { answers }, session.access_token)} />;
+    return <KnowledgeCheckAttempt title={data.assignment.title} snapshot={publicQuiz} result={prior} initialDraft={data.attempt.draft_response?.answers} draftSavedAt={data.attempt.draft_saved_at} readOnly={data.attempt.status !== 'in_progress'} confirmSubmit backTo={{ to: `/my-learning/${data.attempt.classroom_assignment_id}`, label: 'Back to this quiz: attempts, remaining attempts and retake' }} onSaveDraft={(answers) => learnerApi.saveQuizDraft(data.attempt.id, answers, session.access_token).then(() => undefined)} onSubmit={(answers) => learnerApi.submitKnowledgeCheck(data.attempt.id, { answers }, session.access_token)} />;
     }
     return <EmptyState icon={<FileQuestionIcon />} title="Knowledge Check stays in Lesson Detail" description="This attempt does not contain a published server-graded quiz snapshot. Return to the lesson to open its quiz." action={<Link to={data.lesson ? `/courses/${data.lesson.course_id}/lessons/${data.lesson.id}` : '/courses'} className="inline-flex h-9 items-center rounded-md border border-line-strong px-3.5 text-sm font-medium text-ink hover:bg-sunken">Return to lesson</Link>} />;
   }
@@ -434,7 +434,7 @@ function EvaluationResult({ evaluation, lesson, attemptId, onEditProgram, onPrev
             {isL4 && <p className="text-xs font-medium text-ink-muted">Course 1 simulation challenge complete.</p>}
             <p className="text-xs text-ink-muted">{lesson ? `${lesson.title} completed.` : 'Lesson completed.'}</p>
             <div className="mt-3 rounded-lg border border-ok/20 bg-surface/80 p-3 text-xs text-ink">
-              <p className="font-semibold text-ink">Next lesson unlocked:</p>
+              <p className="font-semibold text-ink">Next module unlocked:</p>
               <p className="mt-0.5 font-medium text-accent-ink">{nextLessonTitle}</p>
             </div>
             <div className="mt-4 flex flex-wrap gap-2 pt-1">

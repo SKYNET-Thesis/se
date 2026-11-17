@@ -169,7 +169,7 @@ export function SimulationResult() {
               </p>
               {passed && isL4 && (
                 <p className="mt-1 text-xs font-semibold text-accent-ink">
-                  Course 1 simulation challenge complete. Next lesson unlocked: Physical Robot Lab.
+                  Course 1 simulation challenge complete. Next module unlocked: Physical Robot Lab.
                 </p>
               )}
             </div>

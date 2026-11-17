@@ -19,3 +19,16 @@ export function kindOfMime(mime: string): LearningMediaKind {
   const value = mime.toLowerCase();
   return value.startsWith('video/') ? 'video' : value.startsWith('image/') ? 'image' : value.startsWith('audio/') ? 'audio' : 'document';
 }
+
+const FILE_LABELS: Record<string, { kind: LearningMediaKind; label: string }> = {
+  pdf: { kind: 'document', label: 'PDF document' }, docx: { kind: 'document', label: 'Word document' }, pptx: { kind: 'document', label: 'PowerPoint slides' },
+  png: { kind: 'image', label: 'PNG image' }, jpg: { kind: 'image', label: 'JPEG image' }, jpeg: { kind: 'image', label: 'JPEG image' }, webp: { kind: 'image', label: 'WebP image' },
+  mp4: { kind: 'video', label: 'MP4 video' }, webm: { kind: 'video', label: 'WebM video' }, mov: { kind: 'video', label: 'QuickTime video' },
+  mp3: { kind: 'audio', label: 'MP3 audio' },
+};
+
+/** Human label and kind for a learning file, derived from its name (activity content stores only ids and file names). */
+export function describeMediaFile(filename: string): { kind: LearningMediaKind; label: string } {
+  const extension = filename.split('.').pop()?.toLowerCase() ?? '';
+  return FILE_LABELS[extension] ?? { kind: 'document', label: 'File' };
+}

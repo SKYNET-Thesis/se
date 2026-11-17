@@ -1,0 +1,442 @@
+[
+ {
+  "screen": "builder-media-course",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "builder-media-course",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "builder-media-course",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "builder-media-course",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "builder-unlock-course",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "builder-unlock-course",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "builder-unlock-course",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "builder-unlock-course",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "course-builder",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "course-builder",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "course-builder",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "course-builder",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "course-list",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "course-list",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "course-list",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "course-list",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-activity",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-activity",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-activity",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-activity",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-assignment",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-assignment",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-assignment",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-assignment",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-course",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-course",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-course",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-course",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-courses",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-courses",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-courses",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-courses",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-lesson",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-lesson",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-lesson",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-lesson",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-locked-course",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-locked-course",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-locked-course",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-locked-course",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-locked-module",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-locked-module",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-locked-module",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-locked-module",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-media-activity",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-media-activity",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-media-activity",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-media-activity",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-my-learning",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-my-learning",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-my-learning",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-my-learning",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-quiz",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-quiz",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-quiz",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-quiz",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-quiz-delivery",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-quiz-delivery",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-quiz-delivery",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "student-quiz-delivery",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignment-edit",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignment-edit",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignment-edit",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignment-edit",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignment-new",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignment-new",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignment-new",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignment-new",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignments",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignments",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignments",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-assignments",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-class",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-class",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-class",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-class",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-classes",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-classes",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-classes",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-classes",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-overview",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-overview",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-overview",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-overview",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-submission-review",
+  "viewport": "390px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-submission-review",
+  "viewport": "768px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-submission-review",
+  "viewport": "1024px",
+  "horizontalOverflowPx": 0
+ },
+ {
+  "screen": "teacher-submission-review",
+  "viewport": "1440px",
+  "horizontalOverflowPx": 0
+ }
+]

@@ -154,7 +154,7 @@ export function LearnerPreviewModal({
               <div className="rounded-xl border border-line bg-surface p-5 space-y-4">
                 <div className="border-b border-line pb-3">
                   <span className="text-2xs font-semibold uppercase tracking-wider text-accent-ink">
-                    Current Lesson
+                    Current module
                   </span>
                   <h3 className="text-lg font-bold text-ink">{activeLesson.title}</h3>
                   {activeLesson.content && typeof activeLesson.content.summary === 'string' && (

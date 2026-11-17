@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LessonViewer } from './LessonViewer';
-import type { LessonDetailResponse } from '../lib/api';
+import { ApiError, type LessonDetailResponse } from '../lib/api';
 
 const mocks = vi.hoisted(() => ({ session: { access_token: 'token', user: { id: 'student' } }, lessonDetail: vi.fn() }));
 vi.mock('../contexts/SupabaseSessionContext', () => ({ useSupabaseSession: () => ({ session: mocks.session, loading: false, sessionRevision: 0 }) }));
@@ -86,5 +86,20 @@ describe('LessonViewer activity-map boundary', () => {
     await render();
     expect(container.textContent).toContain('Complete Meet Your Robot first.');
     expect(container.querySelectorAll('a').length).toBeGreaterThan(0);
+  });
+
+  it('explains a lesson locked by the progression rule instead of a generic unavailable state', async () => {
+    mocks.lessonDetail.mockRejectedValueOnce(new ApiError(409, 'Complete Meet Your Robot to unlock this module.'));
+    await render();
+    expect(container.textContent).toContain('This module is locked');
+    expect(container.textContent).toContain('Complete Meet Your Robot to unlock this module.');
+    expect(container.textContent).toContain('Back to Course Path');
+  });
+
+  it('keeps the generic message for other failures', async () => {
+    mocks.lessonDetail.mockRejectedValueOnce(new ApiError(500, 'Server error'));
+    await render();
+    expect(container.textContent).toContain('Module unavailable');
+    expect(container.textContent).not.toContain('This module is locked');
   });
 });

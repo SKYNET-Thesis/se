@@ -7,6 +7,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { PageHeader } from '../components/ui/PageHeader';
 import { ProgressBar } from '../components/ui/ProgressBar';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
+import { countLabel } from '../lib/terms';
 import { progressionApi, type ApiStudentQuiz, type CoursePathResponse } from '../lib/api';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
 import { cn } from '../utils/cn';
@@ -236,12 +237,12 @@ export function MyLearning() {
                                   </>
                                 )}
                               </div>
-                              <h3
+                              <h2
                                 id={`course-title-${coursePath.course.id}`}
                                 className="mt-1 text-2xl font-bold text-ink"
                               >
                                 {coursePath.course.title}
-                              </h3>
+                              </h2>
                             </div>
                             <Badge tone="accent">{coursePath.progressPercent}%</Badge>
                           </div>
@@ -249,7 +250,7 @@ export function MyLearning() {
                           <div className="mt-5 space-y-2">
                             <div className="flex items-center justify-between text-sm text-ink-muted">
                               <span>
-                                {completedLessons} / {totalLessons} lessons completed
+                                {completedLessons} of {countLabel(totalLessons, 'module')} completed
                               </span>
                               <span className="font-semibold text-ink">
                                 {coursePath.progressPercent}%
@@ -263,7 +264,7 @@ export function MyLearning() {
 
                           <div className="mt-5 rounded-lg bg-sunken p-4">
                             <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-                              Current Lesson
+                              Current module
                             </span>
                             {currentLesson ? (
                               <p className="mt-1 text-base font-semibold text-ink">
@@ -271,7 +272,7 @@ export function MyLearning() {
                               </p>
                             ) : (
                               <p className="mt-1 text-sm text-ink-muted">
-                                All available lessons completed.
+                                All available modules completed.
                               </p>
                             )}
                           </div>
@@ -343,12 +344,12 @@ export function MyLearning() {
                               <span className="text-xs font-semibold uppercase tracking-wider text-ok">
                                 Completed Track
                               </span>
-                              <h3
+                              <h2
                                 id={`completed-course-title-${coursePath.course.id}`}
                                 className="mt-1 text-2xl font-bold text-ink"
                               >
                                 {coursePath.course.title}
-                              </h3>
+                              </h2>
                             </div>
                             <Badge tone="ok">✓ Completed</Badge>
                           </div>
@@ -356,7 +357,7 @@ export function MyLearning() {
                           <div className="mt-5 space-y-2">
                             <div className="flex items-center justify-between text-sm text-ink-muted">
                               <span>
-                                {totalLessons} / {totalLessons} lessons completed
+                                {countLabel(totalLessons, 'module')} completed
                               </span>
                               <span className="font-semibold text-ok">100%</span>
                             </div>
@@ -417,12 +418,12 @@ export function MyLearning() {
                               <p className="text-sm text-ink-muted">
                                 {quiz.course_title} · {quiz.lesson_title}
                               </p>
-                              <h3
+                              <h2
                                 id={`quiz-title-${quiz.lesson_id}`}
                                 className="mt-1 text-xl font-bold text-ink"
                               >
                                 {quiz.quiz_title}
-                              </h3>
+                              </h2>
                             </div>
                             <Badge tone={badge.tone}>{badge.label}</Badge>
                           </div>
