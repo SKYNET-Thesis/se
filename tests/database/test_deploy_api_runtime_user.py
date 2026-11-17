@@ -11,14 +11,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = (ROOT / "infra/terraform/scripts/deploy-api.sh").read_text()
 REF = "ovijutkvaaxohauvuxbj"
-BASE = {"SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "k", "WEB_ORIGIN": "https://skynex.best"}
+BASE = {"SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "k", "WEB_ORIGIN": "https://skynex.best,https://www.skynex.best",
+        "DATABASE_RUNTIME_ROLE": "vista_app_runtime", "LEARNING_MEDIA_BUCKET": "vista-demo-media-157098813811-sg", "AWS_REGION": "ap-southeast-1"}
 
 
-def run_block(database_url, env=None) -> subprocess.CompletedProcess:
+def run_block(database_url, env=None, extra=None) -> subprocess.CompletedProcess:
     block = re.search(r"python3 - <<'PY'\n(.*?)\nPY\n", SCRIPT, re.S).group(1)
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
-        (tmp / "env.json").write_text(json.dumps({**BASE, **({} if database_url is None else {"DATABASE_URL": database_url})}))
+        (tmp / "env.json").write_text(json.dumps({**BASE, **(extra or {}), **({} if database_url is None else {"DATABASE_URL": database_url})}))
         code = block.replace("/opt/vista/env.json", str(tmp / "env.json")).replace("/opt/vista/api.env", str(tmp / "api.env"))
         done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin", **(env or {})})
         done.api_env = (tmp / "api.env").read_text() if (tmp / "api.env").exists() else None  # type: ignore[attr-defined]
@@ -53,6 +54,29 @@ class DeployScriptRuntimeUserTests(unittest.TestCase):
         self.assertEqual(run_block(owner, {"VISTA_ROLLBACK": "1"}).returncode, 0)  # an image that predates the runtime role must stay restorable
         self.assertIn("VISTA_ROLLBACK=1 exec /usr/local/bin/vista-deploy-api", (ROOT / "infra/terraform/user-data.sh.tftpl").read_text())
         self.assertIn("trap 'rm -f /opt/vista/env.json' EXIT", SCRIPT)  # a refusal must not leave the plaintext secret on disk
+
+    def test_deploy_requires_the_runtime_role_name_media_settings_and_the_production_web_origin(self):
+        good = f"postgresql://vista_app_runtime.{REF}:pw@pooler:5432/postgres"
+        self.assertEqual(run_block(good).returncode, 0)
+        for key, bad in (("DATABASE_RUNTIME_ROLE", "postgres"), ("LEARNING_MEDIA_BUCKET", ""), ("AWS_REGION", " "), ("WEB_ORIGIN", "https://dbwzn37ruvlzi.cloudfront.net")):
+            with self.subTest(key=key):
+                done = run_block(good, extra={key: bad})
+                self.assertNotEqual(done.returncode, 0)
+                self.assertNotIn("pw", done.stderr)
+        self.assertEqual(run_block(good, extra={"WEB_ORIGIN": "https://dbwzn37ruvlzi.cloudfront.net"}, env={"VISTA_ROLLBACK": "1"}).returncode, 0)  # rollback stays possible with an old secret
+
+    def test_host_refresh_helper_is_dry_run_by_default_and_checks_before_replacing(self):
+        helper = ROOT / "infra/terraform/scripts/refresh-host-deploy-script.sh"
+        text = helper.read_text()
+        done = subprocess.run(["bash", str(helper)], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("DRY RUN (no AWS call)", done.stdout)  # nothing is sent without --execute
+        printed = subprocess.run(["bash", str(helper), "--print"], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"}).stdout
+        self.assertLess(printed.index("bash -n /tmp/vista-deploy-api.new"), printed.index("install -m 700"))  # syntax check before replacing
+        self.assertLess(printed.index("vista-deploy-api.prev-"), printed.index("install -m 700"))  # backup before replacing
+        self.assertIn("VISTA_ROLLBACK=1 exec", printed)
+        self.assertNotIn("docker", printed)  # the running API container is never touched
+        self.assertIn('"${1:-}" != "--execute"', text)
 
 
 if __name__ == "__main__":
