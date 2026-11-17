@@ -8,6 +8,7 @@ import json
 import os
 import threading
 import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -21,6 +22,8 @@ class FakeFollower:
 
     def __init__(self) -> None:
         self.commands: list[dict[str, Any]] = []
+        self.joints = {name: 0.0 for name in ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")}
+        self.sequence = 0
 
     def apply(self, step: dict[str, Any]) -> None:
         kind = step.get("type")
@@ -28,10 +31,29 @@ class FakeFollower:
             self.commands.append({"type": kind, "arm": step.get("arm")})
         elif kind in {"gripper.open", "gripper.close", "home"}:
             self.commands.append({"type": kind, "arm": step.get("resolvedArm")})
+            if kind == "home":
+                for name in self.joints:
+                    self.joints[name] = 0.0
+            elif kind == "gripper.open":
+                self.joints["gripper"] = 100.0
+            else:
+                self.joints["gripper"] = 0.0
         elif kind == "wait":
             self.commands.append({"type": kind, "durationMs": step.get("durationMs")})
         else:
             raise AdapterError("command_not_supported")
+
+    def telemetry(self, robot_id: str) -> dict[str, Any]:
+        self.sequence += 1
+        return {
+            "schema_version": 1, "robot_id": robot_id, "source_mode": "SIMULATION",
+            "controller_id": "checkik-fake-follower", "measured_at": datetime.now(timezone.utc).isoformat(),
+            "sequence": self.sequence, "connection": "connected",
+            "measured": [
+                {"name": name, "position": value, "unit": "percent" if name == "gripper" else "rad"}
+                for name, value in self.joints.items()
+            ],
+        }
 
 
 class Wf03CommandAdapter:
@@ -55,6 +77,7 @@ class Wf03CommandAdapter:
     def execute(
         self,
         run_id: str,
+        robot_id: str,
         step: dict[str, Any],
         cancel: threading.Event,
         deadline: float,
@@ -80,7 +103,7 @@ class Wf03CommandAdapter:
                     raise AdapterError("execution_timeout")
                 time.sleep(min(0.01, end - time.monotonic()))
         self.follower.apply(step)
-        return {"ok": True, "command": step.get("type")}
+        return {"ok": True, "command": step.get("type"), "telemetry": self.follower.telemetry(robot_id)}
 
     def cancel(self, run_id: str) -> None:
         self._cancelled.add(run_id)
@@ -121,7 +144,10 @@ def make_handler(adapter: Wf03CommandAdapter, token: str):
                 run_id = data.get("runId")
                 if self.path == "/execute" and isinstance(run_id, str):
                     timeout_ms = data.get("timeoutMs", 60000)
-                    value = adapter.execute(run_id, data.get("step"), threading.Event(), time.monotonic() + timeout_ms / 1000)
+                    robot_id = data.get("robotId")
+                    if not isinstance(robot_id, str) or not robot_id:
+                        return self._send(400, {"error": "robot_identity_required"})
+                    value = adapter.execute(run_id, robot_id, data.get("step"), threading.Event(), time.monotonic() + timeout_ms / 1000)
                     return self._send(200, value)
                 if self.path == "/cancel" and isinstance(run_id, str):
                     adapter.cancel(run_id)

@@ -55,6 +55,12 @@ describe('read-only mock telemetry boundary', () => {
       { measured_at: '2026-11-05T00:00:00' },
     ]) expect(parseTwinFrame({ ...fixture, ...field })).toBeNull();
   });
+  it('accepts a real allocated robot id only when it is the expected, viewer-scoped robot', () => {
+    const allocated = { ...fixture, robot_id: '14141414-1414-4141-8141-141414141414' };
+    expect(parseTwinFrame(allocated)).toBeNull();
+    expect(parseTwinFrame(allocated, allocated.robot_id)?.robot_id).toBe(allocated.robot_id);
+    expect(parseTwinFrame(allocated, 'another-robot')).toBeNull();
+  });
   it('rejects out-of-order packets and old measurements', () => {
     const first = parseTwinFrame(fixture)!;
     expect(acceptTwinFrame(first, { ...first, sequence: 1 })).toBe(false);

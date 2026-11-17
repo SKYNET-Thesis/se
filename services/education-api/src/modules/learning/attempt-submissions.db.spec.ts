@@ -9,6 +9,9 @@ import { LearningService } from './learning.service';
 import { ProgrammingService } from './programming.service';
 import { ProgressionService } from './progression.service';
 import { SubmissionFilesService } from './submission-files.service';
+import { ExperimentEvidenceService } from './experiment-evidence.service';
+import { ExperimentService } from './experiment.service';
+import { SchematicEngineService } from './schematic-engine.service';
 
 /**
  * One submission per attempt (D03 Stage 2) against the disposable PostgreSQL database that has Stage 1 and Stage 2
@@ -24,9 +27,18 @@ describeDb('real PostgreSQL attempt-based submissions', () => {
   let scope: LearningScopeService; let enrollments: EnrollmentDeliveryService; let progression: ProgressionService;
   let activityProgress: ActivityProgressService;
   let learning: LearningService; let programming: ProgrammingService; let assessment: AssessmentService; let files: SubmissionFilesService;
+  let experimentEvidence: ExperimentEvidenceService;
+  let experiments: ExperimentService;
   const storage = {
     createUpload: jest.fn().mockResolvedValue({ url: 'https://s3.invalid', fields: {} }),
     head: jest.fn(), readRange: jest.fn(), createDownload: jest.fn().mockResolvedValue('https://signed.invalid/x'),
+  };
+  const evidenceStorage = {
+    newKey: ({ organizationId, classroomId, experimentId, studentId }: { organizationId: string; classroomId: string; experimentId: string; studentId: string }) => `learning-media/experiments/${organizationId}/${classroomId}/${experimentId}/${studentId}/${experimentId}.json`,
+    validKey: (key: string) => /^learning-media\/experiments\/[0-9a-f-]{36}(?:\/[0-9a-f-]{36}){3}\/[0-9a-f-]{36}\.json$/.test(key),
+    put: jest.fn().mockResolvedValue({ sha256: 'fake-sha256', sizeBytes: 64 }),
+    verify: jest.fn().mockResolvedValue(true),
+    download: jest.fn().mockResolvedValue('https://signed.invalid/evidence'),
   };
 
   beforeAll(async () => {
@@ -37,7 +49,9 @@ describeDb('real PostgreSQL attempt-based submissions', () => {
     learning = new LearningService(db as never, scope, progression, enrollments);
     activityProgress = new ActivityProgressService(db as never, progression);
     programming = new ProgrammingService(db as never, scope);
-    assessment = new AssessmentService(db as never, scope);
+    experimentEvidence = new ExperimentEvidenceService(db as never, evidenceStorage as never);
+    experiments = new ExperimentService(db as never, scope, new SchematicEngineService(), undefined, experimentEvidence);
+    assessment = new AssessmentService(db as never, scope, experimentEvidence);
     files = new SubmissionFilesService(db as never, scope, storage as never);
   });
   afterAll(async () => { await db.$disconnect(); });
@@ -153,6 +167,42 @@ describeDb('real PostgreSQL attempt-based submissions', () => {
     const foreignUser = { authUserId: 'foreign', vistaUserId: foreignTeacher.id, email: 'foreign@test', status: 'active', systemRoleCodes: [], systemPermissions: [],
       memberships: [{ id: foreignMembership.id, organizationId: foreign.org.id, roleCode: 'instructor', status: 'active', permissions: ['learning.work.review'] }] } as never;
     await expect(assessment.instructorSubmission(foreignUser, submissionId)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('persists simulation evidence for its exact experiment/student/classroom and enforces authorized byte delivery', async () => {
+    const f = await fixture();
+    const submitted = await submitAttempt(f);
+    const submissionId = (submitted.submission as { id: string }).id;
+    const robot = await db.robots.create({ data: { serial_no: `evidence-${randomUUID()}`, name: 'evidence robot', owner_organization_id: f.x.org.id } });
+    const mode = await db.control_modes.upsert({ where: { code: 'blockly' }, update: {}, create: { code: 'blockly' } });
+    const safety = await db.safety_profiles.create({ data: { name: `evidence-${randomUUID()}`, max_speed_pct: 1, allowed_modes: ['blockly'] } });
+    const session = await db.control_sessions.create({ data: { organization_id: f.x.org.id, membership_id: f.s.membership.id, robot_id: robot.id, mode_id: mode.id, safety_profile_id: safety.id, safety_profile_snapshot: {} } });
+    const telemetry = { schema_version: 1, source_mode: 'SIMULATION', robot_id: robot.id, measured_at: new Date().toISOString(), sequence: 1 };
+    const experiment = await db.learning_experiments.create({ data: {
+      submission_id: submissionId, learner_user_id: f.s.user.id, method: 'blockly', execution_mode: 'real_robot', status: 'succeeded', control_session_id: session.id,
+      input_snapshot: { studentId: f.s.user.id, classroomId: f.x.room.id, organizationId: f.x.org.id, robotId: robot.id, attemptId: submitted.attempt.id, programId: submitted.program.id, programVersionId: submitted.version.id }, output_snapshot: { state: 'succeeded' },
+    } });
+
+    await expect(experimentEvidence.persistTelemetry(experiment.id, telemetry)).resolves.toMatchObject({ availability: 'available', artifactId: expect.any(String) });
+    const stored = await db.learning_experiment_artifacts.findFirstOrThrow({ where: { experiment_id: experiment.id, artifact_type: 'other', metadata: { path: ['schema'], equals: 'vista.experiment.telemetry.v1' } } });
+    expect(stored.storage_path).toBe(`learning-media/experiments/${f.x.org.id}/${f.x.room.id}/${experiment.id}/${f.s.user.id}/${experiment.id}.json`);
+    expect(stored.metadata).toMatchObject({ schema: 'vista.experiment.telemetry.v1', availability: 'available', sourceMode: 'SIMULATION', sha256: 'fake-sha256' });
+    expect(evidenceStorage.put).toHaveBeenCalledWith(stored.storage_path, expect.any(Uint8Array), expect.objectContaining({ experimentId: experiment.id, studentId: f.s.user.id, classroomId: f.x.room.id, organizationId: f.x.org.id }));
+
+    const artifactId = stored.id;
+    await expect(experimentEvidence.studentDownloadFromClassroom(f.user, experiment.id, artifactId)).resolves.toEqual({ status: 'available', url: 'https://signed.invalid/evidence' });
+    const other = await createStudent(db, f.x);
+    await joinClassroom(db, other, f.x.room.id);
+    const otherUser = { authUserId: 'other', vistaUserId: other.user.id, email: 'other@test', status: 'active', systemRoleCodes: [], systemPermissions: [], memberships: [{ id: other.membership.id, organizationId: f.x.org.id, roleCode: 'student', status: 'active', permissions: ['learning.work.write'] }] } as never;
+    await expect(experimentEvidence.studentDownloadFromClassroom(otherUser, experiment.id, artifactId)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(assessment.teacherEvidenceDownload(f.teacher, submissionId, experiment.id, artifactId)).resolves.toEqual({ status: 'available', url: 'https://signed.invalid/evidence' });
+    const foreign = await createWorld(db);
+    const foreignRole = await db.roles.create({ data: { code: `instructor-${randomUUID().slice(0, 8)}`, name: 'Instructor', scope: 'organization' } });
+    const foreignTeacher = await db.users.create({ data: { full_name: 'Foreign reviewer', signup_method: 'admin_created', status: 'active' } });
+    const foreignMembership = await db.memberships.create({ data: { user_id: foreignTeacher.id, organization_id: foreign.org.id, role_id: foreignRole.id, status: 'active' } });
+    const foreignClassroomTeacher = { authUserId: 'foreign', vistaUserId: foreignTeacher.id, email: 'foreign@test', status: 'active', systemRoleCodes: [], systemPermissions: [], memberships: [{ id: foreignMembership.id, organizationId: foreign.org.id, roleCode: 'instructor', status: 'active', permissions: ['learning.work.review'] }] } as never;
+    await expect(assessment.teacherEvidenceDownload(foreignClassroomTeacher, randomUUID(), experiment.id, artifactId)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(assessment.teacherEvidenceDownload(foreignClassroomTeacher, submissionId, experiment.id, artifactId)).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('shows students nothing of their grading until the attempt is released, and only that attempt afterwards', async () => {

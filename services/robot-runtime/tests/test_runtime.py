@@ -15,15 +15,15 @@ def config():
 
 class FakeCheckikAdapter:
     def __init__(self, status=None):
-        self.snapshot = status or {"backend": {"motionEnabled": True, "latchedMotionLock": False}, "readiness": {"ready": True}}
+        self.snapshot = status or {"mode": "fake_follower", "backend": {"motionEnabled": True, "latchedMotionLock": False}, "readiness": {"ready": True}}
         self.commands = []
         self.cancelled = []
 
     def status(self):
         return self.snapshot
 
-    def execute(self, run_id, step, timeout_ms):
-        self.commands.append((run_id, step, timeout_ms))
+    def execute(self, run_id, robot_id, step, timeout_ms):
+        self.commands.append((run_id, robot_id, step, timeout_ms))
         return {"ok": True}
 
     def cancel(self, run_id):
@@ -34,7 +34,7 @@ class FakeCheckikAdapter:
 
 
 def program(steps):
-    return {"runId": "run-1", "programVersionId": "version-1", "profile": "lesson", "program": {"kind": "robot_program", "schemaVersion": 1, "steps": steps}}
+    return {"runId": "run-1", "robotId": "robot-a", "programVersionId": "version-1", "profile": "lesson", "program": {"kind": "robot_program", "schemaVersion": 1, "steps": steps}}
 
 
 class RuntimeContractTests(unittest.TestCase):
@@ -44,7 +44,7 @@ class RuntimeContractTests(unittest.TestCase):
             def __exit__(self, *_args): return None
             def read(self): return b'{"ok":true}'
         with patch("runtime.urlopen", return_value=Response()) as request:
-            CheckikHttpAdapter("http://127.0.0.1:8016", "token").execute("run-1", {"type": "wait", "durationMs": 3000}, 3500)
+            CheckikHttpAdapter("http://127.0.0.1:8016", "token").execute("run-1", "robot-a", {"type": "wait", "durationMs": 3000}, 3500)
         self.assertGreaterEqual(request.call_args.kwargs["timeout"], 3.5)
 
     def test_rejects_hardware_before_any_execution(self):
@@ -78,7 +78,7 @@ class RuntimeContractTests(unittest.TestCase):
         while runtime.get("run-1")["state"] not in {"succeeded", "failed"} and time.time() < deadline:
             time.sleep(0.01)
         self.assertEqual(runtime.get("run-1")["state"], "succeeded")
-        self.assertEqual([step[1]["type"] for step in checked.commands], ["arm.select", "gripper.open", "wait", "gripper.close"])
+        self.assertEqual([step[2]["type"] for step in checked.commands], ["arm.select", "gripper.open", "wait", "gripper.close"])
 
     def test_same_run_id_is_idempotent_and_does_not_execute_twice(self):
         checked = FakeCheckikAdapter()
@@ -103,7 +103,7 @@ class RuntimeContractTests(unittest.TestCase):
 
     def test_adapter_false_success_fails_the_run(self):
         class RejectingAdapter(FakeCheckikAdapter):
-            def execute(self, run_id, step, timeout_ms): return {"ok": False}
+            def execute(self, run_id, robot_id, step, timeout_ms): return {"ok": False}
         cfg = config() | {"hardwareEnabled": True, "adapterMode": "fake_follower"}
         runtime = Runtime(cfg, RejectingAdapter())
         runtime.submit(program([{"type": "wait", "durationMs": 1}]))
@@ -124,7 +124,7 @@ class RuntimeContractTests(unittest.TestCase):
 
     def test_cancel_is_delegated_to_checked_adapter(self):
         class BlockingAdapter(FakeCheckikAdapter):
-            def execute(self, run_id, step, timeout_ms):
+            def execute(self, run_id, robot_id, step, timeout_ms):
                 time.sleep(0.05)
                 raise RuntimeError("adapter reports cooperative cancellation")
         checked = BlockingAdapter()
@@ -140,7 +140,7 @@ class RuntimeContractTests(unittest.TestCase):
 
     def test_whole_run_timeout_is_terminal_and_sanitized(self):
         class SlowAdapter(FakeCheckikAdapter):
-            def execute(self, run_id, step, timeout_ms):
+            def execute(self, run_id, robot_id, step, timeout_ms):
                 raise TimeoutError("private detail")
         cfg = config() | {"hardwareEnabled": True, "adapterMode": "fake_follower"}
         runtime = Runtime(cfg, SlowAdapter())

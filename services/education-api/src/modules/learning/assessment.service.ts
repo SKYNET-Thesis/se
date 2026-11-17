@@ -6,12 +6,33 @@ import { AssessSubmissionDto } from "./dto/assess-submission.dto";
 import { CreateFeedbackDto } from "./dto/create-feedback.dto";
 import { CreateReflectionDto } from "./dto/create-reflection.dto";
 import { LearningScopeService } from "./learning-scope.service";
+import { ExperimentEvidenceService } from "./experiment-evidence.service";
 
 interface SubmissionScope { attempt_id:string; id:string; assignment_id:string; learner_user_id:string; program_id:string; program_version_id:string|null; classroom_id:string; }
 
 @Injectable()
 export class AssessmentService {
-  constructor(private readonly prisma:PrismaService, private readonly scope:LearningScopeService) {}
+  constructor(private readonly prisma:PrismaService, private readonly scope:LearningScopeService, private readonly evidenceArtifacts?:ExperimentEvidenceService) {}
+
+  async teacherEvidenceDownload(user:AuthenticatedUser,submissionId:string,experimentId:string,artifactId:string){
+    const submission=await this.submissionScope(submissionId);
+    await this.scope.assertTeacherClassroomPermission(user,submission.classroom_id,["learning.work.review"]);
+    if(!this.evidenceArtifacts)throw new NotFoundException("Experiment evidence was not found.");
+    return this.evidenceArtifacts.teacherDownload(submissionId,experimentId,artifactId);
+  }
+
+  async studentEvidenceDownload(user:AuthenticatedUser,experimentId:string,artifactId:string){
+    const rows=await this.prisma.$queryRaw<Array<{classroom_id:string}>>`
+      SELECT ca.classroom_id FROM public.learning_experiments e
+      JOIN public.learning_submissions s ON s.id=e.submission_id AND s.learner_user_id=e.learner_user_id
+      JOIN public.learning_assignment_attempts at ON at.id=s.attempt_id
+      JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id AND ca.assignment_id=s.assignment_id
+      WHERE e.id=${experimentId}::uuid AND e.learner_user_id=${user.vistaUserId}::uuid`;
+    if(!rows[0])throw new NotFoundException("Experiment evidence was not found.");
+    await this.scope.assertStudentClassroomAccess(user,rows[0].classroom_id,{requireActiveEnrollment:true});
+    if(!this.evidenceArtifacts)throw new NotFoundException("Experiment evidence was not found.");
+    return this.evidenceArtifacts.studentDownloadFromClassroom(user,experimentId,artifactId);
+  }
 
   async classroomSubmissions(user:AuthenticatedUser,classroomId:string) {
     await this.scope.assertTeacherClassroomPermission(user,classroomId,["learning.work.review"]);
@@ -211,8 +232,10 @@ export class AssessmentService {
         ) ORDER BY ev.event_index) FROM public.learning_experiment_events ev WHERE ev.experiment_id=e.id),'[]'::jsonb) AS events,
         COALESCE((SELECT jsonb_agg(jsonb_build_object(
           'id',a.id,'type',a.artifact_type,'mimeType',a.mime_type,'createdAt',a.created_at,
-          'availability',CASE WHEN a.storage_path IS NULL AND a.external_uri IS NULL THEN 'unavailable'
-            WHEN COALESCE(a.external_uri,'') LIKE 'local://%' THEN 'local_only' ELSE 'access_unverified' END
+          'availability',CASE WHEN a.metadata->>'schema'='vista.experiment.telemetry.v1' AND a.storage_path IS NOT NULL THEN 'available'
+            WHEN a.storage_path IS NULL AND a.external_uri IS NULL THEN 'unavailable'
+            WHEN COALESCE(a.external_uri,'') LIKE 'local://%' THEN 'local_only' ELSE 'access_unverified' END,
+          'downloadPath',CASE WHEN a.metadata->>'schema'='vista.experiment.telemetry.v1' AND a.storage_path IS NOT NULL THEN '/api/v1/submissions/'||s.id||'/experiments/'||e.id||'/artifacts/'||a.id||'/download' ELSE NULL END
         ) ORDER BY a.created_at) FROM public.learning_experiment_artifacts a WHERE a.experiment_id=e.id),'[]'::jsonb) AS artifacts,
         CASE WHEN cs.id IS NULL THEN NULL ELSE jsonb_build_object(
           'id',cs.id,'state',cs.state,'startedAt',cs.started_at,'endedAt',cs.ended_at,

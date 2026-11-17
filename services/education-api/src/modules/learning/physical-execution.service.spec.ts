@@ -66,6 +66,7 @@ describe("PhysicalExecutionService Gate 1", () => {
       checkik: {
         reachable: true,
         snapshot: {
+          mode: "fake_follower",
           backend: { motionEnabled: true, latchedMotionLock: false },
           readiness: { ready: true },
         },
@@ -225,10 +226,69 @@ describe("PhysicalExecutionService Gate 1", () => {
     await expect(service.start(user as never, scope().attempt_id as string, { safetyConfirmed: true })).resolves.toMatchObject({ id: "19191919-1919-4191-8191-191919191919", status: "queued" });
     expect(runtime.createRun).toHaveBeenCalledWith(scope().robot_id, {
       runId: "wf03-19191919-1919-4191-8191-191919191919",
+      robotId: scope().robot_id,
       programVersionId: scope().program_version_id,
       profile: "lesson",
       program: scope().robot_program,
     });
+  });
+
+  it("refuses an enabled IoT dispatch before sending anything outside the local fake runtime", async () => {
+    const iot = { enabled: jest.fn().mockReturnValue(true) };
+    const guarded = new PhysicalExecutionService(
+      { $queryRaw: queryRaw, $executeRaw: executeRaw, $transaction: transaction } as never,
+      runtime as never,
+      progression as never,
+      iot as never,
+    );
+    queryRaw
+      .mockResolvedValueOnce([scope()])
+      .mockResolvedValueOnce([scope()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "18181818-1818-4181-8181-181818181818", state: "created", created_at: new Date() }])
+      .mockResolvedValueOnce([{ id: "19191919-1919-4191-8191-191919191919", status: "pending", execution_mode: "real_robot", created_at: new Date() }])
+      .mockResolvedValueOnce([scope()]);
+    await expect(guarded.start(user as never, scope().attempt_id as string, { safetyConfirmed: true })).rejects.toMatchObject({ response: { code: "LOCAL_FAKE_RUNTIME_REQUIRED" } });
+    expect(runtime.createRun).not.toHaveBeenCalled();
+    expect(iot.enabled).toHaveBeenCalled();
+  });
+
+  it("refuses to dispatch unless the configured runtime declares fake_follower mode", async () => {
+    queryRaw
+      .mockResolvedValueOnce([scope()]).mockResolvedValueOnce([scope()]).mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "18181818-1818-4181-8181-181818181818", state: "created", created_at: new Date() }])
+      .mockResolvedValueOnce([{ id: "19191919-1919-4191-8191-191919191919", status: "pending", execution_mode: "real_robot", created_at: new Date() }])
+      .mockResolvedValueOnce([scope()]);
+    runtime.status.mockResolvedValueOnce({ stopped: false, checkik: { reachable: true, snapshot: { mode: "physical", backend: { motionEnabled: true, latchedMotionLock: false }, readiness: { ready: true } } } });
+    await expect(service.start(user as never, scope().attempt_id as string, { safetyConfirmed: true })).rejects.toMatchObject({ response: expect.objectContaining({ code: "LOCAL_FAKE_RUNTIME_REQUIRED" }) });
+    expect(runtime.createRun).not.toHaveBeenCalled();
+  });
+
+  it("does not publish IoT commands when startup preflight rejects after preparation", async () => {
+    const publish = jest.fn();
+    const iot = { enabled: jest.fn().mockReturnValue(false), publish };
+    const guarded = new PhysicalExecutionService(
+      { $queryRaw: queryRaw, $executeRaw: executeRaw, $transaction: transaction } as never,
+      runtime as never,
+      progression as never,
+      iot as never,
+    );
+    queryRaw
+      .mockResolvedValueOnce([scope()])
+      .mockResolvedValueOnce([scope()])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "18181818-1818-4181-8181-181818181818", state: "created", created_at: new Date() }])
+      .mockResolvedValueOnce([{ id: "19191919-1919-4191-8191-191919191919", status: "pending", execution_mode: "real_robot", created_at: new Date() }])
+      .mockResolvedValueOnce([scope()]);
+    runtime.status.mockResolvedValueOnce({ stopped: false, checkik: { reachable: true, snapshot: { mode: "physical", backend: { motionEnabled: true, latchedMotionLock: false }, readiness: { ready: true } } } });
+
+    await expect(guarded.start(user as never, scope().attempt_id as string, { safetyConfirmed: true })).rejects.toMatchObject({
+      response: expect.objectContaining({ code: "LOCAL_FAKE_RUNTIME_REQUIRED" }),
+    });
+    expect(publish).not.toHaveBeenCalled();
+    expect(runtime.createRun).not.toHaveBeenCalled();
+    expect(queryRaw).toHaveBeenCalledTimes(6);
+    expect(executeRaw).toHaveBeenCalledTimes(6);
   });
 
   it("reconciles runtime terminal success before returning it and completes C1-L5", async () => {

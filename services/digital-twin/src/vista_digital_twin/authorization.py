@@ -16,7 +16,7 @@ class AuthorizationError(ValueError):
 
 @dataclass(frozen=True)
 class TwinScope:
-    kind: Literal["viewer", "publisher"]
+    kind: Literal["viewer", "publisher", "simulation_publisher"]
     subject: str
     organization_id: str
     robot_ids: tuple[str, ...]
@@ -53,6 +53,9 @@ class TwinAuthorizer:
     def issue_publisher(self, *, owner_id: str, organization_id: str, robot_id: str, expires_at: datetime | None = None) -> str:
         return self._issue({"aud": "vista-digital-twin-publisher", "jti": str(uuid4()), "kind": "publisher", "sub": owner_id, "org": organization_id, "robots": [robot_id], "exp": int((expires_at or self._clock() + timedelta(minutes=5)).timestamp())})
 
+    def issue_simulation_publisher(self, *, subject: str, organization_id: str, robot_id: str, expires_at: datetime | None = None) -> str:
+        return self._issue({"aud": "vista-digital-twin-simulation-publisher", "jti": str(uuid4()), "kind": "simulation_publisher", "sub": subject, "org": organization_id, "robots": [robot_id], "exp": int((expires_at or self._clock() + timedelta(minutes=1)).timestamp())})
+
     def _scope(self, token: str) -> TwinScope:
         if self._secret is None:
             raise AuthorizationError("twin authorization is not configured")
@@ -63,7 +66,7 @@ class TwinAuthorizer:
             if version != "v1" or not hmac.compare_digest(supplied, expected) or not isinstance(raw, dict):
                 raise AuthorizationError("invalid twin token")
             kind, subject, organization, robots, exp, audience, token_id = raw.get("kind"), raw.get("sub"), raw.get("org"), raw.get("robots"), raw.get("exp"), raw.get("aud"), raw.get("jti")
-            if kind not in {"viewer", "publisher"} or not all(isinstance(value, str) and value for value in (subject, organization, audience, token_id)) or not isinstance(robots, list) or not robots or not all(isinstance(robot, str) and robot for robot in robots) or not isinstance(exp, int):
+            if kind not in {"viewer", "publisher", "simulation_publisher"} or not all(isinstance(value, str) and value for value in (subject, organization, audience, token_id)) or not isinstance(robots, list) or not robots or not all(isinstance(robot, str) and robot for robot in robots) or not isinstance(exp, int):
                 raise AuthorizationError("invalid twin token claims")
             expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
             if expires_at <= self._clock():
@@ -84,4 +87,10 @@ class TwinAuthorizer:
         scope = self._scope(token)
         if scope.kind != "publisher" or scope.audience != "vista-digital-twin-publisher" or scope.subject != owner_id or scope.organization_id != organization_id or robot_id not in scope.robot_ids:
             raise AuthorizationError("publisher scope denied")
+        return scope
+
+    def verify_simulation_publisher(self, token: str, *, robot_id: str, organization_id: str) -> TwinScope:
+        scope = self._scope(token)
+        if scope.kind != "simulation_publisher" or scope.audience != "vista-digital-twin-simulation-publisher" or scope.organization_id != organization_id or robot_id not in scope.robot_ids:
+            raise AuthorizationError("simulation publisher scope denied")
         return scope

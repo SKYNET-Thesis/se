@@ -21,6 +21,7 @@ export type PhysicalRobotStatus = {
     latchedMotionLock?: boolean;
     ready?: boolean;
     stopped?: boolean;
+    runtimeMode?: string | null;
   };
 };
 export type PhysicalExecution = {
@@ -32,6 +33,7 @@ export type PhysicalExecution = {
   message?: string;
   robot?: { id: string; name: string; model: string; serial: string };
   programVersion?: { id: string };
+  runtime?: { mode?: string | null; provenance?: string; physical?: boolean };
   startedAt?: string | null;
   endedAt?: string | null;
 };
@@ -197,6 +199,7 @@ function parseExecution(value: Record<string, unknown>, total = 0): PhysicalExec
     message: typeof value.message === 'string' ? value.message : typeof value.error === 'string' ? value.error : undefined,
     robot: value.robot as PhysicalExecution['robot'],
     programVersion: value.programVersion as PhysicalExecution['programVersion'],
+    runtime: value.runtime as PhysicalExecution['runtime'],
     startedAt: typeof value.startedAt === 'string' ? value.startedAt : null,
     endedAt: typeof value.endedAt === 'string' ? value.endedAt : null,
   };

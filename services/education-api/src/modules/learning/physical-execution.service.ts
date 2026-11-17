@@ -6,6 +6,8 @@ import { ProgressionService } from "./progression.service";
 import { RobotRuntimeClient, RuntimeSnapshot } from "./robot-runtime.client";
 import { IotCommandService, IotPublishDefiniteFailureError } from "./iot-command.service";
 import { classifyExecution, satisfiesPhysicalPractical } from "./execution-provenance";
+import { DigitalTwinTelemetryClient } from "./digital-twin-telemetry.client";
+import { ExperimentEvidenceService } from "./experiment-evidence.service";
 
 export const TERMINAL_CONTROL_SESSION_STATES = [
   "released",
@@ -73,6 +75,7 @@ interface ExecutionRecord {
   runtime_started?: boolean;
   /** The runtime's own statement of what drives the robot (for example `fake_follower`); null when it did not say. Never inferred. */
   runtime_mode?: string | null;
+  organization_id: string;
 }
 
 @Injectable()
@@ -82,6 +85,8 @@ export class PhysicalExecutionService {
     private readonly runtime: RobotRuntimeClient,
     @Optional() private readonly progression?: ProgressionService,
     @Optional() private readonly iot?: IotCommandService,
+    @Optional() private readonly digitalTwin?: DigitalTwinTelemetryClient,
+    @Optional() private readonly evidence?: ExperimentEvidenceService,
   ) {}
 
   async eligibility(user: AuthenticatedUser, attemptId: string) {
@@ -100,6 +105,7 @@ export class PhysicalExecutionService {
     let motionEnabled = false;
     let runtimeStopped = false;
     let checkikReachable = false;
+    let runtimeMode: string | null = null;
     let activeSession = false;
 
     if (scope.robot_id) {
@@ -114,6 +120,7 @@ export class PhysicalExecutionService {
           if (checkik && checkik.reachable) {
             checkikReachable = true;
             const checkikSnap = (checkik.snapshot as Record<string, unknown> | undefined) ?? {};
+            runtimeMode = typeof checkikSnap.mode === "string" ? checkikSnap.mode : null;
             const backend = (checkikSnap.backend as Record<string, unknown> | undefined) ?? {};
             const readiness = (checkikSnap.readiness as Record<string, unknown> | undefined) ?? {};
             motionEnabled = backend.motionEnabled === true;
@@ -133,6 +140,7 @@ export class PhysicalExecutionService {
       runtimeOnline,
       runtimeStopped,
       checkikReachable,
+      runtimeMode,
       robotReady,
       estopActive,
       motionEnabled,
@@ -229,11 +237,14 @@ export class PhysicalExecutionService {
     const prepared = await this.prepare(user, attemptId);
     // Everything up to the runtime dispatch is a pre-flight. If it refuses (e-stop, controller down, not qualified, ...) the reservation that prepare() just
     // made is closed, so a rejected start never leaves an active session that blocks the robot for everyone else.
-    let preflight: { scope: PhysicalScope & { robot_id: string; program_version_id: string }; runtimeMode: string | null; runId: string; runRequest: { runId: string; programVersionId: string; profile: string; program: unknown } };
+    let preflight: { scope: PhysicalScope & { robot_id: string; program_version_id: string }; runtimeMode: string | null; runId: string; runRequest: { runId: string; robotId: string; programVersionId: string; profile: string; program: unknown } };
     try {
       preflight = await (async () => {
       const scope = await this.resolveScope(this.prisma, user, attemptId);
       this.assertEligible(scope);
+      if (this.iot?.enabled()) {
+        throw this.businessConflict("LOCAL_FAKE_RUNTIME_REQUIRED", "WF-03 execution is available only through the configured local fake-follower runtime.");
+      }
       if (!prepared.id || !scope.robot_id || !scope.program_version_id) {
         throw this.businessConflict("PHYSICAL_EXECUTION_NOT_ELIGIBLE", "Physical execution is not available.");
       }
@@ -276,9 +287,13 @@ export class PhysicalExecutionService {
 
       // Provenance: record what the runtime SAYS it is driving. A fake-follower deployment must never be mistaken for a physical robot in evidence.
       const runtimeMode = typeof checkikSnap.mode === "string" ? checkikSnap.mode : null;
+      if (runtimeMode !== "fake_follower") {
+        throw this.businessConflict("LOCAL_FAKE_RUNTIME_REQUIRED", "WF-03 execution is available only through the configured local fake-follower runtime.");
+      }
       const runId = `wf03-${prepared.id}`;
       const runRequest = {
         runId,
+        robotId: scope.robot_id,
         programVersionId: scope.program_version_id,
         profile: "lesson",
         program: scope.robot_program,
@@ -302,6 +317,7 @@ export class PhysicalExecutionService {
     }
     return this.executionDto({
       experiment_id: prepared.id, control_session_id: prepared.controlSession.id,
+      organization_id: scope.organization_id,
       robot_id: scope.robot_id, robot_name: scope.robot_name ?? "Robot", robot_model: scope.robot_model ?? "",
       robot_serial: scope.robot_serial ?? "", program_version_id: scope.program_version_id,
       status: prepared.status ?? "pending", run_id: runId, runtime_mode: runtimeMode,
@@ -336,7 +352,13 @@ export class PhysicalExecutionService {
       snapshot = { state: "failed", errorCode: "runtime_run_lost" };
     }
     await this.persistRuntimeSnapshot(execution.experiment_id, execution.control_session_id, runId, snapshot);
-    return this.executionDto(execution, snapshot);
+    const twinTelemetry = snapshot.telemetry && this.digitalTwin
+      ? await this.digitalTwin.publish({ organizationId: execution.organization_id, robotId: execution.robot_id, experimentId, telemetry: snapshot.telemetry })
+      : { status: "unavailable" as const };
+    const evidence = snapshot.state === "succeeded" && snapshot.telemetry && this.evidence
+      ? await this.evidence.persistTelemetry(experimentId, snapshot.telemetry)
+      : { availability: "unavailable" as const };
+    return { ...this.executionDto(execution, snapshot), digitalTwinTelemetry: twinTelemetry.status, evidence: evidence.availability };
   }
 
   async stop(user: AuthenticatedUser, experimentId: string) {
@@ -541,7 +563,7 @@ export class PhysicalExecutionService {
 
   private async execution(user: AuthenticatedUser, experimentId: string) {
     const rows = await this.prisma.$queryRaw<ExecutionRecord[]>`
-      SELECT e.id AS experiment_id,e.control_session_id,cs.robot_id,r.name AS robot_name,
+      SELECT e.id AS experiment_id,e.control_session_id,cs.robot_id,cs.organization_id,r.name AS robot_name,
         r.model_name AS robot_model,r.serial_no AS robot_serial,
         e.input_snapshot->>'programVersionId' AS program_version_id,e.status,
         COALESCE(e.input_snapshot->>'runtimeRunId',cs.metadata->>'runtimeRunId') AS run_id,
@@ -637,6 +659,7 @@ export class PhysicalExecutionService {
       startedAtMs: typeof snapshot.startedAtMs === "number" ? snapshot.startedAtMs : null,
       endedAtMs: typeof snapshot.endedAtMs === "number" ? snapshot.endedAtMs : null,
       events: Array.isArray(snapshot.events) ? snapshot.events : [],
+      telemetry: snapshot.telemetry && typeof snapshot.telemetry === "object" ? snapshot.telemetry : null,
     };
     await this.prisma.$transaction(async (tx) => {
       const experimentUpdated = await tx.$executeRaw`
@@ -773,6 +796,9 @@ export class PhysicalExecutionService {
 
   private executionDto(execution: ExecutionRecord, snapshot: RuntimeSnapshot) {
     const state = typeof snapshot.state === "string" ? snapshot.state : execution.status;
+    const telemetry = snapshot.telemetry && typeof snapshot.telemetry === "object"
+      ? snapshot.telemetry as Record<string, unknown>
+      : undefined;
     return {
       id: execution.experiment_id, status: state,
       robot: { id: execution.robot_id, name: execution.robot_name, model: execution.robot_model, serial: execution.robot_serial },
@@ -781,6 +807,9 @@ export class PhysicalExecutionService {
       startedAt: typeof snapshot.startedAtMs === "number" ? new Date(snapshot.startedAtMs).toISOString() : null,
       endedAt: typeof snapshot.endedAtMs === "number" ? new Date(snapshot.endedAtMs).toISOString() : null,
       error: this.safeRuntimeError(snapshot.errorCode),
+      simulationTelemetry: telemetry?.source_mode === "SIMULATION" && telemetry.robot_id === execution.robot_id
+        ? { sourceMode: "SIMULATION", measuredAt: telemetry.measured_at, sequence: telemetry.sequence, connection: telemetry.connection, measured: telemetry.measured }
+        : null,
     };
   }
 

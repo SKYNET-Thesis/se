@@ -26,11 +26,11 @@ function readings(value: unknown): value is JointReading[] {
   return names.size === SO101_NAMES.length;
 }
 
-export function parseTwinFrame(raw: unknown): JointState | null {
+export function parseTwinFrame(raw: unknown, expectedRobotId?: string): JointState | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const frame = raw as Record<string, unknown>;
   if (frame.schema_version !== 1 || typeof frame.robot_id !== 'string' || !frame.robot_id || (frame.source_mode !== 'SIMULATION' && frame.source_mode !== 'LIVE_PHYSICAL' && frame.source_mode !== 'REPLAY')) return null;
-  if (frame.source_mode === 'SIMULATION' && frame.robot_id !== 'so101-mock') return null;
+  if (frame.source_mode === 'SIMULATION' && frame.robot_id !== 'so101-mock' && (!expectedRobotId || frame.robot_id !== expectedRobotId)) return null;
   if (frame.calibration_status !== 'NOT_APPLICABLE' && frame.calibration_status !== 'UNCALIBRATED' && frame.calibration_status !== 'VERIFIED') return null;
   if (frame.source_mode === 'LIVE_PHYSICAL' && frame.calibration_status === 'NOT_APPLICABLE') return null;
   if (typeof frame.controller_id !== 'string' || !frame.controller_id) return null;
