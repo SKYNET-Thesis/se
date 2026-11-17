@@ -14,6 +14,10 @@ FROM node:22-alpine AS runtime
 RUN apk add --no-cache openssl
 WORKDIR /app
 ENV NODE_ENV=production
+# The deployed commit, reported by GET /api/v1/version and checked after every deployment (full 40-character SHA, or "unknown" for local builds).
+ARG GIT_SHA=unknown
+ENV GIT_SHA=$GIT_SHA
+LABEL org.opencontainers.image.revision=$GIT_SHA
 COPY package*.json ./
 COPY prisma ./prisma
 RUN npm ci --omit=dev

@@ -161,8 +161,8 @@ safe because the schema gate protects the running API (section 6; `tests/databas
 1. Review and merge the CI/CD pull request into `develop` (merge commit). Pull-request runs never deploy.
 2. Merge `develop` into `main` (merge commit). The push run of *Education CI* only validates (`api`, `web`, `docker`, `database-safety`): the `changes` job runs
    only for a `workflow_dispatch`, so `schema-gate`, `deploy-api` and `deploy-web` are **skipped** on every push and pull request. No Production credential is read,
-   no SSM command runs and the healthy container is never touched. The run is green; a Production schema that lags the manifest is reported only when a deployment is
-   explicitly dispatched. GitHub may auto-create the `production-database-preflight` environment from the reference (without protection); that is harmless because it holds no secret yet.
+   no SSM command runs and the healthy container is never touched. The run is green. After it succeeds, *Auto Deploy* (`auto-deploy.yml`) verifies the required checks and that the commit is still the head of `main`, then dispatches
+   the gated deployment run (`Education CI`, `action=deploy`); a Production schema that lags the manifest is reported there (fail-closed at `schema-gate`), never on the validation run. GitHub may auto-create the `production-database-preflight` environment from the reference (without protection); that is harmless because it holds no secret yet.
 3. Configure the two environments, secrets and branch protection (section 7). Do not push anything else to `main` meanwhile.
 4. Dispatch *Production Database Release* (`scope=D-I`, `expected_main_sha=<head of main>`). `preflight` must be green; read the plan
    (6 pending versions in order, `status: ready`, `stageJ: excluded`).

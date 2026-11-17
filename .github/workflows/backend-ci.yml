@@ -7,6 +7,9 @@ name: Education CI
 #                                   deploy-api / deploy-web, each behind the reviewer-gated `aws-demo` environment. It is started by a human
 #                                   or by the approved Production Database Release (`resume-deployment`).
 # scripts/check_database_workflow_safety.py enforces this split; keep it in sync when editing the jobs below.
+# The dispatch is started automatically after a successful push run by auto-deploy.yml (which verifies every required check and that the
+# commit is still the head of main); it can also be started by a human or the approved Production Database Release.
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Deploy {0} @ {1}', inputs.action, github.sha) || github.event.pull_request.title || github.event.head_commit.message || github.workflow }}
 on:
   pull_request:
   push:
@@ -62,7 +65,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build production image
-        run: docker build -t vista-education-api:${{ github.sha }} services/education-api
+        run: docker build --build-arg GIT_SHA=${{ github.sha }} -t vista-education-api:${{ github.sha }} services/education-api
   database-safety:
     runs-on: ubuntu-latest
     steps:
@@ -174,6 +177,12 @@ jobs:
             test "$ECR_REPOSITORY_URL" = 157098813811.dkr.ecr.ap-southeast-1.amazonaws.com/vista/demo/education-api || { echo 'ECR_REPOSITORY_URL is not the approved repository' >&2; exit 2; }
           fi
       - uses: actions/checkout@v4
+      - name: Refuse a superseded commit (evaluated after the reviewer approval)
+        if: inputs.action != 'rollback'
+        working-directory: ${{ github.workspace }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci_required_checks.py is-head --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --branch main || { echo "main has moved past $GITHUB_SHA; the newer commit is deployed by its own run" >&2; exit 1; }
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_API_DEPLOY_ROLE_ARN }}
@@ -191,7 +200,7 @@ jobs:
             echo "Using existing immutable image for $GITHUB_SHA"
           elif grep -q 'ImageNotFoundException' ecr-error.log; then
             echo "Building immutable image for $GITHUB_SHA"
-            docker build -t "$IMAGE" services/education-api
+            docker build --build-arg GIT_SHA="$GITHUB_SHA" -t "$IMAGE" services/education-api
             docker push "$IMAGE"
           else
             echo 'Could not check ECR image; deployment stopped.' >&2
@@ -200,6 +209,12 @@ jobs:
           fi
           rm -f ecr-error.log
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Re-check that this commit is still the head of main before touching the instance
+        if: inputs.action != 'rollback'
+        working-directory: ${{ github.workspace }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci_required_checks.py is-head --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --branch main || { echo "main has moved past $GITHUB_SHA; nothing was deployed" >&2; exit 1; }
       - name: Deploy through SSM and check result
         env:
           INSTANCE_ID: ${{ vars.API_INSTANCE_ID }}
@@ -230,6 +245,16 @@ jobs:
           echo 'Checking production API through nginx and CloudFront'
           curl --fail --silent --show-error --retry 6 --retry-delay 5 https://api.skynex.best/api/v1/health >/dev/null
           curl --fail --silent --show-error --retry 6 --retry-delay 5 https://skynex.best/api/v1/health >/dev/null
+          if [ "$ACTION" != rollback ]; then
+            DEPLOYED=''
+            for _attempt in $(seq 1 12); do
+              DEPLOYED="$(curl --fail --silent --show-error --max-time 10 https://api.skynex.best/api/v1/version | python3 -c 'import json,sys; print(json.load(sys.stdin).get("gitSha",""))' || true)"
+              [ "$DEPLOYED" = "$GITHUB_SHA" ] && break
+              sleep 5
+            done
+            test "$DEPLOYED" = "$GITHUB_SHA" || { echo "Production API reports '$DEPLOYED', expected $GITHUB_SHA" >&2; exit 1; }
+            echo "Production API is running $GITHUB_SHA"
+          fi
   deploy-web:
     if: always() && vars.AWS_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && needs.database-safety.result == 'success' && needs.changes.result == 'success' && needs.changes.outputs.web == 'true' && needs.schema-gate.result == 'success' && needs.api.result == 'success' && needs.web.result == 'success' && (needs.deploy-api.result == 'success' || (needs.deploy-api.result == 'skipped' && needs.changes.outputs.api != 'true'))
     needs: [api, web, changes, deploy-api, database-safety, schema-gate]
@@ -239,6 +264,11 @@ jobs:
     defaults: { run: { working-directory: web/robot-edu } }
     steps:
       - uses: actions/checkout@v4
+      - name: Refuse a superseded commit (evaluated after the reviewer approval)
+        working-directory: ${{ github.workspace }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci_required_checks.py is-head --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --branch main || { echo "main has moved past $GITHUB_SHA; the newer commit is deployed by its own run" >&2; exit 1; }
       - name: Check frontend deployment settings
         env:
           ROLE_ARN: ${{ vars.AWS_WEB_DEPLOY_ROLE_ARN }}
@@ -266,6 +296,8 @@ jobs:
           : "${VITE_SUPABASE_URL:?Missing PUBLIC_SUPABASE_URL}"
           : "${VITE_SUPABASE_ANON_KEY:?Missing PUBLIC_SUPABASE_ANON_KEY}"
           npm run build
+      - name: Record the deployed commit in the web build
+        run: printf '{"gitSha":"%s"}\n' "$GITHUB_SHA" > dist/version.json
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ vars.AWS_WEB_DEPLOY_ROLE_ARN }}
@@ -282,4 +314,12 @@ jobs:
           echo "CloudFront invalidation: $INVALIDATION_ID"
           aws cloudfront wait invalidation-completed --distribution-id "$DISTRIBUTION_ID" --id "$INVALIDATION_ID"
           curl --fail --silent --show-error --retry 6 --retry-delay 5 https://skynex.best/ >/dev/null
+          DEPLOYED=''
+          for _attempt in $(seq 1 12); do
+            DEPLOYED="$(curl --fail --silent --show-error --max-time 10 https://skynex.best/version.json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("gitSha",""))' || true)"
+            [ "$DEPLOYED" = "$GITHUB_SHA" ] && break
+            sleep 5
+          done
+          test "$DEPLOYED" = "$GITHUB_SHA" || { echo "Production web reports '$DEPLOYED', expected $GITHUB_SHA" >&2; exit 1; }
+          echo "Production web is serving $GITHUB_SHA"
           echo 'Production web health check passed: https://skynex.best/'
