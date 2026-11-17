@@ -117,4 +117,12 @@ describe('CourseOutlinePanel', () => {
     renderComponent({ lessons: [], sectionsByLesson: {} });
     expect(footerButton().disabled).toBe(true);
   });
+
+  it('shows an unlock-rule chip on a module that requires earlier modules, and none otherwise', () => {
+    renderComponent({ lessons: [{ id: 'lesson-1', title: 'Introduction', ordinal: 1 }, { id: 'lesson-2', title: 'Robot Control', ordinal: 2, prerequisiteLessonIds: ['lesson-1'] }] as never });
+    const chips = container.querySelectorAll('[aria-label^="Unlock rule"]');
+    expect(chips).toHaveLength(1);
+    expect(chips[0].getAttribute('aria-label')).toBe('Unlock rule: complete Module 1: Introduction first');
+    expect(chips[0].textContent).toContain('After M1');
+  });
 });

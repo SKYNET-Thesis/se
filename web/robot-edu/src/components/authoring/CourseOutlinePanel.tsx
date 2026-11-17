@@ -6,6 +6,7 @@ import {
   ChevronRightIcon,
   FileTextIcon,
   HelpCircleIcon,
+  LockIcon,
   PlusIcon,
   VideoIcon,
 } from 'lucide-react';
@@ -200,6 +201,13 @@ export function CourseOutlinePanel({
                   >
                     Module {lessonIndex + 1}: {lessonItem.title}
                   </button>
+
+                  {(() => {
+                    const required = (lessonItem.prerequisiteLessonIds ?? []).map((id) => lessons.findIndex((l) => l.id === id)).filter((i) => i >= 0).sort((a, b) => a - b);
+                    if (!required.length) return null;
+                    const names = required.map((i) => `Module ${i + 1}: ${lessons[i].title}`).join('; ');
+                    return <span className="inline-flex shrink-0 items-center gap-1 rounded bg-sunken px-1.5 py-0.5 text-2xs font-medium text-ink-muted" title={`Unlocks after completing ${names}`} aria-label={`Unlock rule: complete ${names} first`}><LockIcon aria-hidden="true" className="h-3 w-3" />After {required.map((i) => `M${i + 1}`).join(', ')}</span>;
+                  })()}
 
                   {onMoveLesson && (
                     <div className="flex items-center gap-0.5 opacity-0 hover:opacity-100 focus-within:opacity-100">

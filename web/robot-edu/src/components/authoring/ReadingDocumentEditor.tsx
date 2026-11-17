@@ -827,13 +827,13 @@ export function ReadingDocumentEditor({
 
         {/* Document Attachments Section (PDF, DOCX, PPTX) */}
         <div className="border-t border-line bg-sunken/20 p-5 sm:p-6 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <h4 className="text-xs font-bold uppercase tracking-wider text-ink-muted">
                 Attached Learning Materials (PDF, DOCX, PPTX, Images, MP3 audio)
               </h4>
               <p className="text-2xs text-ink-subtle mt-0.5">
-                Students will be able to download and reference these files alongside the reading.
+                Students can download these files alongside the reading. Detaching a file only removes it from this lesson; it stays in the Media Library.
               </p>
             </div>
             <Button
@@ -885,7 +885,8 @@ export function ReadingDocumentEditor({
                         onClick={() => removeAttachment(id)}
                         disabled={disabled}
                         className="p-1 rounded hover:bg-danger-soft text-danger"
-                        title="Remove attachment"
+                        title="Detach from this lesson (the file stays in the Media Library)"
+                        aria-label={`Detach ${media?.filename ?? 'file'} from this lesson`}
                       >
                         <Trash2Icon className="h-3.5 w-3.5" />
                       </button>

@@ -42,7 +42,7 @@ export function TeacherClassDetail() {
   const isLoading = classroom.isLoading || roster.isLoading || assignments.isLoading || submissions.isLoading;
 
   return (
-    <main className="mx-auto max-w-6xl px-5 py-8 sm:px-8">
+    <main className="mx-auto w-full min-w-0 max-w-6xl px-5 py-8 sm:px-8">
       <Link to="/teacher/classes" className="text-sm text-[#176255] underline underline-offset-4">My Classes</Link>
       <div className="mt-5 flex flex-wrap items-end justify-between gap-4">
         <div><p className="text-xs font-semibold uppercase tracking-[.16em] text-[#176255]">Classroom delivery</p><h1 className="mt-2 text-3xl font-semibold tracking-[-.05em] text-ink">{classroom.data?.name ?? 'Classroom'}</h1></div>
