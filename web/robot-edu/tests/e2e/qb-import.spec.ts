@@ -251,7 +251,7 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   await page.goto(`/courses/${courseId}`);
   const panel = page.getByLabel('Course progress');
   await expect(panel.getByText('100%', { exact: true })).toBeVisible();
-  await expect(panel.getByText('1 / 1 lessons completed')).toBeVisible();
+  await expect(panel.getByText('1 module completed')).toBeVisible();
   // the instructor's monitoring view agrees with the student's
   const teacherToken = await signIn(page, fixture.users.instructor.authUserId);
   const monitored = (await api(page, teacherToken, 'GET', `/classrooms/${classroomId}/learner-progress`)).body as Array<{ fullName: string; progressPercent: number; lessonsCompleted: number; attemptsSubmitted: number; bestScore: number }>;

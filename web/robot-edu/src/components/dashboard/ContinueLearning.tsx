@@ -30,7 +30,7 @@ export function ContinueLearning() {
               </h2>
               <p className="mt-2 text-[15px] leading-relaxed text-ink-muted">{lesson.summary}</p>
               <p className="mt-3 text-xs text-ink-subtle">
-                Lesson {index + 1} of {course.lessons.length} · {lesson.minutes} min
+                Module {index + 1} of {course.lessons.length} · {lesson.minutes} min
               </p>
             </>
           }
@@ -45,7 +45,7 @@ export function ContinueLearning() {
             <div className="mt-5 flex flex-wrap gap-2">
               {lesson &&
               <LinkButton to={`/courses/${course.id}/lessons/${lesson.id}`} variant="primary" icon={<ArrowRightIcon className="h-4 w-4" />}>
-                  Continue lesson
+                  Continue module
                 </LinkButton>
               }
               <LinkButton to="/studio" variant="secondary" icon={<PuzzleIcon className="h-4 w-4" />}>

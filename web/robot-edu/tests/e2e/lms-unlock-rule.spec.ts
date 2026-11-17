@@ -226,7 +226,7 @@ test('Unlock rule: failing the weighted quiz keeps module two locked; a passing 
   expect(after.lessons[0].status).toBe('completed'); expect(after.lessons[1].status).not.toBe('locked'); expect(after.progressPercent).toBe(50);
   expect((await api(page, studentToken, 'GET', `/lessons/${lessons[1].id}`)).status).toBe(200);
   await page.goto(`/courses/${courseId}`);
-  await expect(page.getByLabel('Course progress').getByText('1 / 2 lessons completed')).toBeVisible();
+  await expect(page.getByLabel('Course progress').getByText('1 of 2 modules completed')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Locked', exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
 });

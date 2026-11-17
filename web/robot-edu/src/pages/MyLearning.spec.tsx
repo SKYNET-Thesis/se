@@ -263,7 +263,7 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
     expect(container.textContent).toContain('Level: Introductory');
     expect(container.textContent).toContain('Grades: 6-8');
     expect(container.textContent).toContain('40%');
-    expect(container.textContent).toContain('2 / 3 lessons completed');
+    expect(container.textContent).toContain('2 of 3 modules completed');
     expect(container.textContent).toContain('Grab & Release');
     expect(container.textContent).not.toMatch(/C1-L[1-5]/);
     expect(container.textContent).toContain('Continue Learning');
@@ -293,7 +293,7 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
     expect(container.textContent).toContain('Advanced Robot Kinematics');
     expect(container.textContent).toContain('✓ Completed');
     expect(container.textContent).toContain('100%');
-    expect(container.textContent).toContain('2 / 2 lessons completed');
+    expect(container.textContent).toContain('2 modules completed');
     expect(container.textContent).not.toContain('Robotics Fundamentals');
   });
 

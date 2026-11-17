@@ -434,7 +434,7 @@ function EvaluationResult({ evaluation, lesson, attemptId, onEditProgram, onPrev
             {isL4 && <p className="text-xs font-medium text-ink-muted">Course 1 simulation challenge complete.</p>}
             <p className="text-xs text-ink-muted">{lesson ? `${lesson.title} completed.` : 'Lesson completed.'}</p>
             <div className="mt-3 rounded-lg border border-ok/20 bg-surface/80 p-3 text-xs text-ink">
-              <p className="font-semibold text-ink">Next lesson unlocked:</p>
+              <p className="font-semibold text-ink">Next module unlocked:</p>
               <p className="mt-0.5 font-medium text-accent-ink">{nextLessonTitle}</p>
             </div>
             <div className="mt-4 flex flex-wrap gap-2 pt-1">

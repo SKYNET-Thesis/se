@@ -1037,6 +1037,7 @@ export function ReadingDocumentEditor({
         token={token}
         selectionMode
         initialKind={mediaMode === 'image' ? 'image' : undefined}
+        disallowKinds={{ video: 'Videos are added with a Video activity, not to a reading.' }}
         onSelectAsset={handleSelectMedia}
       />
     </div>

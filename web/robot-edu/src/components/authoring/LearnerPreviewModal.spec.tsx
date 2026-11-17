@@ -25,7 +25,7 @@ describe('LearnerPreviewModal', () => {
     const render = mount();
     await render(false, undefined, []); // mounted closed while nothing was selected
     await render(true, 'l2', sectionsOf('l2', 'Hand-eye reading'));
-    expect(text()).toMatch(/Current Lesson\s*Module B/i);
+    expect(text()).toMatch(/Current module\s*Module B/i);
     expect(text()).toContain('Hand-eye reading');
     expect(api.sections).not.toHaveBeenCalled(); // the editor's own sections are used, no extra request
   });
@@ -37,7 +37,7 @@ describe('LearnerPreviewModal', () => {
     await act(async () => { lessonButton('Module A').click(); });
     await vi.waitFor(() => expect(text()).toContain('Camera models'));
     expect(api.sections).toHaveBeenCalledWith('l1', 'token-1');
-    expect(text()).toMatch(/Current Lesson\s*Module A/i);
+    expect(text()).toMatch(/Current module\s*Module A/i);
     expect(text()).not.toContain('Hand-eye reading');
   });
 });

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BookOpenIcon, CheckIcon, ChevronDownIcon, MenuIcon, LockIcon } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { countLabel } from '../../lib/terms';
 import { progressionApi, type CoursePathLesson, type LessonDetailResponse } from '../../lib/api';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import {
@@ -168,7 +169,7 @@ export function CourseLearningShell({
           <button type="button" aria-label="Close course material" onClick={() => setMobileOpen(false)} className="rounded-lg px-2 py-1 text-xl text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden">×</button>
           </div>
           {pathOverride?.lessons || pathQuery.data?.lessons ? (
-            <p className="px-2 pt-1 text-xs text-ink-muted">{completedLessonCount} of {lessons.length} lessons completed</p>
+            <p className="px-2 pt-1 text-xs text-ink-muted">{completedLessonCount} of {countLabel(lessons.length, 'module')} completed</p>
           ) : null}
           {!activityProgressQuery.canVerify && (
             <p role="status" className="px-2 pt-2 text-xs text-ink-muted">Sign in to verify activity progress.</p>
@@ -192,7 +193,7 @@ export function CourseLearningShell({
                 type="button"
                 onClick={expandAll}
                 className="rounded px-1.5 py-1 transition-colors duration-150 ease-out hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                aria-label="Expand all lessons"
+                aria-label="Expand all modules"
               >
                 Expand all
               </button>
@@ -203,14 +204,14 @@ export function CourseLearningShell({
                 type="button"
                 onClick={collapseAll}
                 className="rounded px-1.5 py-1 transition-colors duration-150 ease-out hover:bg-accent-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                aria-label="Collapse all lessons"
+                aria-label="Collapse all modules"
               >
                 Collapse all
               </button>
             </div>
           </div>
 
-          <nav aria-label="Course lessons" className="space-y-1">
+          <nav aria-label="Course modules" className="space-y-1">
             {lessons.map((item) => {
               const itemSections =
                 item.id === lessonId ? sections : buildLessonActivitySections(item);
@@ -269,7 +270,7 @@ function LessonModuleNavItem({
   const locked = lesson.status === 'locked';
   const statusLabel = {
     completed: 'completed',
-    current: 'current lesson',
+    current: 'current module',
     in_progress: 'in progress',
     available: 'not started',
     locked: 'locked',

@@ -39,9 +39,9 @@ describe('CourseLearningShell', () => {
     expect(container.textContent).toContain('Meet Your Robot');
     expect(container.textContent).not.toMatch(/C1-L[1-5]/);
     expect(container.querySelectorAll('[data-completion="completed"]')).toHaveLength(0);
-    expect(container.textContent).toContain('1 of 5 lessons completed');
-    expect(container.querySelector('[aria-label="Course lessons"]')?.children.length).toBe(5);
-    expect(container.querySelector('[aria-label="Move the Robot: current lesson"][data-lesson-status="current"]')).not.toBeNull();
+    expect(container.textContent).toContain('1 of 5 modules completed');
+    expect(container.querySelector('[aria-label="Course modules"]')?.children.length).toBe(5);
+    expect(container.querySelector('[aria-label="Move the Robot: current module"][data-lesson-status="current"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="Meet Your Robot: completed"][data-lesson-status="completed"]')).not.toBeNull();
     expect(container.querySelector('[data-lesson-status="completed"] .lucide-check')).not.toBeNull();
     expect(container.querySelector('[data-lesson-status="current"] .lucide-check')).toBeNull();
@@ -194,11 +194,11 @@ describe('CourseLearningShell', () => {
     expect(container.querySelector('#course-module-lesson-3')?.getAttribute('style')).toContain('display: none');
     expect(container.textContent).not.toContain('Authoritative learning item 1');
 
-    await act(async () => { (container.querySelector('button[aria-label="Expand all lessons"]') as HTMLButtonElement).click(); });
-    expect(container.querySelectorAll('nav[aria-label="Course lessons"] button[aria-label^="Collapse "]')).toHaveLength(5);
+    await act(async () => { (container.querySelector('button[aria-label="Expand all modules"]') as HTMLButtonElement).click(); });
+    expect(container.querySelectorAll('nav[aria-label="Course modules"] button[aria-label^="Collapse "]')).toHaveLength(5);
 
-    await act(async () => { (container.querySelector('button[aria-label="Collapse all lessons"]') as HTMLButtonElement).click(); });
-    expect(container.querySelectorAll('nav[aria-label="Course lessons"] button[aria-label^="Expand "]')).toHaveLength(5);
+    await act(async () => { (container.querySelector('button[aria-label="Collapse all modules"]') as HTMLButtonElement).click(); });
+    expect(container.querySelectorAll('nav[aria-label="Course modules"] button[aria-label^="Expand "]')).toHaveLength(5);
   });
 
   it('renders Course Material strictly as navigation without descriptive paragraphs', async () => {
@@ -368,7 +368,7 @@ describe('CourseLearningShell', () => {
     expect(getBtn('C1-L3').getAttribute('aria-expanded')).toBe('true');
 
     // 5. Expand All expands all five lessons
-    const expandAllBtn = container.querySelector('button[aria-label="Expand all lessons"]') as HTMLButtonElement;
+    const expandAllBtn = container.querySelector('button[aria-label="Expand all modules"]') as HTMLButtonElement;
     await act(async () => {
       expandAllBtn.click();
     });
@@ -390,7 +390,7 @@ describe('CourseLearningShell', () => {
     expect(getBtn('C1-L5').getAttribute('aria-expanded')).toBe('true');
 
     // 7. Collapse All closes all lesson panels
-    const collapseAllBtn = container.querySelector('button[aria-label="Collapse all lessons"]') as HTMLButtonElement;
+    const collapseAllBtn = container.querySelector('button[aria-label="Collapse all modules"]') as HTMLButtonElement;
     await act(async () => {
       collapseAllBtn.click();
     });

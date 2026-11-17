@@ -210,13 +210,13 @@ export function CourseOutlinePanel({
                   })()}
 
                   {onMoveLesson && (
-                    <div className="flex items-center gap-0.5 opacity-0 hover:opacity-100 focus-within:opacity-100">
+                    <div className="flex items-center">
                       <button
                         type="button"
                         onClick={() => onMoveLesson(lessonIndex, -1)}
                         disabled={lessonIndex === 0 || isArchived}
-                        className="px-1 text-xs text-ink-muted hover:text-ink disabled:opacity-20"
-                        title="Move module up"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded text-sm hover:bg-sunken text-ink-muted hover:text-ink disabled:opacity-30"
+                        title="Move module up" aria-label={`Move module ${lessonIndex + 1}, ${lessonItem.title}, up`}
                       >
                         ↑
                       </button>
@@ -224,8 +224,8 @@ export function CourseOutlinePanel({
                         type="button"
                         onClick={() => onMoveLesson(lessonIndex, 1)}
                         disabled={lessonIndex === lessons.length - 1 || isArchived}
-                        className="px-1 text-xs text-ink-muted hover:text-ink disabled:opacity-20"
-                        title="Move module down"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded text-sm hover:bg-sunken text-ink-muted hover:text-ink disabled:opacity-30"
+                        title="Move module down" aria-label={`Move module ${lessonIndex + 1}, ${lessonItem.title}, down`}
                       >
                         ↓
                       </button>
@@ -299,13 +299,13 @@ export function CourseOutlinePanel({
                               </Badge>
 
                               {onMoveSection && (
-                                <div className="flex items-center gap-0.5">
+                                <div className="flex items-center">
                                   <button
                                     type="button"
                                     onClick={() => onMoveSection(lessonItem.id, sectionIndex, -1)}
                                     disabled={sectionIndex === 0 || isArchived}
-                                    className="px-0.5 text-2xs text-ink-muted hover:text-ink disabled:opacity-20"
-                                    title="Move lesson up"
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded text-sm hover:bg-sunken text-ink-muted hover:text-ink disabled:opacity-30"
+                                    title="Move lesson up" aria-label={`Move lesson ${sectionItem.title} up`}
                                   >
                                     ↑
                                   </button>
@@ -313,8 +313,8 @@ export function CourseOutlinePanel({
                                     type="button"
                                     onClick={() => onMoveSection(lessonItem.id, sectionIndex, 1)}
                                     disabled={sectionIndex === sections.length - 1 || isArchived}
-                                    className="px-0.5 text-2xs text-ink-muted hover:text-ink disabled:opacity-20"
-                                    title="Move lesson down"
+                                    className="inline-flex h-8 w-8 items-center justify-center rounded text-sm hover:bg-sunken text-ink-muted hover:text-ink disabled:opacity-30"
+                                    title="Move lesson down" aria-label={`Move lesson ${sectionItem.title} down`}
                                   >
                                     ↓
                                   </button>
@@ -374,7 +374,7 @@ export function CourseOutlinePanel({
                                             <div
                                               className={`flex items-center gap-0.5 ${
                                                 isSelected ? 'text-white/70' : 'text-ink-muted'
-                                              } opacity-0 group-hover:opacity-100`}
+                                              }`}
                                             >
                                               <button
                                                 type="button"
@@ -383,8 +383,8 @@ export function CourseOutlinePanel({
                                                   onMoveActivity(sectionItem.id, activityIndex, -1);
                                                 }}
                                                 disabled={activityIndex === 0 || isArchived}
-                                                className="px-0.5 text-2xs hover:text-white disabled:opacity-20"
-                                                title="Move up"
+                                                className="inline-flex h-8 w-8 items-center justify-center rounded text-sm hover:bg-sunken hover:bg-white/10 disabled:opacity-30"
+                                                title="Move up" aria-label={`Move activity ${activity.title} up`}
                                               >
                                                 ↑
                                               </button>
@@ -395,8 +395,8 @@ export function CourseOutlinePanel({
                                                   onMoveActivity(sectionItem.id, activityIndex, 1);
                                                 }}
                                                 disabled={activityIndex === activities.length - 1 || isArchived}
-                                                className="px-0.5 text-2xs hover:text-white disabled:opacity-20"
-                                                title="Move down"
+                                                className="inline-flex h-8 w-8 items-center justify-center rounded text-sm hover:bg-sunken hover:bg-white/10 disabled:opacity-30"
+                                                title="Move down" aria-label={`Move activity ${activity.title} down`}
                                               >
                                                 ↓
                                               </button>

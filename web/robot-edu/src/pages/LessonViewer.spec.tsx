@@ -89,17 +89,17 @@ describe('LessonViewer activity-map boundary', () => {
   });
 
   it('explains a lesson locked by the progression rule instead of a generic unavailable state', async () => {
-    mocks.lessonDetail.mockRejectedValueOnce(new ApiError(409, 'Complete Meet Your Robot to unlock this lesson.'));
+    mocks.lessonDetail.mockRejectedValueOnce(new ApiError(409, 'Complete Meet Your Robot to unlock this module.'));
     await render();
-    expect(container.textContent).toContain('This lesson is locked');
-    expect(container.textContent).toContain('Complete Meet Your Robot to unlock this lesson.');
+    expect(container.textContent).toContain('This module is locked');
+    expect(container.textContent).toContain('Complete Meet Your Robot to unlock this module.');
     expect(container.textContent).toContain('Back to Course Path');
   });
 
   it('keeps the generic message for other failures', async () => {
     mocks.lessonDetail.mockRejectedValueOnce(new ApiError(500, 'Server error'));
     await render();
-    expect(container.textContent).toContain('Lesson unavailable');
-    expect(container.textContent).not.toContain('This lesson is locked');
+    expect(container.textContent).toContain('Module unavailable');
+    expect(container.textContent).not.toContain('This module is locked');
   });
 });

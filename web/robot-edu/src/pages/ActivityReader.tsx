@@ -18,6 +18,7 @@ import {
   buildLessonActivities,
   activityTypeLabels,
 } from '../components/learning/lessonActivities';
+import { countLabel } from '../lib/terms';
 import { catalogApi, learnerApi, learningMediaApi, progressionApi, type LessonDetailResponse } from '../lib/api';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
@@ -495,7 +496,7 @@ function PhysicalEvidencePanel({
             </h2>
           </div>
           <Badge tone={isCompleted ? 'ok' : 'neutral'}>
-            {isCompleted ? 'Lesson Completed (100%)' : 'In Progress'}
+            {isCompleted ? 'Module completed (100%)' : 'In Progress'}
           </Badge>
         </div>
 
@@ -697,7 +698,7 @@ function PracticeQuiz({
               onClick={() => setStarted(true)}
               className="mt-6 inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white transition-colors duration-150 ease-out hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
-              Start assignment <ArrowRightIcon className="h-4 w-4" />
+              Start practice quiz <ArrowRightIcon className="h-4 w-4" />
             </button>
           </header>
           <div className="grid gap-8 px-7 py-8 md:grid-cols-[1fr_260px]">
@@ -711,11 +712,11 @@ function PracticeQuiz({
               <dl className="mt-4 space-y-3 text-sm text-ink-muted">
                 <div>
                   <dt className="font-medium text-ink">Questions</dt>
-                  <dd>{questions.length || 'Provided by your instructor'}</dd>
+                  <dd>{questions.length ? countLabel(questions.length, 'question') : 'Shown when you start'}</dd>
                 </div>
                 <div>
-                  <dt className="font-medium text-ink">Passing requirement</dt>
-                  <dd>Server-authoritative evaluation</dd>
+                  <dt className="font-medium text-ink">How it is checked</dt>
+                  <dd>Your answers are checked when you submit. Passing completes this activity.</dd>
                 </div>
               </dl>
             </aside>
@@ -924,9 +925,9 @@ export function ActivityReader() {
       <CourseLearningShell courseId={courseId} lessonId={lessonId} lesson={lesson}>
         <div className="rounded-xl border border-line bg-surface p-8">
           <LockIcon className="h-6 w-6 text-warn" />
-          <h1 className="mt-3 text-2xl font-bold">Lesson locked</h1>
+          <h1 className="mt-3 text-2xl font-bold">Module locked</h1>
           <p className="mt-2 text-ink-muted">
-            {lesson.lockReason?.message ?? 'Complete prerequisite lessons to unlock this lesson.'}
+            {lesson.lockReason?.message ?? 'Complete the required modules to unlock this module.'}
           </p>
         </div>
       </CourseLearningShell>
