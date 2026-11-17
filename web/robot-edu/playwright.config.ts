@@ -14,6 +14,8 @@ if (!fixtureFile || !fixtureUrl?.pathname.startsWith('/tmp/')) {
 
 const authPort = Number(process.env.VISTA_E2E_JWKS_PORT ?? 54321);
 if (![54321, 54323].includes(authPort)) throw new Error('E2E auth must use an isolated loopback port.');
+const webPort = Number(process.env.VISTA_E2E_WEB_PORT ?? 4173);
+if (!Number.isInteger(webPort) || webPort < 1024 || webPort > 65535) throw new Error('E2E web server must use a valid isolated loopback port.');
 const supabaseUrl = `http://127.0.0.1:${authPort}`;
 const anonKey = 'local-e2e-anon-key-not-a-secret';
 
@@ -25,7 +27,7 @@ export default defineConfig({
   retries: 0,
   reporter: [['list']],
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: `http://127.0.0.1:${webPort}`,
     actionTimeout: 10_000,
     browserName: 'chromium',
     headless: true,
@@ -36,13 +38,13 @@ export default defineConfig({
     {
       command: 'node tests/e2e/local-jwks-server.mjs',
       url: `${supabaseUrl}/auth/v1/.well-known/jwks.json`,
-      reuseExistingServer: false,
+      reuseExistingServer: process.env.VISTA_E2E_REUSE_LOCAL_AUTH === '1',
       timeout: 10_000,
       env: { VISTA_E2E_JWKS_PORT: String(authPort) },
     },
     {
-      command: 'npm run dev -- --host 127.0.0.1 --port 4173 --strictPort',
-      url: 'http://127.0.0.1:4173',
+      command: `npm run dev -- --host 127.0.0.1 --port ${webPort} --strictPort`,
+      url: `http://127.0.0.1:${webPort}`,
       reuseExistingServer: false,
       timeout: 30_000,
       env: {
