@@ -82,12 +82,18 @@ data "aws_iam_policy_document" "ec2" {
 
   # Learning Media (course content only): presigned POST uploads are validated by S3 with the signer's permissions
   # (s3:PutObject), and HeadObject / ranged GET verification plus presigned downloads need s3:GetObject.
-  # Scoped to the course-media prefix: no bucket-wide access, no delete/list, and nothing under
-  # learning-media/submissions/ (reserved for student submissions, which are a separate approved change).
+  # Scoped per prefix: no bucket-wide access and no delete/list. Student submission attachments (SubmissionFileStorage) use the
+  # same presigned POST + HeadObject/GET flow under learning-media/submissions/, so they get the same two actions on that prefix only.
   statement {
     sid       = "CourseLearningMediaObjectAccess"
     actions   = ["s3:PutObject", "s3:GetObject"]
     resources = ["${aws_s3_bucket.media.arn}/learning-media/courses/*"]
+  }
+
+  statement {
+    sid       = "StudentSubmissionObjectAccess"
+    actions   = ["s3:PutObject", "s3:GetObject"]
+    resources = ["${aws_s3_bucket.media.arn}/learning-media/submissions/*"]
   }
 
   statement {

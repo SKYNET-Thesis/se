@@ -40,6 +40,28 @@ class TerraformProductionGuards(unittest.TestCase):
         self.assertIn('allowed_methods = ["POST", "HEAD"]', block)
         self.assertNotIn('"*"]', block.split("allowed_origins")[1].split("\n")[0])
 
+    def test_cloudfront_preserves_live_domains_api_origin_and_behavior(self):
+        text = (TF / "cloudfront.tf").read_text()
+        variables = (TF / "variables.tf").read_text()
+        self.assertIn("aliases             = var.cloudfront_aliases", text)
+        self.assertRegex(variables, r'variable "cloudfront_aliases"[^}]*\["skynex\.best", "www\.skynex\.best"\]')
+        self.assertRegex(variables, r'variable "api_origin_domain"[^}]*"api\.skynex\.best"')
+        self.assertRegex(variables, r'variable "cloudfront_acm_certificate_arn"[^}]*arn:aws:acm:us-east-1:')
+        self.assertIn('origin_id   = "vista-api"', text)
+        self.assertIn('origin_protocol_policy   = "https-only"', text)
+        self.assertIn('path_pattern             = "/api/v1/*"', text)
+        self.assertNotIn("http-only", text)
+
+    def test_media_iam_is_prefix_scoped_get_put_only(self):
+        text = (TF / "compute.tf").read_text()
+        for sid, prefix in (("CourseLearningMediaObjectAccess", "courses"), ("StudentSubmissionObjectAccess", "submissions")):
+            block = text[text.index(sid):]
+            block = block[:block.index("\n  }")]
+            self.assertIn('actions   = ["s3:PutObject", "s3:GetObject"]', block)
+            self.assertIn(f"/learning-media/{prefix}/*", block)
+        self.assertNotIn("s3:DeleteObject", text)
+        self.assertNotIn("s3:ListBucket", text)
+
 
 if __name__ == "__main__":
     unittest.main()

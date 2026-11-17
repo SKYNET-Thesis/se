@@ -25,7 +25,7 @@ data "aws_iam_policy_document" "github_assume" {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       # Deploy jobs run in the reviewer-gated GitHub environment, so the OIDC subject is the environment (matches the live roles).
-      values   = ["repo:${var.github_repository}:environment:${var.github_deploy_environment}"]
+      values = ["repo:${var.github_repository}:environment:${var.github_deploy_environment}"]
     }
 
   }
