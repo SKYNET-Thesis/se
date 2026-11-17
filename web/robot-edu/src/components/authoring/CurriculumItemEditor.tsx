@@ -22,6 +22,9 @@ export type CurriculumItemEditorProps =
       content?: Record<string, unknown>;
       lessonCount: number;
       onAddLesson: () => void;
+      /** Modules that come before this one: candidates for its unlock rule. */
+      earlierModules?: Array<{ id: string; title: string }>;
+      prerequisiteLessonIds?: string[];
     })
   | (Common & {
       kind: 'lesson';
@@ -44,8 +47,12 @@ export function CurriculumItemEditor(props: CurriculumItemEditorProps) {
   const [summary, setSummary] = useState(savedSummary);
   const [baseline, setBaseline] = useState({ title: savedTitle, summary: savedSummary });
   const [touched, setTouched] = useState(false);
+  const savedPrereqs = props.kind === 'module' ? [...(props.prerequisiteLessonIds ?? [])].sort() : [];
+  const [prereqs, setPrereqs] = useState<string[]>(savedPrereqs);
+  const [prereqBaseline, setPrereqBaseline] = useState<string[]>(savedPrereqs);
 
-  const dirty = title !== baseline.title || summary !== baseline.summary;
+  const prereqDirty = [...prereqs].sort().join() !== prereqBaseline.join();
+  const dirty = title !== baseline.title || summary !== baseline.summary || prereqDirty;
   useEffect(() => {
     onDirtyChange(dirty);
   }, [dirty, onDirtyChange]);
@@ -55,13 +62,16 @@ export function CurriculumItemEditor(props: CurriculumItemEditorProps) {
     mutationFn: async () => {
       const nextTitle = title.trim();
       if (props.kind === 'module') {
-        return catalogApi.updateLesson(props.id, token, { title: nextTitle, content: { ...(props.content ?? {}), summary: summary.trim() } });
+        if (title !== baseline.title || summary !== baseline.summary) await catalogApi.updateLesson(props.id, token, { title: nextTitle, content: { ...(props.content ?? {}), summary: summary.trim() } });
+        if (prereqDirty) await catalogApi.setLessonPrerequisites(props.id, token, prereqs);
+        return;
       }
       return curriculumApi.updateSection(props.id, token, { title: nextTitle });
     },
     onSuccess: async () => {
       await onSaved();
       setBaseline({ title: title.trim(), summary: summary.trim() });
+      setPrereqBaseline([...prereqs].sort());
       setTitle((t) => t.trim());
       setSummary((v) => v.trim());
     },
@@ -108,6 +118,18 @@ export function CurriculumItemEditor(props: CurriculumItemEditorProps) {
           Module summary
           <textarea value={summary} onChange={(e) => setSummary(e.target.value)} disabled={disabled} rows={4} className={fieldClass} placeholder="What will learners accomplish in this module?" />
         </label>
+      )}
+
+      {props.kind === 'module' && (
+        <fieldset className="rounded-md border border-line p-3" disabled={disabled}>
+          <legend className="px-1 text-sm font-medium text-ink">Unlock rule</legend>
+          {(props.earlierModules ?? []).length === 0
+            ? <p className="text-xs text-ink-muted">This is the first module, so it is always open to enrolled learners. Later modules can require earlier ones to be completed first.</p>
+            : <>
+                <p className="text-xs text-ink-muted">Learners must complete the selected modules before this one unlocks. Leave all unchecked to keep it open from the start.</p>
+                <ul className="mt-2 space-y-1.5">{props.earlierModules!.map((m) => <li key={m.id}><label className="flex items-center gap-2 text-sm text-ink"><input type="checkbox" checked={prereqs.includes(m.id)} onChange={(e) => setPrereqs((cur) => (e.target.checked ? [...cur, m.id] : cur.filter((id) => id !== m.id)))} />Complete “{m.title}” first</label></li>)}</ul>
+              </>}
+        </fieldset>
       )}
 
       {save.isError && (

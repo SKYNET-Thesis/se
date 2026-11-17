@@ -865,6 +865,8 @@ export function CourseContentEditor({
               title={activeLesson.title}
               content={activeLesson.content}
               lessonCount={activeSections.length}
+              earlierModules={lessons.filter((l) => l.ordinal < activeLesson.ordinal).map((l) => ({ id: l.id, title: l.title }))}
+              prerequisiteLessonIds={(activeLesson as { prerequisiteLessonIds?: string[] }).prerequisiteLessonIds ?? []}
               token={token}
               disabled={isArchived}
               onDirtyChange={setIsInfoDirty}
