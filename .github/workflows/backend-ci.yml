@@ -1,4 +1,12 @@
 name: Education CI
+
+# Validation and Production deployment are separate paths of this one workflow:
+#   pull_request / push to main  -> api, web, docker and database-safety only (build, tests, lint, migration inventory, workflow safety).
+#                                   Nothing here reads Production credentials or can reach AWS.
+#   workflow_dispatch (deploy)   -> the same validation, then `changes` -> `schema-gate` (read-only Production schema check) ->
+#                                   deploy-api / deploy-web, each behind the reviewer-gated `aws-demo` environment. It is started by a human
+#                                   or by the approved Production Database Release (`resume-deployment`).
+# scripts/check_database_workflow_safety.py enforces this split; keep it in sync when editing the jobs below.
 on:
   pull_request:
   push:
@@ -12,7 +20,9 @@ on:
         default: deploy
 permissions: { contents: read }
 concurrency:
-  group: education-deploy-${{ github.ref }}
+  # Deployments serialize with each other and never share a group with validation runs: GitHub cancels an older *pending* run when a newer
+  # one queues in the same group, so a later push could otherwise drop a queued, explicitly authorized deployment.
+  group: education-${{ github.event_name == 'workflow_dispatch' && 'deploy' || 'ci' }}-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   api:
@@ -72,7 +82,9 @@ jobs:
       - name: Reject database migration execution in deploy workflows
         run: python scripts/check_database_workflow_safety.py .github/workflows
   changes:
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    # Production targets are selected only for an explicit dispatch. An ordinary push or pull request skips this job, so `schema-gate` and
+    # both deploy jobs (which require changes.result == 'success') are skipped and cannot reach Production credentials or AWS.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       api: ${{ steps.paths.outputs.api }}

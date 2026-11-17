@@ -74,7 +74,7 @@ Everything is implemented in source; it stays inert until the settings in sectio
 | Release workflow | `.github/workflows/production-database-release.yml` | manual (`workflow_dispatch`), `main` only, serialized, three jobs: `preflight` → `apply` → `resume-deployment` |
 | Orchestrator | `scripts/production_db_release.py` | `plan`, `snapshot`, `check-backup`, `apply`, `compat`; fail-closed layer over `sql_migration_runner.py` |
 | Verifier | `scripts/verify_production_release_d_i.py` | read-only `--snapshot` / `--verify` (also called by `apply`) |
-| Deployment gate | `schema-gate` job in `.github/workflows/backend-ci.yml` | read-only; blocks API/Web deployment before any SSM command |
+| Deployment gate | `schema-gate` job in `.github/workflows/backend-ci.yml` (dispatch-only) | read-only; blocks API/Web deployment before any SSM command; a dispatched deployment that fails it ends red and deploys nothing |
 | Safety checker | `scripts/check_database_workflow_safety.py` | CI fails if any other workflow can apply migrations, or if the release workflow loses a safeguard |
 | Release scopes | `database/release-scopes.json` | reviewed, explicit, checksum-pinned release definitions (currently only `D-I`) |
 | Tests | `tests/database/test_production_db_release.py` | 40 tests: static safeguards, GitHub `if:` semantics, backup contract, scope extensibility, and the release scenarios on disposable PostgreSQL |
@@ -159,10 +159,10 @@ safe because the schema gate protects the running API (section 6; `tests/databas
 `if:` conditions of `deploy-api`/`deploy-web` for every gate result × event and proves that without a passing gate nothing reaches SSM).
 
 1. Review and merge the CI/CD pull request into `develop` (merge commit). Pull-request runs never deploy.
-2. Merge `develop` into `main` (merge commit). The push run of *Education CI* then does: `changes` → `schema-gate` **fails closed** (secrets not yet configured, or
-   migrations D–I pending) → `deploy-api` and `deploy-web` are **skipped** (their conditions require a successful gate). No SSM command runs; the healthy `a6d61ab`
-   container is never stopped. The run is red; that is expected and means "blocked, nothing touched". GitHub may auto-create the `production-database-preflight`
-   environment from the reference (without protection); that is harmless because it holds no secret yet.
+2. Merge `develop` into `main` (merge commit). The push run of *Education CI* only validates (`api`, `web`, `docker`, `database-safety`): the `changes` job runs
+   only for a `workflow_dispatch`, so `schema-gate`, `deploy-api` and `deploy-web` are **skipped** on every push and pull request. No Production credential is read,
+   no SSM command runs and the healthy container is never touched. The run is green; a Production schema that lags the manifest is reported only when a deployment is
+   explicitly dispatched. GitHub may auto-create the `production-database-preflight` environment from the reference (without protection); that is harmless because it holds no secret yet.
 3. Configure the two environments, secrets and branch protection (section 7). Do not push anything else to `main` meanwhile.
 4. Dispatch *Production Database Release* (`scope=D-I`, `expected_main_sha=<head of main>`). `preflight` must be green; read the plan
    (6 pending versions in order, `status: ready`, `stageJ: excluded`).

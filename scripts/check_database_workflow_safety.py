@@ -36,6 +36,7 @@ FORBIDDEN = (
 
 
 RELEASE_WORKFLOW = "production-database-release.yml"
+CI_WORKFLOW = "backend-ci.yml"
 
 def _logical_end(content: str, pos: int) -> int:
     """End index of the shell command line that continues at `pos` (following backslash continuations)."""
@@ -192,6 +193,93 @@ def release_workflow_problems(content: str) -> list[str]:
 
 
 
+def _job_if(body: str) -> str:
+    match = re.search(r"(?m)^    if: (.*)$", body)
+    return match.group(1) if match else ""
+
+
+def backend_ci_problems(content: str) -> list[str]:
+    """Education CI keeps validation (PR/push) apart from Production deployment (explicit dispatch only, behind schema-gate and a reviewer).
+
+    A push or pull request must be unable to start the Production schema preflight or a deployment; a dispatched deployment must not be
+    able to skip the schema gate (only the rollback to the previous image is exempt) or the aws-demo reviewer approval.
+    """
+    problems: list[str] = []
+    on_block = re.search(r"(?ms)^on:\n(.*?)(?=^\S)", content)
+    triggers = re.findall(r"^  ([a-z_]+):", on_block.group(1), re.M) if on_block else []
+    for required in ("pull_request", "push", "workflow_dispatch"):
+        if required not in triggers:
+            problems.append(f"Education CI must keep validating on {required} (found triggers {triggers})")
+    for extra in set(triggers) - {"pull_request", "push", "workflow_dispatch"}:
+        problems.append(f"Education CI must not add the {extra} trigger")
+    for forbidden in ("pull_request_target", "workflow_run", "contents: write", "secrets: inherit"):
+        if forbidden in content:
+            problems.append(f"Education CI must not contain {forbidden!r}")
+    if "continue-on-error" in content:
+        problems.append("Education CI must not use continue-on-error (a failing check must stay failing)")
+    concurrency = re.search(r"(?ms)^concurrency:\n(.*?)(?=^\S)", content)
+    if not concurrency or "github.event_name == 'workflow_dispatch'" not in concurrency.group(1) or not re.search(r"cancel-in-progress: false", concurrency.group(1)):
+        problems.append("deployments must use their own non-cancelling concurrency group, separate from validation runs")
+    jobs = _jobs(content)
+    production_jobs = {"changes", "schema-gate", "deploy-api", "deploy-web"}
+    for name in ("api", "web", "docker", "database-safety"):
+        body = jobs.get(name)
+        if body is None:
+            problems.append(f"validation job {name} is missing")
+            continue
+        condition = _job_if(body)
+        if condition and "github.event_name != 'workflow_dispatch'" not in condition:
+            problems.append(f"validation job {name} must keep running on push and pull_request (its if: may only exclude a rollback dispatch)")
+    for name, body in jobs.items():
+        if name in production_jobs:
+            continue
+        for marker in ("AWS_DEPLOY_ENABLED", "configure-aws-credentials", "PRODUCTION_", "id-token", "environment:"):
+            if marker in body:
+                problems.append(f"job {name} must not reference {marker}: only changes, schema-gate and the deploy jobs may reach Production")
+    changes = jobs.get("changes", "")
+    changes_if = _job_if(changes)
+    if "github.event_name == 'workflow_dispatch'" not in changes_if or "'push'" in changes_if or "pull_request" in changes_if:
+        problems.append("the changes job (Production target selection) must run only for workflow_dispatch on main, never for push or pull_request")
+    if "refs/heads/main" not in changes_if:
+        problems.append("the changes job must be restricted to refs/heads/main")
+    gate = jobs.get("schema-gate", "")
+    gate_if = _job_if(gate)
+    if not re.search(r"(?m)^    needs: \[changes\]\s*$", gate) or "needs.changes.result == 'success'" not in gate_if:
+        problems.append("schema-gate must depend on the changes job and require its success")
+    if not re.search(r"(?m)^    environment: production-database-preflight\s*$", gate):
+        problems.append("schema-gate must use the read-only production-database-preflight environment")
+    if not re.search(r"production_db_release\.py compat\b", gate):
+        problems.append("schema-gate must run the read-only production_db_release.py compat check")
+    if "github.event_name == 'push'" in gate_if or "pull_request" in gate_if:
+        problems.append("schema-gate must not be started by push or pull_request")
+    rollback = "(github.event_name == 'workflow_dispatch' && inputs.action == 'rollback')"
+    for name in ("deploy-api", "deploy-web"):
+        body = jobs.get(name, "")
+        condition = _job_if(body)
+        if not body:
+            problems.append(f"{name} job is missing")
+            continue
+        if not re.search(r"(?m)^    environment: aws-demo\s*$", body):
+            problems.append(f"{name} must use the reviewer-gated aws-demo environment")
+        needs = re.search(r"(?m)^    needs: \[(.*)\]\s*$", body)
+        needed = {n.strip() for n in needs.group(1).split(",")} if needs else set()
+        for dependency in ("changes", "schema-gate", "database-safety"):
+            if dependency not in needed:
+                problems.append(f"{name} must depend on {dependency}")
+        for clause in ("github.ref == 'refs/heads/main'", "vars.AWS_DEPLOY_ENABLED == 'true'", "needs.changes.result == 'success'", "needs.database-safety.result == 'success'"):
+            if clause not in condition:
+                problems.append(f"{name} must require {clause}")
+        if "needs.schema-gate.result == 'success'" not in condition:
+            problems.append(f"{name} must require a successful schema-gate")
+        # the only way past a failed/skipped schema-gate is the rollback to the previous image, and only for the API
+        stripped = condition.replace(f"(needs.schema-gate.result == 'success' || {rollback})", "SCHEMA_GATE_OR_ROLLBACK")
+        if name == "deploy-web" and "SCHEMA_GATE_OR_ROLLBACK" in stripped or (name == "deploy-api" and re.search(r"schema-gate.result[^&]*\|\|", stripped)):
+            problems.append(f"{name} may bypass schema-gate only through the API rollback exemption")
+        if "github.event_name == 'push'" in condition or "pull_request" in condition:
+            problems.append(f"{name} must not be started by push or pull_request")
+    return problems
+
+
 def inspect_workflows(directory: Path) -> list[str]:
     errors: list[str] = []
     if not directory.is_dir():
@@ -215,6 +303,8 @@ def inspect_workflows(directory: Path) -> list[str]:
             errors.extend(f"{path.relative_to(repo_root)}: {problem}" for problem in release_workflow_problems(content))
         if not is_release_workflow:
             errors.extend(f"{path.relative_to(repo_root)}: {problem}" for problem in other_workflow_problems(content))
+        if path.name == CI_WORKFLOW:
+            errors.extend(f"{path.relative_to(repo_root)}: {problem}" for problem in backend_ci_problems(content))
         for label, pattern in FORBIDDEN:
             if is_release_workflow and label == "Production release wrapper apply":
                 continue  # the single allowlisted entry point; its structure is verified above
