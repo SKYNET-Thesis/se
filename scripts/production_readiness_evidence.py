@@ -123,12 +123,16 @@ def evaluate(raw: dict, root: Path) -> dict:
     # Same ledger rule as the migration runner (_classify): rows of the legacy, pre-manifest stream are tolerated; every other ledger version must be a manifested
     # current-stream version. Exact equality with D-J is therefore evaluated on the current stream only; anything unexpected there still blocks.
     first_version = min(pinned)
-    legacy_rows = {v for v in all_versions if v in LEGACY_SQL_VERSIONS or v < first_version}
+    known_legacy = all_versions & LEGACY_SQL_VERSIONS
+    unrecognized_pre_manifest = {v for v in all_versions if v < first_version and v not in LEGACY_SQL_VERSIONS}
+    legacy_rows = known_legacy | unrecognized_pre_manifest
     versions = all_versions - legacy_rows
     k_l = list(kl["versions"])
     before = kl["expectedCatalogBefore"]
     checks = {
         "ledger_is_exactly_d_to_j": versions == set(required),
+        # Do not assume: every ledger row outside the manifest must be a KNOWN legacy version (the runner's own allowlist), not merely an older-looking name.
+        "ledger_extra_rows_are_all_known_legacy": not unrecognized_pre_manifest,
         "d_to_j_checksums_match_manifest": all(raw["ledger_checksums"].get(v) == pinned.get(v) for v in required),
         "k_and_l_not_yet_applied": not (versions & set(k_l)),
         "m_not_applied": not (versions & set(m["versions"])),
@@ -153,7 +157,9 @@ def evaluate(raw: dict, root: Path) -> dict:
     # L (revised) changes privileges only in `public`, so platform-object gaps no longer block K-L; they are reported because the earlier L draft failed on them.
     informational = {
         "apply_role_platform_function_gaps": raw["apply_role_platform_objects_without_privilege"],
-        "ledger_legacy_rows_tolerated": len(legacy_rows),
+        "ledger_known_legacy_rows": len(known_legacy),
+        "ledger_unrecognized_pre_manifest_rows": len(unrecognized_pre_manifest),
+        "ledger_total_rows": raw["ledger_rows"],
         "public_has_temp_residual_risk_if_m_deferred": raw["public_has_temp"],
         "database_owner_has_temp": raw["database_owner_has_temp"],
         "roles_that_would_lose_temp_if_m_were_released": raw["roles_relying_on_public_temp_not_in_m_allowlist"],

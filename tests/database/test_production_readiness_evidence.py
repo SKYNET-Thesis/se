@@ -66,7 +66,11 @@ class EvidenceLogicTests(unittest.TestCase):
         raw = {**healthy_raw(), "ledger_versions": legacy + list(D_J), "ledger_rows": len(D_J) + 2}
         result = ev.evaluate(raw, ROOT)
         self.assertEqual(result["blocking"], [])  # same rule as the migration runner: the pre-manifest legacy stream is not an error
-        self.assertEqual(result["informational"]["ledger_legacy_rows_tolerated"], 2)
+        self.assertEqual(result["informational"]["ledger_known_legacy_rows"], 2)
+        self.assertEqual(result["informational"]["ledger_unrecognized_pre_manifest_rows"], 0)
+        odd = ev.evaluate({**healthy_raw(), "ledger_versions": ["20261101_something_unknown"] + list(D_J)}, ROOT)
+        self.assertEqual(odd["blocking"], ["ledger_extra_rows_are_all_known_legacy"])  # tolerated by the runner, but not proven legitimate: stays blocking
+        self.assertEqual(odd["informational"]["ledger_unrecognized_pre_manifest_rows"], 1)
         unknown = ev.evaluate({**healthy_raw(), "ledger_versions": list(D_J) + ["20261112_unexpected_current_stream"]}, ROOT)
         self.assertIn("ledger_is_exactly_d_to_j", unknown["blocking"])
 
