@@ -290,7 +290,7 @@ class DeploymentSemanticsTests(unittest.TestCase):
                 self.assertFalse(self.run_if("deploy-web", deploy_api=deploy_api, **kw), f"deploy-web would run: {kw} deploy_api={deploy_api}")
 
     def test_a_passing_gate_still_requires_every_existing_condition(self):
-        ok = dict(event="push", action="", gate="success")
+        ok = dict(event="workflow_dispatch", action="deploy", gate="success")  # Production deployment is dispatch-only
         self.assertTrue(self.run_if("deploy-api", **ok))
         self.assertTrue(self.run_if("deploy-web", deploy_api="success", **ok))
         self.assertFalse(self.run_if("deploy-api", aws="false", **ok))  # AWS_DEPLOY_ENABLED=false still disables deployment
@@ -309,17 +309,28 @@ class DeploymentSemanticsTests(unittest.TestCase):
     def test_the_gate_runs_exactly_when_a_deployment_could_follow(self):
         def gate_runs(**kw):
             return _Expr(_job_if(self.text, "schema-gate"), self.ctx(gate="skipped", **kw)).value()
-        self.assertTrue(gate_runs(event="push", action=""))
+        changes_runs = lambda **kw: _Expr(_job_if(self.text, "changes"), self.ctx(gate="skipped", **kw)).value()  # noqa: E731
+        # Production target selection (and therefore the gate and every deploy job) exists only for an explicit dispatch on main.
+        self.assertFalse(changes_runs(event="push", action=""))
+        self.assertFalse(changes_runs(event="pull_request", action=""))
+        self.assertTrue(changes_runs(event="workflow_dispatch", action="deploy"))
+        self.assertFalse(changes_runs(event="workflow_dispatch", action="deploy", ref="refs/heads/develop"))
         self.assertTrue(gate_runs(event="workflow_dispatch", action="deploy"))
-        self.assertFalse(gate_runs(event="push", action="", aws="false"))
-        self.assertFalse(gate_runs(event="push", action="", api=False, web=False))
-        self.assertFalse(gate_runs(event="push", action="", ref="refs/heads/develop"))
+        self.assertFalse(gate_runs(event="push", action="", changes="skipped"))  # an ordinary push skips `changes`, so the gate never starts
+        self.assertFalse(gate_runs(event="workflow_dispatch", action="deploy", aws="false"))
+        self.assertFalse(gate_runs(event="workflow_dispatch", action="deploy", api=False, web=False))
+        self.assertFalse(gate_runs(event="workflow_dispatch", action="deploy", ref="refs/heads/develop"))
 
     def test_merging_the_ci_changes_cannot_start_ssm_while_the_gate_cannot_pass(self):
-        # Before the first release the gate fails (secrets missing or migrations pending): the push-to-main run must end without any SSM step.
+        # Before the first release the gate fails (secrets missing or migrations pending): neither a push-to-main run (where `changes` is
+        # skipped) nor a dispatched deployment may reach any SSM step.
         for gate in ("failure", "skipped"):
-            self.assertFalse(self.run_if("deploy-api", event="push", action="", gate=gate))
-            self.assertFalse(self.run_if("deploy-web", event="push", action="", gate=gate, deploy_api="skipped"))
+            for changes in ("success", "skipped"):
+                self.assertFalse(self.run_if("deploy-api", event="push", action="", gate=gate, changes=changes))
+                self.assertFalse(self.run_if("deploy-web", event="push", action="", gate=gate, deploy_api="skipped", changes=changes))
+        for gate in ("success", "failure", "skipped"):  # and with `changes` skipped, not even a passing gate result deploys
+            self.assertFalse(self.run_if("deploy-api", event="push", action="", gate=gate, changes="skipped"))
+            self.assertFalse(self.run_if("deploy-web", event="push", action="", gate=gate, deploy_api="success", changes="skipped"))
         deploy = re.search(r"(?ms)^  deploy-api:\n(.*?)(?=^  [a-z0-9-]+:\n|\Z)", self.text).group(1)
         gate_body = re.search(r"(?ms)^  schema-gate:\n(.*?)(?=^  [a-z0-9-]+:\n|\Z)", self.text).group(1)
         self.assertIn("aws ssm", deploy)  # SSM lives only in the gated deploy job
