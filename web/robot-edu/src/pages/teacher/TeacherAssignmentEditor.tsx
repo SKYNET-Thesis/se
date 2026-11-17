@@ -20,7 +20,7 @@ export type AssignmentFormErrors = Partial<Record<keyof AssignmentFormValues, st
 export function validateAssignmentForm(values: AssignmentFormValues): AssignmentFormErrors {
   const errors: AssignmentFormErrors = {};
   if (!values.classroomId) errors.classroomId = 'Choose the classroom that will receive this assignment.';
-  if (!values.lessonId) errors.lessonId = 'Choose the lesson this assignment belongs to.';
+  if (!values.lessonId) errors.lessonId = 'Choose the module this assignment belongs to.';
   if (!values.title.trim()) errors.title = 'Enter an assignment title.';
   else if (values.title.trim().length > 200) errors.title = 'The title can be at most 200 characters.';
   return errors;
@@ -153,10 +153,10 @@ export function TeacherAssignmentEditor() {
                 <option value="">Select a teaching classroom</option>{(classrooms.data ?? []).map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
               </select>)}</Field>
             <Field label="Course" hint="Set by the classroom’s course offering.">{(props) => <input {...props} readOnly className={`${inputClasses} bg-sunken`} value={courseTitle || (classroomId && deliveryOptions.isLoading ? 'Loading…' : '')} placeholder="Select a classroom" />}</Field>
-            <Field label="Lesson" error={visibleError('lessonId')}>{(props) => (
+            <Field label="Module" error={visibleError('lessonId')}>{(props) => (
               <select {...props} required disabled={disabledAll || lockedStructure || !classroomId} className={inputClasses} value={lessonId}
                 onChange={(event) => { const next = draftForDeliveryOption(deliveryOptions.data?.find((item) => item.lesson_id === event.target.value)); setLessonId(next.lessonId); setChallengeId(next.challengeId); setTitle(next.title); setInstructions(next.instructions); }}>
-                <option value="">Select a lesson</option>{(deliveryOptions.data ?? []).map((item) => <option key={item.lesson_id} value={item.lesson_id}>{item.lesson_title}</option>)}
+                <option value="">Select a module</option>{(deliveryOptions.data ?? []).map((item) => <option key={item.lesson_id} value={item.lesson_id}>{item.lesson_title}</option>)}
               </select>)}</Field>
             <div className="hidden sm:block" />
             <Field label="Assignment title" error={visibleError('title')} className="sm:col-span-2">{(props) => <input {...props} required maxLength={200} disabled={disabledAll} className={inputClasses} value={title} onChange={(event) => setTitle(event.target.value)} />}</Field>
@@ -180,11 +180,11 @@ export function TeacherAssignmentEditor() {
                 </select>)}</Field>
               {challenge ? (
                 <dl className="mt-4 space-y-3 rounded-md border border-line bg-sunken/40 p-4 text-sm" aria-label="Challenge details">
-                  <div><dt className="text-xs text-ink-subtle">Lesson</dt><dd className="font-medium text-ink">{option?.lesson_title}</dd></div>
+                  <div><dt className="text-xs text-ink-subtle">Module</dt><dd className="font-medium text-ink">{option?.lesson_title}</dd></div>
                   <div><dt className="text-xs text-ink-subtle">Description and requirements</dt><dd className="whitespace-pre-wrap text-ink-muted">{challenge.description?.trim() || 'This challenge has no written description.'}</dd></div>
                   <div><dt className="text-xs text-ink-subtle">Evaluation criteria</dt><dd>{challenge.conditions?.length ? <ul className="mt-1 list-disc space-y-0.5 pl-5 text-ink-muted">{challenge.conditions.map((condition, index) => <li key={`${condition.ruleKey}-${index}`}><span className="capitalize">{condition.type}</span>: {condition.description?.trim() || condition.ruleKey}</li>)}</ul> : <span className="text-ink-muted">No criteria are stored for this challenge.</span>}</dd></div>
                 </dl>
-              ) : <div className="mt-4"><Note>{lessonId ? 'Without a challenge, students program freely and there are no stored success conditions to validate against.' : 'Choose a lesson to see its challenges.'}</Note></div>}
+              ) : <div className="mt-4"><Note>{lessonId ? 'Without a challenge, students program freely and there are no stored success conditions to validate against.' : 'Choose a module to see its challenges.'}</Note></div>}
             </Section>
 
             <Section step={4} title="Submission settings">
@@ -202,8 +202,8 @@ export function TeacherAssignmentEditor() {
               {rubric.length ? (
                 <table className="mt-2 w-full text-left text-sm"><thead className="text-xs text-ink-muted"><tr><th scope="col" className="py-1.5 pr-3 font-medium">Criterion</th><th scope="col" className="py-1.5 text-right font-medium">Max points</th></tr></thead>
                   <tbody className="divide-y divide-line">{rubric.map((criterion, index) => <tr key={`${criterion.title}-${index}`}><td className="py-2 pr-3"><span className="font-medium text-ink">{criterion.title}</span>{criterion.description && <span className="block text-xs text-ink-muted">{criterion.description}</span>}</td><td className="py-2 text-right tabular-nums text-ink-muted">{Number(criterion.maxPoints)}</td></tr>)}</tbody></table>
-              ) : <div className="mt-2"><Note tone="warn">{lessonId ? 'No rubric is stored for this lesson, so there is nothing to score yet. Students can still submit.' : 'Choose a lesson to see its rubric.'}</Note></div>}
-              {!existingMode && rubric.length > 0 && <p className="mt-2 text-xs text-ink-subtle">The new assignment copies these criteria from the most recent assignment of this lesson in your school.</p>}
+              ) : <div className="mt-2"><Note tone="warn">{lessonId ? 'No rubric is stored for this module, so there is nothing to score yet. Students can still submit.' : 'Choose a module to see its rubric.'}</Note></div>}
+              {!existingMode && rubric.length > 0 && <p className="mt-2 text-xs text-ink-subtle">The new assignment copies these criteria from the most recent assignment of this module in your school.</p>}
               <ul className="mt-4 space-y-2 text-sm text-ink-muted">
                 <li><strong className="font-medium text-ink">Teacher grading:</strong> you score every criterion, add comments, and save the assessment.</li>
                 <li><strong className="font-medium text-ink">Machine validation:</strong> {challenge?.conditions?.length ? `deterministic symbolic checks from the challenge (${challenge.conditions.length} stored condition${challenge.conditions.length === 1 ? '' : 's'}) run on student simulations and appear as evidence for you.` : 'available only for challenges with stored conditions; none is selected.'}</li>

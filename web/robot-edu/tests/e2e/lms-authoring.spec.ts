@@ -375,6 +375,14 @@ test('Journey 2: instructor authors a school question, builds and configures a q
   expect(quizAttempts.every((a) => a.status !== 'in_progress')).toBe(true); // both attempts are finished; the replay created none
   expect(quizAttempts.map((a) => Number(a.score)).sort((x, y) => x - y)).toEqual([25, 100]); // points-weighted scores persisted by the server
 
+  // Attempt limit (2): the student page says so and blocks a third attempt; the server refuses it independently of the UI.
+  await page.goto(`/my-learning/${delivery.id}`);
+  await expect(page.getByText('2 of 2 used')).toBeVisible();
+  await expect(page.getByRole('button', { name: /attempt/i }).filter({ hasNotText: /^View|Hide/ }).first()).toBeDisabled();
+  const third = await page.request.post(`${apiBase}/classroom-assignments/${delivery.id}/attempts`, { headers: { Authorization: `Bearer ${studentToken}` } });
+  expect(third.status(), await third.text()).toBeGreaterThanOrEqual(400); // refused; the count below proves nothing was created
+  expect(((await api(page, studentToken, 'GET', '/me/attempts')).body as Array<{ classroom_assignment_id?: string }>).filter((a) => a.classroom_assignment_id === delivery.id)).toHaveLength(2);
+
   // The instructor sees the matching result; persistence holds after relogin.
   const teacher = await signIn(page, fixture.users.instructor.authUserId);
   const summary = await api(page, teacher, 'GET', `/classrooms/${classroomId}/summary`);

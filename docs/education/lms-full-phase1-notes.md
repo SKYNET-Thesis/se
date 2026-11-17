@@ -63,3 +63,48 @@ least-privilege runtime role, same fingerprint). K–M remain unapproved for Pro
 
 Known limits: Learning Media has no delete endpoint (an attachment is removed from a lesson, the stored file remains);
 the Playwright JWKS port (54321/54323) is shared by every agent, so runs must not overlap.
+
+## Phase 1G — terminology decision, closure and WF-02 handoff
+
+### Curriculum vocabulary (user-facing only)
+
+| Database / API name | Shown to users as | Notes |
+|---|---|---|
+| `courses` | Course | unchanged |
+| `lessons` (`/courses/:id/lessons`, `/lessons/:id`) | **Module** | the top-level unit; owns unlock rules (`prerequisiteLessonIds`) |
+| `sections` (`/lessons/:id/sections`) | **Lesson** | groups activities inside a module |
+| `activities` | Activity | reading, video, quiz, practice… |
+
+Only presentation strings changed (instructor Outline and Structure & Publishing, student Course Path, sidebar, progress
+labels, locked-state messages, ARIA labels). Identifiers, routes, JSON field names and error codes are unchanged. The server's
+lock message is now "Complete <module> to unlock this module." (`progression.service.ts`). `src/lib/terms.ts` holds the
+shared helpers (`countLabel`, `plural`) and documents the mapping. The Question Bank still says "lesson" where it means the
+Question Bank's scope (a DB lesson = a module); that is a known leftover (see limitations in the acceptance report).
+
+### Learning Media rules confirmed by the real-file test
+- One private bucket for every file type; objects are served only through `GET /activities/:activityId/media/:mediaId/url`
+  (enrolment, published state and prerequisites checked; a file attached to activity A is not served through activity B).
+- Readings accept documents and images; **video belongs to a Video activity**. The library now disables "Use file" for videos
+  when attaching to a reading instead of letting the publish step fail.
+- No delete endpoint; "Detach" only removes the link from a lesson.
+- `tests/e2e/fixtures/media/` holds valid files (PNG, one-page PDF, DOCX/PPTX packages, H.264/AAC MP4). `lms-lesson-media.spec.ts`
+  uploads them in the browser, compares SHA-256 of what the student receives, decodes the PNG, plays the MP4 (currentTime advances)
+  and, when `VISTA_E2E_S3_*` variables are set, deletes an object from the disposable bucket to prove the missing-file fallback.
+
+### Handoff to the WF-01–WF-04 integration (what must be preserved)
+
+API routes added or changed by the LMS branch (no new migration; the LMS relies on baseline + D–M already in the manifest):
+
+- Grading: `POST attempts/:attemptId/grading/reopen` (reason ≥ 5 chars, audited, instructor only); existing `POST submissions/:id/assessment` returns 409 `GRADE_RELEASED` for a released grade.
+- Assignment configuration: `GET|PUT classrooms/:c/assignments/:a/rubric`, `PATCH classrooms/:c/assignments/:a/schedule`.
+- Instructor monitoring (permission `learning.work.review`): `GET classrooms/:c/learner-progress`, `…/learner-progress/:learnerUserId/lessons`, `GET classrooms/:c/quiz-results`.
+- Question Bank import: `GET quiz-authoring/import-template?format=csv|xlsx`, `POST quiz-authoring/lessons/:id/import/preview`, `POST …/import` (multipart, 1 MB / 500 rows, CSV or XLSX only).
+- Existing contracts the UI depends on and that must not change shape: `GET /me/courses/:id/path` (`lockReason.message`, `progressPercent`), `POST /classroom-assignments/:id/attempts`, quiz submit (weighted `earnedPoints/possiblePoints`), `GET /me/attempts`, `GET /admin/courses/:id/media`, activity media URL route above.
+
+Frontend pieces WF-02 must keep working (routes and components):
+
+- Routes: `/my-learning`, `/my-learning/:classroomAssignmentId`, `/courses/:id`, `/courses/:id/lessons/:moduleId`, `…/activities/:activityId`, `/practice/:attemptId`, `/teacher/classes/:id`, `/teacher/classes/:id/submissions/:submissionId`, `/teacher/assignments/*`, `/admin/courses/:id`.
+- Components: `AppShell`/`SidebarNav` (labels now wrap; keep long labels such as "3D Simulation & Monitoring"), `CourseOutlinePanel` (reorder controls always visible, unlock-rule chip), `CurriculumItemEditor` (Unlock rule), `MediaAttachmentList`, `MediaAssetLibraryModal`, `KnowledgeCheckAttempt`, `ImportQuestionsDialog`, `AssignmentConfigPanel`, `TeacherAttemptPanel`, `LearnerProgressTable`, `QuizResultsTable`.
+- Design tokens: `--ink-subtle` and `--warn` in `src/index.css` were darkened to satisfy WCAG AA text contrast; do not revert them when merging styles.
+- Blockly symbolic evaluation must never become a rubric grade; quiz auto-grading stays separate from manual rubric grading.
+- Playwright: the JWKS port (54321/54323) is shared between agents; the E2E specs and accessibility checks assume the labels listed above.

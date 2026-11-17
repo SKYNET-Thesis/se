@@ -1,0 +1,627 @@
+{
+ "generatedFrom": "Playwright against disposable local PostgreSQL, local S3-compatible storage and the real API",
+ "count": 69,
+ "entries": [
+  {
+   "file": "screenshots/builder-details-1440.jpg",
+   "screen": "builder-details",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Course Details tab",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-details-390.jpg",
+   "screen": "builder-details",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Course Details tab",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-media-course-1440.jpg",
+   "screen": "builder-media-course",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Course builder with attached materials",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/builder-media-course-390.jpg",
+   "screen": "builder-media-course",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Course builder with attached materials",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/builder-media-library-1440.jpg",
+   "screen": "builder-media-library",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Media Library tab",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-media-library-390.jpg",
+   "screen": "builder-media-library",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Media Library tab",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-module-editor-1440.jpg",
+   "screen": "builder-module-editor",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Module editor with Unlock rule",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-module-editor-390.jpg",
+   "screen": "builder-module-editor",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Module editor with Unlock rule",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-publishing-1440.jpg",
+   "screen": "builder-publishing",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Structure & Publishing tab",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-publishing-390.jpg",
+   "screen": "builder-publishing",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Structure & Publishing tab",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-quiz-editor-1440.jpg",
+   "screen": "builder-quiz-editor",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Quiz editor tab",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-quiz-editor-390.jpg",
+   "screen": "builder-quiz-editor",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Quiz editor tab",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-settings-1440.jpg",
+   "screen": "builder-settings",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Settings tab",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-settings-390.jpg",
+   "screen": "builder-settings",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Settings tab",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/builder-unlock-course-1440.jpg",
+   "screen": "builder-unlock-course",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Course builder outline with unlock-rule chip",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/builder-unlock-course-390.jpg",
+   "screen": "builder-unlock-course",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Course builder outline with unlock-rule chip",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/course-builder-1440.jpg",
+   "screen": "course-builder",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Course builder for a course the instructor cannot open (not-found state)",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/course-builder-390.jpg",
+   "screen": "course-builder",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Course builder for a course the instructor cannot open (not-found state)",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/course-list-1440.jpg",
+   "screen": "course-list",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Course management list",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/course-list-390.jpg",
+   "screen": "course-list",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Course management list",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/qb-import-preview-1440.jpg",
+   "screen": "qb-import-preview",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Question import preview with valid/duplicate/invalid rows",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/qb-import-preview-390.jpg",
+   "screen": "qb-import-preview",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Question import preview with valid/duplicate/invalid rows",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/qb-quiz-builder-1440.jpg",
+   "screen": "qb-quiz-builder",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Quiz builder with imported weighted questions",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/qb-quiz-builder-390.jpg",
+   "screen": "qb-quiz-builder",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Quiz builder with imported weighted questions",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/student-activity-1440.jpg",
+   "screen": "student-activity",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Reading activity with Mark as Completed",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-activity-390.jpg",
+   "screen": "student-activity",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Reading activity with Mark as Completed",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-assignment-1440.jpg",
+   "screen": "student-assignment",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Blockly assignment with graded attempts",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-assignment-390.jpg",
+   "screen": "student-assignment",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Blockly assignment with graded attempts",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-course-1440.jpg",
+   "screen": "student-course",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Course path, first module current",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-course-390.jpg",
+   "screen": "student-course",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Course path, first module current",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-courses-1440.jpg",
+   "screen": "student-courses",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Course catalogue",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-courses-390.jpg",
+   "screen": "student-courses",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Course catalogue",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-lesson-1440.jpg",
+   "screen": "student-lesson",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Module overview with activity map",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-lesson-390.jpg",
+   "screen": "student-lesson",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Module overview with activity map",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-lesson-with-real-media.jpg",
+   "screen": "student-lesson-with-real-media",
+   "role": "student",
+   "viewport": "n/a",
+   "state": "Reading with real PNG, PDF/DOCX/PPTX cards (valid files, from the media acceptance test)",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/student-locked-course-1440.jpg",
+   "screen": "student-locked-course",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Course path with module 2 locked behind module 1",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-locked-course-390.jpg",
+   "screen": "student-locked-course",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Course path with module 2 locked behind module 1",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-locked-module-1440.jpg",
+   "screen": "student-locked-module",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Module locked by the progression rule",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-locked-module-390.jpg",
+   "screen": "student-locked-module",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Module locked by the progression rule",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-media-activity-1440.jpg",
+   "screen": "student-media-activity",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Reading with attachment cards (fixture files are not decodable images)",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-media-activity-390.jpg",
+   "screen": "student-media-activity",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Reading with attachment cards (fixture files are not decodable images)",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-my-learning-1440.jpg",
+   "screen": "student-my-learning",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "My Learning, in-progress course cards",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-my-learning-390.jpg",
+   "screen": "student-my-learning",
+   "role": "student",
+   "viewport": "390px",
+   "state": "My Learning, in-progress course cards",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-quiz-1440.jpg",
+   "screen": "student-quiz",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Legacy lesson-embedded practice quiz start screen",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-quiz-390.jpg",
+   "screen": "student-quiz",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Legacy lesson-embedded practice quiz start screen",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-quiz-assignment-1440.jpg",
+   "screen": "student-quiz-assignment",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Quiz page before the first attempt",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/student-quiz-assignment-390.jpg",
+   "screen": "student-quiz-assignment",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Quiz page before the first attempt",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/student-quiz-delivery-1440.jpg",
+   "screen": "student-quiz-delivery",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Quiz delivery id not visible to this learner (unavailable state)",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-quiz-delivery-390.jpg",
+   "screen": "student-quiz-delivery",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Quiz delivery id not visible to this learner (unavailable state)",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/student-quiz-not-passed-1440.jpg",
+   "screen": "student-quiz-not-passed",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Quiz result 25%, not passed, with per-question points",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/student-quiz-not-passed-390.jpg",
+   "screen": "student-quiz-not-passed",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Quiz result 25%, not passed, with per-question points",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/student-quiz-passed-1440.jpg",
+   "screen": "student-quiz-passed",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Quiz result 100%, passed",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/student-quiz-passed-390.jpg",
+   "screen": "student-quiz-passed",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Quiz result 100%, passed",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/student-quiz-taking-1440.jpg",
+   "screen": "student-quiz-taking",
+   "role": "student",
+   "viewport": "1440px",
+   "state": "Weighted quiz, 4 points, pass at 70%",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/student-quiz-taking-390.jpg",
+   "screen": "student-quiz-taking",
+   "role": "student",
+   "viewport": "390px",
+   "state": "Weighted quiz, 4 points, pass at 70%",
+   "captured": true,
+   "horizontalOverflowPx": "not measured"
+  },
+  {
+   "file": "screenshots/teacher-assignment-edit-1440.jpg",
+   "screen": "teacher-assignment-edit",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Edit assignment with rubric and schedule",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-assignment-edit-390.jpg",
+   "screen": "teacher-assignment-edit",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Edit assignment with rubric and schedule",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-assignment-new-1440.jpg",
+   "screen": "teacher-assignment-new",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Create assignment form",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-assignment-new-390.jpg",
+   "screen": "teacher-assignment-new",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Create assignment form",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-assignments-1440.jpg",
+   "screen": "teacher-assignments",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Assignments list",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-assignments-390.jpg",
+   "screen": "teacher-assignments",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Assignments list",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-class-1440.jpg",
+   "screen": "teacher-class",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Classroom: assigned learning, learner progress, quiz results",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-class-390.jpg",
+   "screen": "teacher-class",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Classroom: assigned learning, learner progress, quiz results",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-classes-1440.jpg",
+   "screen": "teacher-classes",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "My Classes",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-classes-390.jpg",
+   "screen": "teacher-classes",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "My Classes",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-overview-1440.jpg",
+   "screen": "teacher-overview",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Teaching overview",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-overview-390.jpg",
+   "screen": "teacher-overview",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Teaching overview",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-submission-review-1440.jpg",
+   "screen": "teacher-submission-review",
+   "role": "instructor",
+   "viewport": "1440px",
+   "state": "Submission review, released grade locked",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  },
+  {
+   "file": "screenshots/teacher-submission-review-390.jpg",
+   "screen": "teacher-submission-review",
+   "role": "instructor",
+   "viewport": "390px",
+   "state": "Submission review, released grade locked",
+   "captured": true,
+   "horizontalOverflowPx": 0
+  }
+ ]
+}
