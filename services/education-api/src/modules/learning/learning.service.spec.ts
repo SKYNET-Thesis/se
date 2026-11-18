@@ -36,6 +36,19 @@ describe("LearningService assignment delivery", () => {
     expect(sql).toContain("c.status='active'");
   });
 
+  it('returns the grading rubric in the student-visible assignment payload (published deliveries only for learners)', async () => {
+    const classroomSpy = jest.spyOn(service as never, 'classroom' as never).mockResolvedValue(undefined as never);
+    (service as unknown as { scope: { canManageClassroom: jest.Mock } }).scope.canManageClassroom = jest.fn().mockResolvedValue(false);
+    queryRaw.mockResolvedValueOnce([{ classroom_id: 'class-a' }]).mockResolvedValueOnce([{ id: 'delivery-a', rubric: [{ title: 'Clarity', maxPoints: 6 }] }]);
+    const result = await service.assignment(user as never, 'delivery-a') as { rubric: unknown[] };
+    expect(result.rubric).toHaveLength(1);
+    const sql = (queryRaw.mock.calls[1][0] as TemplateStringsArray).join('?');
+    expect(sql).toContain('learning_rubric_criteria');
+    expect(sql).toContain('AS rubric');
+    expect(sql).toContain("ca.status='published'");
+    classroomSpy.mockRestore();
+  });
+
   it('creates a draft delivery referencing the canonical assignment without cloning it', async () => {
     const txQuery = jest.fn().mockResolvedValueOnce([{ id: 'canonical-quiz', lesson_id: 'lesson-a' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'delivery-a', status: 'draft', assignment_id: 'canonical-quiz' }]);
     transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({ $queryRaw: txQuery }));

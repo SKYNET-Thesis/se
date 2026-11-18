@@ -448,7 +448,7 @@ export class LearningService {
     const classroomId = rows[0].classroom_id;
     await this.classroom(user, classroomId);
     const canManage = await this.scope.canManageClassroom(user, classroomId);
-    const assignment = await this.prisma.$queryRaw<Record<string, unknown>[]>`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.id=${classroomAssignmentId}::uuid AND (${canManage} OR ca.status='published')`;
+    const assignment = await this.prisma.$queryRaw<Record<string, unknown>[]>`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=a.id),'[]'::jsonb) AS rubric FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.id=${classroomAssignmentId}::uuid AND (${canManage} OR ca.status='published')`;
     if (!assignment[0]) throw new NotFoundException("Assignment was not found.");
     return assignment[0];
   }
@@ -717,7 +717,7 @@ export class LearningService {
       return created[0];
     });
   }
-  async myAttempts(user:AuthenticatedUser){return this.prisma.$queryRaw`SELECT id,classroom_assignment_id,attempt_number,status,score,(result_snapshot->>'passed')::boolean AS passed,started_at,submitted_at FROM public.learning_assignment_attempts WHERE learner_user_id=${user.vistaUserId}::uuid ORDER BY started_at DESC`;}
+  async myAttempts(user:AuthenticatedUser){return this.prisma.$queryRaw`SELECT id,classroom_assignment_id,attempt_number,status,score,(result_snapshot->>'passed')::boolean AS passed,started_at,submitted_at,grading_released_at,(grading_released_at IS NOT NULL) AS grading_released FROM public.learning_assignment_attempts WHERE learner_user_id=${user.vistaUserId}::uuid ORDER BY started_at DESC`;}
   /**
    * The learner's own attempts of one classroom assignment, newest first, each with ITS OWN submission, attachments
    * and release state (never the latest submission's). Instructor grading is not included here (see myGrading).
