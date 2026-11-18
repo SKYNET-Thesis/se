@@ -495,6 +495,11 @@ export function Login() {
                 <div className="mt-6 flex flex-col items-center gap-3 text-center">
                   {loginType === 'student' && studentMode === 'login' && (
                     <>
+                      <p className="max-w-xs text-xs leading-relaxed text-ink-muted">
+                        Got a temporary password from your school? Sign in with it above, then you will choose your own password.
+                        Temporary passwords expire. If yours does not work, ask your school administrator for a new one.
+                        Use “Set up your account” only if you were given a Setup Code.
+                      </p>
                       <button
                         type="button"
                         onClick={() => {

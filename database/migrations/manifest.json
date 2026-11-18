@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "baselineSha256": "5b140ce7b5f9b71e5c013f45ec9298cde48db29ac5e6a979b78aea694c2ef962",
-  "sourceCommit": "9de296cec15f0ed77be887447597034436e1930e",
+  "sourceCommit": "760de9f8b6904e50aebb0b47b4778affae2f23aa",
   "migrations": [
     {
       "version": "20261110_d_activity_content",
@@ -56,6 +56,12 @@
       "path": "database/migrations/20261116_l_runtime_role.sql",
       "sha256": "5b49e05050cf9e5f0a9cc751ce04d3de1d81abfb817da21d8ef5aad5cd4761bb",
       "order": 9
+    },
+    {
+      "version": "20261118_n_student_password_change_required",
+      "path": "database/migrations/20261118_n_student_password_change_required.sql",
+      "sha256": "ac032b1fd56cecbabad4512ba428f461a23cfce95b8626e78060b45e52abd049",
+      "order": 10
     }
   ]
 }

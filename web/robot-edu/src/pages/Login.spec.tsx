@@ -163,6 +163,14 @@ describe('Login Component', () => {
     expect(authMocks.roles).toHaveBeenCalledWith('student-token');
   });
 
+  it('explains temporary-password sign-in and keeps the legacy Setup Code link', async () => {
+    await clickButton('Student Code');
+    expect(container.textContent).toContain('Got a temporary password from your school?');
+    expect(container.textContent).toContain('ask your school administrator for a new one');
+    expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent?.includes('First time here? Set up your account'))).toBe(true);
+    expect(Array.from(container.querySelectorAll('button')).some((b) => b.textContent?.includes('Forgot password?'))).toBe(true);
+  });
+
   it('navigates to first-time setup and activates account', async () => {
     await clickButton('Student Code');
     await clickButton('First time here? Set up your account');

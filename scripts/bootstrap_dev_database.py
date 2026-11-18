@@ -67,6 +67,7 @@ REQUIRED_OBJECTS = [
     ("legacy UNIQUE (assignment_id, learner_user_id) removed (migration J)", "NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.learning_submissions'::regclass AND conname='learning_submissions_assignment_id_learner_user_id_key')", "20261114_j_one_submission_per_attempt"),
     ("lookup index learning_submissions_assignment_learner_idx (migration J)", "to_regclass('public.learning_submissions_assignment_learner_idx') IS NOT NULL", "20261114_j_one_submission_per_attempt"),
     ("trigger guard_learning_submission_attempt (migration J)", "EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='public.learning_submissions'::regclass AND tgname='guard_learning_submission_attempt' AND NOT tgisinternal)", "20261114_j_one_submission_per_attempt"),
+    ("student first-login gate columns (migration N)", "(SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='education_school_user_profiles' AND column_name IN ('password_change_required','password_changed_at','temporary_password_expires_at','provisioning_claim_token','provisioning_lease_until'))=5", "20261118_n_student_password_change_required"),
 ]
 
 

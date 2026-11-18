@@ -137,6 +137,45 @@
         "functions": 15
       },
       "verifier": "km"
+    },
+    "N": {
+      "description": "Student temporary password: five additive, defaulted/nullable columns on education_school_user_profiles (dormant first-login gate). No backfill, no constraint/RLS/grant/trigger change; requires D-L applied.",
+      "productionStatus": "READY for the approval-gated Production Database Release; apply requires the production-database-apply reviewer approval. The API is safe to deploy before and after this release while STUDENT_TEMP_PASSWORD_ENABLED is false.",
+      "requiresApplied": [
+        "20261110_d_activity_content",
+        "20261110_e_learning_media",
+        "20261111_f_global_question_scope",
+        "20261111_g_activity_progress_scope_guard",
+        "20261112_h_learning_media_audio_mpeg",
+        "20261113_i_attempt_submission_foundation",
+        "20261114_j_one_submission_per_attempt",
+        "20261116_k_course_authoring_capabilities",
+        "20261116_l_runtime_role"
+      ],
+      "versions": [
+        "20261118_n_student_password_change_required"
+      ],
+      "sha256": {
+        "20261118_n_student_password_change_required": "ac032b1fd56cecbabad4512ba428f461a23cfce95b8626e78060b45e52abd049"
+      },
+      "excludedVersions": [
+        "20261116_m_revoke_public_temp_privilege"
+      ],
+      "expectedCatalogBefore": {
+        "tables": 91,
+        "rls_enabled": 49,
+        "policies": 48,
+        "triggers": 22,
+        "functions": 15
+      },
+      "expectedCatalogAfter": {
+        "tables": 91,
+        "rls_enabled": 49,
+        "policies": 48,
+        "triggers": 22,
+        "functions": 15
+      },
+      "verifier": "n"
     }
   }
 }
