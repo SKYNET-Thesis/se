@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { FinaleChapter } from '../../components/home-v2/FinaleChapter';
+import { DesktopDownloadChapter } from '../../components/home-v2/DesktopDownloadChapter';
 import { HeroChapter } from '../../components/home-v2/HeroChapter';
 import { JourneyChapter } from '../../components/home-v2/JourneyChapter';
 import { LessonLabChapter } from '../../components/home-v2/LessonLabChapter';
@@ -43,6 +44,7 @@ export default function HomeV2() {
           <SafetyChapter />
           <SchoolsChapter />
           <FinaleChapter />
+          <DesktopDownloadChapter />
         </main>
       </V2SceneProvider>
     </div>
