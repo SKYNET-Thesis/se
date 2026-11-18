@@ -566,7 +566,8 @@ class ReleaseFlowTests(unittest.TestCase):
         manifest_path = repo / "database/migrations/manifest.json"
         manifest = json.loads(manifest_path.read_text())
         # Later, separately reviewed scopes (K-L) are never part of the D-I/J scenarios either.
-        later = set(json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"].get("K-L", {}).get("versions", []))
+        _scopes = json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"]
+        later = set(_scopes.get("K-L", {}).get("versions", [])) | set(_scopes.get("N", {}).get("versions", []))  # K-L and N are separately reviewed later scopes
         manifest["migrations"] = [e for e in manifest["migrations"] if e["version"] != J_VERSION and e["version"] not in later]  # D-I scenarios never see Stage J
         (repo / "database/migrations" / f"{J_VERSION}.sql").unlink(missing_ok=True)
         for version in later:
