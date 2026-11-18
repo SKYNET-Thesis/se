@@ -31,7 +31,7 @@ export function StudentAssignmentDetail() {
   const history = useQuery({ queryKey: studentLearningKeys.history(classroomAssignmentId), queryFn: () => learnerApi.attemptHistory(classroomAssignmentId, token), enabled });
   const start = useMutation({
     mutationFn: () => learnerApi.createAttempt(classroomAssignmentId, token),
-    onSuccess: (attempt) => { void client.invalidateQueries({ queryKey: studentLearningKeys.history(classroomAssignmentId) }); navigate(`/practice/${attempt.id}`); },
+    onSuccess: (attempt) => { void client.invalidateQueries({ queryKey: studentLearningKeys.history(classroomAssignmentId) }); navigate(`/practice/${attempt.id}`, { state: { kind: assignmentKind(assignment.data?.constraints) } }); },
     onSettled: () => { actionLock.current = false; },
   });
 
@@ -46,7 +46,7 @@ export function StudentAssignmentDetail() {
   const action = nextAction(attempts, win, max);
   const proceed = () => {
     if (actionLock.current || start.isPending) return;
-    if (action.kind === 'continue') return navigate(`/practice/${action.attemptId}`);
+    if (action.kind === 'continue') return navigate(`/practice/${action.attemptId}`, { state: { kind } });
     if (action.kind !== 'start') return;
     actionLock.current = true;
     start.mutate();
@@ -65,6 +65,16 @@ export function StudentAssignmentDetail() {
       <div><dt className="text-xs text-ink-subtle">Due</dt><dd className="mt-1 font-medium text-ink">{fmt(item.due_at) ?? 'No due date'}</dd></div>
       <div><dt className="text-xs text-ink-subtle">Attempts</dt><dd className="mt-1 font-medium text-ink">{attempts.length}{typeof max === 'number' ? ` of ${max}` : ''} used</dd></div>
     </dl>
+    {(item.rubric?.length ?? 0) > 0 && (
+      <section className="mt-8" aria-label="Grading rubric">
+        <h2 className="text-lg font-semibold text-ink">How this is graded</h2>
+        <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
+          {(item.rubric ?? []).map((criterion) => (
+            <li key={criterion.id} className="flex items-start justify-between gap-4 px-4 py-3 text-sm"><div><p className="font-medium text-ink">{criterion.title}</p>{criterion.description && <p className="mt-0.5 text-ink-muted">{criterion.description}</p>}</div><span className="shrink-0 text-ink-muted">{criterion.maxPoints} points</span></li>
+          ))}
+        </ul>
+      </section>
+    )}
     <section className="mt-8">
       <div className="flex items-end justify-between gap-4">
         <div><h2 className="text-lg font-semibold text-ink">Your attempts</h2><p className="mt-1 text-sm text-ink-muted">{kind === 'programming' ? 'Opens your Blockly workspace with your saved program.' : kind === 'quiz' ? 'Answers are saved as a draft while you work and graded when you submit.' : 'Each attempt keeps its own work, files and result.'}</p></div>
@@ -72,7 +82,7 @@ export function StudentAssignmentDetail() {
       </div>
       {start.error && <p role="alert" className="mt-4 rounded-md bg-danger-soft p-3 text-sm text-danger">{start.error instanceof Error ? start.error.message : 'Unable to start attempt.'}</p>}
       {history.error && <p role="alert" className="mt-4 rounded-md bg-danger-soft p-3 text-sm text-danger">Your attempts could not be loaded.</p>}
-      <AttemptHistory attempts={attempts} kind={kind} token={token} onOpen={(attemptId) => navigate(`/practice/${attemptId}`)} />
+      <AttemptHistory attempts={attempts} kind={kind} token={token} onOpen={(attemptId) => navigate(`/practice/${attemptId}`, { state: { kind } })} />
     </section>
   </main>;
 }

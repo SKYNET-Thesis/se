@@ -161,6 +161,14 @@ describe('ActivityProgressService', () => {
     expect((txQuery.mock.calls[0][0] as TemplateStringsArray).join('?')).toContain('ON CONFLICT');
   });
 
+  it('lets a learner self-complete a published Video activity (so a required video no longer blocks the lesson)', async () => {
+    const activityId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    query.mockResolvedValueOnce([{ id: activityId, lesson_id: lessonId, course_id: courseId, type: 'video' }]);
+    const txQuery = jest.fn().mockResolvedValue([{ activity_id: activityId, completed_at: new Date('2026-11-04T10:00:00Z') }]);
+    transaction.mockImplementation(async (fn) => fn({ $queryRaw: txQuery }));
+    await expect(service.completeSelfReport(user1 as never, activityId)).resolves.toMatchObject({ activityId, status: 'completed' });
+  });
+
   it('rejects client-forged PASS on a UUID evaluated activity', async () => {
     const activityId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
     query.mockResolvedValueOnce([{ id: activityId, lesson_id: lessonId, course_id: courseId, type: 'simulation' }]);

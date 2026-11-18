@@ -255,7 +255,7 @@ export class ProgressionService {
       WHERE s.lesson_id=${lessonId}::uuid AND a.status='published' AND a.required=true`;
     if (!activities.some((activity) => activity.type === 'knowledge_check' && activity.assignment_id === assignmentId)) return false;
     for (const activity of activities) {
-      if (activity.type === 'reading' || activity.type === 'demonstration') {
+      if (activity.type === 'reading' || activity.type === 'video' || activity.type === 'demonstration') {
         const progress = await db.$queryRaw<Array<{ id: string }>>`
           SELECT id FROM public.learning_activity_progress WHERE learner_user_id=${learnerId}::uuid
             AND activity_definition_id=${activity.id}::uuid AND status='completed' LIMIT 1`;

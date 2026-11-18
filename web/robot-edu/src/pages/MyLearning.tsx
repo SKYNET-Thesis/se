@@ -452,7 +452,10 @@ export function MyLearning() {
                               variant={cta.variant}
                               onClick={() =>
                                 navigate(
-                                  `/courses/${quiz.course_id}/lessons/${quiz.lesson_id}/activities/${quiz.lesson_id}-knowledge-check`
+                                  // Question Bank quizzes are classroom deliveries: open the delivery page (attempts, points, grading), not a lesson activity.
+                                  quiz.classroom_assignment_id
+                                    ? `/my-learning/${quiz.classroom_assignment_id}`
+                                    : `/courses/${quiz.course_id}/lessons/${quiz.lesson_id}`
                                 )
                               }
                             >

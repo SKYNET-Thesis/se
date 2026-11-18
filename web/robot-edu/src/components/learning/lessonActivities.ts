@@ -120,8 +120,8 @@ export function buildLessonActivitySections(lesson: LessonSummaryOrDetail): Less
         const estimated = content?.estimatedMinutes;
         const supportedType = (Object.hasOwn(activityTypeLabels, type));
         const assignmentLinked = item.content_ref?.kind === 'assignment' && item.content_ref.id === lesson.assignment?.id;
-        const unavailable = !supportedType || type === 'physical_lab' || type === 'video' || (type === 'knowledge_check' && !assignmentLinked);
-        const action = type === 'reading' || type === 'demonstration' || type === 'result' || type === 'reflection'
+        const unavailable = !supportedType || type === 'physical_lab' || (type === 'knowledge_check' && !assignmentLinked);
+        const action = type === 'reading' || type === 'video' || type === 'demonstration' || type === 'result' || type === 'reflection'
           ? 'reading'
           : type === 'knowledge_check' ? 'knowledge_check'
             : type === 'guided_practice' || type === 'simulation' || type === 'challenge' ? 'practice' : null;

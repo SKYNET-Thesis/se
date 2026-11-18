@@ -1,3 +1,4 @@
+import { isInternalAlias, initialsOf, useDisplayName } from '../../lib/displayName';
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -15,7 +16,7 @@ export function AppShell() {
   const isFocusedLearning = /^\/courses\/[^/]+\/lessons\/[^/]+\/activities\//.test(location.pathname);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false); const { client, session } = useSupabaseSession(); const { role } = useRole(); const navigate = useNavigate();
-  const email=session?.user.email??''; const label=session?.user.user_metadata?.full_name ?? email; const initials=String(label).split(/\s+|@/).filter(Boolean).slice(0,2).map((part)=>part[0]).join('').toUpperCase();
+  const email=isInternalAlias(session?.user.email)?'':(session?.user.email??''); const label=useDisplayName(email||'Account'); const initials=initialsOf(String(label));
   const logout=async()=>{await client?.auth.signOut();navigate('/login',{replace:true});};
 
   useEffect(() => setDrawerOpen(false), [location.pathname]);
