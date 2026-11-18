@@ -2,7 +2,7 @@ import { isModifiedSince, workspaceFingerprint } from '../utils/workspaceFingerp
 import { perfMark } from '../utils/perf';
 import { prefetchSo101Assets } from '../components/studio/so101Assets';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import * as Blockly from 'blockly';
 import { useQueryClient } from '@tanstack/react-query';
 import { BookOpenIcon, CheckCircle2Icon, ChevronLeftIcon, ChevronRightIcon, CircleHelpIcon, CircleIcon, FileQuestionIcon, PauseIcon, PlayIcon, RotateCcwIcon, SparklesIcon, TriangleAlertIcon, XCircleIcon } from 'lucide-react';
@@ -87,6 +87,8 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
   const [learningTarget, setLearningTarget] = useState<LearningTarget | null>(null);
   const [targetZone, setTargetZone] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
 
+  const location = useLocation();
+  const quizHint = (location.state as { kind?: string } | null)?.kind === 'quiz';
   const load = useCallback(() => {
     if (!session || !attemptId) return;
     let active = true; setLoading(true); setError(null); setEarly(null); setLoadStage('attempt');
@@ -97,7 +99,8 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
       // Everything that only needs the route's attempt id starts now, concurrently with the attempt lookup.
       // Outcomes (not rejections) are kept so a speculative request that is not needed can never become an unhandled rejection.
       const settle = <T,>(promise: Promise<T>) => promise.then((value) => ({ value }) as { value: T; error?: undefined }, (error: unknown) => ({ error }) as { value?: undefined; error: unknown });
-      const programRequest = settle(learnerApi.program(attemptId, token).then(async (found) => ({ program: found, created: false }), async (requestError: unknown) => {
+      // A quiz attempt (hinted by the page that opened it) has no Blockly program: do not request one.
+      const programRequest = quizHint ? settle(Promise.resolve(null as { program: ApiProgram; created: boolean } | null)) : settle(learnerApi.program(attemptId, token).then(async (found) => ({ program: found, created: false }), async (requestError: unknown) => {
         if (!(requestError instanceof ApiError) || requestError.status !== 404) throw requestError;
         return null;
       }));
@@ -160,7 +163,7 @@ export function Practice({ mode = 'physical-enabled' }: { mode?: 'learning'|'phy
       if (active) { setData({ attempt, assignment, program, lesson: lessonValue }); setAttemptLocked(attempt.status !== 'in_progress'); perfMark('practice:data-ready'); }
     })().catch((requestError: unknown) => { if (active) setError(requestError instanceof Error ? requestError.message : 'Could not load this practice workspace.'); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [attemptId, session]);
+  }, [attemptId, quizHint, session]);
   const allowedBlocks = useMemo(() => Array.isArray(data?.assignment.allowed_blocks) && data.assignment.allowed_blocks.every((item) => typeof item === 'string') ? data.assignment.allowed_blocks as string[] : [], [data?.assignment.allowed_blocks]);
   const assignmentConstraints = data?.assignment.constraints && typeof data.assignment.constraints === 'object' && !Array.isArray(data.assignment.constraints) ? data.assignment.constraints as Record<string, unknown> : {};
   const isCurriculumProgramming = assignmentConstraints.kind === 'symbolic_program';

@@ -3,6 +3,7 @@ import { Link, Navigate } from "react-router-dom";
 import { ArrowRightIcon, BookOpenIcon, Clock3Icon, GraduationCapIcon, SearchIcon, SearchXIcon, SparklesIcon, UsersIcon } from "lucide-react";
 import { catalogApi, learnerApi, progressionApi, type ApiAttempt, type ApiCourse, type ApiEnrollment, type CoursePathResponse } from "../lib/api";
 import { useSupabaseSession } from "../contexts/SupabaseSessionContext";
+import { useDisplayName } from "../lib/displayName";
 import { useRole } from "../contexts/RoleContext";
 import { EmptyState } from "../components/ui/EmptyState";
 import { Badge } from "../components/ui/Badge";
@@ -42,7 +43,7 @@ export function Courses() {
     return courses.filter((course) => !value || `${course.title} ${course.description ?? ""}`.toLowerCase().includes(value));
   }, [courses, query]);
   const inProgress = attempts.filter((attempt) => attempt.status === "in_progress").length;
-  const name = session?.user.email?.split("@")[0] ?? "Learner";
+  const name = useDisplayName();
 
   if (role === 'admin') {
     return <Navigate to="/admin/courses" replace />;

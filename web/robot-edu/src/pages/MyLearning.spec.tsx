@@ -128,7 +128,7 @@ const mockQuizzes: ApiStudentQuiz[] = [
     lesson_ordinal: 1,
     assignment_id: 'asg-quiz-1',
     quiz_title: 'Meet Your Robot Knowledge Check',
-    classroom_assignment_id: null,
+    classroom_assignment_id: 'delivery-1',
     attempt_status: 'submitted',
     passed: true,
     status: 'passed',
@@ -144,7 +144,7 @@ const mockQuizzes: ApiStudentQuiz[] = [
     lesson_ordinal: 2,
     assignment_id: 'asg-quiz-2',
     quiz_title: 'Move the Robot Knowledge Check',
-    classroom_assignment_id: null,
+    classroom_assignment_id: 'delivery-1',
     attempt_status: 'submitted',
     passed: false,
     status: 'failed',
@@ -160,7 +160,7 @@ const mockQuizzes: ApiStudentQuiz[] = [
     lesson_ordinal: 3,
     assignment_id: 'asg-quiz-3',
     quiz_title: 'Grab & Release Knowledge Check',
-    classroom_assignment_id: null,
+    classroom_assignment_id: 'delivery-1',
     attempt_status: null,
     passed: null,
     status: 'not_started',
@@ -187,6 +187,7 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
                 path="/courses/:courseId/lessons/:lessonId"
                 element={<div data-testid="lesson-detail-page">Lesson Detail Page</div>}
               />
+              <Route path="/my-learning/:classroomAssignmentId" element={<div data-testid="quiz-delivery-page">Quiz Delivery Page</div>} />
               <Route
                 path="/courses/:courseId/lessons/:lessonId/activities/:activityId"
                 element={<div data-testid="activity-reader-page">Activity Reader Page</div>}
@@ -365,14 +366,14 @@ describe('My Learning tabbed information architecture (In Progress, Completed, Q
     expect(container.textContent).toContain('Not Started');
     expect(container.textContent).toContain('Start Quiz');
 
-    // Clicking CTA navigates to the knowledge check activity
+    // Clicking the CTA opens the quiz's classroom delivery page (a Question Bank quiz is not a lesson activity)
     const viewResultBtn = Array.from(container.querySelectorAll('button')).find((b) =>
       b.textContent?.includes('View Result')
     );
     await act(async () => {
       viewResultBtn?.click();
     });
-    expect(container.textContent).toContain('Activity Reader Page');
+    expect(container.textContent).toContain('Quiz Delivery Page');
   });
 
   it('renders genuine empty state when no courses and no quizzes exist', async () => {

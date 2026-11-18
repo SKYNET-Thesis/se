@@ -440,7 +440,7 @@ export class LearningService {
   async assignments(user: AuthenticatedUser, classroomId: string) {
     await this.classroom(user,classroomId);
     const canManage = await this.scope.canManageClassroom(user, classroomId);
-    return this.prisma.$queryRaw`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,ca.published_by,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.classroom_id=${classroomId}::uuid AND (${canManage} OR ca.status='published') ORDER BY ca.created_at DESC`;
+    return this.prisma.$queryRaw`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,ca.published_by,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=a.id),'[]'::jsonb) AS rubric FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.classroom_id=${classroomId}::uuid AND (${canManage} OR ca.status='published') ORDER BY ca.created_at DESC`;
   }
   async assignment(user: AuthenticatedUser, classroomAssignmentId: string) {
     const rows = await this.prisma.$queryRaw<{ classroom_id: string }[]>`SELECT classroom_id FROM public.learning_classroom_assignments WHERE id=${classroomAssignmentId}::uuid`;
@@ -556,6 +556,7 @@ export class LearningService {
   }
   async createAssignment(user:AuthenticatedUser,classroomId:string,dto:CreateAssignmentDto) {
     if (dto.quizPassPercent !== undefined && dto.challengeId !== undefined) throw new BadRequestException('A Question Bank quiz cannot use a robot challenge.');
+    if (dto.quizPassPercent !== undefined && dto.attachmentsEnabled) throw new BadRequestException('A Question Bank quiz is machine-graded and does not accept evidence attachments.');
     await this.scope.assertTeacherClassroomAccess(user,classroomId);
     const lessons=await this.prisma.$queryRaw<{id:string;organization_id:string}[]>`
       SELECT l.id,c.organization_id
@@ -585,7 +586,7 @@ export class LearningService {
       const assignments=await tx.$queryRaw<{id:string}[]>`
         WITH created AS (
           INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions,constraints)
-          VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""},${JSON.stringify(dto.quizPassPercent === undefined ? {} : { kind: 'knowledge_check', passPercent: dto.quizPassPercent })}::jsonb) RETURNING id
+          VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""},${JSON.stringify(dto.quizPassPercent === undefined ? (dto.attachmentsEnabled ? { attachments: { enabled: true } } : {}) : { kind: 'knowledge_check', passPercent: dto.quizPassPercent })}::jsonb) RETURNING id
         ), copied AS (
           INSERT INTO public.learning_rubric_criteria(assignment_id,ordinal,title,description,max_points)
           SELECT (SELECT id FROM created),rc.ordinal,rc.title,rc.description,rc.max_points
@@ -650,7 +651,15 @@ export class LearningService {
     const classroomIds=[...new Set(deliveries.map((delivery)=>delivery.classroom_id))];
     if(!classroomIds.includes(classroomId)) throw new NotFoundException("Assignment was not found.");
     for(const deliveryClassroomId of classroomIds) await this.scope.assertTeacherClassroomAccess(user,deliveryClassroomId);
-    return this.prisma.learning_assignments.update({where:{id:assignmentId},data:{...(dto.title!==undefined?{title:dto.title}:{}),...(dto.instructions!==undefined?{instructions:dto.instructions}:{})}});
+    let constraints: Record<string, unknown> | undefined;
+    if(dto.attachmentsEnabled!==undefined){
+      const current=await this.prisma.learning_assignments.findUnique({where:{id:assignmentId},select:{constraints:true}});
+      const existing=(current?.constraints&&typeof current.constraints==='object'&&!Array.isArray(current.constraints)?current.constraints:{}) as Record<string,unknown>;
+      if(existing.kind==='knowledge_check'||existing.kind==='physical_lab') throw new BadRequestException('This assignment type does not accept evidence attachments.');
+      // Evidence rides on the existing Learning Media/submission-file pipeline: type allow-list, 25 MB per file and 5 files per attempt are enforced server-side.
+      constraints={...existing,attachments:{...(existing.attachments&&typeof existing.attachments==='object'?existing.attachments as object:{}),enabled:dto.attachmentsEnabled}};
+    }
+    return this.prisma.learning_assignments.update({where:{id:assignmentId},data:{...(dto.title!==undefined?{title:dto.title}:{}),...(dto.instructions!==undefined?{instructions:dto.instructions}:{}),...(constraints?{constraints:constraints as Prisma.InputJsonValue}:{})}});
   }
   async startAttempt(user:AuthenticatedUser,classroomAssignmentId:string) {
     const assignment = await this.prisma.$queryRaw<{ classroom_id:string; lesson_id?: string; assignment_id?: string; challenge_id?: string|null; constraints?:unknown; course_organization_id?:string|null; max_attempts:number|null }[]>`
@@ -686,8 +695,9 @@ export class LearningService {
         FROM public.learning_assignment_attempts
         WHERE classroom_assignment_id=${classroomAssignmentId}::uuid AND learner_user_id=${user.vistaUserId}::uuid`;
       const next = rows[0];
-      if (!next || (assignment[0].max_attempts !== null && next.existing >= assignment[0].max_attempts)) {
-        throw new NotFoundException("Assignment was not found.");
+      if (!next) throw new NotFoundException("Assignment was not found.");
+      if (assignment[0].max_attempts !== null && next.existing >= assignment[0].max_attempts) {
+        throw new ConflictException({ code: 'ATTEMPT_LIMIT_REACHED', message: 'You have used all attempts allowed for this assignment.' });
       }
       const config = assignment[0].constraints as { kind?: string; passPercent?: number } | undefined;
       if (config?.kind === 'knowledge_check' && !assignment[0].challenge_id) {

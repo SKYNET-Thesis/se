@@ -1,3 +1,4 @@
+import { AttachmentsToggle } from '../../components/assignments/AttachmentsToggle';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BotIcon, ChevronLeftIcon, InfoIcon, LockIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
@@ -190,8 +191,11 @@ export function TeacherAssignmentEditor() {
             <Section step={4} title="Submission settings">
               <ul className="space-y-2 text-sm text-ink-muted">
                 <li><strong className="font-medium text-ink">Attempts:</strong> students work in an attempt, run simulations as often as they like (a simulation never submits), and submit explicitly. A submission is final; a retry is a new attempt where the classroom delivery allows it.</li>
-                <li><strong className="font-medium text-ink">Attachments:</strong> students can attach files to an attempt before submitting; you can download them while reviewing.</li>
+                <li><strong className="font-medium text-ink">Attachments:</strong> optional evidence files, enabled per assignment below; you can download them while reviewing.</li>
               </ul>
+              {existingMode && existing && assignmentId && (existing.constraints as { kind?: string } | null | undefined)?.kind !== 'knowledge_check' && (
+                <AttachmentsToggle classroomId={classroomId} assignmentId={assignmentId} token={token} initial={Boolean((existing.constraints as { attachments?: { enabled?: boolean } } | null | undefined)?.attachments?.enabled)} />
+              )}
               {existingMode && existing && !(existing.constraints as { kind?: string } | null | undefined)?.kind
                 ? <div className="mt-4"><AssignmentConfigPanel classroomId={classroomId} assignmentId={assignmentId!} token={token} schedule={{ availableFrom: existing.available_from, dueAt: existing.due_at, closeAt: existing.close_at, maxAttempts: existing.max_attempts }} /></div>
                 : <div className="mt-3"><Note>Save the draft first; then the opening/due/closing dates, attempt limit and rubric can be configured here.</Note></div>}

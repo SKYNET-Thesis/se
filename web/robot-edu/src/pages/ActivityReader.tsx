@@ -633,6 +633,7 @@ function PracticeQuiz({
   courseId: string;
 }) {
   const { session } = useSupabaseSession();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [started, setStarted] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -695,11 +696,22 @@ function PracticeQuiz({
             </h1>
             <button
               type="button"
-              onClick={() => setStarted(true)}
+              onClick={async () => {
+                if (questions.length > 0) { setStarted(true); return; }
+                // A Question Bank quiz has no inline questions: it is taken on its classroom delivery page.
+                let deliveryId = lesson.assignment?.classroomAssignmentId;
+                if (!deliveryId && session) {
+                  const mine = await progressionApi.quizzes(session.access_token).catch(() => []);
+                  deliveryId = mine.find((q) => q.assignment_id === lesson.assignment?.id)?.classroom_assignment_id ?? undefined;
+                }
+                if (deliveryId) navigate(`/my-learning/${deliveryId}`);
+                else setError('This quiz has not been delivered to your classroom yet.');
+              }}
               className="mt-6 inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-3 text-sm font-semibold text-white transition-colors duration-150 ease-out hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Start practice quiz <ArrowRightIcon className="h-4 w-4" />
             </button>
+            {error && <p role="alert" className="mt-3 text-sm text-danger-ink">{error}</p>}
           </header>
           <div className="grid gap-8 px-7 py-8 md:grid-cols-[1fr_260px]">
             <div>
@@ -1410,7 +1422,7 @@ export function ActivityReader() {
             </>
           )}
 
-          {(activity.type === 'reading' || activity.type === 'demonstration') && (
+          {(activity.type === 'reading' || activity.type === 'video' || activity.type === 'demonstration') && (
             <section className="border-t border-line pt-6" aria-busy={savingCompletion}>
               {completed ? (
                 <p className="text-sm font-semibold text-ok">✓ Activity completed</p>

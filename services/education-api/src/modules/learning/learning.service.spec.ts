@@ -192,7 +192,7 @@ describe("LearningService assignment delivery", () => {
       $executeRaw: executeRaw.mockResolvedValue(undefined),
       $queryRaw: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ n:2, existing:1 }]),
     }));
-    await expect(service.startAttempt(user, "classroom-assignment-a")).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.startAttempt(user, "classroom-assignment-a")).rejects.toMatchObject({ response: { code: "ATTEMPT_LIMIT_REACHED" } }); // a clear 409, no longer a misleading 404
   });
 
   it("creates assignment content and classroom delivery atomically as a draft", async () => {
@@ -375,6 +375,40 @@ describe("LearningService assignment delivery", () => {
 
     await expect((publishService as unknown as { publishAssignment: Function }).publishAssignment(user, "class-1", "assignment-from-class-2"))
       .rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  describe("evidence attachments setting", () => {
+    const build = (constraints: unknown) => {
+      const update = jest.fn().mockResolvedValue({ id: "a-1" });
+      const findUnique = jest.fn().mockResolvedValue({ constraints });
+      const svc = new LearningService(
+        { $queryRaw: jest.fn().mockResolvedValue([{ classroom_id: "class-1" }]), learning_assignments: { update, findUnique } } as never,
+        { assertTeacherClassroomAccess: jest.fn().mockResolvedValue(undefined) } as never,
+      );
+      return { svc, update };
+    };
+    it("lets an instructor enable attachments on a programming assignment without dropping its other constraints", async () => {
+      const { svc, update } = build({ kind: "symbolic_program", note: "keep" });
+      await svc.updateAssignment(user, "class-1", "a-1", { attachmentsEnabled: true });
+      expect(update.mock.calls[0][0].data.constraints).toEqual({ kind: "symbolic_program", note: "keep", attachments: { enabled: true } });
+    });
+    it("can switch attachments off again", async () => {
+      const { svc, update } = build({ attachments: { enabled: true } });
+      await svc.updateAssignment(user, "class-1", "a-1", { attachmentsEnabled: false });
+      expect(update.mock.calls[0][0].data.constraints).toEqual({ attachments: { enabled: false } });
+    });
+    it("refuses attachments on machine-graded quizzes and physical labs", async () => {
+      for (const kind of ["knowledge_check", "physical_lab"]) {
+        const { svc, update } = build({ kind });
+        await expect(svc.updateAssignment(user, "class-1", "a-1", { attachmentsEnabled: true })).rejects.toBeInstanceOf(BadRequestException);
+        expect(update).not.toHaveBeenCalled();
+      }
+    });
+    it("a title-only edit leaves constraints untouched", async () => {
+      const { svc, update } = build({ attachments: { enabled: true } });
+      await svc.updateAssignment(user, "class-1", "a-1", { title: "New" });
+      expect(update.mock.calls[0][0].data).toEqual({ title: "New" });
+    });
   });
 
   it("denies editing shared assignment content unless the instructor can manage every delivery", async () => {
