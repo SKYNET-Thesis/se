@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
-import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { StudentLoginDto } from "./dto/student-login.dto";
 import { StudentSetupDto } from "./dto/student-setup.dto";
 import { StudentPasswordRecoveryDto } from "./dto/student-password-recovery.dto";
+import { StudentPasswordChangeDto } from "./dto/student-password-change.dto";
+import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
+import { Prisma } from "@prisma/client";
 import { SupabaseAdminService, SupabasePasswordSession } from "./supabase-admin.service";
+import { studentTempPasswordEnabled } from "./student-temp-password.feature";
 
 const INVALID_STUDENT_CREDENTIALS = "School code, student code, password, or setup code is invalid.";
 
@@ -14,13 +18,13 @@ export class StudentAuthService {
 
   async login(dto: StudentLoginDto) {
     const student = await this.findStudent(dto.schoolCode, dto.studentCode);
-    if (!student || student.status !== "active" || student.account_state !== "active" || !student.auth_user_id) {
+    if (!student || student.status !== "active" || student.account_state !== "active" || !student.auth_user_id || (student.password_change_required && student.temporary_password_expires_at && new Date(student.temporary_password_expires_at).getTime() <= Date.now())) {
       throw new UnauthorizedException(INVALID_STUDENT_CREDENTIALS);
     }
     const internalEmail = this.internalEmail(student.user_id);
     try {
       const session = await this.supabase.authenticateStudent(internalEmail, dto.password);
-      return this.publicSession(session);
+      return { ...this.publicSession(session), password_change_required: student.password_change_required };
     } catch {
       throw new UnauthorizedException(INVALID_STUDENT_CREDENTIALS);
     }
@@ -96,6 +100,70 @@ export class StudentAuthService {
     }
   }
 
+  async changeFirstLoginPassword(user: AuthenticatedUser, dto: StudentPasswordChangeDto) {
+    if (!studentTempPasswordEnabled()) throw new ConflictException("No first-login password change is pending.");
+    if (dto.newPassword.length < 12) throw new UnauthorizedException("New password must be at least 12 characters.");
+    if (dto.currentPassword === dto.newPassword) throw new UnauthorizedException("Choose a password different from the temporary password.");
+
+    let authPasswordChanged = false;
+    try {
+      return await this.prisma.$transaction(async tx => {
+        const rows = await tx.$queryRaw<FirstLoginStudent[]>`
+          SELECT u.id AS user_id, u.auth_user_id
+          FROM public.education_school_user_profiles p
+          JOIN public.users u ON u.id = p.user_id
+          WHERE p.user_id = ${user.vistaUserId}::uuid
+            AND p.person_type = 'student'
+            AND p.password_change_required = true
+            AND u.auth_user_id = ${user.authUserId}::uuid
+            AND u.status = 'active'
+            AND p.account_state = 'active'
+            AND (p.temporary_password_expires_at IS NULL OR p.temporary_password_expires_at > now())
+          ORDER BY p.organization_id
+          LIMIT 1
+          FOR UPDATE OF p`;
+        const student = rows[0];
+        if (!student) throw new ConflictException("No first-login password change is pending.");
+
+        const internalEmail = this.internalEmail(student.user_id);
+        try {
+          await this.supabase.authenticateStudent(internalEmail, dto.currentPassword);
+        } catch {
+          throw new UnauthorizedException("Current temporary password is incorrect.");
+        }
+
+        await this.supabase.setStudentPassword(student.auth_user_id, dto.newPassword);
+        authPasswordChanged = true;
+        const changed = await tx.$queryRaw<{ password_changed_at: Date }[]>`
+          UPDATE public.education_school_user_profiles
+          SET password_changed_at = clock_timestamp(), updated_at = now()
+          WHERE user_id = ${student.user_id}::uuid AND person_type = 'student' AND password_change_required = true
+          RETURNING password_changed_at`;
+        const changedAt = changed[0]?.password_changed_at;
+        if (!changedAt) throw new ConflictException("Password change state could not be recorded.");
+
+        // Supabase access tokens carry iat (one-second precision). Ensure the replacement session starts after the server-side cutoff.
+        const nextSecond = Math.floor(changedAt.getTime() / 1000) * 1000 + 1000;
+        await new Promise(resolve => setTimeout(resolve, Math.max(0, nextSecond - Date.now())));
+        const session = await this.supabase.authenticateStudent(internalEmail, dto.newPassword);
+        const cleared = await tx.$executeRaw`
+          UPDATE public.education_school_user_profiles
+          SET password_change_required = false, temporary_password_expires_at = NULL, updated_at = now()
+          WHERE user_id = ${student.user_id}::uuid AND person_type = 'student' AND password_change_required = true`;
+        if (cleared < 1) throw new ConflictException("Password change state could not be completed.");
+        // Real revocation of other sessions of this student (e.g. the one that signed in with the temporary password). The iat cutoff in the auth guard remains the server-side backstop.
+        await this.supabase.revokeOtherSessions(session.access_token);
+        return this.publicSession(session);
+      });
+    } catch (error) {
+      if (authPasswordChanged) {
+        // If local state persistence failed, restore the known temporary credential so the restricted flow remains recoverable.
+        try { await this.supabase.setStudentPassword(user.authUserId, dto.currentPassword); } catch { /* Admin recovery can reissue credentials if compensation fails. */ }
+      }
+      throw error;
+    }
+  }
+
   async recover(dto: StudentPasswordRecoveryDto) {
     const student = await this.findPasswordRecoveryStudent(dto.schoolCode, dto.studentCode, this.hashOneTimeCode(dto.recoveryCode));
     if (!student) throw new UnauthorizedException(INVALID_STUDENT_CREDENTIALS);
@@ -118,9 +186,13 @@ export class StudentAuthService {
   }
 
   private findStudent(schoolCode: string, studentCode: string) {
+    const temporaryColumns = studentTempPasswordEnabled()
+      ? Prisma.sql`, (SELECT bool_or(p2.password_change_required) FROM public.education_school_user_profiles p2 WHERE p2.user_id = u.id AND p2.person_type = 'student') AS password_change_required,
+             (SELECT MIN(p3.temporary_password_expires_at) FROM public.education_school_user_profiles p3 WHERE p3.user_id=u.id AND p3.person_type='student' AND p3.password_change_required=true) AS temporary_password_expires_at`
+      : Prisma.sql`, false AS password_change_required, NULL::timestamptz AS temporary_password_expires_at`;
     return this.prisma.$queryRaw<StudentLoginRow[]>`
       SELECT u.id AS user_id, u.auth_user_id, u.status,
-             p.account_state
+             p.account_state${temporaryColumns}
       FROM public.organizations o
       JOIN public.education_school_user_profiles p ON p.organization_id = o.id
       JOIN public.users u ON u.id = p.user_id
@@ -220,11 +292,15 @@ export class StudentAuthService {
   }
 }
 
+interface FirstLoginStudent { user_id: string; auth_user_id: string; }
+
 interface StudentLoginRow {
   user_id: string;
   auth_user_id: string | null;
   status: string;
   account_state: string;
+  password_change_required: boolean;
+  temporary_password_expires_at: Date | string | null;
 }
 
 interface PendingStudentRow {

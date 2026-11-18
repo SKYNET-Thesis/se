@@ -321,7 +321,7 @@ export class EducationAdminService {
       : await this.prisma.$queryRaw<Array<{ code: string }>>`SELECT lower(student_code) AS code FROM public.education_school_user_profiles WHERE organization_id=${organizationId}::uuid AND student_code IS NOT NULL AND lower(student_code)=ANY(${requestedCodes}::text[])`;
     const schoolCode = dto.kind === "students" && requestedCodes.length ? await this.ensureSchoolCode(organizationId) : undefined;
     const existingCodes = new Set(existingRows.map(item => item.code));
-    const results = [] as Array<{ row: number; status: "created" | "unchanged" | "failed"; code?: ImportErrorCode; message?: string; name?: string; schoolCode?: string; studentCode?: string; setupCode?: string }>;
+    const results = [] as Array<{ row: number; status: "created" | "unchanged" | "failed"; code?: ImportErrorCode; message?: string; name?: string; schoolCode?: string; studentCode?: string; setupCode?: string; temporaryPassword?: string; temporaryPasswordExpiresAt?: string; credentialProvisioningPending?: boolean }>;
     for (const { index, row, code, errors } of prepared) {
       if (errors.length) { results.push({ row: index + 2, status: "failed", code: "VALIDATION_ERROR", message: errors.join(" "), name: `${row.firstName} ${row.lastName}`.trim(), ...(dto.kind === "teachers" ? { schoolCode: row.employeeCode } : { studentCode: row.studentCode }) }); continue; }
       if (existingCodes.has(code) && dto.kind === "teachers") { results.push({ row: index + 2, status: "unchanged", name: `${row.firstName} ${row.lastName}`.trim(), schoolCode: row.employeeCode }); continue; }
@@ -329,6 +329,14 @@ export class EducationAdminService {
       catch (error) { const safe = classifyImportError(error); const identifier = dto.kind === "teachers" ? row.employeeCode : row.studentCode; this.logger.error({ event: "school_user_import_failed", kind: dto.kind, row: index + 2, organizationId, identifier, code: safe.code, error: error instanceof ImportProvisioningError ? error.internalDetail : error instanceof Error ? error.message : String(error) }); results.push({ row: index + 2, status: "failed", ...safe, name: `${row.firstName} ${row.lastName}`.trim(), ...(dto.kind === "teachers" ? { schoolCode: identifier } : { studentCode: identifier }) }); }
     }
     return { processed: results.length, created: results.filter(item => item.status === "created").length, unchanged: results.filter(item => item.status === "unchanged").length, failed: results.filter(item => item.status === "failed").length, schoolCode, results };
+  }
+
+  async reissueStudentTemporaryPassword(user: AuthenticatedUser, organizationId: string, studentId: string, confirmed: boolean) {
+    await this.assertOrganizationPermission(user, organizationId, "education.members.provision");
+    if (!confirmed) throw new NotFoundException("Temporary password reissue was not confirmed.");
+    const issued = await this.studentProvisioning.reissueTemporaryPassword(organizationId, studentId, user.vistaUserId);
+    const rows = await this.prisma.$queryRaw<Array<{ school_code: string | null }>>`SELECT school_code FROM public.organizations WHERE id=${organizationId}::uuid LIMIT 1`;
+    return { ...issued, schoolCode: rows[0]?.school_code };
   }
 
   async issueStudentPasswordRecovery(user: AuthenticatedUser, organizationId: string, studentId: string) {
@@ -381,7 +389,7 @@ export class EducationAdminService {
   private async provisionImportRow(organizationId: string, kind: "teachers" | "students", row: ImportSchoolUserRowDto) {
     if (kind === "students") {
       const student = await this.studentProvisioning.provision(organizationId, row);
-      return { status: student.status, setupCode: student.setupCode, name: `${row.firstName.trim()} ${row.lastName.trim()}`, studentCode: row.studentCode?.trim() };
+      return { status: student.status, setupCode: student.setupCode, temporaryPassword: student.temporaryPassword, temporaryPasswordExpiresAt: student.temporaryPasswordExpiresAt, credentialProvisioningPending: student.credentialProvisioningPending, name: `${row.firstName.trim()} ${row.lastName.trim()}`, studentCode: row.studentCode?.trim() };
     }
     const email = row.email?.trim().toLowerCase() || null; const code = (kind === "teachers" ? row.employeeCode : row.studentCode)!.trim(); const fullName = `${row.firstName.trim()} ${row.lastName.trim()}`;
     let authUserId: string | null = null;

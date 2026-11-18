@@ -6,10 +6,13 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { Reflector } from "@nestjs/core";
 import { Request } from "express";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { PrismaService } from "../../../common/database/prisma.service";
 import { AuthenticatedUser } from "./authenticated-user.interface";
+import { ALLOW_PASSWORD_CHANGE_ONLY_KEY } from "./allow-password-change.decorator";
+import { studentTempPasswordEnabled } from "../../education-admin/student-temp-password.feature";
 
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
@@ -19,6 +22,7 @@ export class SupabaseAuthGuard implements CanActivate {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly reflector: Reflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -38,10 +42,28 @@ export class SupabaseAuthGuard implements CanActivate {
 
     // auth.users is intentionally not a Prisma relation.  The scalar mapping is
     // queried explicitly until Prisma can safely introspect the cross-schema FK.
-    const users = await this.prisma.$queryRaw<VistaUserRow[]>`
-      SELECT id, email, status
-      FROM public.users
-      WHERE auth_user_id = ${payload.sub}::uuid
+    const users = studentTempPasswordEnabled()
+      ? await this.prisma.$queryRaw<VistaUserRow[]>`
+      SELECT u.id, u.email, u.status, EXISTS (
+        SELECT 1 FROM public.education_school_user_profiles p
+        WHERE p.user_id = u.id AND p.person_type = 'student' AND p.password_change_required = true
+      ) AS password_change_required, (
+        SELECT MAX(p.password_changed_at) FROM public.education_school_user_profiles p
+        WHERE p.user_id = u.id AND p.person_type = 'student'
+      ) AS password_changed_at, (
+        SELECT MIN(p.temporary_password_expires_at) FROM public.education_school_user_profiles p
+        WHERE p.user_id = u.id AND p.person_type = 'student' AND p.password_change_required = true
+          AND p.temporary_password_expires_at IS NOT NULL
+      ) AS temporary_password_expires_at
+      FROM public.users u
+      WHERE u.auth_user_id = ${payload.sub}::uuid
+      LIMIT 1
+    `
+      : await this.prisma.$queryRaw<VistaUserRow[]>`
+      SELECT u.id, u.email, u.status, false AS password_change_required,
+        NULL::timestamptz AS password_changed_at, NULL::timestamptz AS temporary_password_expires_at
+      FROM public.users u
+      WHERE u.auth_user_id = ${payload.sub}::uuid
       LIMIT 1
     `;
     const user = users[0];
@@ -51,6 +73,20 @@ export class SupabaseAuthGuard implements CanActivate {
     }
     if (user.status === "disabled") {
       throw new ForbiddenException("This VISTA account is disabled.");
+    }
+    const passwordChangedAt = user.password_changed_at ? new Date(user.password_changed_at).getTime() : null;
+    if (passwordChangedAt !== null && (typeof payload.iat !== "number" || payload.iat * 1000 <= passwordChangedAt)) {
+      throw new UnauthorizedException({ code: "SESSION_ROTATED", message: "This session is stale. Sign in again." });
+    }
+    const temporaryExpiry = user.temporary_password_expires_at ? new Date(user.temporary_password_expires_at).getTime() : null;
+    if (user.password_change_required && temporaryExpiry !== null && temporaryExpiry <= Date.now()) {
+      throw new ForbiddenException({ code: "TEMPORARY_PASSWORD_EXPIRED", message: "Temporary password expired. Ask your school administrator to reissue it." });
+    }
+    const passwordChangeOnly = this.reflector?.getAllAndOverride<boolean>(ALLOW_PASSWORD_CHANGE_ONLY_KEY, [
+      context.getHandler(), context.getClass(),
+    ]) ?? false;
+    if (user.password_change_required && !passwordChangeOnly) {
+      throw new ForbiddenException({ code: "PASSWORD_CHANGE_REQUIRED", message: "Change your temporary password to continue." });
     }
 
     const [systemRows, membershipRows] = await Promise.all([
@@ -155,6 +191,9 @@ interface VistaUserRow {
   id: string;
   email: string;
   status: string;
+  password_change_required: boolean;
+  password_changed_at: Date | string | null;
+  temporary_password_expires_at: Date | string | null;
 }
 
 interface SystemPermissionRow {

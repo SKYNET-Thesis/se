@@ -37,7 +37,7 @@ export function SchoolImportUsers() {
   const noun = kind === 'students' ? 'student' : 'teacher';
   useEffect(() => {
     if (reviewOpen) return;
-    setResult(current => current ? { ...current, results: current.results.map(item => ({ ...item, setupCode: undefined })) } : null);
+    setResult(current => current ? { ...current, results: current.results.map(item => ({ ...item, setupCode: undefined, temporaryPassword: undefined })) } : null);
     setCopyError(null);
     setCopySuccess(null);
   }, [reviewOpen]);
@@ -52,18 +52,20 @@ export function SchoolImportUsers() {
   const retryFailed = () => { const failedRows = new Set(result?.results.filter(item => item.status === 'failed').map(item => item.row) ?? []); setResult(null); void submitImport(rows.filter(row => failedRows.has(row.row))); };
   const resultView = result ? importResultView(result) : null;
   const setupCodeResults = result?.results.filter(item => item.setupCode) ?? [];
+  const temporaryCredentialResults = result?.results.filter(item => item.temporaryPassword) ?? [];
+  const pendingProvisioningResults = result?.results.filter(item => item.credentialProvisioningPending) ?? [];
   const copyText = async (text: string) => {
     setCopyError(null);
     setCopySuccess(null);
     try {
       await navigator.clipboard.writeText(text);
-      setCopySuccess('Setup code details copied. Share each line only with its matching student.');
+      setCopySuccess('Credential details copied. Share each line only with its matching student.');
     } catch {
       setCopyError('Could not copy setup code details.');
     }
   };
   const copyAllSetupCodes = () => {
-    const lines = setupCodeResults.map(item => `${item.name || `Row ${item.row}`} | student code: ${item.studentCode || '—'} | school code: ${result?.schoolCode || '—'} | setup code: ${item.setupCode}`);
+    const lines = [...temporaryCredentialResults.map(item => `${item.name || `Row ${item.row}`} | school code: ${result?.schoolCode || '—'} | student code: ${item.studentCode || '—'} | temporary password: ${item.temporaryPassword}`), ...setupCodeResults.map(item => `${item.name || `Row ${item.row}`} | student code: ${item.studentCode || '—'} | school code: ${result?.schoolCode || '—'} | setup code: ${item.setupCode}`)];
     void copyText(lines.join('\n'));
   };
 
@@ -74,7 +76,7 @@ export function SchoolImportUsers() {
     <div className="mt-7 flex gap-2 border-b border-line" role="tablist" aria-label="Import type">
       {(['teachers', 'students'] as ImportKind[]).map(item => <button key={item} type="button" role="tab" aria-selected={kind === item} onClick={() => switchKind(item)} className={kind === item ? 'border-b-2 border-accent px-4 py-3 text-sm font-semibold text-accent' : 'px-4 py-3 text-sm font-medium text-ink-muted hover:text-ink'}>{item === 'teachers' ? 'Teachers' : 'Students'}</button>)}
     </div>
-    <p className="mt-4 text-sm text-ink-muted">{kind === 'students' ? 'Student email is optional. Students sign in with a school code, student code, and password; first-time students receive a one-use setup code.' : 'Teacher email and employee code are required.'}</p>
+    <p className="mt-4 text-sm text-ink-muted">{kind === 'students' ? 'Student email is optional. When temporary-password rollout is enabled, new accounts receive a one-time password; legacy pending accounts retain Setup Code activation.' : 'Teacher email and employee code are required.'}</p>
     <section className="mt-6 rounded-xl border border-line bg-surface p-5">
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" onClick={download} icon={<DownloadIcon className="h-4 w-4" />}>Download {noun} template</Button>
@@ -98,6 +100,8 @@ export function SchoolImportUsers() {
         <div className="flex items-center justify-end gap-3 text-sm"><Button variant="secondary" size="sm" disabled={page === 1} onClick={() => setPage(current => current - 1)}>Previous</Button><span className="text-ink-muted">Page {page} of {pageCount}</span><Button variant="secondary" size="sm" disabled={page === pageCount} onClick={() => setPage(current => current + 1)}>Next</Button></div>
         {provisionError && <p role="alert" className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{provisionError}</p>}
         {result?.schoolCode && kind === 'students' && <div className="rounded-md border border-line bg-sunken px-4 py-3"><p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">School code</p><p className="mt-1 font-mono text-lg font-semibold text-ink">{result.schoolCode}</p><p className="mt-1 text-xs text-ink-muted">Share this with students along with their student code.</p></div>}
+        {pendingProvisioningResults.length > 0 && <p role="status" className="rounded-md bg-warn-soft px-3 py-2 text-sm text-warn">Some student accounts are still being reconciled with Supabase Auth. No credential was handed off. Retry those rows after provisioning finishes.</p>}
+        {temporaryCredentialResults.length > 0 && <section className="rounded-md border border-warn/40 bg-warn-soft px-4 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold text-ink">One-time temporary credentials</h3><Button size="sm" variant="secondary" icon={<CopyIcon className="h-4 w-4" />} onClick={copyAllSetupCodes}>Copy all credentials</Button></div><p className="mt-1 text-sm text-ink-muted">Save and share these credentials securely. They cannot be viewed again after this result closes. New students must change the temporary password at first sign-in. Credentials expire at the displayed time; use Reissue from the student list if needed.</p><div className="mt-3 divide-y divide-line">{temporaryCredentialResults.map(item => <div key={`${item.row}-${item.studentCode}`} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-medium text-ink">{item.name || `Row ${item.row}`} · {item.status === 'created' ? 'New student' : 'Existing student'}</p><p className="font-mono text-sm text-ink-muted">{result?.schoolCode} · {item.studentCode} · {item.temporaryPassword}</p><p className="mt-1 text-xs text-ink-muted">Expires {item.temporaryPasswordExpiresAt ? new Date(item.temporaryPasswordExpiresAt).toLocaleString() : 'as configured'}</p></div><Button size="sm" variant="secondary" icon={<CopyIcon className="h-4 w-4" />} onClick={() => { void copyText(`${result?.schoolCode} | ${item.studentCode} | ${item.temporaryPassword}`); }}>Copy</Button></div>)}</div></section>}
         {setupCodeResults.length > 0 && <section className="rounded-md border border-line bg-surface px-4 py-4"><div className="flex flex-wrap items-center justify-between gap-3"><h3 className="font-semibold text-ink">One-time student setup codes</h3><Button size="sm" variant="secondary" icon={<CopyIcon className="h-4 w-4" />} onClick={copyAllSetupCodes}>Copy all codes</Button></div><p className="mt-1 text-sm text-ink-muted">Share each code with its student. Students use it once to set their own password; codes expire after seven days. These codes are not saved and disappear when this result closes.</p><div className="mt-3 divide-y divide-line">{setupCodeResults.map(item => <div key={`${item.row}-${item.setupCode}`} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-medium text-ink">{item.name || `Row ${item.row}`}</p><p className="font-mono text-sm text-ink-muted">{item.studentCode} · {item.setupCode}</p></div><Button size="sm" variant="secondary" icon={<CopyIcon className="h-4 w-4" />} onClick={() => { void copyText(item.setupCode ?? ''); }}>Copy</Button></div>)}</div></section>}
         {copyError && <p role="alert" className="text-sm text-danger">{copyError}</p>}
         {copySuccess && <p role="status" className="text-sm text-ok">{copySuccess}</p>}

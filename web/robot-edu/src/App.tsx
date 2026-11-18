@@ -29,6 +29,7 @@ import { AdminCourses } from './pages/admin/AdminCourses';
 const CourseBuilder = lazy(() => import('./pages/admin/CourseBuilder').then((module) => ({ default: module.CourseBuilder })));
 import { NotFound } from './pages/NotFound';
 import { Login } from './pages/Login';
+import { StudentPasswordChange } from './pages/StudentPasswordChange';
 import { LearningLoop } from './pages/LearningLoop';
 import { MyLearning } from './pages/MyLearning';
 import { TeacherClasses } from './pages/teacher/TeacherClasses';
@@ -61,6 +62,7 @@ export function App() {
             <ProgramsProvider>
               <Routes>
                 <Route path="login" element={<Login />} />
+                <Route path="student/change-password" element={<StudentPasswordChange />} />
                 <Route index element={<PublicEntry />} />
                 <Route path="home-v2" element={<Navigate to="/" replace />} />
                 {/* Full-page workspace: deliberately outside AppShell so the editor owns the whole viewport. */}
