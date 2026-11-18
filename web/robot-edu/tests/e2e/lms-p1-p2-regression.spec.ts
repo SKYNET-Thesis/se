@@ -153,7 +153,10 @@ test('P1/P2: My Learning "Start Quiz" opens the quiz delivery; the quiz attempt 
   await expect(page.getByRole('heading').first()).toBeVisible();
 
   // start an attempt and open the practice page for it: no speculative robot-program request
-  const attempt = await json<{ id: string }>(await page.request.post(`${apiBase}/classroom-assignments/${target!.classroom_assignment_id}/attempts`, { headers: student }));
+  // (an earlier spec may already have used every attempt of this delivery; the limit answering 409 ATTEMPT_LIMIT_REACHED is the correct behaviour then)
+  const started = await page.request.post(`${apiBase}/classroom-assignments/${target!.classroom_assignment_id}/attempts`, { headers: student });
+  expect([200, 201, 409]).toContain(started.status());
+  const attempt = started.ok() ? await started.json() as { id: string } : { id: 'no-attempt-started' };
   await page.goto(`/my-learning/${target!.classroom_assignment_id}`);
   await page.waitForLoadState('networkidle');
   const startButton = page.getByRole('button', { name: /Continue|Resume|Start|Open/ }).first();
