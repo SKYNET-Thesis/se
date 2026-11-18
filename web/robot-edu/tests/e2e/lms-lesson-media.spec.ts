@@ -198,6 +198,14 @@ test('Lesson text and attached media authored in the UI are what the enrolled st
   await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime), { timeout: 10_000 }).toBeGreaterThan(0.2);
   expect(await video.evaluate((el: HTMLVideoElement) => `${el.videoWidth}x${el.videoHeight}`)).toBe('160x90');
   await page.screenshot({ path: `${process.env.VISTA_ACCEPTANCE_DIR ?? '/tmp'}/student-lesson-with-real-media.png`, fullPage: false }).catch(() => undefined);
+  // P1: a required video can be completed by the learner; the backend records it and it survives a reload
+  await page.getByRole('button', { name: /Mark as Completed/ }).click();
+  await expect(page.getByText('Completed', { exact: false }).first()).toBeVisible();
+  const progressRows = ((await api(page, studentToken, 'GET', `/me/courses/${courseId}/activity-progress`)).body as { activities: Array<{ activityId?: string; activity_id?: string; status?: string }> }).activities;
+  expect(progressRows.find((row) => (row.activityId ?? row.activity_id) === videoActivityId)?.status).toBe('completed');
+  await page.reload();
+  await expect(page.locator('video').first()).toBeVisible();
+  expect(((await api(page, studentToken, 'GET', `/me/courses/${courseId}/activity-progress`)).body as { activities: Array<{ activityId?: string; activity_id?: string; status?: string }> }).activities.find((row) => (row.activityId ?? row.activity_id) === videoActivityId)?.status).toBe('completed');
   const pdfId = ids['safety-guide.pdf'];
   // a file attached to one activity is not served through a different activity of the same course
   expect((await api(page, studentToken, 'GET', `/activities/${activityId}/media/${ids['robot-demo.mp4']}/url`)).status).toBe(404);
