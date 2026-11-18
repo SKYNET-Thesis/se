@@ -48,6 +48,8 @@ export class StudentAuthService {
         await this.supabase.setStudentPassword(student.auth_user_id, dto.password);
         authUser = { id: student.auth_user_id };
       } else {
+        // A stub left by an earlier failed activation would hold the alias email and make the provisioning trigger (and so the identity creation) fail.
+        await this.removeLoginAliasStubs(this.prisma, internalEmail, student.user_id);
         authUser = await this.supabase.createStudentIdentity(internalEmail, dto.password);
       }
     } catch {
@@ -57,6 +59,9 @@ export class StudentAuthService {
 
     try {
       await this.prisma.$transaction(async tx => {
+        // The Supabase project provisions a public.users row for EVERY new Auth identity (trigger handle_new_auth_user). For a student that row is a
+        // duplicate of the imported student's own row and holds the same auth_user_id, so it must go before the student row is linked to it.
+        await this.removeLoginAliasStubs(tx, internalEmail, student.user_id);
         const linked = await tx.$executeRaw`
           UPDATE public.users
           SET auth_user_id = COALESCE(auth_user_id, ${authUser.id}::uuid), status = 'active'
@@ -77,6 +82,7 @@ export class StudentAuthService {
     } catch {
       if (createdIdentity) {
         try { await this.supabase.deleteStudentIdentity(authUser.id); } catch {}
+        try { await this.removeLoginAliasStubs(this.prisma, internalEmail, student.user_id); } catch {}
       }
       await this.releaseSetupCode(student.setup_token_id);
       throw new UnauthorizedException("Student account setup could not be completed.");
@@ -175,6 +181,21 @@ export class StudentAuthService {
 
   private hashOneTimeCode(code: string): string {
     return createHash("sha256").update(code.trim(), "utf8").digest("hex");
+  }
+
+  /**
+   * Removes the public.users row that the Auth provisioning trigger creates for a student's alias identity. Deliberately narrow: only a row that
+   * (a) carries this student's alias email, (b) is not the student's own row, (c) was self-registered by the trigger and (d) has no membership and no
+   * school profile. Anything else is left untouched and the activation fails closed.
+   */
+  private removeLoginAliasStubs(client: Pick<PrismaService, "$executeRaw">, internalEmail: string, studentUserId: string) {
+    return client.$executeRaw`
+      DELETE FROM public.users s
+      WHERE lower(s.email) = lower(${internalEmail})
+        AND s.id <> ${studentUserId}::uuid
+        AND s.signup_method = 'self_registered'
+        AND NOT EXISTS (SELECT 1 FROM public.memberships m WHERE m.user_id = s.id)
+        AND NOT EXISTS (SELECT 1 FROM public.education_school_user_profiles p WHERE p.user_id = s.id)`;
   }
 
   private releaseSetupCode(tokenId: string) {

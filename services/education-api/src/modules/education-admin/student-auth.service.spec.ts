@@ -53,8 +53,14 @@ describe("StudentAuthService", () => {
     await expect(service.setup({ schoolCode: "VST-SCHOOL", studentCode: "S-1", setupCode: "one-time-secret-code", password: "student-created-password" })).resolves.toEqual(session);
 
     expect(supabase.createStudentIdentity).toHaveBeenCalledWith("student-user-1@students.auth.vista.invalid", "student-created-password");
-    expect(prismaExecuteRaw).toHaveBeenCalledTimes(1);
-    expect(executeRaw).toHaveBeenCalledTimes(2);
+    expect(prismaExecuteRaw).toHaveBeenCalledTimes(2); // claim the setup code + remove a stale alias stub before the identity is created
+    expect(prismaExecuteRaw.mock.calls[1][0].join(" ")).toContain("DELETE FROM public.users");
+    expect(executeRaw).toHaveBeenCalledTimes(3); // remove the trigger-created duplicate, link the student row, activate the profile
+    const stubDelete = executeRaw.mock.calls[0][0].join(" ");
+    expect(stubDelete).toContain("DELETE FROM public.users");
+    expect(stubDelete).toContain("NOT EXISTS (SELECT 1 FROM public.memberships");
+    expect(stubDelete).toContain("NOT EXISTS (SELECT 1 FROM public.education_school_user_profiles");
+    expect(executeRaw.mock.calls[0]).toContain("student-user-1@students.auth.vista.invalid");
     expect(executeRaw.mock.calls.flat()).not.toContain("student-created-password");
     expect(executeRaw.mock.calls.flat()).not.toContain("one-time-secret-code");
     expect(supabase.authenticateStudent).toHaveBeenCalledWith("student-user-1@students.auth.vista.invalid", "student-created-password");
@@ -78,7 +84,7 @@ describe("StudentAuthService", () => {
     await expect(service.setup({ schoolCode: "VST-SCHOOL", studentCode: "S-1", setupCode: "one-time-secret-code", password: "student-created-password" })).rejects.toBeInstanceOf(UnauthorizedException);
 
     expect(supabase.deleteStudentIdentity).toHaveBeenCalledWith("auth-user-1");
-    expect(prismaExecuteRaw).toHaveBeenCalledTimes(2);
+    expect(prismaExecuteRaw).toHaveBeenCalledTimes(4); // claim, pre-clean, stub cleanup after the failed activation, release of the setup code
     expect(supabase.authenticateStudent).not.toHaveBeenCalled();
   });
 
@@ -92,8 +98,8 @@ describe("StudentAuthService", () => {
     expect(supabase.createStudentIdentity).not.toHaveBeenCalled();
     expect(supabase.deleteStudentIdentity).not.toHaveBeenCalled();
     expect(prismaExecuteRaw).toHaveBeenCalledTimes(1);
-    expect(executeRaw).toHaveBeenCalledTimes(2);
-    expect(executeRaw.mock.calls[1][0].join(" ")).toContain("account_state IN ('account_setup_pending', 'invited')");
+    expect(executeRaw).toHaveBeenCalledTimes(3);
+    expect(executeRaw.mock.calls[2][0].join(" ")).toContain("account_state IN ('account_setup_pending', 'invited')");
   });
 
   it("consumes a hashed password recovery code and authenticates with the new password", async () => {
