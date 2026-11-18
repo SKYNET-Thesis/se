@@ -75,6 +75,8 @@ packages/
 !services/education-api/prisma/migrations/20261105_question_bank_foundation/migration.sql
 !database/*.sql
 !database/**/*.sql
+# read-only hosted evidence queries referenced by the K-M readiness review (reviewed, never executed by CI)
+!docs/operations/sql/*.sql
 !services/education-api/prisma/migrations/20261104_curriculum_foundation/migration.sql
 !services/education-api/prisma/migrations/20261106_classroom_enrollment_lifecycle/migration.sql
 !services/education-api/prisma/migrations/20261106_iot_publish_intent/migration.sql

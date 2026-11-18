@@ -61,9 +61,10 @@
       "maxGradedWithoutAttempt": 0,
       "verifier": "j"
     },
-    "K-M": {
-      "description": "School authoring/publishing capabilities (K), restricted runtime role (L), revocation of the PUBLIC TEMP privilege (M); requires D-J applied",
-      "productionStatus": "BLOCKED until hosted Supabase platform-role compatibility and recovery behavior are independently verified",
+    "K-L": {
+      "description": "School authoring/publishing capabilities (K) and the restricted runtime role (L, hosted-compatible revision); requires D-J applied. Migration M (PUBLIC TEMP revocation) is staged and deliberately NOT part of this release.",
+      "productionStatus": "READY for the approval-gated Production Database Release only after the reviewed hosted read-only evidence, the restore rehearsal and the independent review (attached to the unblocking PR); apply still requires the production-database-apply reviewer approval",
+      "residualRisk": "PUBLIC keeps the database TEMP privilege (the runtime role can create session-local temporary tables) until scope M is released; the owner must accept this in writing",
       "requiresApplied": [
         "20261110_d_activity_content",
         "20261110_e_learning_media",
@@ -75,19 +76,56 @@
       ],
       "versions": [
         "20261116_k_course_authoring_capabilities",
-        "20261116_l_runtime_role",
-        "20261116_m_revoke_public_temp_privilege"
+        "20261116_l_runtime_role"
       ],
       "sha256": {
         "20261116_k_course_authoring_capabilities": "4c1d5b4abd7010fe65fb379c8dbb9c82060e076b0ae4eb5398d284614dfd6051",
-        "20261116_l_runtime_role": "5a4db3dea8f3e87f027f2d23ef5af02282c1b408c41218676db104925e680352",
+        "20261116_l_runtime_role": "5b49e05050cf9e5f0a9cc751ce04d3de1d81abfb817da21d8ef5aad5cd4761bb"
+      },
+      "excludedVersions": [
+        "20261116_m_revoke_public_temp_privilege"
+      ],
+      "expectedCatalogBefore": {
+        "tables": 91,
+        "rls_enabled": 49,
+        "policies": 0,
+        "triggers": 22,
+        "functions": 15
+      },
+      "expectedCatalogAfter": {
+        "tables": 91,
+        "rls_enabled": 49,
+        "policies": 48,
+        "triggers": 22,
+        "functions": 15
+      },
+      "verifier": "kl"
+    },
+    "M": {
+      "description": "Revocation of the PUBLIC TEMP privilege (staged migration M); requires D-L applied. Not selectable by the release workflow until a reviewed change moves M into the manifest and extends its platform-role allowlist.",
+      "productionStatus": "BLOCKED until hosted Supabase platform-role compatibility (including pgbouncer, supabase_etl_admin, supabase_privileged_role, supabase_read_only_user, supabase_replication_admin) and recovery behavior are independently verified",
+      "requiresApplied": [
+        "20261110_d_activity_content",
+        "20261110_e_learning_media",
+        "20261111_f_global_question_scope",
+        "20261111_g_activity_progress_scope_guard",
+        "20261112_h_learning_media_audio_mpeg",
+        "20261113_i_attempt_submission_foundation",
+        "20261114_j_one_submission_per_attempt",
+        "20261116_k_course_authoring_capabilities",
+        "20261116_l_runtime_role"
+      ],
+      "versions": [
+        "20261116_m_revoke_public_temp_privilege"
+      ],
+      "sha256": {
         "20261116_m_revoke_public_temp_privilege": "80619e7d76e86db4eb29a819d3b9003e0684161c248a2a9b47a411b51bc39f38"
       },
       "excludedVersions": [],
       "expectedCatalogBefore": {
         "tables": 91,
         "rls_enabled": 49,
-        "policies": 0,
+        "policies": 48,
         "triggers": 22,
         "functions": 15
       },

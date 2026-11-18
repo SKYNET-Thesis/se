@@ -82,12 +82,18 @@ data "aws_iam_policy_document" "ec2" {
 
   # Learning Media (course content only): presigned POST uploads are validated by S3 with the signer's permissions
   # (s3:PutObject), and HeadObject / ranged GET verification plus presigned downloads need s3:GetObject.
-  # Scoped to the course-media prefix: no bucket-wide access, no delete/list, and nothing under
-  # learning-media/submissions/ (reserved for student submissions, which are a separate approved change).
+  # Scoped per prefix: no bucket-wide access and no delete/list. Student submission attachments (SubmissionFileStorage) use the
+  # same presigned POST + HeadObject/GET flow under learning-media/submissions/, so they get the same two actions on that prefix only.
   statement {
     sid       = "CourseLearningMediaObjectAccess"
     actions   = ["s3:PutObject", "s3:GetObject"]
     resources = ["${aws_s3_bucket.media.arn}/learning-media/courses/*"]
+  }
+
+  statement {
+    sid       = "StudentSubmissionObjectAccess"
+    actions   = ["s3:PutObject", "s3:GetObject"]
+    resources = ["${aws_s3_bucket.media.arn}/learning-media/submissions/*"]
   }
 
   statement {
@@ -140,7 +146,14 @@ resource "aws_instance" "api" {
 
     }
   )
-  user_data_replace_on_change = true
+  # The live instance is long-lived Production. user_data (first-boot script, embeds deploy-api.sh) and the "latest AL2023" AMI
+  # must never replace it. The deploy workflow only runs /usr/local/bin/vista-deploy-api over SSM; it does NOT ship deploy-api.sh. A change to
+  # deploy-api.sh or user-data therefore reaches the running host only through a separate, explicitly approved operator action.
+  user_data_replace_on_change = false
+  lifecycle {
+    ignore_changes  = [ami, user_data]
+    prevent_destroy = true
+  }
   tags = {
     Name = "${var.project}-${var.environment}-education-api"
   }
