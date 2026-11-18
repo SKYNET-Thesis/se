@@ -77,7 +77,10 @@ export function App() {
                   <Route path="my-learning" element={<RequireRole roles={['student']}><MyLearning /></RequireRole>} />
                   <Route path="my-learning/:classroomAssignmentId" element={<RequireRole roles={['student']}><StudentAssignmentDetail /></RequireRole>} />
                   <Route path="learning-loop" element={<LearningLoop />} />
-                  <Route path="assignments/:assignmentId" element={<AssignmentDetail />} />
+                  {/* Bundled demo assignment (LearningContext, browser storage only; no API). It is a student work page whose
+                      back link is the student-only /assignments, so it gets the same guard (A07). This is navigation UX only;
+                      the Education API remains the authority for real assignment data. */}
+                  <Route path="assignments/:assignmentId" element={<RequireRole roles={['student']}><AssignmentDetail /></RequireRole>} />
                   <Route path="studio" element={<Suspense fallback={<RouteFallback />}><Studio /></Suspense>} />
                   <Route path="studio/:programId" element={<Suspense fallback={<RouteFallback />}><Studio /></Suspense>} />
                   <Route path="practice/:attemptId" element={<Suspense fallback={<RouteFallback />}><Practice mode="physical-enabled" /></Suspense>} />

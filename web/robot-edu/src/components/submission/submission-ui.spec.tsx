@@ -164,6 +164,12 @@ describe('D03 submission UI', () => {
       await open();
       expect(container.textContent).toContain('Closed'); expect([...container.querySelectorAll('button')].every((b) => b.textContent !== 'Start attempt')).toBe(true);
     });
+    it('A07: shows no invented instructions when the teacher wrote none, and leads back to Assignments', async () => {
+      mocks.detail.mockResolvedValue(item({ instructions: null })); mocks.attemptHistory.mockResolvedValue([]);
+      await open();
+      expect(container.textContent).not.toContain('Follow the lesson instructions');
+      expect(container.querySelector('nav[aria-label="Breadcrumb"] a')?.getAttribute('href')).toBe('/assignments');
+    });
     it('marks a reconstructed historical attempt', async () => {
       mocks.detail.mockResolvedValue(item({ max_attempts: null })); mocks.attemptHistory.mockResolvedValue([attempt({ submission_origin: 'reconstructed' })]);
       await open();

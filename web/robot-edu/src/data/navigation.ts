@@ -31,11 +31,12 @@ export interface NavSection {
 export const navigationByRole: Record<Role, NavSection[]> = {
   student: [
   {
+    // A07: no "Dashboard" item. `/` sends a student to /my-learning, so it duplicated My Learning (and highlighted
+    // My Learning once clicked). My Learning is the student home.
     items: [
-    { to: '/', label: 'Dashboard', icon: LayoutDashboardIcon, end: true },
     { to: '/courses', label: 'Courses', icon: BookOpenIcon, end: true },
-    // Course paths and lessons need an active enrollment, so for a student they are part of My Learning.
-    { to: '/my-learning', label: 'My Learning', icon: ClipboardListIcon, activePattern: /^\/courses\/[^/]+/ },
+    // Course paths, lessons, quiz attempts and practice need an active enrollment: for a student they are My Learning.
+    { to: '/my-learning', label: 'My Learning', icon: ClipboardListIcon, activePattern: /^\/(courses\/[^/]+|practice\/)/ },
     { to: '/assignments', label: 'Assignments', icon: ClipboardCheckIcon }]
 
   },

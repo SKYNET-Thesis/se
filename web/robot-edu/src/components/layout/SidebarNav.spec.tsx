@@ -92,6 +92,18 @@ describe('SidebarNav role-based navigation', () => {
     }
   });
 
+  it('A07: has no student item that only redirects, and keeps My Learning selected on quiz pages and attempts', async () => {
+    await renderNav('student');
+    const hrefs = Array.from(container.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).not.toContain('/'); // "/" redirects a student to /my-learning, so a "Dashboard" item duplicated My Learning
+    expect(hrefs).toEqual(['/courses', '/my-learning', '/assignments', '/studio', '/lab']);
+    const selected = () => Array.from(container.querySelectorAll('a[aria-current="page"]')).map((a) => a.textContent);
+    for (const route of ['/my-learning/ca1', '/practice/att-1']) {
+      await act(async () => { root.render(<MemoryRouter key={route} initialEntries={[route]}><SidebarNav /></MemoryRouter>); await Promise.resolve(); });
+      expect(selected()).toEqual(['My Learning']);
+    }
+  });
+
   it('preserves Teacher navigation with Student catalogue pointing to /courses', async () => {
     await renderNav('teacher');
     const links = Array.from(container.querySelectorAll('a'));

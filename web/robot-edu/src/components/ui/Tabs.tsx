@@ -27,7 +27,9 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
     onChange(items[next].id);
   };
   return (
-    <div role="tablist" aria-label={label} className={cn('flex items-end gap-1 border-b border-line', className)}>
+    // A07: the row scrolls sideways when tabs do not fit (they were clipped and unreachable on phones). The underline is an
+    // inset shadow and tabs do not overlap it with -mb-px: with overflow-x set, that 1px overlap made a vertical scrollbar.
+    <div role="tablist" aria-label={label} className={cn('flex items-end gap-1 overflow-x-auto shadow-[inset_0_-1px_0_rgb(var(--line))]', className)}>
       {items.map((item, i) => {
         const selected = item.id === value;
         return (
@@ -43,7 +45,7 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
             onClick={() => onChange(item.id)}
             onKeyDown={(e) => onKeyDown(e, i)}
             className={cn(
-              '-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 font-medium transition-colors duration-150',
+              'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 font-medium transition-colors duration-150',
               size === 'sm' ? 'px-2 pb-2 pt-2.5 text-[13px]' : 'px-3 pb-2.5 pt-2 text-sm',
               selected ? 'border-accent text-ink' : 'border-transparent text-ink-muted hover:text-ink'
             )}>

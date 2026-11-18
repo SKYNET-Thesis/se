@@ -121,7 +121,7 @@ export function TeacherAssignments() {
         )}
 
         {notice && <p role="status" className="mx-4 mb-4 border-l-4 border-ok bg-ok-soft p-3 text-sm text-ok">{notice}</p>}
-        {loadError && <p role="alert" className="mx-4 mb-4 border-l-4 border-danger bg-danger-soft p-3 text-sm text-danger">{loadError instanceof Error ? loadError.message : 'Assignments could not be loaded.'} <button type="button" className="ml-2 font-semibold underline" onClick={() => { void classrooms.refetch(); assignmentQueries.forEach((query) => void query.refetch()); }}>Retry</button></p>}
+        {loadError && <p role="alert" className="mx-4 mb-4 border-l-4 border-danger bg-danger-soft p-3 text-sm text-danger">{/* Raw API text is never shown (A07). */}{loadError instanceof TypeError ? 'VISTA couldn’t be reached. Check your connection, then try again.' : 'Assignments couldn’t be loaded for one or more classrooms.'} <button type="button" className="ml-2 font-semibold underline" onClick={() => { void classrooms.refetch(); assignmentQueries.forEach((query) => void query.refetch()); }}>Retry</button></p>}
         {publish.error && <p role="alert" className="mx-4 mb-4 border-l-4 border-danger bg-danger-soft p-3 text-sm text-danger">{publish.error instanceof Error ? publish.error.message : 'The assignment could not be published.'}</p>}
         {countsUnavailable && <p role="status" className="mx-4 mb-4 text-xs text-ink-muted">Submission counts could not be loaded for some classrooms and are shown as “—”.</p>}
 

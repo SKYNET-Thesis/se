@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AttemptHistory } from '../components/submission/AttemptHistory';
 import { QuizOverview } from '../components/learning/QuizOverview';
+import { LearningBreadcrumb } from '../components/learning/LearningBreadcrumb';
 import { quizErrorMessage } from '../queries/quizAttemptModel';
 import { assignmentKind, kindLabel, nextAction, windowLabel, windowState } from '../components/submission/submissionState';
 import { Badge } from '../components/ui/Badge';
@@ -59,11 +60,13 @@ export function StudentAssignmentDetail() {
   const label = action.kind === 'continue' ? 'Continue attempt' : action.kind === 'start' ? (attempts.length ? 'Start a new attempt' : 'Start attempt') : action.reason;
 
   return <main className="mx-auto max-w-4xl px-5 py-8 sm:px-8">
-    <Link to="/my-learning" className="text-sm text-ink-muted hover:text-ink">← My Learning</Link>
-    <p className="mt-8 text-xs font-semibold uppercase tracking-wide text-accent-ink">{kindLabel[kind]}</p>
-    <h1 className="mt-2 text-3xl font-semibold text-ink">{item.title}</h1>
+    {/* Programming assignments are opened from Assignments (quizzes have their own page). */}
+    <LearningBreadcrumb items={[{ label: 'Assignments', to: '/assignments' }, { label: item.title }]} />
+    <p className="mt-6 text-sm font-semibold text-accent">{kindLabel[kind]}</p>
+    <h1 className="mt-1 text-balance text-[28px] font-semibold leading-tight tracking-[-0.015em] text-ink">{item.title}</h1>
     <div className="mt-3 flex flex-wrap items-center gap-2"><Badge tone={win === 'closed' ? 'danger' : win === 'past_due' || win === 'due_soon' ? 'warn' : 'ok'}>{windowLabel[win]}</Badge></div>
-    <p className="mt-4 max-w-2xl whitespace-pre-wrap text-ink-muted">{item.instructions ?? 'Follow the lesson instructions and submit your work.'}</p>
+    {/* Only the teacher’s own instructions are shown; none are invented when the assignment has none (A07). */}
+    {item.instructions?.trim() ? <p className="mt-4 max-w-2xl whitespace-pre-wrap text-ink-muted">{item.instructions}</p> : null}
     <dl className="mt-8 grid gap-4 border-y border-line py-5 sm:grid-cols-4">
       <div><dt className="text-xs text-ink-subtle">Lesson</dt><dd className="mt-1 font-medium text-ink">{item.lesson_title ?? 'Lesson'}</dd></div>
       <div><dt className="text-xs text-ink-subtle">Available</dt><dd className="mt-1 font-medium text-ink">{fmt(item.available_from) ?? 'Now'}{item.close_at ? ` – ${fmt(item.close_at)}` : ''}</dd></div>

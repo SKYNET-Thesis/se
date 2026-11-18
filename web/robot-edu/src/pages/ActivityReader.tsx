@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -707,6 +707,15 @@ export function ActivityReader() {
   const [savingCompletion, setSavingCompletion] = useState(false);
   const [completionError, setCompletionError] = useState<string | null>(null);
   const [completionNotice, setCompletionNotice] = useState<string | null>(null);
+  // A07: Previous/Next and the lesson list change the activity without a page load. Move focus to the new activity's
+  // title so keyboard and screen-reader users land on (and hear) the new content instead of staying on the old button.
+  const activityHeading = useRef<HTMLHeadingElement>(null);
+  const shownActivity = useRef(activityId);
+  useEffect(() => {
+    if (shownActivity.current === activityId) return;
+    shownActivity.current = activityId;
+    activityHeading.current?.focus();
+  }, [activityId]);
 
   const query = useQuery({
     queryKey: studentLearningKeys.lessonDetail(lessonId, session?.user?.id, sessionRevision),
@@ -853,7 +862,7 @@ export function ActivityReader() {
             <span aria-hidden>·</span><span>Activity {index + 1} of {activities.length}</span>
             {activity.durationMinutes ? <><span aria-hidden>·</span><span>{activity.durationMinutes} min</span></> : null}
           </p>
-          <h1 className="mt-2 text-balance text-[30px] font-semibold leading-tight tracking-[-0.02em] text-ink md:text-[36px]">
+          <h1 ref={activityHeading} tabIndex={-1} className="mt-2 text-balance text-[30px] outline-none focus-visible:outline-none font-semibold leading-tight tracking-[-0.02em] text-ink md:text-[36px]">
             {activity.title}
           </h1>
         </header>

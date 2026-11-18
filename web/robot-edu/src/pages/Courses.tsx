@@ -36,8 +36,8 @@ export function Courses() {
   // client retries once, and the shared course-path cache keeps the burst of requests small.
   const catalog = useQuery({ queryKey: ["student-courses", "catalog", userId, sessionRevision], queryFn: () => catalogApi.courses(token, 1, 100), enabled });
   const enrollments = useQuery({ queryKey: ["student-courses", "enrollments", userId, sessionRevision], queryFn: () => learnerApi.enrollments(token), enabled });
-  const attempts = useQuery({ queryKey: ["student-courses", "attempts", userId, sessionRevision], queryFn: () => learnerApi.attempts(token), enabled });
-  const paths = useQuery({ queryKey: studentLearningKeys.coursePaths(userId, sessionRevision), queryFn: () => progressionApi.coursePaths(token), enabled, staleTime: 30_000 });
+  const attempts = useQuery({ queryKey: ["student-courses", "attempts", userId, sessionRevision], queryFn: () => learnerApi.attempts(token), enabled: enabled && role === "student" });
+  const paths = useQuery({ queryKey: studentLearningKeys.coursePaths(userId, sessionRevision), queryFn: () => progressionApi.coursePaths(token), enabled: enabled && role === "student", staleTime: 30_000 });
   const courseIds = (catalog.data?.items ?? []).map((course) => course.id);
   const lessonCounts = useQuery({
     queryKey: ["student-courses", "lesson-counts", courseIds.join(","), sessionRevision],
@@ -75,7 +75,10 @@ export function Courses() {
     return <Navigate to="/admin/courses" replace />;
   }
 
-  const summary = loading ? "Loading your courses…" : failed && !hasData ? "Course list unavailable" : `${courses.length} enrolled course${courses.length === 1 ? "" : "s"}${paths.isError ? ". Progress couldn’t be loaded." : ""}`;
+  // A07: teachers and school administrators open this page as their course catalogue. They have no enrollment, so they
+  // see course details (CourseInfo) instead of the student course path, and no student progress or access badges.
+  const staff = Boolean(role) && role !== "student"; // never decided while the role is still loading
+  const summary = loading ? "Loading your courses…" : failed && !hasData ? "Course list unavailable" : staff ? `${courses.length} course${courses.length === 1 ? "" : "s"} available to you` : `${courses.length} enrolled course${courses.length === 1 ? "" : "s"}${paths.isError ? ". Progress couldn’t be loaded." : ""}`;
 
   // For a student, GET /courses returns the enrolled courses; My learning is where they resume, so this page is the list.
   return <main className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-8 md:py-9">
@@ -106,13 +109,13 @@ export function Courses() {
     )}
 
     <section aria-label="Enrolled courses">
-      {loading ? <CourseSkeletons /> : failed && !hasData ? null : visible.length === 0 ? <div className="mt-6"><EmptyState icon={<SearchXIcon />} title={courses.length ? "No matching courses" : "No courses yet"} description={courses.length ? "Try a different search." : "Ask your teacher to add you to a classroom or course."} /></div> : <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{visible.map((course) => <CourseTile key={course.id} course={course} />)}</div>}
+      {loading ? <CourseSkeletons /> : failed && !hasData ? null : visible.length === 0 ? <div className="mt-6"><EmptyState icon={<SearchXIcon />} title={courses.length ? "No matching courses" : "No courses yet"} description={courses.length ? "Try a different search." : "Ask your teacher to add you to a classroom or course."} /></div> : <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{visible.map((course) => <CourseTile key={course.id} course={course} staff={staff} />)}</div>}
     </section>
   </main>;
 }
 
-function CourseTile({ course }: { course: CourseCard }) {
-  return <article className="flex flex-col rounded-xl border border-line bg-surface p-5 transition-colors duration-150 hover:border-line-strong">{course.access !== "enrolled" && <Badge tone="accent" dot>Teacher assigned</Badge>}<h3 className="mt-1 text-xl font-semibold tracking-[-0.02em] text-ink">{course.title}</h3>{course.description && <p className="mt-2 text-sm leading-relaxed text-ink-muted">{course.description}</p>}{course.lessonCount !== null && <p className="mt-4 inline-flex items-center gap-1.5 text-xs text-ink-muted"><BookOpenIcon className="h-3.5 w-3.5" aria-hidden />{course.lessonCount} lesson{course.lessonCount === 1 ? "" : "s"}</p>}<div className="mt-auto pt-5">{course.progressPercent === null ? <p className="text-xs text-ink-muted">Progress unavailable right now</p> : <><div className="mb-2 flex justify-between text-xs text-ink-muted"><span>{course.progressPercent >= 100 ? "Completed" : course.progressPercent > 0 ? "In progress" : "Ready to start"}</span><span>{course.progressPercent}%</span></div><ProgressBar value={course.progressPercent} label={`${course.title} progress`} /></>}</div><Link to={`/courses/${course.id}`} aria-label={`Open course: ${course.title}`} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-white transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2">Open course<ArrowRightIcon className="h-4 w-4" aria-hidden /></Link></article>;
+function CourseTile({ course, staff }: { course: CourseCard; staff: boolean }) {
+  return <article className="flex flex-col rounded-xl border border-line bg-surface p-5 transition-colors duration-150 hover:border-line-strong">{!staff && course.access !== "enrolled" && <Badge tone="accent" dot>Teacher assigned</Badge>}<h3 className="mt-1 text-xl font-semibold tracking-[-0.02em] text-ink">{course.title}</h3>{course.description && <p className="mt-2 text-sm leading-relaxed text-ink-muted">{course.description}</p>}{course.lessonCount !== null && <p className="mt-4 inline-flex items-center gap-1.5 text-xs text-ink-muted"><BookOpenIcon className="h-3.5 w-3.5" aria-hidden />{course.lessonCount} lesson{course.lessonCount === 1 ? "" : "s"}</p>}<div className="mt-auto pt-5">{staff ? null : course.progressPercent === null ? <p className="text-xs text-ink-muted">Progress unavailable right now</p> : <><div className="mb-2 flex justify-between text-xs text-ink-muted"><span>{course.progressPercent >= 100 ? "Completed" : course.progressPercent > 0 ? "In progress" : "Ready to start"}</span><span>{course.progressPercent}%</span></div><ProgressBar value={course.progressPercent} label={`${course.title} progress`} /></>}</div><Link to={staff ? `/courses/${course.id}/info` : `/courses/${course.id}`} aria-label={`${staff ? "View course details" : "Open course"}: ${course.title}`} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-sm font-semibold text-white transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2">{staff ? "View course details" : "Open course"}<ArrowRightIcon className="h-4 w-4" aria-hidden /></Link></article>;
 }
 
 function CourseSkeletons() { return <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-[260px] animate-pulse rounded-xl border border-line bg-sunken/60" />)}</div>; }

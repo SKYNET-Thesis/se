@@ -129,6 +129,27 @@ describe('Create classroom', () => {
     expect((dialog().querySelector('[name="name"]') as HTMLInputElement).getAttribute('aria-invalid')).toBe('true');
   });
 
+  it('A07: asks before discarding edits, keeps them on Keep editing (focus back on the field) and discards on confirm', async () => {
+    await mount('/school/classrooms');
+    await click(button('Create classroom'));
+    const name = dialog().querySelector('[name="name"]') as HTMLInputElement;
+    await type(name, 'Robotics 8B');
+    await act(async () => { name.focus(); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    await flush();
+    expect(dialog().querySelector('[role="alertdialog"]')?.textContent).toContain('Discard unsaved changes?');
+    expect(document.activeElement?.textContent).toBe('Keep editing');
+    await click(button('Keep editing'));
+    expect(dialog().querySelector('[role="alertdialog"]')).toBeNull();
+    expect((dialog().querySelector('[name="name"]') as HTMLInputElement).value).toBe('Robotics 8B');
+    expect(document.activeElement?.getAttribute('name')).toBe('name');
+    await click(button('Cancel'));
+    await click(button('Discard'));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 500)); }); // exit animation
+    expect(dialog()).toBeNull();
+    expect(mocks.createCourseOffering).not.toHaveBeenCalled();
+    expect(mocks.createClassroom).not.toHaveBeenCalled();
+  });
+
   it('shows a duplicate classroom code on the Code field inside the dialog and keeps the input', async () => {
     mocks.createCourseOffering.mockResolvedValue({ id: 'f9' });
     mocks.createClassroom.mockRejectedValue(new ApiError(409, 'A classroom with this code already exists in the organization.'));

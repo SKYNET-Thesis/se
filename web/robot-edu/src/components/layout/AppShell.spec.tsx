@@ -88,6 +88,34 @@ describe('AppShell focused learning navigation', () => {
     expect(container.querySelectorAll('[data-testid="notification-bell"]').length).toBe(2); // desktop header + compact top bar, one visible per breakpoint
   });
 
+  it('A07: moves focus into the mobile navigation, offers account controls there, and returns focus on close', async () => {
+    await renderAt('/courses/course-1');
+    const opener = container.querySelector('button[aria-label="Open navigation"]') as HTMLButtonElement;
+    opener.focus();
+    await act(async () => { opener.click(); await new Promise((resolve) => window.setTimeout(resolve, 60)); });
+    const drawer = container.querySelector('[role="dialog"]') as HTMLElement;
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Close navigation');
+    // Phones have no header account menu, so these must be reachable from the drawer.
+    expect([...drawer.querySelectorAll('a, button')].map((el) => el.textContent?.trim()).filter(Boolean)).toEqual(expect.arrayContaining(['Account settings', 'Web settings', 'Sign out']));
+    expect(drawer.textContent).toContain('Student');
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await new Promise((resolve) => window.setTimeout(resolve, 250)); });
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('A07: closes the account menu with Escape (focus back on the avatar) and with a click outside', async () => {
+    await renderAt('/courses/course-1');
+    const avatar = container.querySelector('button[aria-label="Account menu"]') as HTMLButtonElement;
+    await act(async () => { avatar.click(); });
+    expect(avatar.getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).toContain('Sign out');
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(avatar.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(avatar);
+    await act(async () => { avatar.click(); });
+    await act(async () => { document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(avatar.getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('keeps the persistent global sidebar on a normal course route', async () => {
     await renderAt('/courses/course-1');
 

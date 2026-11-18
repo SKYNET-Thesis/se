@@ -126,15 +126,17 @@ export function ClassroomsPage() {
 
 function ClassroomTable({ rows, onEdit, onLifecycle }: { rows: ApiSchoolClassroom[]; onEdit: (row: ApiSchoolClassroom) => void; onLifecycle: (row: ApiSchoolClassroom) => void }) {
   return (
-    <div className="hidden md:block">
+    // A07: Course and Robot columns from xl. At 1024px the content column is ~700px, so the table overflowed its card and
+    // clipped Status; below xl the course is shown under the classroom name. The scroll wrapper is a safety net only.
+    <div className="hidden overflow-x-auto md:block">
       <table className="w-full text-left text-sm">
         <thead className="border-b border-line text-[13px] text-ink-muted">
           <tr>
             <th scope="col" className="px-4 py-2.5 font-medium">Classroom</th>
-            <th scope="col" className="hidden px-3 py-2.5 font-medium lg:table-cell">Course</th>
+            <th scope="col" className="hidden px-3 py-2.5 font-medium xl:table-cell">Course</th>
             <th scope="col" title="Active students, and capacity when set" className="px-3 py-2.5 text-right font-medium">Students</th>
             <th scope="col" className="px-3 py-2.5 text-right font-medium">Teachers</th>
-            <th scope="col" className="hidden px-3 py-2.5 font-medium lg:table-cell">Robot</th>
+            <th scope="col" className="hidden px-3 py-2.5 font-medium xl:table-cell">Robot</th>
             <th scope="col" className="px-3 py-2.5 font-medium">Status</th>
             <th scope="col" className="px-4 py-2.5"><span className="sr-only">Actions</span></th>
           </tr>
@@ -145,12 +147,12 @@ function ClassroomTable({ rows, onEdit, onLifecycle }: { rows: ApiSchoolClassroo
               <td className="max-w-[280px] px-4 py-3">
                 <Link to={classroomPath(row.id)} className="block truncate font-medium text-ink hover:text-accent hover:underline">{row.name}</Link>
                 <ClassroomCodeTag code={row.code} className="mt-1" />
-                <span className="mt-1 block truncate text-[13px] text-ink-muted lg:hidden">{row.offering_title ?? 'No course yet'}</span>
+                <span className="mt-1 block truncate text-[13px] text-ink-muted xl:hidden">{row.offering_title ?? 'No course yet'}</span>
               </td>
-              <td className="hidden max-w-[260px] px-3 py-3 lg:table-cell"><span className="line-clamp-2 break-words">{row.offering_title ?? <span className="text-ink-subtle">No course yet</span>}</span></td>
+              <td className="hidden max-w-[260px] px-3 py-3 xl:table-cell"><span className="line-clamp-2 break-words">{row.offering_title ?? <span className="text-ink-subtle">No course yet</span>}</span></td>
               <td className="px-3 py-3 text-right tabular-nums">{enrollmentLabel(row)}</td>
               <td className="px-3 py-3 text-right tabular-nums">{row.teaching_staff_count || <span className="text-ink-subtle">None</span>}</td>
-              <td className="hidden max-w-[180px] truncate px-3 py-3 lg:table-cell">{row.allocated_robot?.name ?? <span className="text-ink-subtle">Not assigned</span>}</td>
+              <td className="hidden max-w-[180px] truncate px-3 py-3 xl:table-cell">{row.allocated_robot?.name ?? <span className="text-ink-subtle">Not assigned</span>}</td>
               <td className="px-3 py-3"><ClassroomStatusBadge status={row.status} /></td>
               <td className="px-4 py-3 text-right">
                 <ActionMenu label={`Actions for ${row.name}`} items={[

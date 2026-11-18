@@ -163,6 +163,23 @@ describe('Courses role routing defense', () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
+  it('A07: gives teachers and school admins a catalogue with course details, not student enrollment or progress', async () => {
+    for (const role of ['teacher', 'school_admin'] as const) {
+      mocks.role = role;
+      mocks.courses.mockResolvedValue({ items: [course] });
+      mocks.enrollments.mockResolvedValue([]);
+      await renderAt(<Route path="/courses" element={<Courses />} />);
+      expect(container.textContent).toContain('1 course available to you');
+      expect(container.textContent).not.toContain('enrolled');
+      expect(container.textContent).not.toContain('Teacher assigned');
+      expect(container.textContent).not.toContain('Progress unavailable');
+      // The student course path needs an enrollment; staff go to the course details page instead.
+      expect(container.querySelector('a[aria-label="View course details: Robotics Fundamentals"]')?.getAttribute('href')).toBe('/courses/c1/info');
+      expect(mocks.coursePaths).not.toHaveBeenCalled();
+      act(() => root.unmount()); root = createRoot(container); vi.clearAllMocks();
+    }
+  });
+
   it('shows courses when only progress or lesson counts fail, without inventing 0% or 0 lessons', async () => {
     mocks.role = 'student';
     mocks.courses.mockResolvedValue({ items: [course] });

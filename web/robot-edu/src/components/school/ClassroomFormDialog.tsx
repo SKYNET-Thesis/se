@@ -33,6 +33,14 @@ export function ClassroomFormDialog({ open, mode, scope, classroom, pending, onS
   const [server, setServer] = useState<{ field?: ClassroomFormField; message: string } | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const promptRef = useRef<HTMLDivElement>(null);
+  // The field the user was editing when they tried to close, so "Keep editing" can put them back there (A07).
+  const resumeRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    // The prompt replaces the footer: move focus to "Keep editing" so the decision is announced and reachable.
+    if (confirmDiscard) promptRef.current?.querySelector<HTMLElement>('button')?.focus();
+  }, [confirmDiscard]);
 
   useEffect(() => {
     if (!open) return;
@@ -67,7 +75,22 @@ export function ClassroomFormDialog({ open, mode, scope, classroom, pending, onS
     try { await onSubmit(values); }
     catch (error) { const presented = apiErrorPresentation(error); setServer(presented); focusField(presented.field); }
   };
-  const requestClose = () => { if (pending) return; if (dirty) setConfirmDiscard(true); else onClose(); };
+  const requestClose = () => {
+    if (pending) return;
+    if (!dirty) { onClose(); return; }
+    if (confirmDiscard) return; // already asking; keep the field remembered from the first request
+    const active = document.activeElement as HTMLElement | null;
+    resumeRef.current = active && formRef.current?.contains(active) ? active : null;
+    setConfirmDiscard(true);
+  };
+  const keepEditing = () => {
+    setConfirmDiscard(false);
+    // The prompt's buttons unmount; without this, focus would fall back to the page body.
+    window.setTimeout(() => {
+      const target = resumeRef.current?.isConnected ? resumeRef.current : formRef.current?.querySelector<HTMLElement>('input, select, textarea');
+      target?.focus();
+    }, 0);
+  };
 
   const noCourses = mode === 'create' && courses.isSuccess && courses.data.length === 0;
   const coursesFailed = mode === 'create' && courses.isError;
@@ -87,9 +110,9 @@ export function ClassroomFormDialog({ open, mode, scope, classroom, pending, onS
         ? 'Choose a course from the VISTA catalog. VISTA sets it up for your school and links it to this classroom.'
         : <span className="inline-flex flex-wrap items-center gap-2">{classroom && <ClassroomCodeTag code={classroom.code} />}Changes keep members, enrollments and learning history.</span>}
       footer={confirmDiscard ? (
-        <div className="flex w-full flex-wrap items-center justify-between gap-2" role="alertdialog" aria-label="Discard unsaved changes?">
+        <div ref={promptRef} className="flex w-full flex-wrap items-center justify-between gap-2" role="alertdialog" aria-label="Discard unsaved changes?">
           <p className="text-sm font-medium text-ink">Discard unsaved changes?</p>
-          <div className="flex gap-2"><Button variant="secondary" onClick={() => setConfirmDiscard(false)} data-autofocus>Keep editing</Button><Button variant="danger" onClick={onClose}>Discard</Button></div>
+          <div className="flex gap-2"><Button variant="secondary" onClick={keepEditing} data-autofocus>Keep editing</Button><Button variant="danger" onClick={onClose}>Discard</Button></div>
         </div>
       ) : (
         <><Button variant="secondary" onClick={requestClose} disabled={pending}>Cancel</Button>

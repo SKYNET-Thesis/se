@@ -196,6 +196,9 @@ describe('ActivityReader loading isolation', () => {
       await act(async () => { next.click(); await Promise.resolve(); });
       expect(mocks.complete).not.toHaveBeenCalled(); // completion only ever comes from Mark as Completed
       expect(container.textContent).toContain('Robot Concept in Action');
+      // A07: focus follows the navigation to the new activity title (keyboard and screen-reader users hear it).
+      expect(document.activeElement?.tagName).toBe('H1');
+      expect(document.activeElement?.textContent).toBe('Robot Concept in Action');
     });
 
     it('keeps Reading unconfirmed when completion request fails', async () => {
