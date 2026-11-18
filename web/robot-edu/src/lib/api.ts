@@ -1,6 +1,22 @@
 /** NestJS is the only application-data boundary for the browser. */
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
+  constructor(readonly status: number, message: string, readonly code?: string) { super(message); }
+}
+
+/** Student-auth restrictions the API reports on any authenticated route (temporary password gate, expiry, rotated session). */
+export const AUTH_RESTRICTION_EVENT = "vista:auth-restriction";
+function applyAuthRestriction(status: number, code?: string) {
+  if (typeof window === "undefined" || !code) return;
+  if (code === "PASSWORD_CHANGE_REQUIRED" && status === 403) {
+    if (window.location.pathname !== "/student/change-password") window.location.assign("/student/change-password");
+  } else if ((code === "SESSION_ROTATED" && status === 401) || (code === "TEMPORARY_PASSWORD_EXPIRED" && status === 403)) {
+    window.dispatchEvent(new CustomEvent(AUTH_RESTRICTION_EVENT, { detail: { code } }));
+  }
+}
+async function errorFromResponse(response: Response): Promise<ApiError> {
+  const body = await response.json().catch(() => null) as { message?: string; code?: string } | null;
+  applyAuthRestriction(response.status, body?.code);
+  return new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`, body?.code);
 }
 
 const baseUrl = (((import.meta as any).env?.VITE_API_BASE_URL as string | undefined) ?? "/api/v1").replace(/\/$/, "");
@@ -16,10 +32,7 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Cache-Control": "no-store" },
   });
-  if (!response.ok) {
-    const body = await response.json().catch(() => null) as { message?: string } | null;
-    throw new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`);
-  }
+  if (!response.ok) throw await errorFromResponse(response);
   return readJson<T>(response);
 }
 
@@ -29,10 +42,7 @@ export async function apiGetOptional<T>(path: string, accessToken: string): Prom
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Cache-Control": "no-store" },
   });
-  if (!response.ok) {
-    const body = await response.json().catch(() => null) as { message?: string } | null;
-    throw new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`);
-  }
+  if (!response.ok) throw await errorFromResponse(response);
   const text = await response.text();
   return text.trim() ? JSON.parse(text) as T : null;
 }
@@ -237,7 +247,7 @@ export interface KnowledgeCheckSubmissionResult {
 
 export async function apiRequest<T>(path: string, accessToken: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { method, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
-  if (!response.ok) { const payload = await response.json().catch(() => null) as { message?: string } | null; throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`); }
+  if (!response.ok) throw await errorFromResponse(response);
   return readJson<T>(response);
 }
 
@@ -285,14 +295,14 @@ export interface ApiOrganizationMembership { membershipId?: string; organization
 export interface ApiAccessContext { systemRoleCodes: string[]; memberships: ApiOrganizationMembership[]; }
 export interface ApiSchoolMember { id:string; full_name:string; email:string|null; status:string; membership_id:string; membership_status:string; role_code:string; employee_code?:string|null; student_code?:string|null; grade_level?:string|null; guardian_email?:string|null; account_state?:'active'|'invited'|'account_setup_pending'; }
 export interface ApiSchoolOverview { studentsCount:number; teachersCount:number; classroomsCount:number; robotResourcesCount:number; accountSetupPendingCount:number; }
-export interface ApiSchoolPerson { id:string; displayName:string; role:'student'|'instructor'; studentCode?:string|null; employeeCode?:string|null; gradeLevel?:string|null; email:string|null; accountState:'active'|'invited'|'account_setup_pending'; }
+export interface ApiSchoolPerson { id:string; displayName:string; role:'student'|'instructor'; studentCode?:string|null; employeeCode?:string|null; gradeLevel?:string|null; email:string|null; accountState:'active'|'invited'|'account_setup_pending'; passwordChangeRequired?:boolean; temporaryPasswordExpiresAt?:string|null; }
 export interface ApiMemberCandidate { userId:string; displayName:string; organizationRole:'student'|'instructor'; schoolCode:string|null; accountState:'active'|'invited'|'account_setup_pending'; alreadyMember:boolean; }
 export interface ApiPage<T> { items:T[]; page:number; pageSize:number; total:number; }
 export type ApiImportErrorCode='VALIDATION_ERROR'|'DUPLICATE_USER'|'ACCOUNT_INVITE_FAILED'|'ACCOUNT_PROVISIONING_FAILED'|'DATABASE_WRITE_FAILED'|'NOT_AUTHORIZED'|'UNKNOWN_IMPORT_ERROR';
-export interface ApiSchoolImportResult { processed:number; created:number; unchanged:number; failed:number; schoolCode?:string; results:Array<{row:number;status:'created'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name?:string;schoolCode?:string;studentCode?:string;setupCode?:string}>; }
+export interface ApiSchoolImportResult { processed:number; created:number; unchanged:number; failed:number; schoolCode?:string; results:Array<{row:number;status:'created'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name?:string;schoolCode?:string;studentCode?:string;setupCode?:string;temporaryPassword?:string;temporaryPasswordExpiresAt?:string;credentialProvisioningPending?:boolean}>; }
 export interface ApiClassroomStudentPreviewRow { row:number;firstName:string;lastName:string;studentCode:string;gradeLevel:string;email:string|null;status:'new_student'|'existing_student'|'already_in_class'|'needs_review';errors:string[];warnings:string[]; }
 export interface ApiClassroomStudentPreview { processed:number;newStudents:number;existingStudents:number;alreadyInClass:number;needsReview:number;rows:ApiClassroomStudentPreviewRow[]; }
-export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string}>; }
+export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string;temporaryPassword?:string;temporaryPasswordExpiresAt?:string;setupCode?:string}>;schoolCode?:string; }
 export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; description?:string|null; capacity?:number|null; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
 export interface ApiOffering { id:string; code:string; title:string; status:string; }
 export interface ApiChallengeCondition { type: string; description: string | null; ruleKey: string; }
@@ -455,12 +465,13 @@ export const identityApi = {
   memberships: (token: string) => apiGet<ApiOrganizationMembership[]>("/me/memberships", token),
   updateProfile: (token: string, fullName: string) => apiRequest<ApiIdentity>("/me/profile", token, "PATCH", { fullName }),
 };
-export interface ApiStudentAuthSession { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; token_type: string; }
+export interface ApiStudentAuthSession { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; token_type: string; password_change_required?: boolean; }
 export interface ApiStudentPasswordRecoveryCode { recoveryCode: string; expiresAt: string; }
 export const studentAuthApi = {
   login: (body: { schoolCode: string; studentCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/login", body),
   setup: (body: { schoolCode: string; studentCode: string; setupCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/setup", body),
   recover: (body: { schoolCode: string; studentCode: string; recoveryCode: string; password: string }) => apiPublicPost<{ status: "password_updated" }>("/auth/students/recover", body),
+  changePassword: (token: string, body: { currentPassword: string; newPassword: string }) => apiRequest<ApiStudentAuthSession>("/auth/students/password", token, "PATCH", body),
 };
 export const educationAdminApi = {
   courses: (organizationId:string,token:string) => apiGet<ApiCourse[]>(`/education-admin/organizations/${organizationId}/courses`,token),
@@ -483,6 +494,7 @@ export const educationAdminApi = {
   activateCourseOffering: (organizationId:string, offeringId:string, token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/course-offerings/${offeringId}/activate`,token,'POST'),
   importUsers: (organizationId:string,token:string,body:ApiRecord) => apiRequest<ApiSchoolImportResult>(`/education-admin/organizations/${organizationId}/user-imports`,token,'POST',body),
   issueStudentPasswordRecovery: (organizationId:string,studentId:string,token:string) => apiRequest<ApiStudentPasswordRecoveryCode>(`/education-admin/organizations/${organizationId}/students/${studentId}/password-recovery`,token,'POST'),
+  reissueStudentTemporaryPassword: (organizationId:string,studentId:string,token:string) => apiRequest<{studentId:string;temporaryPassword:string;temporaryPasswordExpiresAt:string;schoolCode?:string|null}>(`/education-admin/organizations/${organizationId}/students/${studentId}/temporary-password/reissue`,token,'POST',{confirm:true}),
   previewClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentPreview>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports/preview`,token,'POST',body),
   confirmClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentImportResult>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports`,token,'POST',body),
   upsertMember: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`,token,'POST',body),

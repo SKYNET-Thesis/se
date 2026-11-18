@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { FileUpIcon } from 'lucide-react';
+import { CopyIcon, FileUpIcon } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { educationAdminApi, type ApiClassroomStudentImportResult, type ApiClassroomStudentPreview } from '../../lib/api';
@@ -23,8 +23,11 @@ export function ClassroomStudentImport({ open, onClose, organizationId, classroo
   const [result, setResult] = useState<ApiClassroomStudentImportResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const temporaryCredentials = result?.results.filter(item => item.temporaryPassword) ?? [];
+  const setupCredentials = result?.results.filter(item => item.setupCode) ?? [];
 
-  const reset = () => { setFileName(''); setRows([]); setPreview(null); setResult(null); setError(null); if (inputRef.current) inputRef.current.value = ''; };
+  const reset = () => { setFileName(''); setRows([]); setPreview(null); setResult(null); setError(null); setCopyError(null); if (inputRef.current) inputRef.current.value = ''; };
   const close = () => { reset(); onClose(); };
   const upload = async (file: File) => {
     setBusy(true); setError(null); setResult(null); setFileName(file.name);
@@ -67,6 +70,8 @@ export function ClassroomStudentImport({ open, onClose, organizationId, classroo
       {result && <>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">{classroomImportResultSummary(result).map(([label, value]) => <Metric key={label} label={label} value={value} />)}</div>
         <div className={result.failed > 0 ? 'rounded-md bg-warn-soft px-4 py-4 text-sm text-warn' : 'rounded-md bg-ok-soft px-4 py-4 text-sm text-ok'}><p className="font-semibold">{result.failed > 0 ? 'Import completed with rows needing attention.' : 'Students were saved to the classroom.'}</p><p className="mt-1">Persistence was confirmed by the Education API.</p></div>
+        {temporaryCredentials.length > 0 && <section className="rounded-md border border-warn/40 bg-warn-soft p-4"><h3 className="font-semibold text-ink">One-time temporary credentials</h3><p className="mt-1 text-sm text-ink-muted">Save and share securely. Credentials cannot be viewed after this dialog closes. Students must change the password at first sign-in.</p>{temporaryCredentials.map(item => <div key={item.row} className="mt-3 rounded-md bg-surface p-3"><p className="text-sm font-medium">{item.name} · {item.studentCode}</p><p className="font-mono text-sm">{result.schoolCode} · {item.studentCode} · {item.temporaryPassword}</p><p className="text-xs text-ink-muted">Expires {item.temporaryPasswordExpiresAt ? new Date(item.temporaryPasswordExpiresAt).toLocaleString() : 'as configured'}</p><Button size="sm" variant="secondary" className="mt-2" icon={<CopyIcon className="h-4 w-4" />} onClick={() => void navigator.clipboard.writeText(`${result.schoolCode} | ${item.studentCode} | ${item.temporaryPassword}`).catch(() => setCopyError('Could not copy the credential.'))}>Copy</Button></div>)}{copyError && <p role="alert" className="mt-2 text-sm text-danger">{copyError}</p>}</section>}
+        {setupCredentials.length > 0 && <section className="rounded-md border border-line bg-surface p-4"><h3 className="font-semibold text-ink">Legacy one-time Setup Codes</h3><p className="mt-1 text-sm text-ink-muted">Existing pending students can continue activating with their Setup Code.</p>{setupCredentials.map(item => <p key={item.row} className="mt-2 font-mono text-sm">{result.schoolCode} · {item.studentCode} · {item.setupCode}</p>)}</section>}
         {result.failed > 0 && <div className="divide-y divide-line rounded-md border border-line">{result.results.filter(item => item.status === 'failed').map(item => <div key={item.row} className="px-3 py-3 text-sm"><p className="font-medium text-ink">{item.name} · {item.studentCode}</p><p className="mt-1 text-ink-muted">{item.message ?? 'This row could not be imported.'}</p></div>)}</div>}
       </>}
       {error && <p role="alert" className="rounded-md bg-danger-soft px-3 py-3 text-sm text-danger">{error}</p>}

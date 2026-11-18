@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/database/prisma.service";
+import { studentTempPasswordEnabled } from "./student-temp-password.feature";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { LearningScopeService } from "../learning/learning-scope.service";
 import { MemberCandidateQueryDto, SchoolPeopleQueryDto } from "./dto/school-admin-query.dto";
@@ -31,11 +33,15 @@ export class SchoolAdminQueryService {
     const search = query.search?.trim() || null;
     const role = query.role ?? null;
     const offset = (query.page - 1) * query.pageSize;
+    const temporaryColumns = studentTempPasswordEnabled()
+      ? Prisma.sql`p.password_change_required AS "passwordChangeRequired", p.temporary_password_expires_at AS "temporaryPasswordExpiresAt"`
+      : Prisma.sql`false AS "passwordChangeRequired", NULL::timestamptz AS "temporaryPasswordExpiresAt"`;
     const rows = await this.prisma.$queryRaw<Array<PageRow<Record<string, unknown>>>>`
       WITH filtered AS (
         SELECT u.id, u.full_name AS "displayName", r.code AS role,
                p.student_code AS "studentCode", p.employee_code AS "employeeCode",
                p.grade_level AS "gradeLevel", u.email,
+               ${temporaryColumns},
                CASE WHEN p.account_state='account_setup_pending' OR u.auth_user_id IS NULL THEN 'account_setup_pending'
               WHEN r.code='student' AND p.person_type='student' AND p.account_state='active' AND u.status='active' THEN 'active'
                     WHEN u.email_verified_at IS NULL THEN 'invited' ELSE 'active' END AS "accountState"

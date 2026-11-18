@@ -24,11 +24,13 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const [error, setError] = useState<string | null>(null);
+  const restrictionReason = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('reason') : null;
+  const [error, setError] = useState<string | null>(restrictionReason === 'TEMPORARY_PASSWORD_EXPIRED' ? 'Your temporary password has expired. Ask your school administrator to issue a new one.' : restrictionReason === 'SESSION_ROTATED' ? 'Your password changed, so you were signed out. Sign in again.' : null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
 
-  if (session && !submitting) return <Navigate to="/" replace />;
+  if (session && !submitting) return <Navigate to={passwordChangeRequired ? '/student/change-password' : '/'} replace />;
 
   const resetFormState = () => {
     setError(null);
@@ -76,6 +78,7 @@ export function Login() {
       }
 
       let accessToken: string;
+      let requiresPasswordChange = false;
 
       // 2. Email Sign-in Flow
       if (loginType === 'email') {
@@ -117,6 +120,8 @@ export function Login() {
             studentCode: studentCode.trim(),
             password,
           });
+          requiresPasswordChange = Boolean(authSession.password_change_required);
+          setPasswordChangeRequired(requiresPasswordChange);
 
           const { data, error: sessionError } = await client.auth.setSession({
             access_token: authSession.access_token,
@@ -127,6 +132,9 @@ export function Login() {
           accessToken = data.session.access_token;
         }
       }
+
+      // Restricted first-login sessions may call only the password-change endpoint until rotation completes.
+      if (requiresPasswordChange) return;
 
       // Verify active roles
       const access = await identityApi.roles(accessToken);

@@ -101,7 +101,7 @@ describe("ClassroomStudentImportService confirm", () => {
     synchronizeIfDeliverable.mockClear();
     findClassroom.mockReset().mockResolvedValue({ id: "class-a", organization_id: "school-a" });
     queryRaw.mockReset().mockResolvedValue([]);
-    provision.mockReset().mockResolvedValue({ userId: "user-new" });
+    provision.mockReset().mockResolvedValue({ userId: "user-new", status: "created" });
     addExisting.mockReset().mockResolvedValue(undefined);
   });
 
