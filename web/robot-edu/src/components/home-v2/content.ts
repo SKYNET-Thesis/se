@@ -13,6 +13,7 @@ export const NAV = [
   { id: 'v2-modes', label: 'Modes' },
   { id: 'v2-safety', label: 'Safety' },
   { id: 'v2-schools', label: 'Schools' },
+  { id: 'v2-download', label: 'Download' },
 ] as const;
 
 export interface JourneyStage { name: string; text: string; asset: HomeAssetId }
