@@ -46,23 +46,11 @@ student code + temporary password → every ordinary API route answers `403 PASS
 * **Flag on:** requires the migration. Do not turn the flag off again while students are still pending their first change; the
   forced-change gate lives behind the flag.
 
-Migration `services/education-api/prisma/migrations/20261118_student_password_change_required/migration.sql` (not registered in
-`database/migrations/manifest.json`, **not applied anywhere except disposable databases**): five `ADD COLUMN IF NOT EXISTS`
-on `public.education_school_user_profiles`: `password_change_required boolean NOT NULL DEFAULT false`,
-`password_changed_at`, `temporary_password_expires_at`, `provisioning_claim_token uuid`, `provisioning_lease_until` (nullable).
-Additive only, no back-fill, no constraint/index/RLS/grant/trigger changes, metadata-only on PostgreSQL ≥ 11. The runtime role
-already has SELECT/INSERT/UPDATE on the table (migration L), so no grant change is needed. Rollback = leave the columns (unused
-when the flag is off) or `DROP COLUMN` them after the flag has been off.
-
-### Release plan (needs explicit approval; not part of the LMS release)
-
-1. Register the migration in the release manifest / apply through the approved Production database release workflow
-   (backup + schema gate), then verify the columns exist.
-2. Deploy API + web with the flag **off**; verify existing login, Setup Code and Recovery Code.
-3. Set `STUDENT_TEMP_PASSWORD_ENABLED=true` (Student Auth already requires `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_ANON_KEY`),
-   restart, provision one test student, complete the first-login change, then roll out.
-4. Rollback: set the flag to `false` (students already changed are unaffected; pending ones must be reissued a Setup Code
-   or have their temporary password changed first).
+Migration `database/migrations/20261118_n_student_password_change_required.sql` (release scope **N**, registered in `database/migrations/manifest.json`,
+pinned in `database/release-scopes.json`, postflight `scripts/verify_production_release_n.py`; **not applied to Production**): five `ADD COLUMN IF NOT EXISTS`
+on `public.education_school_user_profiles`. Additive only, no back-fill, no constraint/index/RLS/grant/trigger change, metadata-only on PostgreSQL ≥ 11.
+The runtime role already has SELECT/INSERT/UPDATE on the table (migration L). Rollback: leave the columns (inert while the flag is off) or
+`docs/operations/sql/n-rollback.sql`. The full approval-gated sequence is in [production-release-n-runbook.md](production-release-n-runbook.md).
 
 ## Real-integration test harness (local only)
 
@@ -73,5 +61,4 @@ No Production or hosted Supabase is used. Components: disposable `postgres:17` (
 `/auth/v1` prefix and adds CORS (hosted Supabase's gateway does both); fixtures from `phase243-e2e-fixtures.js seed` plus real
 GoTrue users created with the fixture auth UUIDs; the Education API twice (flag on `:3012`, flag off `:3013`, `TRUST_PROXY=1`).
 Run `playwright test -c playwright.student-auth.config.ts` (API journeys) and with `SA_WITH_UI=1` (browser journeys).
-The API specs use a distinct `X-Forwarded-For` per request so the per-IP student-auth limiter (10/min) does not interfere, and
-assert that the limiter does trigger.
+The API specs use a distinct `X-Forwarded-For` per request so the per-address student-auth cap does not interfere; the per-account limiter (10/min) is asserted separately.
