@@ -74,7 +74,7 @@ test('D/H: an enrolled student filters the catalog by level and tag and sees the
   expect((await call(page, admin, 'PATCH', `/admin/courses/${fixture.courseId}`, { level: 'BEGINNER', tags: ['SO-101', 'Blockly'] })).status).toBe(200);
   await signIn(page, 'student');
   await page.goto('/courses');
-  const tile = page.getByRole('article').filter({ hasText: /Phase 2\.4\.3|canonical|course/i }).first();
+  const tile = page.getByRole('article').filter({ hasText: 'VISTA Phase 2.4.3 canonical course' }).first();
   await expect(tile.getByTestId('level-badge')).toHaveText('Beginner');
   await page.getByLabel('Filter by level').selectOption('ADVANCED');
   await expect(page.getByText('No matching courses')).toBeVisible();
