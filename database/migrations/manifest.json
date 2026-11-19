@@ -68,6 +68,12 @@
       "path": "database/migrations/20261119_o_wf01_robot_allocation_permission.sql",
       "sha256": "6aa109ea5520c76de9cd2937e24535ec3069728b45a5aa4cb64ab831127f8e7c",
       "order": 11
+    },
+    {
+      "version": "20261119_p_course_level_tags_prerequisites_assignment_difficulty",
+      "path": "database/migrations/20261119_p_course_level_tags_prerequisites_assignment_difficulty.sql",
+      "sha256": "3c9e9744e0c669e539ce5481bac3acf0eae4623e735ac67889dc76cff357b505",
+      "order": 12
     }
   ]
 }
