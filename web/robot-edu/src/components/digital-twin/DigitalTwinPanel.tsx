@@ -127,6 +127,10 @@ export function DigitalTwinPanel({
                   <dd className="font-medium text-ink">{telemetry.fresh ? 'Fresh' : 'Stale / unavailable'}</dd>
                 </div>
                 <div>
+                  <dt className="text-ink-subtle">Heartbeat</dt>
+                  <dd className="font-medium text-ink">{telemetry.heartbeat ? `${telemetry.heartbeat.connection} · ${telemetry.heartbeat.origin === 'physical' ? 'live physical' : telemetry.heartbeat.origin}` : telemetry.transport === 'connected' ? 'Waiting' : '—'}</dd>
+                </div>
+                <div>
                   <dt className="text-ink-subtle">Calibration</dt>
                   <dd className="font-medium text-ink">{telemetry.frame?.calibration_status ?? '—'}</dd>
                 </div>

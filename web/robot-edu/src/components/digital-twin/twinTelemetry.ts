@@ -6,7 +6,33 @@ export type JointState = {
   measured_at: string; sequence: number; connection: 'connected' | 'disconnected' | 'stale';
   measured: JointReading[]; calibrated?: JointReading[]; commanded?: JointReading[]; calibration_status: 'NOT_APPLICABLE' | 'UNCALIBRATED' | 'VERIFIED';
 };
-export type TwinSnapshot = { frame: JointState | null; transport: 'connecting' | 'connected' | 'disconnected'; ageMs: number | null; fresh: boolean; error: string | null };
+export type TwinHeartbeat = { type: 'heartbeat'; origin: 'mock' | 'simulation' | 'physical'; connection: 'connected' | 'disconnected' | 'stale'; sequence: number | null; serverTime: string };
+export type TwinSnapshot = { frame: JointState | null; transport: 'connecting' | 'connected' | 'disconnected'; ageMs: number | null; fresh: boolean; error: string | null; heartbeat?: TwinHeartbeat | null };
+
+/** Keepalive cadence requested from the Twin (server clamps to 0.25-10 s). A link silent for three intervals is dead. */
+export const HEARTBEAT_SECONDS = 2;
+export const HEARTBEAT_TIMEOUT_MS = HEARTBEAT_SECONDS * 3000;
+
+export function parseTwinHeartbeat(raw: unknown): TwinHeartbeat | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Record<string, unknown>;
+  if (value.type !== 'heartbeat' || value.schema_version !== 1) return null;
+  if (!['mock', 'simulation', 'physical'].includes(value.origin as string) || !['connected', 'disconnected', 'stale'].includes(value.connection as string)) return null;
+  if (typeof value.server_time !== 'string' || Number.isNaN(Date.parse(value.server_time))) return null;
+  const sequence = typeof value.sequence === 'number' && Number.isInteger(value.sequence) && value.sequence >= 0 ? value.sequence : null;
+  return { type: 'heartbeat', origin: value.origin as TwinHeartbeat['origin'], connection: value.connection as TwinHeartbeat['connection'], sequence, serverTime: value.server_time };
+}
+
+/** True when nothing (frame or heartbeat) arrived for the timeout while the socket claims to be open. */
+export function linkSilent(lastMessageAt: number, now: number, timeoutMs = HEARTBEAT_TIMEOUT_MS): boolean {
+  return now - lastMessageAt > timeoutMs;
+}
+
+export function withHeartbeat(url: string, seconds = HEARTBEAT_SECONDS): string {
+  const parsed = new URL(url);
+  if (!parsed.searchParams.has('heartbeat')) parsed.searchParams.set('heartbeat', String(seconds));
+  return parsed.toString();
+}
 const STALE_MS = 1000;
 
 function readings(value: unknown): value is JointReading[] {

@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 
@@ -18,6 +19,23 @@ from .mujoco_sync import synchronize_simulation_state
 
 
 DEFAULT_FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "so101_joint_states.json"
+
+
+HEARTBEAT_MIN_SECONDS, HEARTBEAT_MAX_SECONDS = 0.25, 10.0
+
+
+def heartbeat_interval(query_string: bytes) -> float | None:
+    """Opt-in keepalive: `?heartbeat=<seconds>` (clamped). Clients that do not ask never see a heartbeat frame."""
+    values = parse_qs(query_string.decode("latin-1")).get("heartbeat")
+    if not values:
+        return None
+    try:
+        seconds = float(values[0])
+    except ValueError:
+        return None
+    if seconds != seconds or seconds in (float("inf"), float("-inf")):
+        return None
+    return min(HEARTBEAT_MAX_SECONDS, max(HEARTBEAT_MIN_SECONDS, seconds))
 
 
 def create_app(
@@ -154,6 +172,10 @@ def create_app(
                 return
         await websocket.accept()
         sent_sequence = -1
+        interval = heartbeat_interval(websocket.scope.get("query_string", b""))
+        loop = asyncio.get_running_loop()
+        last_sent = loop.time()
+        tick = 1 / source.rate_hz if interval is None else min(1 / source.rate_hz, interval / 2)
         try:
             while True:
                 current_time = now()
@@ -193,7 +215,19 @@ def create_app(
                 if state is not None and state.sequence != sent_sequence:
                     await websocket.send_json(state.model_dump(mode="json", exclude_none=True))
                     sent_sequence = state.sequence
-                await asyncio.sleep(1 / source.rate_hz)
+                    last_sent = loop.time()
+                elif interval is not None and loop.time() - last_sent >= interval:
+                    # Idle keepalive for opted-in clients: it carries the server's own freshness verdict and the telemetry
+                    # origin, so a viewer can tell "healthy but idle", "stale" and "dead connection" apart.
+                    origin = "physical" if physical_state is not None else "simulation" if simulation_state is not None else "mock"
+                    await websocket.send_json({
+                        "type": "heartbeat", "schema_version": 1, "server_time": current_time.isoformat(), "origin": origin,
+                        "source_mode": state.source_mode.value if state else None, "robot_id": state.robot_id if state else None,
+                        "sequence": state.sequence if state else None, "connection": state.connection if state else "disconnected",
+                        "age_ms": max(0, int((current_time - state.measured_at).total_seconds() * 1000)) if state else None,
+                    })
+                    last_sent = loop.time()
+                await asyncio.sleep(tick)
         except WebSocketDisconnect:
             return
 
