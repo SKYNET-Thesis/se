@@ -120,6 +120,8 @@ describe("StudentAuthService", () => {
     expect(supabase.setStudentPassword).toHaveBeenCalledWith("auth-user-1", "new-secure-password");
     expect(supabase.authenticateStudent).toHaveBeenNthCalledWith(2, "student-user-1@students.auth.vista.invalid", "new-secure-password");
     expect(executeRaw.mock.calls[0][0].join(" ")).toContain("password_change_required = false");
+    // Prisma's 5 s default interactive-transaction timeout is too short for four identity-provider round trips under classroom concurrency.
+    expect(transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 15_000, timeout: 45_000 });
   });
 
   it("rejects a wrong temporary password without updating Supabase", async () => {

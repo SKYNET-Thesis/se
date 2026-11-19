@@ -12,6 +12,14 @@ import { studentTempPasswordEnabled } from "./student-temp-password.feature";
 
 const INVALID_STUDENT_CREDENTIALS = "School code, student code, password, or setup code is invalid.";
 
+/**
+ * The first-login change keeps its row lock open across four Supabase round trips (verify, set, sign in, revoke) plus the iat settle
+ * delay. Prisma's default interactive-transaction timeout is 5 s, which a whole classroom changing passwords at once exceeds
+ * (observed on Production: concurrent changes answered 500 and were compensated back to the temporary password). Give the transaction
+ * room; the identity calls have their own network timeouts.
+ */
+export const FIRST_LOGIN_CHANGE_TRANSACTION = { maxWait: 15_000, timeout: 45_000 } as const;
+
 @Injectable()
 export class StudentAuthService {
   constructor(private readonly prisma: PrismaService, private readonly supabase: SupabaseAdminService) {}
@@ -154,7 +162,7 @@ export class StudentAuthService {
         // Real revocation of other sessions of this student (e.g. the one that signed in with the temporary password). The iat cutoff in the auth guard remains the server-side backstop.
         await this.supabase.revokeOtherSessions(session.access_token);
         return this.publicSession(session);
-      });
+      }, FIRST_LOGIN_CHANGE_TRANSACTION);
     } catch (error) {
       if (authPasswordChanged) {
         // If local state persistence failed, restore the known temporary credential so the restricted flow remains recoverable.
