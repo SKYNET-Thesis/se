@@ -21,7 +21,7 @@ export async function call(page: Page, token: string, method: string, path: stri
 /** School Admin delivers a published course through the real UI: classroom + offering + the given members. Returns the classroom id. */
 export async function deliverCourse(page: Page, fixture: Fixture, courseTitle: string, className: string, members: string[], options: { selfEnrollment?: boolean; capacity?: number } = {}) {
   const adminToken = await signIn(page, fixture, 'schoolAdmin');
-  const code = className.replace(/[^A-Za-z0-9]/g, '').slice(0, 24).toUpperCase();
+  const code = `C${Date.now().toString(36)}${Math.floor(Math.random() * 46656).toString(36)}`.toUpperCase();
   await page.goto('/school/classrooms');
   await page.getByRole('button', { name: 'Create classroom' }).click();
   const create = page.getByRole('dialog', { name: 'Create classroom' });
