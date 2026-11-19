@@ -11,10 +11,13 @@ ENV_FILE=/tmp/vista-int-api.env
 case "${1:-}" in
 down)
   for p in $(pgrep -f '^node dist/main' || true); do kill "$p" 2>/dev/null || true; done
+  rm -f /tmp/vista-*-fixture-int.json
   docker rm -f "$PG" "$S3" >/dev/null 2>&1 || true; exit 0;;
 up) ;;
 *) echo "usage: $0 up|down" >&2; exit 2;;
 esac
+for p in $(pgrep -f '^node dist/main' || true); do kill "$p" 2>/dev/null || true; done
+rm -f /tmp/vista-phase243-fixture-int.json /tmp/vista-wf03-e2e-fixture-int.json
 docker rm -f "$PG" "$S3" >/dev/null 2>&1 || true
 docker run -d --name "$PG" --tmpfs /var/lib/postgresql/data -e POSTGRES_USER=vista_test -e POSTGRES_PASSWORD=intpw -e POSTGRES_DB=$DB -p 127.0.0.1:$PGPORT:5432 postgres:17 >/dev/null
 docker run -d --name "$S3" --tmpfs /data:size=1g,uid=10001,gid=10001,mode=700 --tmpfs /logs:uid=10001,gid=10001,mode=700 \
@@ -50,5 +53,7 @@ EOT
          LEARNING_MEDIA_S3_ENDPOINT=http://127.0.0.1:59000 LEARNING_MEDIA_BUCKET=vista-wf03-e2e-int AWS_REGION=us-east-1 && \
   VISTA_E2E_FIXTURE_FILE=/tmp/vista-phase243-fixture-int.json node dist/scripts/phase243-e2e-fixtures.js seed >/dev/null && \
   VISTA_E2E_FIXTURE_FILE=/tmp/vista-wf03-e2e-fixture-int.json node dist/scripts/wf03-local-e2e-fixtures.js seed >/dev/null && \
+  VISTA_SEED_ADMIN_USER_ID=f2430000-0000-4000-8000-000000000001 node dist/scripts/seed-so101-curriculum.js >/dev/null && \
   (set -a; . "$ENV_FILE"; set +a; nohup node dist/main.js >/tmp/vista-int-api.log 2>&1 &) )
+# fresh stack per full acceptance run: several specs enroll fixture students, and the WF-03 fixture is single-use
 sleep 7; curl -fsS http://127.0.0.1:3001/api/v1/health >/dev/null && echo "stack up: API http://127.0.0.1:3001/api/v1, fixtures /tmp/vista-{phase243,wf03-e2e}-fixture-int.json, env $ENV_FILE"

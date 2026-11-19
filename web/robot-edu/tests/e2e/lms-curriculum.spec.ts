@@ -5,7 +5,8 @@ import { readFile } from 'node:fs/promises';
 const fixture = JSON.parse(await readFile(process.env.VISTA_E2E_FIXTURE_FILE!, 'utf8')) as { schoolId: string; users: Record<string, { authUserId: string }> };
 const apiBase = process.env.VISTA_E2E_API_BASE_URL!; const authPort = Number(process.env.VISTA_E2E_JWKS_PORT ?? 54321);
 const run = Date.now().toString(36).toUpperCase();
-const COURSE = 'SO-101 Robotics Foundations';
+import { SO101_CURRICULUM } from '../../../../services/education-api/src/scripts/so101-curriculum.data';
+const COURSE = SO101_CURRICULUM[0].title;
 
 async function signIn(page: Page, who: string) {
   const s = await (await page.request.get(`http://127.0.0.1:${authPort}/token?sub=${fixture.users[who].authUserId}`)).json() as { access_token: string };
@@ -57,7 +58,7 @@ test('Seeded beginner course: School Admin delivers it; the student sees level, 
   expect(course).toMatchObject({ level: 'BEGINNER', tags: ['SO-101', 'Robotics', 'Blockly'] });
   expect((courses.body.items as Array<{ title: string }>).some((c) => c.title === 'SO-101 Motion and Coordinates')).toBe(false); // other undelivered courses stay private to the student
   const lessons = await call(page, student, `/courses/${course.id}/lessons`);
-  expect((lessons.body as Array<{ title: string }>).map((l) => l.title)).toEqual(['Meet the SO-101 arm', 'Safety first', 'Your first Blockly program']);
+  expect((lessons.body as Array<{ title: string }>).map((l) => l.title)).toEqual(SO101_CURRICULUM[0].modules.map((m) => m.title));   // three modules, each with two lessons and a module quiz
   await page.goto('/learning-path');
   const entry = page.getByRole('listitem').filter({ hasText: COURSE });
   await expect(entry).toContainText('Ready to start');

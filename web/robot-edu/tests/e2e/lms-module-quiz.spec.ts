@@ -13,7 +13,7 @@ test('Module-end quiz: weights are shown before submission, scoring and pass thr
   const classroomId = await deliverCourse(page, fixture, COURSE.title, classroomName, ['Phase 2.4.3 Test Student', 'Phase 2.4.3 Test Instructor']);
 
   const admin = await signIn(page, fixture, 'admin'); // the seeded curriculum is global: a System Administrator reads it
-  const courses = await call(page, admin, 'GET', '/courses?page=1&pageSize=100');
+  const courses = await call(page, admin, 'GET', `/courses?page=1&pageSize=20&q=${encodeURIComponent(COURSE.title)}`);
   const course = (courses.body.items as Array<{ id: string; title: string }>).filter((c) => c.title === COURSE.title)[0];
   const lessons = (await call(page, admin, 'GET', `/courses/${course.id}/lessons`)).body as Array<{ id: string; title: string; prerequisiteLessonIds: string[] }>;
   expect(lessons.map((l) => l.title)).toEqual(COURSE.modules.map((m) => m.title));           // three modules, quiz at the end of each
