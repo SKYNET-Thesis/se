@@ -25,8 +25,9 @@
     "20261114_j_one_submission_per_attempt",
     "20261116_k_course_authoring_capabilities",
     "20261116_l_runtime_role",
-    "20261118_n_student_password_change_required"
+    "20261118_n_student_password_change_required",
+    "20261119_o_wf01_robot_allocation_permission"
   ],
   "note": "Schema fingerprint of a fresh PostgreSQL 17 bootstrap (baseline + manifest migrations) for a database owned by user vista_test. Regenerate with --verify-only --write-expectation after a reviewed manifest change.",
-  "schemaFingerprint": "effa42669dfd4b939cfc72c83fc33c2a2ea7f94478b1863b3e516ba58e43e410"
+  "schemaFingerprint": "03f61a1a81ef93a76931043dd7c9d53627346cd0e58f24b22322f470da761717"
 }
