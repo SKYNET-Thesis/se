@@ -1,3 +1,5 @@
+import { CourseAcademicFields, sameAcademic, type AcademicValue } from '../../components/academic/CourseAcademicFields';
+import { isAcademicLevel } from '../../components/academic/LevelBadge';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -54,6 +56,8 @@ export function CourseBuilder() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [academic, setAcademic] = useState<AcademicValue>({ level: '', tags: [], prerequisiteCourseIds: [] });
+  const academicOf = (c: { level?: string | null; tags?: string[]; prerequisiteCourseIds?: string[] } | undefined | null): AcademicValue => ({ level: isAcademicLevel(c?.level) ? c!.level as AcademicValue['level'] : '', tags: c?.tags ?? [], prerequisiteCourseIds: c?.prerequisiteCourseIds ?? [] });
   const loadedRef = useRef<{ id: string; title: string; description: string } | null>(null);
   const detailsDirtyRef = useRef(false);
   useEffect(() => {
@@ -65,13 +69,15 @@ export function CourseBuilder() {
     if (previous?.id !== course.id || untouched) {
       setTitle(course.title);
       setDescription(course.description ?? '');
+      setAcademic(academicOf(course));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course]);
 
   const baseTitle = course?.title ?? '';
   const baseDescription = course?.description ?? '';
-  const detailsDirty = isNew ? Boolean(title.trim() || description.trim()) : Boolean(course) && (title !== baseTitle || description !== baseDescription);
+  const academicDirty = isNew ? Boolean(academic.level || academic.tags.length || academic.prerequisiteCourseIds.length) : Boolean(course) && !sameAcademic(academic, academicOf(course));
+  const detailsDirty = isNew ? Boolean(title.trim() || description.trim() || academicDirty) : Boolean(course) && (title !== baseTitle || description !== baseDescription || academicDirty);
   detailsDirtyRef.current = detailsDirty;
 
   const titleError = !title.trim() ? 'Course title is required.' : title.length > TITLE_MAX ? `Keep the title within ${TITLE_MAX} characters.` : null;
@@ -131,7 +137,7 @@ export function CourseBuilder() {
   // ---- Mutations ----
   const creatingRef = useRef(false);
   const create = useMutation({
-    mutationFn: (body: { title: string; description?: string }) => catalogApi.createGlobalCourse(token, body),
+    mutationFn: (body: { title: string; description?: string; level?: string; tags?: string[]; prerequisiteCourseIds?: string[] }) => catalogApi.createGlobalCourse(token, body),
     onSuccess: async (created) => {
       qc.setQueryData(courseDetailKey(created.id), created);
       await qc.invalidateQueries({ queryKey: ['admin', 'courses'] });
@@ -145,11 +151,12 @@ export function CourseBuilder() {
     },
   });
   const save = useMutation({
-    mutationFn: (body: { title: string; description: string }) => catalogApi.updateGlobalCourse(courseId, token, body),
+    mutationFn: (body: { title: string; description: string; level?: string; tags?: string[]; prerequisiteCourseIds?: string[] }) => catalogApi.updateGlobalCourse(courseId, token, body),
     onSuccess: async (updated) => {
       qc.setQueryData(courseDetailKey(updated.id), updated);
       setTitle(updated.title);
       setDescription(updated.description ?? '');
+      setAcademic(academicOf(updated));
       await qc.invalidateQueries({ queryKey: ['admin', 'courses'] });
       setBanner({ tone: 'ok', text: 'Course details saved.' });
     },
@@ -174,9 +181,9 @@ export function CourseBuilder() {
     if (isNew) {
       if (creatingRef.current || create.isPending) return; // create the draft exactly once
       creatingRef.current = true;
-      create.mutate({ title: title.trim(), description: description.trim() || undefined });
+      create.mutate({ title: title.trim(), description: description.trim() || undefined, ...(academic.level ? { level: academic.level } : {}), ...(academic.tags.length ? { tags: academic.tags } : {}), ...(academic.prerequisiteCourseIds.length ? { prerequisiteCourseIds: academic.prerequisiteCourseIds } : {}) });
     } else if (!save.isPending && detailsDirty) {
-      save.mutate({ title: title.trim(), description: description.trim() });
+      save.mutate({ title: title.trim(), description: description.trim(), ...(academicDirty ? { ...(academic.level ? { level: academic.level } : {}), tags: academic.tags, prerequisiteCourseIds: academic.prerequisiteCourseIds } : {}) });
     }
   };
 
@@ -375,6 +382,8 @@ export function CourseBuilder() {
                     <span className="text-ink-subtle">{description.length}/{DESCRIPTION_MAX}</span>
                   </span>
                 </label>
+
+                <CourseAcademicFields value={academic} onChange={setAcademic} courseId={isNew ? undefined : courseId} disabled={isArchived} />
 
                 {course && (course.label || course.level || course.recommendedGrades || course.learningOutcome || (course.competencies?.length ?? 0) > 0) && (
                   <dl className="grid gap-3 rounded-lg border border-line bg-sunken/30 p-4 text-sm sm:grid-cols-2" aria-label="Course metadata">

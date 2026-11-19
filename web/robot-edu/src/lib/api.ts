@@ -48,7 +48,14 @@ export async function apiGetOptional<T>(path: string, accessToken: string): Prom
 }
 
 export interface ApiEnrollmentSync { classrooms: number; enrolled: number }
-export interface ApiCourse { enrollmentSync?: ApiEnrollmentSync; id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
+export interface ApiAssignmentAcademic { assignmentId: string; difficulty: string | null; assignmentType: string | null; passScore: number | null; gradingMethod: string | null; learningObjectives: string[]; maxScore: number | null }
+export interface ApiLearningPath {
+  courses: Array<{ id: string; title: string; description: string | null; level: string | null; levelLabel: string | null; tags: string[]; totalLessons: number; completedLessons: number; progressPercent: number;
+    state: 'completed' | 'in_progress' | 'available' | 'locked'; unmetPrerequisites: Array<{ id: string; title: string; enrolled: boolean }>; lockedReason: string | null }>;
+  recommendedNext: { id: string; title: string; level: string | null; reason: string } | null;
+  levels: Array<{ code: string; label: string; total: number; completed: number }>;
+}
+export interface ApiCourse { levelLabel?: string | null; tags?: string[]; prerequisiteCourseIds?: string[]; enrollmentSync?: ApiEnrollmentSync; id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
 export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
 
 export type LessonProgressStatus = "completed" | "current" | "available" | "locked" | "in_progress";
@@ -311,6 +318,7 @@ export interface ApiDeliveryRubricCriterion { title: string; description: string
 export interface ApiDeliveryOption { course_id:string; course_title:string; lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; challenges:ApiDeliveryChallenge[]; rubric?:ApiDeliveryRubricCriterion[]; }
 export interface ApiEnrollment { id: string; course_id: string; classroom_id: string | null; status: string; enrolled_at?: string; completed_at?: string | null; }
 export interface ApiClassroomAssignment {
+  difficulty?: string | null; assignment_type?: string | null; pass_score?: number | null; grading_method?: string | null; learning_objectives?: string[];
   /** Grading criteria shown to the student before submission. */
   rubric?: Array<{ id: string; title: string; description?: string | null; maxPoints: number }>; id: string; classroom_id: string; assignment_id: string; lesson_id: string; lesson_title?:string; challenge_id: string | null; challenge_title?:string|null; title: string; instructions: string | null; allowed_blocks?: unknown; constraints?: unknown; status: string; available_from?:string|null; due_at?:string|null; close_at?:string|null; max_attempts?:number|null; published_by?:string|null; }
 export interface ApiPublishedQuiz { canonical_assignment_id: string; quiz_title: string; instructions: string; lesson_id: string; lesson_title: string; course_id: string; course_title: string; course_status: string; pass_percent: number; question_count: number; already_assigned: boolean; }
@@ -512,8 +520,8 @@ export const educationAdminApi = {
   allocateRobot: (classroomId:string,token:string,robotId:string) => apiRequest<ApiRecord>(`/education-admin/classrooms/${classroomId}/robot-allocation`,token,'PUT',{robotId}),
 };
 export const catalogApi = {
-  createGlobalCourse: (token:string, body:{title:string;description?:string}) => apiRequest<ApiCourse>('/admin/courses',token,'POST',body),
-  updateGlobalCourse: (courseId:string,token:string,body:{title?:string;description?:string}) => apiRequest<ApiCourse>(`/admin/courses/${courseId}`,token,'PATCH',body),
+  createGlobalCourse: (token:string, body:{title:string;description?:string;level?:string;tags?:string[];prerequisiteCourseIds?:string[]}) => apiRequest<ApiCourse>('/admin/courses',token,'POST',body),
+  updateGlobalCourse: (courseId:string,token:string,body:{title?:string;description?:string;level?:string;tags?:string[];prerequisiteCourseIds?:string[]}) => apiRequest<ApiCourse>(`/admin/courses/${courseId}`,token,'PATCH',body),
   publishGlobalCourse: (courseId:string,token:string) => apiRequest<ApiCourse>(`/admin/courses/${courseId}/publish`,token,'POST'),
   /** Idempotent, all-or-nothing retry that enrolls the members of every active classroom of a published course. */
   syncCourseEnrollments: (courseId:string,token:string) => apiRequest<ApiEnrollmentSync>(`/admin/courses/${courseId}/enrollments/sync`,token,'POST'),
@@ -526,7 +534,9 @@ export const catalogApi = {
   },
   setLessonPrerequisites: (lessonId:string,token:string,prerequisiteLessonIds:string[]) => apiRequest<ApiRecord>(`/admin/lessons/${lessonId}/prerequisites`,token,'POST',{prerequisiteLessonIds}),
   authorSections: (lessonId:string,token:string) => apiGet<ApiRecord[]>(`/author/lessons/${lessonId}/sections`,token),
-  courses: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiCourse>>(`/courses?page=${page}&pageSize=${pageSize}`, token),
+  courses: (token: string, page = 1, pageSize = 20, filters: { level?: string; tag?: string; q?: string } = {}) => apiGet<ApiCollection<ApiCourse>>(`/courses?page=${page}&pageSize=${pageSize}${filters.level ? `&level=${encodeURIComponent(filters.level)}` : ''}${filters.tag ? `&tag=${encodeURIComponent(filters.tag)}` : ''}${filters.q ? `&q=${encodeURIComponent(filters.q)}` : ''}`, token),
+  courseTags: (token: string) => apiGet<{ used: Array<{ tag: string; courses: number }>; suggested: string[]; levels: Array<{ code: string; label: string }> }>('/course-tags', token),
+  learningPath: (token: string) => apiGet<ApiLearningPath>('/me/learning-path', token),
   course: (courseId: string, token: string) => apiGet<ApiCourse>(`/courses/${courseId}`, token),
   lessons: (courseId: string, token: string) => apiGet<ApiRecord[]>(`/courses/${courseId}/lessons`, token),
   lesson: (lessonId: string, token: string) => apiGet<ApiRecord>(`/lessons/${lessonId}`, token),
@@ -676,6 +686,8 @@ export const assignmentApi = {
   update: (classroomId: string, assignmentId: string, token: string, body: ApiRecord) => apiRequest<ApiRecord>(`/classrooms/${classroomId}/assignments/${assignmentId}`, token, "PATCH", body),
   getRubric: (classroomId: string, assignmentId: string, token: string) => apiGet<ApiRubricConfig>(`/classrooms/${classroomId}/assignments/${assignmentId}/rubric`, token),
   replaceRubric: (classroomId: string, assignmentId: string, token: string, criteria: Array<{ title: string; description?: string; maxPoints: number }>) => apiRequest<ApiRubricConfig>(`/classrooms/${classroomId}/assignments/${assignmentId}/rubric`, token, "PUT", { criteria }),
+  getAcademic: (classroomId: string, assignmentId: string, token: string) => apiGet<ApiAssignmentAcademic>(`/classrooms/${classroomId}/assignments/${assignmentId}/academic`, token),
+  updateAcademic: (classroomId: string, assignmentId: string, token: string, body: Partial<Omit<ApiAssignmentAcademic, 'assignmentId' | 'maxScore'>>) => apiRequest<ApiAssignmentAcademic>(`/classrooms/${classroomId}/assignments/${assignmentId}/academic`, token, 'PATCH', body),
   updateSchedule: (classroomId: string, assignmentId: string, token: string, body: { availableFrom?: string | null; dueAt?: string | null; closeAt?: string | null; maxAttempts?: number | null }) => apiRequest<ApiRecord>(`/classrooms/${classroomId}/assignments/${assignmentId}/schedule`, token, "PATCH", body),
   publish: (classroomId:string,assignmentId:string,token:string) => apiRequest<ApiClassroomAssignment>(`/classrooms/${classroomId}/assignments/${assignmentId}/publish`,token,"POST"),
 };

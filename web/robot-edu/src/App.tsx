@@ -7,6 +7,7 @@ import { LearningProvider } from './contexts/LearningContext';
 import { ProgramsProvider } from './contexts/ProgramsContext';
 import { RoleProvider } from './contexts/RoleContext';
 import { Courses } from './pages/Courses';
+import { LearningPath } from './pages/LearningPath';
 import { CourseDetail } from './pages/CourseDetail';
 import { LessonViewer } from './pages/LessonViewer';
 import { CourseInfo } from './pages/CourseInfo';
@@ -71,6 +72,7 @@ export function App() {
                   <Route path="account" element={<AccountSettings />} />
                   <Route path="settings" element={<WebSettings />} />
                   <Route path="courses" element={<Courses />} />
+                  <Route path="learning-path" element={<RequireRole roles={['student']}><LearningPath /></RequireRole>} />
                   <Route path="courses/:courseId" element={<CourseDetail />} />
                   <Route path="courses/:courseId/info" element={<CourseInfo />} />
                   <Route path="courses/:courseId/lessons/:lessonId" element={<LessonViewer />} />

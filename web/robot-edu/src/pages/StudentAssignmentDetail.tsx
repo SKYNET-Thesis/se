@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AttemptHistory } from '../components/submission/AttemptHistory';
 import { assignmentKind, kindLabel, nextAction, windowLabel, windowState } from '../components/submission/submissionState';
 import { Badge } from '../components/ui/Badge';
+import { LevelBadge } from '../components/academic/LevelBadge';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
@@ -59,6 +60,12 @@ export function StudentAssignmentDetail() {
     <h1 className="mt-2 text-3xl font-semibold text-ink">{item.title}</h1>
     <div className="mt-3 flex flex-wrap items-center gap-2"><Badge tone={win === 'closed' ? 'danger' : win === 'past_due' || win === 'due_soon' ? 'warn' : 'ok'}>{windowLabel[win]}</Badge></div>
     <p className="mt-4 max-w-2xl whitespace-pre-wrap text-ink-muted">{item.instructions ?? 'Follow the lesson instructions and submit your work.'}</p>
+    {(item.difficulty || item.grading_method || item.pass_score != null || (item.learning_objectives?.length ?? 0) > 0) && <section aria-label="Assignment details" className="mt-4 max-w-2xl rounded-xl border border-line bg-surface p-4 text-sm">
+      <div className="flex flex-wrap items-center gap-2"><LevelBadge level={item.difficulty} prefix="Assignment" />
+        {item.grading_method && <span className="text-ink-muted">Grading: {item.grading_method === 'automatic' ? 'automatic' : item.grading_method === 'manual' ? 'by your instructor' : 'automatic + instructor'}</span>}
+        {item.pass_score != null && <span className="text-ink-muted">Pass score: {item.pass_score}</span>}</div>
+      {(item.learning_objectives?.length ?? 0) > 0 && <div className="mt-3"><p className="font-medium text-ink">Learning objectives</p><ul className="mt-1 list-disc pl-5 text-ink-muted">{item.learning_objectives!.map((objective) => <li key={objective}>{objective}</li>)}</ul></div>}
+    </section>}
     <dl className="mt-8 grid gap-4 border-y border-line py-5 sm:grid-cols-4">
       <div><dt className="text-xs text-ink-subtle">Module</dt><dd className="mt-1 font-medium text-ink">{item.lesson_title ?? 'Module'}</dd></div>
       <div><dt className="text-xs text-ink-subtle">Available</dt><dd className="mt-1 font-medium text-ink">{fmt(item.available_from) ?? 'Now'}{item.close_at ? ` – ${fmt(item.close_at)}` : ''}</dd></div>
