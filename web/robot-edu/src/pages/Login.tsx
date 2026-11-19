@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertCircleIcon, ArrowLeftIcon, CheckCircle2Icon, EyeIcon, EyeOffIcon, MailIcon } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
@@ -10,8 +10,18 @@ export type StudentMode = 'login' | 'setup' | 'recovery';
 
 export function Login() {
   const { client, session, loading, configurationError } = useSupabaseSession();
-  const [loginType, setLoginType] = useState<'email' | 'student'>('email');
-  const [studentMode, setStudentMode] = useState<StudentMode>('login');
+  // `?mode=setup` is a deep link for students who were already issued a legacy Setup Code (the link is hidden once temporary passwords are enabled).
+  const deepLinkSetup = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'setup';
+  const [loginType, setLoginType] = useState<'email' | 'student'>(deepLinkSetup ? 'student' : 'email');
+  const [studentMode, setStudentMode] = useState<StudentMode>(deepLinkSetup ? 'setup' : 'login');
+  // What the SERVER currently does for new students (null = not known yet; a failed probe falls back to the legacy experience).
+  const [temporaryPasswordEnabled, setTemporaryPasswordEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (loginType !== 'student' || temporaryPasswordEnabled !== null) return;
+    let live = true;
+    studentAuthApi.capabilities().then((c) => { if (live) setTemporaryPasswordEnabled(Boolean(c?.temporaryPasswordEnabled)); }).catch(() => { if (live) setTemporaryPasswordEnabled(false); });
+    return () => { live = false; };
+  }, [loginType, temporaryPasswordEnabled]);
 
   const [email, setEmail] = useState('');
   const [schoolCode, setSchoolCode] = useState('');
@@ -495,21 +505,23 @@ export function Login() {
                 <div className="mt-6 flex flex-col items-center gap-3 text-center">
                   {loginType === 'student' && studentMode === 'login' && (
                     <>
-                      <p className="max-w-xs text-xs leading-relaxed text-ink-muted">
-                        Got a temporary password from your school? Sign in with it above, then you will choose your own password.
-                        Temporary passwords expire. If yours does not work, ask your school administrator for a new one.
-                        Use “Set up your account” only if you were given a Setup Code.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setStudentMode('setup');
-                          resetFormState();
-                        }}
-                        className="text-sm font-medium text-accent hover:text-accent-hover underline underline-offset-4 transition-colors"
-                      >
-                        First time here? Set up your account
-                      </button>
+                      {temporaryPasswordEnabled === true && (
+                        <p className="max-w-xs text-sm leading-relaxed text-ink-muted">
+                          First time signing in? Use the temporary password provided by your school. You&apos;ll be asked to create a new password.
+                        </p>
+                      )}
+                      {temporaryPasswordEnabled === false && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStudentMode('setup');
+                            resetFormState();
+                          }}
+                          className="text-sm font-medium text-accent hover:text-accent-hover underline underline-offset-4 transition-colors"
+                        >
+                          First time here? Set up your account
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => {

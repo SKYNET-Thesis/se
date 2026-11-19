@@ -1,4 +1,4 @@
-import { Body, Controller, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Header, Patch, Post, UseGuards } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import { StudentLoginDto } from "./dto/student-login.dto";
 import { StudentSetupDto } from "./dto/student-setup.dto";
@@ -11,6 +11,7 @@ import { CurrentUser } from "../identity/auth/current-user.decorator";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { AllowPasswordChangeOnly } from "../identity/auth/allow-password-change.decorator";
 import { StudentPasswordChangeDto } from "./dto/student-password-change.dto";
+import { studentTempPasswordEnabled } from "./student-temp-password.feature";
 
 @ApiTags("Student authentication")
 @Controller("auth/students")
@@ -31,6 +32,16 @@ export class StudentAuthController {
   @Post("recover")
   recover(@Body() dto: StudentPasswordRecoveryDto) {
     return this.studentAuth.recover(dto);
+  }
+
+  /**
+   * Public, non-sensitive capability probe so the login page can show the onboarding that matches the server's actual state
+   * (temporary-password onboarding vs the legacy Setup Code). It cannot drift from the backend like a build-time frontend flag.
+   */
+  @Get("capabilities")
+  @Header("Cache-Control", "no-store")
+  capabilities() {
+    return { temporaryPasswordEnabled: studentTempPasswordEnabled() };
   }
 
   @Patch("password")

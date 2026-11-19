@@ -466,8 +466,15 @@ export const identityApi = {
   updateProfile: (token: string, fullName: string) => apiRequest<ApiIdentity>("/me/profile", token, "PATCH", { fullName }),
 };
 export interface ApiStudentAuthSession { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; token_type: string; password_change_required?: boolean; }
+export interface ApiStudentAuthCapabilities { temporaryPasswordEnabled: boolean; }
 export interface ApiStudentPasswordRecoveryCode { recoveryCode: string; expiresAt: string; }
+export async function apiPublicGet<T>(path: string): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`, { cache: "no-store", headers: { Accept: "application/json" } });
+  if (!response.ok) throw new ApiError(response.status, `API request failed (${response.status}).`);
+  return readJson<T>(response);
+}
 export const studentAuthApi = {
+  capabilities: () => apiPublicGet<ApiStudentAuthCapabilities>("/auth/students/capabilities"),
   login: (body: { schoolCode: string; studentCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/login", body),
   setup: (body: { schoolCode: string; studentCode: string; setupCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/setup", body),
   recover: (body: { schoolCode: string; studentCode: string; recoveryCode: string; password: string }) => apiPublicPost<{ status: "password_updated" }>("/auth/students/recover", body),
