@@ -1,6 +1,6 @@
 {
   "counts": {
-    "columns": 826,
+    "columns": 827,
     "constraints": 504,
     "foreign_tables": 0,
     "functions": 15,
@@ -30,5 +30,5 @@
     "20261119_p_course_level_tags_prerequisites_assignment_difficulty"
   ],
   "note": "Schema fingerprint of a fresh PostgreSQL 17 bootstrap (baseline + manifest migrations) for a database owned by user vista_test. Regenerate with --verify-only --write-expectation after a reviewed manifest change.",
-  "schemaFingerprint": "49db54c1bc59860d8207621245c1c2a554fffc5cb0a364d3ec2ce46222922482"
+  "schemaFingerprint": "0b9a1eebd76741e5d2267fbf51e7a11acb8f2662c024487f68bbd341be0e7638"
 }
