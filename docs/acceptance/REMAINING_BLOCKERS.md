@@ -21,7 +21,12 @@ and device certificate issuance. Process: reviewed `terraform plan` of the IoT r
 through the protected deploy workflow with the prior version kept for rollback, Production MQTT enabled last after
 fake-telemetry evidence. **No Terraform apply/destroy, secret, policy, certificate or IoT resource was touched.**
 
-## 3. Hardware blockers (physical acceptance = 0 %)
+## 3. Hardware blockers (end-to-end physical acceptance = 0 %)
+
+Corrected scope: the physical SO-101 stack was built separately and is largely present (see
+[PHYSICAL_ROBOTICS_REASSESSMENT.md](PHYSICAL_ROBOTICS_REASSESSMENT.md)); what is missing is the VISTA↔robot adapter, commissioning
+values, reviewable bench evidence and a supervised run. The WF-07/WF-09 "hardware audit" report is mock-generated and must be
+replaced. Original list, now to be read with that correction:
 
 * No commissioned SO-101 follower/leader pair, per-arm safe-home and gripper values, calibration profile, physical E-stop test,
   or supervised operator session. `hardwareEnabled` stays false; nothing in this branch enables motion.

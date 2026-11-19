@@ -3,6 +3,11 @@
 Thesis title (from project context): *Vision-Language-Action System for Tabletop Manipulation with Dual Robot Arms* (SEP490
 capstone). Intended setup: two leader arms and two follower arms (two leader–follower pairs), cameras, local control/safety.
 
+> **Correction:** outside this repository a VLA-class policy and inference clients do exist (EVO-1 `nauq-hna/evo1-final-40k`
+> cached locally, MolmoAct2 SO-101 client, LeRobot rollouts logged on a real follower). They are **not integrated into VISTA**
+> and no dataset, training log or evaluation was found. See [PHYSICAL_ROBOTICS_REASSESSMENT.md](PHYSICAL_ROBOTICS_REASSESSMENT.md).
+> Everything below describes this repository only.
+
 **Status: no VLA model, dataset, training run, inference service or evaluation exists in this repository. No performance
 number is claimed anywhere. Nothing here was run on a GPU or a physical arm.**
 

@@ -4,8 +4,14 @@ Date: 2026-11-19. Branch: `sprint/vista-90` (worktree `se-sprint-90`), based on 
 `eff03d6dcb336626c3ed645dadf25475dc9278e9` (the Production commit). Nothing here was deployed, merged to `main`, or applied
 to Production, AWS, Supabase or hardware. The Desktop workspace (`vistadesktop/vista-lab-station`) was not touched.
 
-**Result: the 85–90 % target was NOT reached.** Evidence-backed software composite 50 → 63; all five dimensions together
-39 → 49 (method and inputs below). The distance is explained by items that cannot be closed from this workstation:
+> **Correction (same day, see [PHYSICAL_ROBOTICS_REASSESSMENT.md](PHYSICAL_ROBOTICS_REASSESSMENT.md)):** the first version of this
+> audit looked only inside this repository. The physical SO-101 stack was developed separately and was inspected afterwards.
+> "Hardware 0 %" below meant *no acceptance evidence in the repo*, not "robotics not built". Section 4a replaces the hardware
+> and VLA inputs. The weakest hardware artefact in the repo, the WF-07/09 "hardware audit" report, turned out to be
+> mock-generated and is **not** counted as evidence.
+
+**Result: the 85–90 % target was NOT reached.** Evidence-backed software composite 50 → 63 after the sprint (65 after the
+correction in §4a); all five dimensions together 39 → 49 (53 after the correction). Method and inputs below. The distance is explained by items that cannot be closed from this workstation:
 physical SO-101 acceptance, a trained VLA model, the curriculum content decision, live AWS IoT and an approved Production
 release (see [REMAINING_BLOCKERS.md](REMAINING_BLOCKERS.md)).
 
@@ -90,7 +96,7 @@ WF branch unmerged and none of this sprint's changes.
 
 * Software composite (mean of code, integration, E2E): **50.1 → 63.4**.
 * All five dimensions: **39.4 → 48.9**.
-* Physical hardware acceptance: **0 %** — no device was connected or commanded and none may be claimed.
+* Physical hardware acceptance: **0 %** — no VISTA→robot run exists. (Corrected view of the physical work is in §4a.)
 * The scores are judgement-anchored, not measurements; the inputs are in the table so they can be disputed line by line.
 
 ### Why it is not 85–90 %
@@ -105,3 +111,32 @@ WF branch unmerged and none of this sprint's changes.
    production-blocked per existing status documents.
 6. Reaching 85 % in the software composite would additionally need browser E2E for the Twin viewer against MuJoCo, a
    multi-robot IoT design, restart-safe R1 run state, and a Production rerun of the merged build.
+
+## 4a. Correction after inspecting the separate robotics project
+
+New inputs (details and evidence in [PHYSICAL_ROBOTICS_REASSESSMENT.md](PHYSICAL_ROBOTICS_REASSESSMENT.md)): CHECKIK control plane with
+209 + 10 offline tests and a guarded hardware move recorded in its checklist; LeRobot with 14 real calibration profiles
+(bimanual pairs included); 5 real-follower policy rollouts logged (no outcome data); MolmoAct2 client (10 offline tests) and a
+cached EVO-1 policy (no dataset/eval found); no VISTA↔real-robot adapter. The old single "hardware" dimension is split:
+
+| Dimension | Meaning | Value | Basis |
+|---|---|---|---|
+| Physical robotics **code** (component G code) | stack exists and is unit-tested offline | 40 → 70 | CHECKIK, LeRobot flow, bimanual runbook, MolmoAct2 client; weakened by two diverging CHECKIK copies, unfixed `wrist_roll` wrap, Cartesian interlock |
+| Hardware **testing evidence** (G) | recorded, reviewable bench results | 0 → 40 | calibrations + rollout logs + one guarded move; no reports/videos/E-stop record; WF-07/09 report is mock |
+| **Integration with VISTA** (G) | adapter, owner bridge, session binding run for real | 10 → 20 | R1 contract and Twin owner bridge exist and accept LeRobot-shaped data; real `/execute` adapter absent; physical→MuJoCo path rejected by design |
+| **Final end-to-end hardware acceptance** | student → API → R1 → SO-101 → Twin/MuJoCo, supervised | **0** | never run |
+
+VLA component I: code 20 → 50 (separate EVO-1 weights + MolmoAct2 client exist; none is wired into VISTA), hardware evidence
+0 → 20 (logged rollouts), thesis 10 → 35. The earlier statement "no model exists" was true only for this repository.
+
+Recomputed with the same method (weights unchanged):
+
+| | Code | Integration | E2E (software) | Hardware testing evidence | Thesis readiness |
+|---|---|---|---|---|---|
+| Before sprint | 67.9 | 48.2 | 34.2 | 0.0 | 46.3 |
+| After sprint (first pass) | 72.7 | 61.6 | 55.9 | 0.0 | 54.5 |
+| **After correction** | **78.1** | **62.6** | **55.9** | **12.4** (weights D–G, I = 45) | **58.5** |
+
+Software composite 65.5; all five dimensions 53.5. Final end-to-end hardware acceptance is reported separately and stays 0.
+The 12.4 is deliberately low: it is mostly component G (40) and I (20) with Twin, runtime and IoT at 0; it will move only with
+reviewable bench evidence. Scores remain judgement-anchored; nothing here was measured on hardware by this sprint.
