@@ -251,6 +251,25 @@ describe("LearningService assignment delivery", () => {
     expect(txQuery).toHaveBeenCalledTimes(2);
   });
 
+  it("inherits the curriculum blocks and target of a challenge's canonical assignment so the student toolbox can satisfy the challenge", async () => {
+    const rootQuery = jest.fn().mockResolvedValueOnce([{ id: "lesson-1", organization_id: "org-1" }]).mockResolvedValueOnce([{ id: "challenge-1" }]);
+    const target = { frame: "learning_preview_v1", arm: "left", position: { x: 240, y: 220, z: 120 } };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ allowed_blocks: ["arm.select", "home", "preview.move_xyz", "wait"], constraints: { kind: "symbolic_program", target } }])
+      .mockResolvedValueOnce([{ id: "assignment-1" }])
+      .mockResolvedValueOnce([{ id: "delivery-1", status: "draft" }]);
+    const draftService = new LearningService(
+      { $queryRaw: rootQuery, $transaction: jest.fn(async (work) => work({ $queryRaw: txQuery })) } as never,
+      { assertTeacherClassroomAccess: jest.fn().mockResolvedValue(undefined) } as never,
+    );
+    await draftService.createAssignment(user, "class-1", { lessonId: "lesson-1", challengeId: "challenge-1", title: "Reach Target A", attachmentsEnabled: true });
+    const [templateStrings] = txQuery.mock.calls[0] as [TemplateStringsArray];
+    expect(templateStrings.join("?")).toContain("constraints->>'kind'='symbolic_program'");
+    const insertValues = (txQuery.mock.calls[1] as unknown[]).slice(1);
+    expect(insertValues).toContain(JSON.stringify(["arm.select", "home", "preview.move_xyz", "wait"]));
+    expect(insertValues).toContain(JSON.stringify({ kind: "symbolic_program", target, attachments: { enabled: true } }));
+  });
+
   it("never gives a Question Bank quiz an inherited rubric", async () => {
     const rootQuery = jest.fn().mockResolvedValueOnce([{ id: "lesson-1", organization_id: "org-1" }]);
     const txQuery = jest.fn().mockResolvedValueOnce([{ id: "assignment-1" }]).mockResolvedValueOnce([{ id: "delivery-1" }]);

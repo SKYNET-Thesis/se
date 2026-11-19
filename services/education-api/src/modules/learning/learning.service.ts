@@ -583,10 +583,20 @@ export class LearningService {
       // the criteria of the most recent assignment of the same lesson in the same organization (the same template that
       // pre-fills the title/instructions). Quizzes are machine-graded and never inherit a rubric. One statement, so the
       // content, its rubric and (below) the delivery are created or rolled back together.
+      // A curriculum challenge is only playable with the blocks and target its canonical assignment declares (for example
+      // Course 1 "Reach Target A" needs the Movement blocks and the learning-preview target). A delivery created from the
+      // challenge therefore inherits those two declarations; without them the student toolbox would lack the blocks the
+      // challenge's rules require. Only the curriculum declaration is copied: never rubric, schedule or student data.
+      const curriculum=dto.challengeId?(await tx.$queryRaw<{allowed_blocks:unknown;constraints:Record<string,unknown>}[]>`
+        SELECT allowed_blocks,constraints FROM public.learning_assignments
+        WHERE challenge_id=${dto.challengeId}::uuid AND constraints->>'kind'='symbolic_program'
+        ORDER BY created_at ASC LIMIT 1`)?.[0]:undefined;
+      const allowedBlocks=Array.isArray(curriculum?.allowed_blocks)?curriculum!.allowed_blocks:[];
+      const constraints=dto.quizPassPercent === undefined ? { ...(curriculum?.constraints??{}), ...(dto.attachmentsEnabled ? { attachments: { enabled: true } } : {}) } : { kind: 'knowledge_check', passPercent: dto.quizPassPercent };
       const assignments=await tx.$queryRaw<{id:string}[]>`
         WITH created AS (
-          INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions,constraints)
-          VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""},${JSON.stringify(dto.quizPassPercent === undefined ? (dto.attachmentsEnabled ? { attachments: { enabled: true } } : {}) : { kind: 'knowledge_check', passPercent: dto.quizPassPercent })}::jsonb) RETURNING id
+          INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions,allowed_blocks,constraints)
+          VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""},${JSON.stringify(allowedBlocks)}::jsonb,${JSON.stringify(constraints)}::jsonb) RETURNING id
         ), copied AS (
           INSERT INTO public.learning_rubric_criteria(assignment_id,ordinal,title,description,max_points)
           SELECT (SELECT id FROM created),rc.ordinal,rc.title,rc.description,rc.max_points
