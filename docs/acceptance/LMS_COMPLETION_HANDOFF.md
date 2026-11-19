@@ -9,7 +9,7 @@ Production acceptance.
 | Area | State at start | State now | Evidence |
 |---|---|---|---|
 | School Admin (schools, classrooms, members, enrolment, isolation) | implemented | unchanged, re-verified | Playwright (lms-independent, security matrix, authoring, curriculum delivery via UI) |
-| Instructor course builder (course → module → lesson → section → activity, media, quizzes, rubric, publish) | implemented | + level/tags/prerequisites fields | Playwright 54/54 incl. new specs |
+| Instructor course builder (course → module → lesson → section → activity, media, quizzes, rubric, publish) | implemented | + level/tags/prerequisites fields | Playwright (see §4) incl. new specs |
 | Student (My Learning, lessons, quizzes, assignments, Blockly, grades, feedback) | implemented | + level/tag filters, learning path page, assignment difficulty display | Playwright, Vitest |
 | Quiz engine (weights, snapshots, pass %, attempt limits, retakes) | implemented | unchanged (no regressions) | Jest + DB suites, lms-unlock-rule, qb-import |
 | Rubric grading, release, correction | implemented | unchanged | lms-assignment-grading |
@@ -46,7 +46,7 @@ Production acceptance.
 | Backend Jest incl. PostgreSQL suites (disposable DB) | 110 suites passed / 5 skipped (opt-in S3, IoT feedback, runtime-role probes); 1144 tests passed / 40 skipped |
 | Frontend `tsc`, `vite build`, Vitest | clean; 97 files / 647 tests |
 | Database tests (`tests/database`) | 372 run OK (93 skipped), incl. migration P ordering and unscoped-release assertions |
-| Playwright LMS suite (13 spec files, WF-03/real-GoTrue/visual excluded) | **54/54** (49 prior + lms-academic 4 + lms-curriculum 1); reruns stable |
+| Playwright LMS suite (14 spec files incl. digital-twin attempt scope; WF-03/real-GoTrue/visual excluded) | last full run **54 passed / 1 failed** of 55: the failure was my new `lms-academic` test picking the first catalog tile once seeded courses existed (test bug, fixed afterwards). After the fix `lms-academic` + `lms-curriculum` passed 5/5 twice. **The full suite was not re-run after that fix.** Before the curriculum seed the full run was 53/53 (49 prior + 4 new) |
 | Playwright Blockly (real drag-and-drop, grading, release) | **1/1** (3/3 earlier) |
 | Student temporary password | Jest suites (service, guard, rate limit, DB activation) pass; included in the 110 suites |
 
