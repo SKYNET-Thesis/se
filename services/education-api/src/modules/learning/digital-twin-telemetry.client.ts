@@ -14,7 +14,7 @@ export class DigitalTwinTelemetryClient {
     this.fetcher = fetcher ?? fetch;
   }
 
-  async publish(input: { organizationId: string; robotId: string; experimentId: string; telemetry: unknown }) {
+  async publish(input: { organizationId: string; robotId: string; experimentId: string; attemptId?: string | null; telemetry: unknown }) {
     const telemetry = input.telemetry as Record<string, unknown> | null;
     if (!telemetry || telemetry.source_mode !== "SIMULATION" || telemetry.robot_id !== input.robotId) {
       return { status: "rejected" as const };
@@ -31,7 +31,7 @@ export class DigitalTwinTelemetryClient {
     try {
       const response = await this.fetcher(`${endpoint.replace(/\/$/, "")}/internal/simulation-telemetry`, {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer v1.${encoded}.${signature}` },
-        body: JSON.stringify({ organization_id: input.organizationId, robot_id: input.robotId, experiment_id: input.experimentId, telemetry }),
+        body: JSON.stringify({ organization_id: input.organizationId, robot_id: input.robotId, experiment_id: input.experimentId, ...(input.attemptId ? { attempt_id: input.attemptId } : {}), telemetry }),
         signal: AbortSignal.timeout(2000),
       });
       return response.ok ? { status: "accepted" as const, result: await response.json() } : { status: "rejected" as const };

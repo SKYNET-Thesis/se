@@ -27,3 +27,18 @@ def validate_joint_delta(current_q, target_q, max_delta) -> bool:
         limit = np.full(current.shape, limit)
     return bool(current.shape == target.shape == limit.shape and validate_finite(current) and
                 validate_finite(target) and np.all(limit >= 0) and np.all(np.abs(target-current) <= limit))
+
+
+def wrap_deg(angle: float) -> float:
+    """Wrap an angle in degrees to [-180, 180)."""
+    return (float(angle) + 180.0) % 360.0 - 180.0
+
+
+def angular_delta_deg(target: float, start: float) -> float:
+    """Shortest signed rotation from ``start`` to ``target`` in degrees, safe across the +/-180 seam."""
+    return wrap_deg(float(target) - float(start))
+
+
+def shortest_arc_target_deg(start: float, target: float) -> float:
+    """A target equivalent to ``target`` that is reached from ``start`` by the shortest rotation."""
+    return float(start) + angular_delta_deg(target, start)

@@ -23,6 +23,9 @@ class TwinScope:
     expires_at: datetime
     audience: str
     token_id: str
+    attempt_id: str | None = None
+    assignment_id: str | None = None
+    classroom_id: str | None = None
 
 
 class TwinAuthorizer:
@@ -47,8 +50,10 @@ class TwinAuthorizer:
         signature = self._b64(hmac.new(self._secret, encoded.encode(), hashlib.sha256).digest())
         return f"v1.{encoded}.{signature}"
 
-    def issue_viewer(self, *, subject: str, organization_id: str, robot_ids: list[str], expires_at: datetime | None = None) -> str:
-        return self._issue({"aud": "vista-digital-twin-viewer", "jti": str(uuid4()), "kind": "viewer", "sub": subject, "org": organization_id, "robots": robot_ids, "exp": int((expires_at or self._clock() + timedelta(minutes=5)).timestamp())})
+    def issue_viewer(self, *, subject: str, organization_id: str, robot_ids: list[str], expires_at: datetime | None = None,
+                     attempt_id: str | None = None, assignment_id: str | None = None, classroom_id: str | None = None) -> str:
+        extra = {k: v for k, v in (("attempt_id", attempt_id), ("assignment_id", assignment_id), ("classroom_id", classroom_id)) if v}
+        return self._issue({**extra, "aud": "vista-digital-twin-viewer", "jti": str(uuid4()), "kind": "viewer", "sub": subject, "org": organization_id, "robots": robot_ids, "exp": int((expires_at or self._clock() + timedelta(minutes=5)).timestamp())})
 
     def issue_publisher(self, *, owner_id: str, organization_id: str, robot_id: str, expires_at: datetime | None = None) -> str:
         return self._issue({"aud": "vista-digital-twin-publisher", "jti": str(uuid4()), "kind": "publisher", "sub": owner_id, "org": organization_id, "robots": [robot_id], "exp": int((expires_at or self._clock() + timedelta(minutes=5)).timestamp())})
@@ -71,7 +76,10 @@ class TwinAuthorizer:
             expires_at = datetime.fromtimestamp(exp, tz=timezone.utc)
             if expires_at <= self._clock():
                 raise AuthorizationError("twin token expired")
-            return TwinScope(kind=kind, subject=subject, organization_id=organization, robot_ids=tuple(robots), expires_at=expires_at, audience=audience, token_id=token_id)
+            optional = {key: raw.get(key) for key in ("attempt_id", "assignment_id", "classroom_id")}
+            if any(value is not None and not (isinstance(value, str) and value) for value in optional.values()):
+                raise AuthorizationError("invalid twin token claims")
+            return TwinScope(kind=kind, subject=subject, organization_id=organization, robot_ids=tuple(robots), expires_at=expires_at, audience=audience, token_id=token_id, **optional)
         except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
             if isinstance(error, AuthorizationError):
                 raise

@@ -72,6 +72,8 @@ interface ExecutionRecord {
   program_version_id: string;
   status: string;
   run_id: string | null;
+  /** The attempt this experiment belongs to (from the immutable input snapshot); Twin telemetry is published and viewed per attempt. */
+  attempt_id?: string | null;
   runtime_started?: boolean;
   /** The runtime's own statement of what drives the robot (for example `fake_follower`); null when it did not say. Never inferred. */
   runtime_mode?: string | null;
@@ -320,7 +322,7 @@ export class PhysicalExecutionService {
       organization_id: scope.organization_id,
       robot_id: scope.robot_id, robot_name: scope.robot_name ?? "Robot", robot_model: scope.robot_model ?? "",
       robot_serial: scope.robot_serial ?? "", program_version_id: scope.program_version_id,
-      status: prepared.status ?? "pending", run_id: runId, runtime_mode: runtimeMode,
+      status: prepared.status ?? "pending", run_id: runId, runtime_mode: runtimeMode, attempt_id: attemptId,
     }, snapshot);
   }
 
@@ -353,7 +355,7 @@ export class PhysicalExecutionService {
     }
     await this.persistRuntimeSnapshot(execution.experiment_id, execution.control_session_id, runId, snapshot);
     const twinTelemetry = snapshot.telemetry && this.digitalTwin
-      ? await this.digitalTwin.publish({ organizationId: execution.organization_id, robotId: execution.robot_id, experimentId, telemetry: snapshot.telemetry })
+      ? await this.digitalTwin.publish({ organizationId: execution.organization_id, robotId: execution.robot_id, experimentId, attemptId: execution.attempt_id, telemetry: snapshot.telemetry })
       : { status: "unavailable" as const };
     const evidence = snapshot.state === "succeeded" && snapshot.telemetry && this.evidence
       ? await this.evidence.persistTelemetry(experimentId, snapshot.telemetry)
@@ -565,7 +567,7 @@ export class PhysicalExecutionService {
     const rows = await this.prisma.$queryRaw<ExecutionRecord[]>`
       SELECT e.id AS experiment_id,e.control_session_id,cs.robot_id,cs.organization_id,r.name AS robot_name,
         r.model_name AS robot_model,r.serial_no AS robot_serial,
-        e.input_snapshot->>'programVersionId' AS program_version_id,e.status,
+        e.input_snapshot->>'programVersionId' AS program_version_id,e.input_snapshot->>'attemptId' AS attempt_id,e.status,
         COALESCE(e.input_snapshot->>'runtimeRunId',cs.metadata->>'runtimeRunId') AS run_id,
         COALESCE((e.input_snapshot->>'runtimeStarted')::boolean,(cs.metadata->>'runtimeStarted')::boolean,false) AS runtime_started,
         COALESCE(e.input_snapshot->>'runtimeAdapterMode',cs.metadata->>'runtimeAdapterMode') AS runtime_mode
