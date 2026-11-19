@@ -72,7 +72,7 @@
     {
       "version": "20261119_p_course_level_tags_prerequisites_assignment_difficulty",
       "path": "database/migrations/20261119_p_course_level_tags_prerequisites_assignment_difficulty.sql",
-      "sha256": "3c9e9744e0c669e539ce5481bac3acf0eae4623e735ac67889dc76cff357b505",
+      "sha256": "20ff102585ceff63e44e64d8da1bca898dce84b3b7a49f5dbc07399fd17aa236",
       "order": 12
     }
   ]

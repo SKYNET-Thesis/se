@@ -34,3 +34,6 @@ DO $$ BEGIN
       AND jsonb_typeof(learning_objectives) = 'array');
   END IF;
 END $$;
+
+-- Student self-enrollment is a classroom-level opt-in controlled by the school (default closed: rosters stay administrator-managed).
+ALTER TABLE public.learning_classrooms ADD COLUMN IF NOT EXISTS self_enrollment_open boolean NOT NULL DEFAULT false;

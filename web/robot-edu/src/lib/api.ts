@@ -49,6 +49,7 @@ export async function apiGetOptional<T>(path: string, accessToken: string): Prom
 
 export interface ApiEnrollmentSync { classrooms: number; enrolled: number }
 export interface ApiAssignmentAcademic { assignmentId: string; difficulty: string | null; assignmentType: string | null; passScore: number | null; gradingMethod: string | null; learningObjectives: string[]; maxScore: number | null }
+export interface ApiCatalogCourse { classroomId: string; classroomName: string; schoolName: string; courseId: string; title: string; description: string | null; level: string | null; levelLabel: string | null; tags: string[]; prerequisites: Array<{ id: string; title: string; completed: boolean }>; capacity: number | null; seatsLeft: number | null; eligible: boolean; reasons: string[] }
 export interface ApiLearningPath {
   courses: Array<{ id: string; title: string; description: string | null; level: string | null; levelLabel: string | null; tags: string[]; totalLessons: number; completedLessons: number; progressPercent: number;
     state: 'completed' | 'in_progress' | 'available' | 'locked'; unmetPrerequisites: Array<{ id: string; title: string; enrolled: boolean }>; lockedReason: string | null }>;
@@ -310,7 +311,7 @@ export interface ApiSchoolImportResult { processed:number; created:number; uncha
 export interface ApiClassroomStudentPreviewRow { row:number;firstName:string;lastName:string;studentCode:string;gradeLevel:string;email:string|null;status:'new_student'|'existing_student'|'already_in_class'|'needs_review';errors:string[];warnings:string[]; }
 export interface ApiClassroomStudentPreview { processed:number;newStudents:number;existingStudents:number;alreadyInClass:number;needsReview:number;rows:ApiClassroomStudentPreviewRow[]; }
 export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string;temporaryPassword?:string;temporaryPasswordExpiresAt?:string;setupCode?:string}>;schoolCode?:string; }
-export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; description?:string|null; capacity?:number|null; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
+export interface ApiSchoolClassroom { selfEnrollmentOpen?:boolean; id:string; organization_id:string; offering_id:string; name:string; code:string; description?:string|null; capacity?:number|null; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
 export interface ApiOffering { id:string; code:string; title:string; status:string; }
 export interface ApiChallengeCondition { type: string; description: string | null; ruleKey: string; }
 export interface ApiDeliveryChallenge { id:string; title:string; description?:string|null; conditions?:ApiChallengeCondition[]; }
@@ -499,7 +500,7 @@ export const educationAdminApi = {
   classroomMembers: (organizationId:string, classroomId:string, token:string) => apiGet<ApiRecord[]>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`, token),
   memberCandidates: (organizationId:string,classroomId:string,token:string,filters:{page:number;pageSize:number;search?:string}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);return apiGet<ApiPage<ApiMemberCandidate>>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/member-candidates?${query}`,token); },
   createClassroom: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms`,token,'POST',body),
-  updateClassroom: (organizationId:string,classroomId:string,token:string,body:{name?:string;code?:string;description?:string;capacity?:number}) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}`,token,'PATCH',body),
+  updateClassroom: (organizationId:string,classroomId:string,token:string,body:{name?:string;code?:string;description?:string;capacity?:number;selfEnrollmentOpen?:boolean}) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}`,token,'PATCH',body),
   updateCourse: (organizationId:string,courseId:string,token:string,body:{title?:string;description?:string}) => apiRequest<ApiCourse>(`/education-admin/organizations/${organizationId}/courses/${courseId}`,token,'PATCH',body),
   archiveClassroom: (organizationId:string,classroomId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/archive`,token,'POST'),
   reactivateClassroom: (organizationId:string,classroomId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/reactivate`,token,'POST'),
@@ -535,6 +536,8 @@ export const catalogApi = {
   setLessonPrerequisites: (lessonId:string,token:string,prerequisiteLessonIds:string[]) => apiRequest<ApiRecord>(`/admin/lessons/${lessonId}/prerequisites`,token,'POST',{prerequisiteLessonIds}),
   authorSections: (lessonId:string,token:string) => apiGet<ApiRecord[]>(`/author/lessons/${lessonId}/sections`,token),
   courses: (token: string, page = 1, pageSize = 20, filters: { level?: string; tag?: string; q?: string } = {}) => apiGet<ApiCollection<ApiCourse>>(`/courses?page=${page}&pageSize=${pageSize}${filters.level ? `&level=${encodeURIComponent(filters.level)}` : ''}${filters.tag ? `&tag=${encodeURIComponent(filters.tag)}` : ''}${filters.q ? `&q=${encodeURIComponent(filters.q)}` : ''}`, token),
+  courseCatalog: (token: string, filters: { level?: string; tag?: string; q?: string } = {}) => apiGet<{ items: ApiCatalogCourse[] }>(`/me/course-catalog?${new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as string[][]).toString()}`, token),
+  enrollInCourse: (classroomId: string, token: string) => apiRequest<{ status: 'enrolled'; courseId: string; title: string }>(`/me/course-catalog/${classroomId}/enroll`, token, 'POST', {}),
   courseTags: (token: string) => apiGet<{ used: Array<{ tag: string; courses: number }>; suggested: string[]; levels: Array<{ code: string; label: string }> }>('/course-tags', token),
   learningPath: (token: string) => apiGet<ApiLearningPath>('/me/learning-path', token),
   course: (courseId: string, token: string) => apiGet<ApiCourse>(`/courses/${courseId}`, token),

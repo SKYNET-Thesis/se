@@ -4,6 +4,7 @@ import { BadRequestException } from "@nestjs/common";
 export const ACADEMIC_LEVELS = ["BEGINNER", "INTERMEDIATE", "ADVANCED"] as const;
 export type AcademicLevel = (typeof ACADEMIC_LEVELS)[number];
 export const LEVEL_LABELS: Record<AcademicLevel, string> = { BEGINNER: "Beginner", INTERMEDIATE: "Intermediate", ADVANCED: "Advanced" };
+export const LEVEL_LABEL_BY_CODE: Record<string, string> = LEVEL_LABELS;
 export const ASSIGNMENT_TYPES = ["knowledge", "quiz", "blockly", "simulation", "robot_lab", "manual_final"] as const;
 export const GRADING_METHODS = ["automatic", "manual", "mixed"] as const;
 /** Suggested vocabulary shown to authors; any tag that passes validation is accepted and joins the "existing tags" list. */

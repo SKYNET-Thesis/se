@@ -9,6 +9,7 @@ import { ProgressionService } from '../modules/learning/progression.service';
 import { QuestionBankService } from '../modules/learning/question-bank.service';
 import { matchesDisposableDatabaseTarget } from '../modules/learning/isolated-db-target';
 import { SO101_CURRICULUM } from './so101-curriculum.data';
+import { syncChallengeConditions } from './seed-course1';
 
 /**
  * Idempotent SO-101 curriculum seed for an ISOLATED local database only (same guard as the E2E fixtures).
@@ -31,6 +32,7 @@ const admin = { vistaUserId: adminId, status: 'active', systemPermissions: ['org
 
 async function seed() {
   const created: string[] = []; const skipped: string[] = []; const ids: string[] = [];
+  const totals = { modules: 0, lessons: 0, questions: 0, quizzes: 0, assignments: 0, labs: 0 };
   for (const [courseIndex, spec] of SO101_CURRICULUM.entries()) {
     const existing = await db.learning_courses.findFirst({ where: { title: spec.title, created_by: adminId } });
     if (existing) {
@@ -41,49 +43,63 @@ async function seed() {
     const course = await learning.createGlobalCourse(admin as never, { title: spec.title, description: spec.description, level: spec.level, tags: spec.tags, prerequisiteCourseIds: prerequisite });
     ids[courseIndex] = course.id;
     const prefix = ['F', 'M', 'A'][courseIndex];
-    const objectiveIds = new Map<string, string>(); const objectiveLesson = new Map<string, string>();
-    const lessons: Array<{ id: string }> = [];
-    for (const [lessonIndex, lessonSpec] of spec.lessons.entries()) {
-      const lesson = await learning.createCourseLesson(admin as never, course.id, { title: lessonSpec.title, content: { summary: lessonSpec.blocks.find((b) => b.type === 'paragraph')?.text ?? '', learningObjectives: lessonSpec.objectives, instructorGuidance: lessonSpec.instructorGuidance } });
-      lessons.push(lesson);
-      for (const [index, objective] of lessonSpec.objectives.entries()) {
-        const row = await db.learning_objectives.create({ data: { lesson_id: lesson.id, code: `SO101-${prefix}${lessonIndex + 1}-O${index + 1}`, description: objective, ordinal: index + 1 } });
-        objectiveIds.set(objective, row.id); objectiveLesson.set(objective, lesson.id);
+    const moduleIds: string[] = [];
+    // Platform terms: a module is a learning_lessons row; its "lessons" are sections with a reading; the module-end quiz is the last section.
+    for (const [moduleIndex, mod] of spec.modules.entries()) {
+      const moduleRow = await learning.createCourseLesson(admin as never, course.id, { title: mod.title, content: { summary: mod.summary, learningObjectives: mod.lessons.flatMap((l) => l.objectives), instructorGuidance: mod.lessons.map((l) => `${l.title}: ${l.instructorGuidance}`) } });
+      moduleIds.push(moduleRow.id);
+      const objectiveIds = new Map<string, string>();
+      let ordinal = 1;
+      for (const lesson of mod.lessons) for (const objective of lesson.objectives) {
+        const row = await db.learning_objectives.create({ data: { lesson_id: moduleRow.id, code: `SO101-${prefix}${moduleIndex + 1}-O${ordinal}`, description: objective, ordinal } });
+        objectiveIds.set(objective, row.id); ordinal += 1;
       }
-      const section = await curriculum.createSection(admin as never, lesson.id, { title: 'Learn', ordinal: 1 });
-      const reading = await curriculum.createActivity(admin as never, section.id, { title: lessonSpec.title, type: 'reading', ordinal: 1, contentRef: { kind: 'lesson_content', key: `so101-${prefix}${lessonIndex + 1}` }, content: { version: 1, blocks: lessonSpec.blocks } });
-      await curriculum.setSectionStatus(admin as never, section.id, 'published');
-      await curriculum.setActivityStatus(admin as never, reading.id, 'published');
+      for (const [lessonIndex, lesson] of mod.lessons.entries()) {
+        const section = await curriculum.createSection(admin as never, moduleRow.id, { title: lesson.title, ordinal: lessonIndex + 1 });
+        const reading = await curriculum.createActivity(admin as never, section.id, { title: lesson.title, type: 'reading', ordinal: 1, contentRef: { kind: 'lesson_content', key: `so101-${prefix}${moduleIndex + 1}-${lessonIndex + 1}` }, content: { version: 1, blocks: lesson.blocks } });
+        await curriculum.setSectionStatus(admin as never, section.id, 'published');
+        await curriculum.setActivityStatus(admin as never, reading.id, 'published');
+        totals.lessons += 1;
+      }
+      const quiz = await questionBank.createQuizAssignment(admin as never, moduleRow.id, mod.quiz.title, 'Answer every question. Each question shows its score weight before you submit; the server grades your attempt.', mod.quiz.passPercent);
+      for (const [index, q] of mod.quiz.questions.entries()) {
+        const question = await questionBank.createQuestion(admin as never, { courseId: course.id, lessonId: moduleRow.id, code: `SO101-${q.code}` });
+        const version = await questionBank.createVersion(admin as never, question.id, { type: q.type, difficulty: q.difficulty, cognitiveLevel: q.difficulty === 'hard' ? 'apply' : 'remember', stem: q.stem, options: q.options, answerKey: q.answer, explanation: q.explanation });
+        await questionBank.mapObjectives(admin as never, version.id, { objectiveIds: [objectiveIds.get(q.objective)!] });
+        await questionBank.submitReview(admin as never, version.id);
+        await questionBank.publish(admin as never, version.id);
+        await questionBank.addToAssignment(admin as never, quiz.id, { questionVersionId: version.id, ordinal: index + 1, points: q.weight });
+        totals.questions += 1;
+      }
+      const quizSection = await curriculum.createSection(admin as never, moduleRow.id, { title: 'Module quiz', ordinal: mod.lessons.length + 1 });
+      const check = await curriculum.createActivity(admin as never, quizSection.id, { title: mod.quiz.title, type: 'knowledge_check', ordinal: 1, contentRef: { kind: 'assignment', id: quiz.id } });
+      await curriculum.setSectionStatus(admin as never, quizSection.id, 'published');
+      await curriculum.setActivityStatus(admin as never, check.id, 'published');
+      totals.modules += 1; totals.quizzes += 1;
+      // progression: the next module unlocks when this module's quiz is passed
+      if (moduleIndex > 0) await db.learning_lesson_prerequisites.create({ data: { lesson_id: moduleRow.id, prerequisite_lesson_id: moduleIds[moduleIndex - 1], required: true } });
     }
-    // Module-end quiz: attached to the last lesson of the module, after its reading. A quiz may only use questions of its own lesson, so the
-    // module's objectives are restated as review objectives on that lesson and every question maps to one of them.
-    const last = lessons[lessons.length - 1];
-    const reviewObjective = new Map<string, string>();
-    for (const [index, objective] of [...objectiveIds.keys()].entries()) {
-      const row = await db.learning_objectives.create({ data: { lesson_id: last.id, code: `SO101-${prefix}-REVIEW-${index + 1}`, description: objective, ordinal: 100 + index } });
-      reviewObjective.set(objective, row.id);
+    // Assignment and lab templates (delivered per classroom by instructors; they inherit rubric, objectives, blocks and challenge). Outside module navigation.
+    const placements: Array<[typeof spec.assignments[number] | typeof spec.labs[number], string, boolean]> = [
+      [spec.assignments[0], moduleIds[0], false], [spec.labs[0], moduleIds[1], true], [spec.assignments[1], moduleIds[1], false], [spec.labs[1], moduleIds[2], true],
+    ];
+    for (const [a, lessonId, isLab] of placements) {
+      let challengeId: string | null = null; let allowedBlocks: string[] = []; let constraints: Record<string, unknown> = {};
+      if (isLab) {
+        const lab = a as typeof spec.labs[number];
+        const challenge = await db.learning_challenges.create({ data: { organization_id: null, creator_user_id: adminId, title: lab.challenge.title, description: lab.challenge.description, success_criteria: { kind: 'symbolic_rules' }, permitted_modes: ['blockly'], status: 'published' } });
+        await syncChallengeConditions(db as never, challenge.id, lab.challenge.conditions);
+        challengeId = challenge.id; allowedBlocks = lab.challenge.allowedBlocks;
+        constraints = { kind: 'symbolic_program', ...(lab.challenge.target ? { target: { frame: 'learning_preview_v1', arm: lab.challenge.target.arm, position: { x: lab.challenge.target.x, y: lab.challenge.target.y, z: lab.challenge.target.z } } } : {}) };
+      }
+      const row = await db.learning_assignments.create({ data: { lesson_id: lessonId, challenge_id: challengeId, title: a.title, instructions: a.instructions, allowed_blocks: allowedBlocks, constraints: constraints as never, difficulty: a.difficulty, assignment_type: a.type, grading_method: a.grading, pass_score: a.passScore, learning_objectives: a.objectives } });
+      for (const [index, criterion] of a.rubric.entries()) await db.learning_rubric_criteria.create({ data: { assignment_id: row.id, ordinal: index + 1, title: criterion.title, description: criterion.description, max_points: criterion.maxPoints } });
+      if (isLab) totals.labs += 1; else totals.assignments += 1;
     }
-    const quiz = await questionBank.createQuizAssignment(admin as never, last.id, spec.quiz.title, 'Answer every question. Each question shows its score weight; the server grades your attempt.', spec.quiz.passPercent);
-    for (const [ordinal, q] of spec.quiz.questions.entries()) {
-      const question = await questionBank.createQuestion(admin as never, { courseId: course.id, lessonId: last.id, code: `SO101-${q.code}` });
-      const version = await questionBank.createVersion(admin as never, question.id, { type: q.type, difficulty: q.difficulty, cognitiveLevel: q.difficulty === 'hard' ? 'apply' : 'remember', stem: q.stem, options: q.options, answerKey: q.answer, explanation: q.explanation });
-      await questionBank.mapObjectives(admin as never, version.id, { objectiveIds: [reviewObjective.get(q.objective)!] });
-      await questionBank.submitReview(admin as never, version.id);
-      await questionBank.publish(admin as never, version.id);
-      await questionBank.addToAssignment(admin as never, quiz.id, { questionVersionId: version.id, ordinal: ordinal + 1, points: q.weight });
-    }
-    const quizSection = await curriculum.createSection(admin as never, last.id, { title: 'Module quiz', ordinal: 2 });
-    const check = await curriculum.createActivity(admin as never, quizSection.id, { title: spec.quiz.title, type: 'knowledge_check', ordinal: 1, contentRef: { kind: 'assignment', id: quiz.id } });
-    await curriculum.setSectionStatus(admin as never, quizSection.id, 'published');
-    await curriculum.setActivityStatus(admin as never, check.id, 'published');
-    // Assignment template (delivered to classrooms by instructors, who inherit its rubric and objectives): classroom-specific, outside module navigation.
-    const a = spec.assignment;
-    const assignment = await db.learning_assignments.create({ data: { lesson_id: last.id, title: a.title, instructions: a.instructions, difficulty: a.difficulty, assignment_type: a.type, grading_method: a.grading, pass_score: a.passScore, learning_objectives: a.objectives } });
-    for (const [index, criterion] of a.rubric.entries()) await db.learning_rubric_criteria.create({ data: { assignment_id: assignment.id, ordinal: index + 1, title: criterion.title, description: criterion.description, max_points: criterion.maxPoints } });
     await db.learning_courses.update({ where: { id: course.id }, data: { status: 'published' } });
     created.push(spec.title);
   }
-  return { created, skipped, courseIds: ids };
+  return { created, skipped, courseIds: ids, totals };
 }
 
 void (async () => {

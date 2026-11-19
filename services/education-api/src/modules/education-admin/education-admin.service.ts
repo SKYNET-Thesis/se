@@ -48,7 +48,7 @@ export class EducationAdminService {
   async classrooms(user: AuthenticatedUser, organizationId: string) {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.read");
     return this.prisma.$queryRaw`
-      SELECT c.id, c.organization_id, c.offering_id, c.name, c.code, c.description, c.capacity, c.status,
+      SELECT c.id, c.organization_id, c.offering_id, c.name, c.code, c.description, c.capacity, c.status, c.self_enrollment_open AS "selfEnrollmentOpen",
              o.code AS offering_code, o.title AS offering_title,
              COUNT(cm.id) FILTER (WHERE cm.status = 'active' AND cm.classroom_role = 'student')::int AS student_count,
              COUNT(cm.id) FILTER (WHERE cm.status = 'active' AND cm.classroom_role IN ('teacher', 'teaching_assistant'))::int AS teaching_staff_count,
@@ -111,6 +111,7 @@ export class EducationAdminService {
           ...(dto.code === undefined ? {} : { code: dto.code.trim() }),
           ...(dto.description === undefined ? {} : { description: dto.description.trim() || null }),
           ...(dto.capacity === undefined ? {} : { capacity: dto.capacity }),
+          ...(dto.selfEnrollmentOpen === undefined ? {} : { self_enrollment_open: dto.selfEnrollmentOpen }),
         },
       });
     } catch (error: unknown) {

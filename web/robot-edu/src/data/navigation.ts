@@ -35,6 +35,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     { to: '/', label: 'Dashboard', icon: LayoutDashboardIcon, end: true },
     { to: '/courses', label: 'Courses', icon: BookOpenIcon },
     { to: '/my-learning', label: 'My Learning', icon: ClipboardListIcon },
+    { to: '/catalog', label: 'Course Catalog', icon: BookOpenIcon },
     { to: '/learning-path', label: 'Learning Path', icon: RouteIcon },
     { to: '/assignments', label: 'Assignments', icon: ClipboardCheckIcon }]
 
