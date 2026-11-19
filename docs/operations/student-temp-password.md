@@ -42,7 +42,7 @@ student code + temporary password → every ordinary API route answers `403 PASS
 
 * **Flag off:** no code path reads or writes the new columns. The API runs unchanged against a database that has *not* received
   the migration (verified: auth guard, people list, student login, LMS reads and legacy import all succeed on a schema copy with
-  the five columns dropped). Deploy-before-migrate is therefore safe.
+  the five columns dropped). The code is therefore flag-safe, but the deployment **schema-gate still requires the database release first** (see the runbook): deploying before the migration is refused by the gate, not by the application.
 * **Flag on:** requires the migration. Do not turn the flag off again while students are still pending their first change; the
   forced-change gate lives behind the flag.
 
