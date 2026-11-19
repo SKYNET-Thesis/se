@@ -13,6 +13,8 @@ from .authorization import AuthorizationError, TwinAuthorizer
 from .mock import LatestState, MockTelemetry, load_fixture
 from .physical import LeLabFollowerTelemetryAdapter, TelemetryRejected
 from .calibration import VisualCalibrationStore
+from .contracts import JointState, SourceMode
+from .mujoco_sync import synchronize_simulation_state
 
 
 DEFAULT_FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "so101_joint_states.json"
@@ -34,6 +36,8 @@ def create_app(
     )
     latest = LatestState()
     physical_latest = LatestState()
+    simulation_latest: dict[str, LatestState] = {}
+    simulation_organizations: dict[str, str] = {}
     auth = authorizer or TwinAuthorizer(None)
 
     async def produce() -> None:
@@ -85,6 +89,38 @@ def create_app(
         except (AuthorizationError, TelemetryRejected, ValueError):
             raise HTTPException(status_code=403, detail="physical telemetry rejected") from None
 
+    @app.post("/internal/simulation-telemetry", status_code=202)
+    async def ingest_simulation_telemetry(request: Request) -> dict[str, object]:
+        """Accepts only signed, short-lived R1 simulation telemetry; owns no robot control."""
+        try:
+            token = request.headers.get("authorization", "")
+            token = token.removeprefix("Bearer ") if token.startswith("Bearer ") else ""
+            body = await request.json()
+            if not isinstance(body, dict) or not all(isinstance(body.get(key), str) and body[key] for key in ("organization_id", "robot_id", "experiment_id")):
+                raise TelemetryRejected("simulation identity is required")
+            org, robot = body["organization_id"], body["robot_id"]
+            auth.verify_simulation_publisher(token, robot_id=robot, organization_id=org)
+            state = JointState.model_validate(body.get("telemetry"))
+            if state.source_mode is not SourceMode.SIMULATION or state.robot_id != robot:
+                raise TelemetryRejected("simulation telemetry identity mismatch")
+            slot = simulation_latest.setdefault(robot, LatestState())
+            previous = slot.latest(now())
+            if previous is not None and previous.sequence == state.sequence and previous.model_dump(mode="json") == state.model_dump(mode="json"):
+                return {"status": "accepted", "sequence": state.sequence, "mujoco": "duplicate_unchanged"}
+            if not slot.publish(state):
+                raise TelemetryRejected("out-of-order telemetry")
+            simulation_organizations[robot] = org
+            model_path = os.getenv("VISTA_TWIN_MUJOCO_MODEL_PATH")
+            twin = None
+            if model_path:
+                try:
+                    twin = synchronize_simulation_state(state, model_path)
+                except (OSError, RuntimeError, ValueError):
+                    return {"status": "accepted", "sequence": state.sequence, "mujoco": "unavailable", "twin": None}
+            return {"status": "accepted", "sequence": state.sequence, "mujoco": "synchronized" if twin else "model_unconfigured", "twin": twin}
+        except (AuthorizationError, TelemetryRejected, ValueError, TypeError):
+            raise HTTPException(status_code=403, detail="simulation telemetry rejected") from None
+
     def viewer_token(websocket: WebSocket) -> str:
         for protocol in websocket.scope.get("subprotocols", []):
             if isinstance(protocol, str) and protocol.startswith("vista.twin."):
@@ -104,6 +140,18 @@ def create_app(
             except AuthorizationError:
                 await websocket.close(code=4403)
                 return
+        if physical is None:
+            for robot, slot in simulation_latest.items():
+                candidate = slot.latest(now())
+                if candidate is not None:
+                    try:
+                        viewer_scope = auth.verify_viewer(viewer_token(websocket), robot_id=robot, organization_id=simulation_organizations[robot])
+                        break
+                    except AuthorizationError:
+                        continue
+            if simulation_latest and viewer_scope is None:
+                await websocket.close(code=4403, reason="viewer scope required")
+                return
         await websocket.accept()
         sent_sequence = -1
         try:
@@ -119,10 +167,29 @@ def create_app(
                     except AuthorizationError:
                         await websocket.close(code=4403, reason="viewer scope required")
                         return
+                if viewer_scope is None:
+                    for robot, slot in simulation_latest.items():
+                        if slot.latest(current_time) is not None:
+                            try:
+                                viewer_scope = auth.verify_viewer(viewer_token(websocket), robot_id=robot, organization_id=simulation_organizations[robot])
+                                break
+                            except AuthorizationError:
+                                continue
+                    if simulation_latest and viewer_scope is None:
+                        await websocket.close(code=4403, reason="viewer scope required")
+                        return
                 if viewer_scope is not None and current_time >= viewer_scope.expires_at:
                     await websocket.close(code=4403, reason="viewer scope expired")
                     return
-                state = physical_state or latest.latest(current_time)
+                simulation_state = None
+                if viewer_scope is not None and viewer_scope.kind == "viewer":
+                    for robot in viewer_scope.robot_ids:
+                        slot = simulation_latest.get(robot)
+                        if slot is not None and simulation_organizations.get(robot) == viewer_scope.organization_id:
+                            simulation_state = slot.latest(current_time)
+                            if simulation_state is not None:
+                                break
+                state = physical_state or simulation_state or latest.latest(current_time)
                 if state is not None and state.sequence != sent_sequence:
                     await websocket.send_json(state.model_dump(mode="json", exclude_none=True))
                     sent_sequence = state.sequence

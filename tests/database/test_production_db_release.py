@@ -173,7 +173,12 @@ class StaticSafeguardTests(unittest.TestCase):
         self.assertEqual(d_i["versions"], [e["version"] for e in manifest["migrations"]][: len(d_i["versions"])])
         self.assertIn("20261114_j_one_submission_per_attempt", d_i["excludedVersions"])  # Stage J can never ride along with D-I
         registered = [e["version"] for e in manifest["migrations"]]
-        self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"] + scopes["K-L"]["versions"] + scopes["N"]["versions"])  # J precedes K-L, which precede N; M is staged, not manifested
+        reviewed = d_i["versions"] + scopes["J"]["versions"] + scopes["K-L"]["versions"] + scopes["N"]["versions"]
+        self.assertEqual(registered[:len(reviewed)], reviewed)  # J precedes K-L, which precede N; M is staged, not manifested
+        # WF-01 migration O is a locally verified candidate without a reviewed Production release scope yet.
+        unscoped = registered[len(reviewed):]
+        self.assertEqual(unscoped, ["20261119_o_wf01_robot_allocation_permission"])
+        self.assertNotIn(unscoped[0], {v for sc in scopes.values() for v in sc["versions"]})
         self.assertEqual(scopes["K-L"]["requiresApplied"], d_i["versions"] + scopes["J"]["versions"])  # K-L needs exactly D-J applied: J is a hard prerequisite
         self.assertEqual(scopes["K-L"]["excludedVersions"], ["20261116_m_revoke_public_temp_privilege"])  # M can never ride along with K-L
         self.assertEqual(scopes["K-L"]["productionStatus"].split()[0], "READY")
@@ -567,7 +572,7 @@ class ReleaseFlowTests(unittest.TestCase):
         manifest = json.loads(manifest_path.read_text())
         # Later, separately reviewed scopes (K-L) are never part of the D-I/J scenarios either.
         _scopes = json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"]
-        later = set(_scopes.get("K-L", {}).get("versions", [])) | set(_scopes.get("N", {}).get("versions", []))  # K-L and N are separately reviewed later scopes
+        later = set(_scopes.get("K-L", {}).get("versions", [])) | set(_scopes.get("N", {}).get("versions", [])) | {"20261119_o_wf01_robot_allocation_permission"}  # K-L and N are separately reviewed later scopes; O is an unscoped local candidate
         manifest["migrations"] = [e for e in manifest["migrations"] if e["version"] != J_VERSION and e["version"] not in later]  # D-I scenarios never see Stage J
         (repo / "database/migrations" / f"{J_VERSION}.sql").unlink(missing_ok=True)
         for version in later:

@@ -27,8 +27,8 @@ export function useTwinTelemetry(viewerScopeToken?: string, onScopeRejected?: ()
         if (!active || typeof event.data !== 'string') return;
         let raw: unknown;
         try { raw = JSON.parse(event.data); } catch { setError('Malformed telemetry frame.'); return; }
-        const next = parseTwinFrame(raw);
-        if (!next) { setError('Rejected invalid or non-mock telemetry.'); return; }
+        const next = parseTwinFrame(raw, expectedRobotId);
+        if (!next) { setError('Rejected invalid or unauthorized telemetry.'); return; }
         if (expectedRobotId && next.robot_id !== expectedRobotId) { setError('Telemetry does not match the selected robot.'); return; }
         if (!acceptTwinFrame(previous, next)) { setError('Rejected out-of-order telemetry.'); return; }
         previous = next;

@@ -95,13 +95,14 @@ function RobotReadinessPanel({
   ];
 
   const allPassed = Boolean(status?.eligible && gates.every((g) => g.passed));
+  const localFakeFollower = status?.readiness?.runtimeMode === 'fake_follower';
 
   if (!lesson.qualification) {
     return (
       <section className="rounded-xl border border-line bg-surface p-7 space-y-4">
         <div className="flex items-center gap-2">
           <LockIcon className="h-5 w-5 text-warn" />
-          <h2 className="text-xl font-bold text-ink">Robot Readiness / Safety Check</h2>
+          <h2 className="text-xl font-bold text-ink">{localFakeFollower ? 'Local Simulation Readiness Check' : 'Robot Readiness / Safety Check'}</h2>
         </div>
         <div className="rounded-lg border border-line bg-sunken p-4 text-xs text-ink-muted">
           Simulation qualification is required before physical lab preflight. Return to Pick & Place to qualify your program.
@@ -115,10 +116,10 @@ function RobotReadinessPanel({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
         <div className="flex items-center gap-2">
           <ShieldCheckIcon className="h-5 w-5 text-accent-ink" />
-          <h2 className="text-xl font-bold text-ink">Robot Readiness / Safety Check</h2>
+          <h2 className="text-xl font-bold text-ink">{localFakeFollower ? 'Local Simulation Readiness Check' : 'Robot Readiness / Safety Check'}</h2>
         </div>
         <Badge tone={allPassed ? 'ok' : 'warn'}>
-          {allPassed ? 'Preflight Verified' : 'Physical Lab (Gated)'}
+          {localFakeFollower ? allPassed ? 'Simulation Ready' : 'Simulation Unavailable' : allPassed ? 'Preflight Verified' : 'Physical Lab (Gated)'}
         </Badge>
       </div>
 
@@ -131,7 +132,9 @@ function RobotReadinessPanel({
           Qualified Target: <strong className="text-ink">Pick &amp; Place — Version {lesson.qualification.versionNumber}</strong> ({lesson.qualification.programVersionId})
         </p>
         <p className="text-ink-muted leading-relaxed">
-          {allPassed
+          {localFakeFollower
+            ? 'The configured fake follower is an isolated simulation. No physical robot will be connected or moved.'
+            : allPassed
             ? 'Hardware safety controller and runtime are ready for student authorization.'
             : 'Hardware execution is gated until preflight hardware authorization is enabled (P0.9). No fake robot execution or synthetic readiness will be performed.'}
         </p>
@@ -227,6 +230,12 @@ function PhysicalExperimentPanel({
   const attemptId = lesson.qualification?.attemptId ?? lesson.activeAttempt?.id ?? '';
   const client = useMemo(createRobotExecutionClient, []);
   const queryClient = useQueryClient();
+  const { data: runtimeStatus } = useQuery({
+    queryKey: ['physical-readiness', attemptId, session?.access_token],
+    queryFn: () => client.getRobotStatus(session?.access_token ?? '', attemptId),
+    enabled: Boolean(session?.access_token && attemptId),
+  });
+  const localFakeFollower = runtimeStatus?.readiness?.runtimeMode === 'fake_follower';
 
   const [perimeterClear, setPerimeterClear] = useState(false);
   const [armHomed, setArmHomed] = useState(false);
@@ -330,10 +339,12 @@ function PhysicalExperimentPanel({
         <div className="rounded-xl border border-line bg-surface p-6 space-y-5">
           <div className="flex items-center gap-2 border-b border-line pb-3">
             <ShieldAlertIcon className="h-5 w-5 text-accent-ink" />
-            <h3 className="text-base font-bold text-ink">Explicit Safety Confirmation Checklist</h3>
+            <h3 className="text-base font-bold text-ink">{localFakeFollower ? 'Explicit Simulation Confirmation Checklist' : 'Explicit Safety Confirmation Checklist'}</h3>
           </div>
           <p className="text-sm text-ink-muted leading-relaxed">
-            Physical motion requires explicit learner action. Opening this page or refreshing will never start motion. Confirm all 3 safety prerequisites below to enable execution.
+            {localFakeFollower
+              ? 'Starting the local fake follower requires explicit learner action. Opening or refreshing this page will not start a run. Confirm all 3 simulation prerequisites below.'
+              : 'Physical motion requires explicit learner action. Opening this page or refreshing will never start motion. Confirm all 3 safety prerequisites below to enable execution.'}
           </p>
 
           <fieldset className="space-y-3">
@@ -344,7 +355,7 @@ function PhysicalExperimentPanel({
                 onChange={(e) => setPerimeterClear(e.target.checked)}
                 className="mt-0.5 h-4 w-4 rounded border-line text-accent"
               />
-              <span className="text-sm text-ink">Workspace perimeter is clear of obstacles, tools, and personnel.</span>
+              <span className="text-sm text-ink">{localFakeFollower ? 'This run is configured for the local fake follower only.' : 'Workspace perimeter is clear of obstacles, tools, and personnel.'}</span>
             </label>
             <label className="flex items-start gap-3 rounded-lg border border-line p-3.5 hover:bg-sunken cursor-pointer transition-colors">
               <input
@@ -353,7 +364,7 @@ function PhysicalExperimentPanel({
                 onChange={(e) => setArmHomed(e.target.checked)}
                 className="mt-0.5 h-4 w-4 rounded border-line text-accent"
               />
-              <span className="text-sm text-ink">SO-101 physical robot arm is powered and in safe homed starting envelope.</span>
+              <span className="text-sm text-ink">{localFakeFollower ? 'No physical robot or hardware driver is connected to this runtime.' : 'SO-101 physical robot arm is powered and in safe homed starting envelope.'}</span>
             </label>
             <label className="flex items-start gap-3 rounded-lg border border-line p-3.5 hover:bg-sunken cursor-pointer transition-colors">
               <input
@@ -362,7 +373,7 @@ function PhysicalExperimentPanel({
                 onChange={(e) => setMotionConfirmed(e.target.checked)}
                 className="mt-0.5 h-4 w-4 rounded border-line text-accent"
               />
-              <span className="text-sm text-ink">I explicitly confirm and authorize physical motion execution on the robot.</span>
+              <span className="text-sm text-ink">{localFakeFollower ? 'I explicitly authorize this local simulation run.' : 'I explicitly confirm and authorize physical motion execution on the robot.'}</span>
             </label>
           </fieldset>
 
@@ -380,7 +391,7 @@ function PhysicalExperimentPanel({
               onClick={() => void handleStart()}
               className="inline-flex items-center gap-2 rounded-lg bg-accent px-6 py-3 text-sm font-semibold text-white transition-colors duration-150 ease-out hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {executing ? 'Authorizing execution…' : 'Confirm & Execute on Robot'} <ArrowRightIcon className="h-4 w-4" />
+              {executing ? 'Starting run…' : localFakeFollower ? 'Confirm & Run Local Simulation' : 'Confirm & Execute on Robot'} <ArrowRightIcon className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -391,7 +402,7 @@ function PhysicalExperimentPanel({
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
             <div className="flex items-center gap-2">
               <ClockIcon className="h-5 w-5 text-accent-ink" />
-              <h3 className="text-base font-bold text-ink">Physical Robot Run Status</h3>
+              <h3 className="text-base font-bold text-ink">{execution.runtime?.mode === 'fake_follower' ? 'Fake Follower Simulation Status' : 'Physical Robot Run Status'}</h3>
             </div>
             <Badge tone={execution.state === 'succeeded' ? 'ok' : isRunning ? 'accent' : 'danger'}>
               {execution.state.toUpperCase()}
@@ -419,7 +430,7 @@ function PhysicalExperimentPanel({
             <div className="pt-2 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs text-ink-muted">
                 <div className="h-2 w-2 rounded-full bg-accent animate-ping" />
-                Robot executing physical trajectory…
+                {execution.runtime?.mode === 'fake_follower' ? 'Fake follower simulation executing…' : 'Robot executing physical trajectory…'}
               </div>
               <button
                 type="button"
@@ -435,17 +446,19 @@ function PhysicalExperimentPanel({
             <div className="rounded-xl border border-ok/30 bg-ok-soft/50 p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <CheckCircle2Icon className="h-5 w-5 text-ok" />
-                <h4 className="text-sm font-bold text-ink">Physical Run Succeeded &amp; Evidence Persisted!</h4>
+                <h4 className="text-sm font-bold text-ink">{execution.runtime?.physical ? 'Physical Run Succeeded & Evidence Persisted!' : 'Simulation Run Succeeded & Evidence Persisted!'}</h4>
               </div>
               <p className="text-xs text-ink/90 leading-relaxed">
-                The SO-101 robot completed the physical trajectory. Durable evidence has been recorded in Education API.
+                {execution.runtime?.physical
+                  ? 'The SO-101 robot completed the physical trajectory. Durable evidence has been recorded in Education API.'
+                  : `The ${execution.runtime?.mode === 'fake_follower' ? 'local fake follower' : 'configured runtime'} completed this simulation. It does not represent physical robot execution. Durable evidence has been recorded in Education API.`}
               </p>
               <div className="pt-1">
                 <Link
                   to={`/courses/${courseId}/lessons/${lesson.id}/activities/${lesson.id}-evidence`}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-5 py-2 text-xs font-semibold text-white hover:bg-accent-hover"
                 >
-                  View Physical Evidence <ArrowRightIcon className="h-3.5 w-3.5" />
+                  View Execution Evidence <ArrowRightIcon className="h-3.5 w-3.5" />
                 </Link>
               </div>
             </div>
