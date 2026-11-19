@@ -9,7 +9,7 @@ import { CreateQuizDeliveryDto } from './dto/create-quiz-delivery.dto';
 import { UpdateAssignmentDto } from "./dto/update-assignment.dto";
 import { Body, Patch, Post } from "@nestjs/common";
 import { LearningService } from "./learning.service";
-import { CreateCourseDto, CreateLessonDto, LessonPrerequisitesDto, ReorderLessonsDto, UpdateCourseDto, UpdateLessonDto } from './dto/course-catalog.dto';
+import { CourseListQueryDto, CreateCourseDto, CreateLessonDto, LessonPrerequisitesDto, ReorderLessonsDto, UpdateCourseDto, UpdateLessonDto } from './dto/course-catalog.dto';
 @ApiTags("Learning") @ApiBearerAuth() @UseGuards(SupabaseAuthGuard)
 @Controller()
 export class LearningController {
@@ -23,7 +23,9 @@ export class LearningController {
  @Patch('admin/lessons/:lessonId') updateLesson(@CurrentUser() u:AuthenticatedUser,@Param('lessonId',ParseUUIDPipe) id:string,@Body() dto:UpdateLessonDto){return this.learning.updateCourseLesson(u,id,dto)}
  @Post('admin/courses/:courseId/lessons/order') reorderLessons(@CurrentUser() u:AuthenticatedUser,@Param('courseId',ParseUUIDPipe) id:string,@Body() dto:ReorderLessonsDto){return this.learning.reorderCourseLessons(u,id,dto.orderedIds)}
  @Post('admin/lessons/:lessonId/prerequisites') prerequisites(@CurrentUser() u:AuthenticatedUser,@Param('lessonId',ParseUUIDPipe) id:string,@Body() dto:LessonPrerequisitesDto){return this.learning.setLessonPrerequisites(u,id,dto.prerequisiteLessonIds)}
- @Get("courses") courses(@CurrentUser() u:AuthenticatedUser,@Query() q:PaginationDto){return this.learning.courses(u,q)}
+ @Get("courses") courses(@CurrentUser() u:AuthenticatedUser,@Query() q:CourseListQueryDto){return this.learning.courses(u,q)}
+ @Get("course-tags") courseTags(@CurrentUser() u:AuthenticatedUser){return this.learning.courseTags(u)}
+ @Get("me/learning-path") learningPath(@CurrentUser() u:AuthenticatedUser){return this.learning.learningPath(u)}
  @Get("courses/:courseId") course(@CurrentUser() u:AuthenticatedUser,@Param("courseId") id:string){return this.learning.course(u,id)}
  @Get("courses/:courseId/lessons") lessons(@CurrentUser() u:AuthenticatedUser,@Param("courseId") id:string){return this.learning.lessonsForCourse(u,id)}
  @Get("lessons/:lessonId") lesson(@CurrentUser() u:AuthenticatedUser,@Param("lessonId") id:string){return this.learning.lesson(u,id)}

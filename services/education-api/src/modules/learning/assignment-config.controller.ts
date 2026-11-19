@@ -4,7 +4,7 @@ import { CurrentUser } from '../identity/auth/current-user.decorator';
 import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
 import { SupabaseAuthGuard } from '../identity/auth/supabase-auth.guard';
 import { AssignmentConfigService } from './assignment-config.service';
-import { ReplaceRubricDto, UpdateScheduleDto } from './dto/assignment-config.dto';
+import { ReplaceRubricDto, UpdateAssignmentAcademicDto, UpdateScheduleDto } from './dto/assignment-config.dto';
 
 @ApiTags('Assignment configuration') @ApiBearerAuth() @UseGuards(SupabaseAuthGuard) @Controller()
 export class AssignmentConfigController {
@@ -12,4 +12,6 @@ export class AssignmentConfigController {
   @Get('classrooms/:classroomId/assignments/:assignmentId/rubric') rubric(@CurrentUser() u: AuthenticatedUser, @Param('classroomId', ParseUUIDPipe) c: string, @Param('assignmentId', ParseUUIDPipe) a: string) { return this.config.getRubric(u, c, a); }
   @Put('classrooms/:classroomId/assignments/:assignmentId/rubric') replaceRubric(@CurrentUser() u: AuthenticatedUser, @Param('classroomId', ParseUUIDPipe) c: string, @Param('assignmentId', ParseUUIDPipe) a: string, @Body() dto: ReplaceRubricDto) { return this.config.replaceRubric(u, c, a, dto); }
   @Patch('classrooms/:classroomId/assignments/:assignmentId/schedule') schedule(@CurrentUser() u: AuthenticatedUser, @Param('classroomId', ParseUUIDPipe) c: string, @Param('assignmentId', ParseUUIDPipe) a: string, @Body() dto: UpdateScheduleDto) { return this.config.updateSchedule(u, c, a, dto); }
+  @Get('classrooms/:classroomId/assignments/:assignmentId/academic') academic(@CurrentUser() u: AuthenticatedUser, @Param('classroomId', ParseUUIDPipe) c: string, @Param('assignmentId', ParseUUIDPipe) a: string) { return this.config.getAcademic(u, c, a); }
+  @Patch('classrooms/:classroomId/assignments/:assignmentId/academic') updateAcademic(@CurrentUser() u: AuthenticatedUser, @Param('classroomId', ParseUUIDPipe) c: string, @Param('assignmentId', ParseUUIDPipe) a: string, @Body() dto: UpdateAssignmentAcademicDto) { return this.config.updateAcademic(u, c, a, dto); }
 }
