@@ -126,14 +126,16 @@ DO $$ DECLARE bad text; BEGIN
 END $$;
 -- 6. replay: a second execution is harmless and ends with the same definition and rows
 CREATE TEMP TABLE h_def AS SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = 'public.learning_media_assets'::regclass AND conname = 'learning_media_assets_mime_type';
+CREATE TEMP TABLE h_checks AS SELECT count(*)::int AS n FROM pg_constraint WHERE conrelid = 'public.learning_media_assets'::regclass AND contype = 'c';
 {h_sql}
 DO $$ BEGIN
   IF (SELECT def FROM h_def) <> (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'public.learning_media_assets'::regclass AND conname = 'learning_media_assets_mime_type')
   THEN RAISE EXCEPTION 'replay changed the constraint'; END IF;
   IF (SELECT count(*) FROM public.learning_media_assets WHERE course_id = (SELECT id FROM h_course)) <> {len(old_list) + 1}
   THEN RAISE EXCEPTION 'replay changed the row count'; END IF;
-  IF (SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.learning_media_assets'::regclass AND contype = 'c') <> 5
-  THEN RAISE EXCEPTION 'unexpected number of CHECK constraints on learning_media_assets'; END IF;
+  -- replay must not add or drop any CHECK (the count is compared with the count before the replay, so later additive migrations such as Q do not matter)
+  IF (SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.learning_media_assets'::regclass AND contype = 'c') <> (SELECT n FROM h_checks)
+  THEN RAISE EXCEPTION 'replay changed the number of CHECK constraints on learning_media_assets'; END IF;
 END $$;
 SELECT 'H_VERIFIED rows=' || count(*) || ' def_has_audio=' || ((SELECT def FROM h_def) LIKE '%''audio/mpeg''%') FROM public.learning_media_assets WHERE course_id = (SELECT id FROM h_course);
 ROLLBACK;

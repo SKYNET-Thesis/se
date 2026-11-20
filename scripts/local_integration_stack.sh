@@ -27,7 +27,7 @@ export VISTA_DATABASE_PROJECT_REF=local-int VISTA_DEV_DATABASE_URL="postgresql:/
 python3 scripts/bootstrap_dev_database.py --confirm-local-bootstrap >/dev/null
 # Staged hardening M (revoke PUBLIC TEMP): not part of the release manifest and not approved for Production. Like the CI bootstrap workflow,
 # apply it to this disposable database only (the script refuses anything but a loopback vista_test_* database) so local runs match the hardened schema.
-for staged in 20261116_m_revoke_public_temp_privilege 20261120_q_media_archive 20261120_r_device_provisioning; do
+for staged in 20261116_m_revoke_public_temp_privilege 20261120_r_device_provisioning; do
   [ -f "database/staged-migrations/$staged.sql" ] && python3 scripts/apply_staged_migration_to_test_database.py --database-url "postgresql://vista_test:intpw@127.0.0.1:$PGPORT/$DB" "database/staged-migrations/$staged.sql" >/dev/null
 done
 docker exec "$PG" psql -U vista_test -d $DB -c "ALTER ROLE vista_app_runtime WITH LOGIN PASSWORD 'rtpw_local'" >/dev/null

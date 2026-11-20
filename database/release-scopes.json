@@ -177,9 +177,9 @@
       },
       "verifier": "n"
     },
-    "O-P": {
-      "description": "WF-01 school-admin robot-allocation permission (one idempotent role grant) and LMS academic metadata: canonical BEGINNER/INTERMEDIATE/ADVANCED level rows, learning_courses.tags/prerequisite_course_ids, learning_assignments difficulty/type/pass score/grading method/objectives, learning_classrooms.self_enrollment_open. Additive only; no new table, no backfill, no RLS/grant/trigger/policy change; requires D-L and N applied.",
-      "productionStatus": "PROPOSED, NOT APPROVED: needs review of this scope, the rehearsal evidence in docs/acceptance/RELEASE_READINESS.md and the production-database-apply reviewer approval. Apply BEFORE deploying the API that reads the new columns; the previous API is unaffected by it.",
+    "O-Q": {
+      "description": "WF-01 school-admin robot-allocation permission (one idempotent role grant) and LMS academic metadata: canonical BEGINNER/INTERMEDIATE/ADVANCED level rows, learning_courses.tags/prerequisite_course_ids, learning_assignments difficulty/type/pass score/grading method/objectives, learning_classrooms.self_enrollment_open. Plus Q: Learning Media archive/restore (three nullable columns, one CHECK, one partial index on learning_media_assets; the API build reads them). Additive only; no new table, no backfill, no RLS/grant/trigger/policy change; requires D-L and N applied.",
+      "productionStatus": "PROPOSED, NOT APPROVED: needs review of this scope, the rehearsal evidence in docs/acceptance/RELEASE_READINESS.md and the production-database-apply reviewer approval. Apply BEFORE deploying the API that reads the new columns (O-P academic metadata and Q archive columns: the media library and student media URLs query archived_at); the previous API is unaffected by it.",
       "requiresApplied": [
         "20261110_d_activity_content",
         "20261110_e_learning_media",
@@ -194,11 +194,13 @@
       ],
       "versions": [
         "20261119_o_wf01_robot_allocation_permission",
-        "20261119_p_course_level_tags_prerequisites_assignment_difficulty"
+        "20261119_p_course_level_tags_prerequisites_assignment_difficulty",
+        "20261120_q_media_archive"
       ],
       "sha256": {
         "20261119_o_wf01_robot_allocation_permission": "6aa109ea5520c76de9cd2937e24535ec3069728b45a5aa4cb64ab831127f8e7c",
-        "20261119_p_course_level_tags_prerequisites_assignment_difficulty": "20ff102585ceff63e44e64d8da1bca898dce84b3b7a49f5dbc07399fd17aa236"
+        "20261119_p_course_level_tags_prerequisites_assignment_difficulty": "20ff102585ceff63e44e64d8da1bca898dce84b3b7a49f5dbc07399fd17aa236",
+        "20261120_q_media_archive": "8308a4a3b1f4b5598c3bef935e7511a4de1b490022855fbde9f977a856f8878f"
       },
       "excludedVersions": [
         "20261116_m_revoke_public_temp_privilege"
@@ -217,7 +219,7 @@
         "triggers": 22,
         "functions": 15
       },
-      "verifier": "op"
+      "verifier": "oq"
     }
   }
 }
