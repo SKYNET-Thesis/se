@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only preview and pre/post-flight checks for release scope O-P (WF-01 permission + LMS academic metadata columns).
+"""Read-only preview and pre/post-flight checks for release scope O-Q (WF-01 permission, LMS academic metadata columns and the Learning Media archive columns).
 
 Modes (every query runs in an explicit `BEGIN READ ONLY` transaction via the shared helper; nothing is ever written):
   --preview          aggregate, non-sensitive counts describing the tables the migrations will alter
@@ -24,7 +24,7 @@ except ModuleNotFoundError:  # executed as a script from the repository root
     from verify_production_release_n import CATALOG_SQL  # type: ignore
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSIONS = ("20261119_o_wf01_robot_allocation_permission", "20261119_p_course_level_tags_prerequisites_assignment_difficulty")
+VERSIONS = ("20261119_o_wf01_robot_allocation_permission", "20261119_p_course_level_tags_prerequisites_assignment_difficulty", "20261120_q_media_archive")
 NEW_COLUMNS = {  # (table, column) -> (udt_name, is_nullable, column_default)
     ("learning_courses", "tags"): ("_text", "NO", "'{}'::text[]"),
     ("learning_courses", "prerequisite_course_ids"): ("_uuid", "NO", "'{}'::uuid[]"),
@@ -34,8 +34,11 @@ NEW_COLUMNS = {  # (table, column) -> (udt_name, is_nullable, column_default)
     ("learning_assignments", "grading_method"): ("text", "YES", None),
     ("learning_assignments", "learning_objectives"): ("jsonb", "NO", "'[]'::jsonb"),
     ("learning_classrooms", "self_enrollment_open"): ("bool", "NO", "false"),
+    ("learning_media_assets", "archived_at"): ("timestamptz", "YES", None),
+    ("learning_media_assets", "archived_by_user_id"): ("uuid", "YES", None),
+    ("learning_media_assets", "archive_reason"): ("text", "YES", None),
 }
-TABLES = ("learning_courses", "learning_assignments", "learning_classrooms")
+TABLES = ("learning_courses", "learning_assignments", "learning_classrooms", "learning_media_assets")
 LEVELS = ("BEGINNER", "INTERMEDIATE", "ADVANCED")
 PERMISSION = "education.classroom.resource.allocate"
 
@@ -52,8 +55,8 @@ def preview(url: str) -> dict:
     cols = ",".join(repr(c) for (_, c) in NEW_COLUMNS)
     return base.query(url, f"""SELECT json_build_object(
       'courses',(SELECT count(*) FROM public.learning_courses),'assignments',(SELECT count(*) FROM public.learning_assignments),
-      'classrooms',(SELECT count(*) FROM public.learning_classrooms),'levels',(SELECT count(*) FROM public.learning_levels),
-      'new_columns_already_present',(SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name = ANY(ARRAY['learning_courses','learning_assignments','learning_classrooms']) AND column_name = ANY(ARRAY[{cols}])),
+      'classrooms',(SELECT count(*) FROM public.learning_classrooms),'media',(SELECT count(*) FROM public.learning_media_assets),'levels',(SELECT count(*) FROM public.learning_levels),
+      'new_columns_already_present',(SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name = ANY(ARRAY['learning_courses','learning_assignments','learning_classrooms','learning_media_assets']) AND column_name = ANY(ARRAY[{cols}])),
       'permission_present',(SELECT count(*) FROM public.permissions WHERE code='{PERMISSION}'))::text""")
 
 
@@ -70,7 +73,7 @@ def snapshot(url: str) -> dict:
 def verify(url: str, pre: dict, root: Path | None = None) -> list[tuple[str, bool, str]]:
     root = Path(root) if root else ROOT
     manifest = json.loads((root / "database/migrations/manifest.json").read_text())
-    scope = json.loads((root / "database/release-scopes.json").read_text())["scopes"]["O-P"]
+    scope = json.loads((root / "database/release-scopes.json").read_text())["scopes"]["O-Q"]
     pinned = {e["version"]: e["sha256"] for e in manifest["migrations"]}
     results: list[tuple[str, bool, str]] = []
 
@@ -86,29 +89,35 @@ def verify(url: str, pre: dict, root: Path | None = None) -> list[tuple[str, boo
     for version in scope["requiresApplied"]:
         r = by_version.get(version)
         check(f"ledger keeps {version}", bool(r) and r["sum"] == pinned.get(version) and r["prov"] == "executed")
-    check("ledger kept every earlier version and gained only O and P", set(pre["ledger"]) | set(VERSIONS) == set(by_version), f"{len(pre['ledger'])} -> {len(by_version)}")
+    check("ledger kept every earlier version and gained only O, P and Q", set(pre["ledger"]) | set(VERSIONS) == set(by_version), f"{len(pre['ledger'])} -> {len(by_version)}")
     cat = base.query(url, CATALOG_SQL)
     check("catalog counts equal the pinned post-release schema (column/constraint/index/row changes leave them unchanged)", cat == scope["expectedCatalogAfter"], f"found {json.dumps(cat, sort_keys=True)}")
 
     cols = {(r["t"], r["c"]): r for r in base.query(url, """SELECT COALESCE(json_agg(json_build_object('t',table_name,'c',column_name,'u',udt_name,'n',is_nullable,'d',column_default)),'[]'::json)::text
-        FROM information_schema.columns WHERE table_schema='public' AND table_name = ANY(ARRAY['learning_courses','learning_assignments','learning_classrooms'])""")}
+        FROM information_schema.columns WHERE table_schema='public' AND table_name = ANY(ARRAY['learning_courses','learning_assignments','learning_classrooms','learning_media_assets'])""")}
     for (table, column), (udt, nullable, default) in NEW_COLUMNS.items():
         got = cols.get((table, column))
         check(f"column {table}.{column}: {udt}, nullable={nullable}, default={default}", bool(got) and got["u"] == udt and got["n"] == nullable and got["d"] == default, json.dumps(got) if got else "missing")
-    constraints = base.query(url, "SELECT COALESCE(json_agg(conname ORDER BY conname),'[]'::json)::text FROM pg_constraint WHERE conname IN ('learning_courses_tags_limit','learning_assignments_academic_values')")
-    check("both CHECK constraints exist", constraints == ["learning_assignments_academic_values", "learning_courses_tags_limit"], json.dumps(constraints))
+    constraints = base.query(url, "SELECT COALESCE(json_agg(conname ORDER BY conname),'[]'::json)::text FROM pg_constraint WHERE conname IN ('learning_courses_tags_limit','learning_assignments_academic_values','learning_media_assets_archive_state')")
+    check("all three CHECK constraints exist", constraints == ["learning_assignments_academic_values", "learning_courses_tags_limit", "learning_media_assets_archive_state"], json.dumps(constraints))
+    index = base.query(url, "SELECT COALESCE(json_agg(indexdef),'[]'::json)::text FROM pg_indexes WHERE schemaname='public' AND indexname='learning_media_assets_active_course_idx'")
+    check("the partial media index exists (course_id, created_at DESC WHERE archived_at IS NULL)", len(index) == 1 and "archived_at IS NULL" in index[0] and "course_id" in index[0], json.dumps(index))
 
     data = base.query(url, f"""SELECT json_build_object(
       'levels',(SELECT COALESCE(json_agg(code ORDER BY ordinal),'[]'::json) FROM public.learning_levels WHERE code = ANY(ARRAY['BEGINNER','INTERMEDIATE','ADVANCED'])),
       'grant',(SELECT count(*) FROM public.role_permissions rp JOIN public.roles r ON r.id=rp.role_id JOIN public.permissions p ON p.id=rp.permission_id WHERE p.code='{PERMISSION}' AND r.code='school_admin' AND r.scope='organization'),
       'courses_with_values',(SELECT count(*) FROM public.learning_courses WHERE cardinality(tags)>0 OR cardinality(prerequisite_course_ids)>0),
       'assignments_with_values',(SELECT count(*) FROM public.learning_assignments WHERE difficulty IS NOT NULL OR assignment_type IS NOT NULL OR pass_score IS NOT NULL OR grading_method IS NOT NULL OR jsonb_array_length(learning_objectives)>0),
+      'media_archived',(SELECT count(*) FROM public.learning_media_assets WHERE archived_at IS NOT NULL OR archived_by_user_id IS NOT NULL OR archive_reason IS NOT NULL),
+      'media',(SELECT count(*) FROM public.learning_media_assets),
       'classrooms_open',(SELECT count(*) FROM public.learning_classrooms WHERE self_enrollment_open),
       'courses',(SELECT count(*) FROM public.learning_courses),'assignments',(SELECT count(*) FROM public.learning_assignments),'classrooms',(SELECT count(*) FROM public.learning_classrooms))::text""")
     check("the three canonical level rows exist", data["levels"] == list(LEVELS), json.dumps(data["levels"]))
     check("School Admin holds the WF-01 allocation permission exactly once", data["grant"] == 1, f"grants={data['grant']}")
     check("no course was given tags or prerequisites (no backfill)", data["courses_with_values"] == 0, f"rows={data['courses_with_values']}")
     check("no assignment was given academic values (no backfill)", data["assignments_with_values"] == 0, f"rows={data['assignments_with_values']}")
+    check("no media file was archived by the release (no backfill)", data["media_archived"] == 0, f"rows={data['media_archived']}")
+    check("row count unchanged: learning_media_assets", data["media"] == pre["preview"]["media"], f"{pre['preview']['media']} -> {data['media']}")
     check("no classroom is open for self-enrollment (default closed)", data["classrooms_open"] == 0, f"open={data['classrooms_open']}")
     for key, name in (("courses", "courses"), ("assignments", "assignments"), ("classrooms", "classrooms")):
         check(f"row count unchanged: {name}", data[key] == pre["preview"][key], f"{pre['preview'][key]} -> {data[key]}")
