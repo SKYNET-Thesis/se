@@ -8,6 +8,9 @@ import { CreateClassroomDto } from "./dto/create-classroom.dto";
 import { AllocateClassroomRobotDto } from "./dto/allocate-classroom-robot.dto";
 import { UpsertClassroomMemberDto } from "./dto/upsert-classroom-member.dto";
 import { ImportSchoolUsersDto, ImportSchoolUserRowDto } from "./dto/import-school-users.dto";
+import { CreateOrganizationDto } from "./dto/create-organization.dto";
+import { UpdateOrganizationDto } from "./dto/update-organization.dto";
+import { AssignSchoolAdminDto } from "./dto/assign-school-admin.dto";
 import { SupabaseAdminService } from "./supabase-admin.service";
 import { classifyImportError, ImportProvisioningError, type ImportErrorCode } from "./import-errors";
 import { StudentProvisioningService } from "./student-provisioning.service";
@@ -402,6 +405,112 @@ export class EducationAdminService {
       await tx.$executeRaw`INSERT INTO public.education_school_user_profiles(organization_id,user_id,person_type,employee_code,student_code,grade_level,guardian_email,account_state) VALUES(${organizationId}::uuid,${userId}::uuid,'teacher',${code},NULL,NULL,NULL,${accountState}) ON CONFLICT(organization_id,user_id) DO UPDATE SET employee_code=EXCLUDED.employee_code,account_state=EXCLUDED.account_state,updated_at=now()`;
     });
     return { status: "created" as const };
+  }
+
+  async createOrganization(user: AuthenticatedUser, dto: CreateOrganizationDto) {
+    if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Organization was not found.");
+    const name = dto.name.trim();
+    const schoolCode = dto.schoolCode?.trim() || undefined;
+    try {
+      return await this.prisma.organizations.create({
+        data: {
+          name,
+          type: dto.type,
+          segment: dto.segment,
+          ...(schoolCode ? { school_code: schoolCode } : {}),
+          ...(dto.contractStart ? { contract_start: new Date(dto.contractStart) } : {}),
+          ...(dto.contractEnd ? { contract_end: new Date(dto.contractEnd) } : {}),
+        },
+      });
+    } catch (error: unknown) {
+      if (this.isUniqueViolation(error)) throw new ConflictException("An organization with this school code already exists.");
+      throw error;
+    }
+  }
+
+  async updateOrganization(user: AuthenticatedUser, organizationId: string, dto: UpdateOrganizationDto) {
+    if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Organization was not found.");
+    const org = await this.prisma.organizations.findUnique({ where: { id: organizationId }, select: { id: true } });
+    if (!org) throw new NotFoundException("Organization was not found.");
+    const data: Record<string, unknown> = {};
+    if (dto.name !== undefined) data.name = dto.name.trim();
+    if (dto.type !== undefined) data.type = dto.type;
+    if (dto.segment !== undefined) data.segment = dto.segment;
+    if (dto.schoolCode !== undefined) data.school_code = dto.schoolCode.trim() || null;
+    if (dto.contractStart !== undefined) data.contract_start = new Date(dto.contractStart);
+    if (dto.contractEnd !== undefined) data.contract_end = new Date(dto.contractEnd);
+    if (dto.status !== undefined) data.status = dto.status;
+    data.updated_at = new Date();
+    try {
+      return await this.prisma.organizations.update({ where: { id: org.id }, data });
+    } catch (error: unknown) {
+      if (this.isUniqueViolation(error)) throw new ConflictException("An organization with this school code already exists.");
+      throw error;
+    }
+  }
+
+  async getOrganization(user: AuthenticatedUser, organizationId: string) {
+    if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Organization was not found.");
+    const org = await this.prisma.organizations.findUnique({
+      where: { id: organizationId },
+      select: {
+        id: true,
+        name: true,
+        school_code: true,
+        type: true,
+        segment: true,
+        status: true,
+        contract_start: true,
+        contract_end: true,
+        created_at: true,
+        updated_at: true,
+        _count: { select: { memberships: true } },
+      },
+    });
+    if (!org) throw new NotFoundException("Organization was not found.");
+    const schoolAdmins = await this.listSchoolAdmins(user, organizationId);
+    return { ...org, schoolAdmins };
+  }
+
+  async listSchoolAdmins(user: AuthenticatedUser, organizationId: string) {
+    if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Organization was not found.");
+    const org = await this.prisma.organizations.findUnique({ where: { id: organizationId }, select: { id: true } });
+    if (!org) throw new NotFoundException("Organization was not found.");
+    return this.prisma.$queryRaw<Array<{ id: string; userId: string; fullName: string; email: string | null; membershipStatus: string }>>`
+      SELECT m.id, u.id AS "userId", u.full_name AS "fullName", u.email, m.status AS "membershipStatus"
+      FROM public.memberships m
+      JOIN public.users u ON u.id = m.user_id
+      JOIN public.roles r ON r.id = m.role_id
+      WHERE m.organization_id = ${organizationId}::uuid
+        AND r.code = 'school_admin'
+        AND m.status = 'active'
+      ORDER BY u.full_name ASC`;
+  }
+
+  async assignSchoolAdmin(user: AuthenticatedUser, organizationId: string, dto: AssignSchoolAdminDto) {
+    if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Organization was not found.");
+    const org = await this.prisma.organizations.findUnique({ where: { id: organizationId }, select: { id: true } });
+    if (!org) throw new NotFoundException("Organization was not found.");
+    const targetUser = await this.prisma.users.findUnique({ where: { id: dto.userId }, select: { id: true, full_name: true, email: true, status: true } });
+    if (!targetUser || targetUser.status !== "active") throw new NotFoundException("An active user was not found.");
+    const role = await this.prisma.roles.findFirst({ where: { code: "school_admin" } });
+    if (!role) throw new NotFoundException("The school_admin role was not found.");
+    const membership = await this.prisma.memberships.upsert({
+      where: { user_id_organization_id: { user_id: dto.userId, organization_id: organizationId } },
+      update: { role_id: role.id, status: "active", updated_at: new Date() },
+      create: { user_id: dto.userId, organization_id: organizationId, role_id: role.id, status: "active" },
+    });
+    return { ...membership, user: targetUser };
+  }
+
+  async removeSchoolAdmin(user: AuthenticatedUser, organizationId: string, userId: string) {
+    if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Organization was not found.");
+    const membership = await this.prisma.memberships.findFirst({
+      where: { organization_id: organizationId, user_id: userId, roles: { code: "school_admin" }, status: "active" },
+      select: { id: true },
+    });
+    if (!membership) throw new NotFoundException("School admin membership was not found.");
+    return this.prisma.memberships.update({ where: { id: membership.id }, data: { status: "inactive", updated_at: new Date() } });
   }
 
   private async ensureSchoolCode(organizationId: string): Promise<string> {

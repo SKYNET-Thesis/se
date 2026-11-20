@@ -1,5 +1,6 @@
 import {
   BookOpenIcon,
+  Building2Icon,
   ClipboardCheckIcon,
   ClipboardListIcon,
   FileQuestionIcon,
@@ -83,6 +84,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
   {
     title: 'Administration',
     items: [
+    { to: '/admin/organizations', label: 'Organizations', icon: Building2Icon },
     { to: '/admin/users', label: 'Users & roles', icon: UsersIcon },
     { to: '/admin/robots', label: 'Robot resources', icon: Cpu },
     { to: '/admin/settings', label: 'System settings', icon: Settings2Icon }]

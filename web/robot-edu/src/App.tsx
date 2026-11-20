@@ -22,6 +22,7 @@ import { TeacherAssignments } from './pages/teacher/TeacherAssignments';
 import { TeacherAssignmentEditor } from './pages/teacher/TeacherAssignmentEditor';
 import { QuizDeliveries } from './pages/teacher/QuizDeliveries';
 import { TeacherSubmissions } from './pages/teacher/TeacherSubmissions';
+import { AdminOrganizations } from './pages/admin/AdminOrganizations';
 import { AdminUsers } from './pages/admin/AdminUsers';
 import { AdminRobots } from './pages/admin/AdminRobots';
 import { AdminSettings } from './pages/admin/AdminSettings';
@@ -96,6 +97,7 @@ export function App() {
                   <Route path="teacher/assignments/:classroomId/:assignmentId" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
  <Route path="teacher/quizzes" element={<RequireRole roles={['teacher']}><QuizDeliveries audience="teacher" /></RequireRole>} />
                   <Route path="teacher/submissions" element={<RequireRole roles={['teacher']}><TeacherSubmissions /></RequireRole>} />
+                  <Route path="admin/organizations" element={<RequireRole roles={['admin']}><AdminOrganizations /></RequireRole>} />
                   <Route path="admin/users" element={<RequireRole roles={['admin']}><AdminUsers /></RequireRole>} />
                   <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />
                   <Route path="admin/settings" element={<RequireRole roles={['admin']}><AdminSettings /></RequireRole>} />

@@ -480,6 +480,47 @@ export const studentAuthApi = {
   recover: (body: { schoolCode: string; studentCode: string; recoveryCode: string; password: string }) => apiPublicPost<{ status: "password_updated" }>("/auth/students/recover", body),
   changePassword: (token: string, body: { currentPassword: string; newPassword: string }) => apiRequest<ApiStudentAuthSession>("/auth/students/password", token, "PATCH", body),
 };
+export interface ApiOrganization {
+  id: string;
+  name: string;
+  school_code: string | null;
+  type: string;
+  segment: string;
+  status: string;
+  contract_start: string | null;
+  contract_end: string | null;
+  created_at: string;
+  updated_at: string;
+  _count?: { memberships: number };
+}
+
+export interface ApiSchoolAdminItem {
+  id: string;
+  userId: string;
+  fullName: string;
+  email: string | null;
+  membershipStatus: string;
+}
+
+export interface ApiOrganizationDetail extends ApiOrganization {
+  schoolAdmins?: ApiSchoolAdminItem[];
+}
+
+export const organizationsApi = {
+  list: (token: string) => apiGet<ApiOrganization[]>("/organizations", token),
+  get: (organizationId: string, token: string) => apiGet<ApiOrganizationDetail>(`/organizations/${organizationId}`, token),
+  create: (token: string, body: { name: string; type: string; segment: string; schoolCode?: string; contractStart?: string; contractEnd?: string }) =>
+    apiRequest<ApiOrganization>("/organizations", token, "POST", body),
+  update: (organizationId: string, token: string, body: { name?: string; type?: string; segment?: string; schoolCode?: string; contractStart?: string; contractEnd?: string; status?: string }) =>
+    apiRequest<ApiOrganization>(`/organizations/${organizationId}`, token, "PATCH", body),
+  listAdmins: (organizationId: string, token: string) =>
+    apiGet<ApiSchoolAdminItem[]>(`/organizations/${organizationId}/admins`, token),
+  assignAdmin: (organizationId: string, token: string, body: { userId: string }) =>
+    apiRequest<ApiRecord>(`/organizations/${organizationId}/admins`, token, "POST", body),
+  removeAdmin: (organizationId: string, userId: string, token: string) =>
+    apiRequest<ApiRecord>(`/organizations/${organizationId}/admins/${userId}`, token, "DELETE"),
+};
+
 export const educationAdminApi = {
   courses: (organizationId:string,token:string) => apiGet<ApiCourse[]>(`/education-admin/organizations/${organizationId}/courses`,token),
   publishedCourses: (organizationId:string,token:string) => apiGet<ApiCourse[]>(`/education-admin/organizations/${organizationId}/published-courses`,token),
