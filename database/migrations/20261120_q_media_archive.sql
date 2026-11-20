@@ -1,11 +1,10 @@
--- Staged migration Q: Learning Media archive / restore (soft state; nothing is ever deleted).
--- NOT part of the release manifest and NOT approved for Production. Additive and idempotent: three nullable columns, one CHECK, one partial index.
+-- Migration Q: Learning Media archive / restore (soft state; nothing is ever deleted).
+-- Additive and idempotent: three nullable columns, one CHECK, one partial index. Part of release scope O-Q (see database/release-scopes.json).
 -- Depends on: 20261110_e_learning_media applied. The runtime role already holds table-level SELECT/INSERT/UPDATE on learning_media_assets (migration L).
 -- Rollback (only after the API build that reads these columns no longer runs; archived files stay in the bucket either way):
 --   DROP INDEX IF EXISTS public.learning_media_assets_active_course_idx;
 --   ALTER TABLE public.learning_media_assets DROP CONSTRAINT IF EXISTS learning_media_assets_archive_state,
 --     DROP COLUMN IF EXISTS archived_at, DROP COLUMN IF EXISTS archived_by_user_id, DROP COLUMN IF EXISTS archive_reason;
-BEGIN;
 DO $$
 BEGIN
   IF to_regclass('public.learning_media_assets') IS NULL THEN
@@ -31,4 +30,3 @@ END $$;
 -- Library listings read the active (non-archived) files of one course.
 CREATE INDEX IF NOT EXISTS learning_media_assets_active_course_idx
   ON public.learning_media_assets (course_id, created_at DESC) WHERE archived_at IS NULL;
-COMMIT;

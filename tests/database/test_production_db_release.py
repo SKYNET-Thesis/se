@@ -173,7 +173,7 @@ class StaticSafeguardTests(unittest.TestCase):
         self.assertEqual(d_i["versions"], [e["version"] for e in manifest["migrations"]][: len(d_i["versions"])])
         self.assertIn("20261114_j_one_submission_per_attempt", d_i["excludedVersions"])  # Stage J can never ride along with D-I
         registered = [e["version"] for e in manifest["migrations"]]
-        reviewed = d_i["versions"] + scopes["J"]["versions"] + scopes["K-L"]["versions"] + scopes["N"]["versions"] + scopes["O-P"]["versions"]
+        reviewed = d_i["versions"] + scopes["J"]["versions"] + scopes["K-L"]["versions"] + scopes["N"]["versions"] + scopes["O-Q"]["versions"]
         self.assertEqual(registered[:len(reviewed)], reviewed)  # J precedes K-L, which precede N; M is staged, not manifested
         # Every manifest migration now belongs to exactly one reviewed (not necessarily approved) scope.
         unscoped = registered[len(reviewed):]
@@ -572,7 +572,7 @@ class ReleaseFlowTests(unittest.TestCase):
         manifest = json.loads(manifest_path.read_text())
         # Later, separately reviewed scopes (K-L) are never part of the D-I/J scenarios either.
         _scopes = json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"]
-        later = set(_scopes.get("K-L", {}).get("versions", [])) | set(_scopes.get("N", {}).get("versions", []))  | set(_scopes.get("O-P", {}).get("versions", []))  # K-L, N and O-P are separately reviewed later scopes
+        later = set(_scopes.get("K-L", {}).get("versions", [])) | set(_scopes.get("N", {}).get("versions", []))  | set(_scopes.get("O-Q", {}).get("versions", []))  # K-L, N and O-Q are separately reviewed later scopes
         manifest["migrations"] = [e for e in manifest["migrations"] if e["version"] != J_VERSION and e["version"] not in later]  # D-I scenarios never see Stage J
         (repo / "database/migrations" / f"{J_VERSION}.sql").unlink(missing_ok=True)
         for version in later:
@@ -1043,21 +1043,21 @@ if __name__ == "__main__":
 
 
 class ReleaseScopeOPTests(unittest.TestCase):
-    def test_scope_o_p_is_defined_pinned_proposed_and_registered(self):
+    def test_scope_o_q_is_defined_pinned_proposed_and_registered(self):
         scopes = json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"]
         manifest = {e["version"]: e for e in json.loads((ROOT / "database/migrations/manifest.json").read_text())["migrations"]}
-        scope = scopes["O-P"]
-        self.assertEqual(scope["versions"], ["20261119_o_wf01_robot_allocation_permission", "20261119_p_course_level_tags_prerequisites_assignment_difficulty"])
+        scope = scopes["O-Q"]
+        self.assertEqual(scope["versions"], ["20261119_o_wf01_robot_allocation_permission", "20261119_p_course_level_tags_prerequisites_assignment_difficulty", "20261120_q_media_archive"])
         for version in scope["versions"]:
             self.assertEqual(scope["sha256"][version], manifest[version]["sha256"])
         self.assertTrue(scope["productionStatus"].startswith("PROPOSED, NOT APPROVED"))
         self.assertIn("20261118_n_student_password_change_required", scope["requiresApplied"])
         self.assertTrue(set(scope["requiresApplied"]).isdisjoint(scope["versions"]))
         self.assertEqual(scope["expectedCatalogBefore"], scope["expectedCatalogAfter"])   # additive columns, one grant: no table/policy/trigger/function change
-        self.assertEqual(scope["verifier"], "op")
-        self.assertIn('"O-P"', (ROOT / ".github/workflows/production-database-release.yml").read_text())
+        self.assertEqual(scope["verifier"], "oq")
+        self.assertIn('"O-Q"', (ROOT / ".github/workflows/production-database-release.yml").read_text())
         runner = (ROOT / "scripts/production_db_release.py").read_text()
-        self.assertIn('"op": verifier_op', runner)
+        self.assertIn('"oq": verifier_op', runner)
 
     def test_migration_p_is_additive_and_never_destructive(self):
         sql = (ROOT / "database/migrations/20261119_p_course_level_tags_prerequisites_assignment_difficulty.sql").read_text().upper()

@@ -14,7 +14,7 @@ Production data access, AWS change or Production migration was performed.
 
 ## 2. Ordering and compatibility
 
-1. **Database first**: Production Database Release, `scope=O-P` (the scope is **PROPOSED, NOT APPROVED** in `database/release-scopes.json`; it must be reviewed, then approved by the `production-database-apply` reviewer). `requiresApplied`: D–L and N (all already in Production for the student temporary password release).
+1. **Database first**: Production Database Release, `scope=O-Q` (the scope is **PROPOSED, NOT APPROVED** in `database/release-scopes.json`; it must be reviewed, then approved by the `production-database-apply` reviewer). `requiresApplied`: D–L and N (all already in Production for the student temporary password release).
 2. **Then the API/web deploy** (`aws-demo` approval). The new API selects the new columns in raw SQL, so deploying it before the migration makes `/courses`, `/me/learning-path`, assignment reads and the classroom list fail.
 3. Old API + migrated database is safe (the previous code never selects the columns). Rolling the API back after step 2 is therefore always safe.
 4. Backward compatibility of data: existing courses read as level *unset*, no tags, no prerequisites; existing assignments read as difficulty *unset*; every classroom is **closed** for self-enrollment, so student behaviour is unchanged until a School Admin opts a classroom in.

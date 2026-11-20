@@ -67,7 +67,7 @@ SCOPE_FILE = "database/release-scopes.json"
 # Scopes that may never be planned or applied against Production until a reviewed code change removes them from this tuple (release metadata alone
 # cannot unblock them). K-L needs the hosted read-only evidence + restore rehearsal; M additionally needs its platform-role allowlist reviewed.
 HOSTED_BLOCKED_SCOPES = ("M",)
-VERIFIERS = {"d_i": verifier, "j": verifier_j, "kl": verifier_kl, "km": verifier_km, "n": verifier_n, "op": verifier_op}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
+VERIFIERS = {"d_i": verifier, "j": verifier_j, "kl": verifier_kl, "km": verifier_km, "n": verifier_n, "oq": verifier_op}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
 
 
 def load_scopes(root: Path) -> dict:

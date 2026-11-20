@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "baselineSha256": "5b140ce7b5f9b71e5c013f45ec9298cde48db29ac5e6a979b78aea694c2ef962",
-  "sourceCommit": "f5fa0446952af139ab3642cddc805fa4440dc7cc",
+  "sourceCommit": "7b76bfd982368637bfdbff7be28b3dc4456c2803",
   "migrations": [
     {
       "version": "20261110_d_activity_content",
@@ -74,6 +74,12 @@
       "path": "database/migrations/20261119_p_course_level_tags_prerequisites_assignment_difficulty.sql",
       "sha256": "20ff102585ceff63e44e64d8da1bca898dce84b3b7a49f5dbc07399fd17aa236",
       "order": 12
+    },
+    {
+      "version": "20261120_q_media_archive",
+      "path": "database/migrations/20261120_q_media_archive.sql",
+      "sha256": "8308a4a3b1f4b5598c3bef935e7511a4de1b490022855fbde9f977a856f8878f",
+      "order": 13
     }
   ]
 }
