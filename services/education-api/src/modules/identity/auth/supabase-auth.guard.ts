@@ -74,6 +74,27 @@ export class SupabaseAuthGuard implements CanActivate {
     if (user.status === "disabled") {
       throw new ForbiddenException("This VISTA account is disabled.");
     }
+    // Invitation acceptance. A verified provider token alone is NOT enough to activate an account. Activation happens in ONE conditional
+    // statement that also proves: the row was created by an administrator (never self-registered), it is linked to this exact provider
+    // subject, the token carries a non-anonymous authenticated identity whose e-mail equals the invited address, and the person holds an
+    // ACTIVE instructor/school-admin membership in an ACTIVE organization. Anything else leaves the account "invited" (no authoring rights).
+    // Students never activate here (they use the temporary-password / setup-code flows) and a disabled account is rejected above.
+    if (user.status === "invited") {
+      const emailClaim = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : null;
+      const identityVerified = emailClaim !== null && payload.is_anonymous !== true && (payload.role === undefined || payload.role === "authenticated");
+      if (identityVerified) {
+        const promoted = await this.prisma.$executeRaw`
+          UPDATE public.users u SET status='active', email_verified_at=COALESCE(u.email_verified_at, now()), updated_at=now()
+          WHERE u.id=${user.id}::uuid AND u.status='invited' AND u.signup_method='admin_created' AND u.auth_user_id=${payload.sub}::uuid
+            AND u.email IS NOT NULL AND lower(u.email)=${emailClaim}
+            AND EXISTS (
+              SELECT 1 FROM public.memberships m
+              JOIN public.organizations o ON o.id=m.organization_id AND o.status='active'
+              JOIN public.roles r ON r.id=m.role_id AND r.scope='organization' AND r.code IN ('instructor','school_admin')
+              WHERE m.user_id=u.id AND m.status='active')`;
+        if (promoted === 1) user.status = "active";
+      }
+    }
     const passwordChangedAt = user.password_changed_at ? new Date(user.password_changed_at).getTime() : null;
     if (passwordChangedAt !== null && (typeof payload.iat !== "number" || payload.iat * 1000 <= passwordChangedAt)) {
       throw new UnauthorizedException({ code: "SESSION_ROTATED", message: "This session is stale. Sign in again." });
@@ -102,10 +123,11 @@ export class SupabaseAuthGuard implements CanActivate {
         SELECT
           m.id AS membership_id,
           m.organization_id,
-          m.status,
+          CASE WHEN o.status = 'active' THEN m.status ELSE 'suspended' END AS status,
           r.code AS role_code,
           p.code AS permission_code
         FROM public.memberships m
+        JOIN public.organizations o ON o.id = m.organization_id
         JOIN public.roles r ON r.id = m.role_id
         LEFT JOIN public.role_permissions rp ON rp.role_id = r.id
         LEFT JOIN public.permissions p ON p.id = rp.permission_id

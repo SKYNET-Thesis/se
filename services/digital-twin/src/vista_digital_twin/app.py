@@ -204,7 +204,10 @@ def create_app(
             if simulation_latest and viewer_scope is None:
                 await websocket.close(code=4403, reason="viewer scope required")
                 return
-        await websocket.accept()
+        # RFC 6455 4.2.2: a client that offered a subprotocol aborts the handshake unless the server selects one of them
+        # (every browser does). The scope token travels in that subprotocol, so echo exactly the offered one.
+        offered = next((p for p in websocket.scope.get("subprotocols", []) if isinstance(p, str) and p.startswith("vista.twin.")), None)
+        await websocket.accept(subprotocol=offered)
         sent_sequence = -1
         interval = heartbeat_interval(websocket.scope.get("query_string", b""))
         loop = asyncio.get_running_loop()

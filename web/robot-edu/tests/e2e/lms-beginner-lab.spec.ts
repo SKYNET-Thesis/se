@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SO101_CURRICULUM } from '../../../../services/education-api/src/scripts/so101-curriculum.data';
-import { blockBox, dragFromFlyout, workspaceBlocks } from './helpers/blockly';
+import { blockBox, dragFromFlyout, workspaceBlocks, waitForBlocklyReady } from './helpers/blockly';
 import { call, deliverCourse, loadFixture, signIn } from './helpers/academic';
 
 /** Beginner Blockly lab bound to a seeded challenge: build, validate, save, run, AUTOMATIC grading, submit, review, release. No robot, no AI model, no Digital Twin. */
@@ -40,7 +40,7 @@ test('Beginner Blockly lab is graded automatically from the seeded challenge wit
   expect([200, 201]).toContain(started.status);
   await page.goto(`/practice/${started.body.id}`);
   await expect(page.getByRole('heading', { name: title }).first()).toBeVisible();
-  await expect(page.locator('.blocklySvg')).toBeVisible(); await page.waitForTimeout(3000);
+  await waitForBlocklyReady(page);
   const cats = await page.locator('.blocklyToolboxCategory').allInnerTexts();
   expect(cats.join(' ')).not.toContain('Movement');                                            // beginner lab: Blockly-only, no movement blocks
 
@@ -52,7 +52,7 @@ test('Beginner Blockly lab is graded automatically from the seeded challenge wit
   const open = await blockBox(page, /open\s*gripper/);
   await dragFromFlyout(page, 'Timing', /wait/i, { x: open.x + 8, y: open.y + open.height + 18 });
   const wait = await blockBox(page, /wait/);
-  await dragFromFlyout(page, 'Gripper', /close/i, { x: wait.x + 8, y: wait.y + wait.height + 18 });
+  await dragFromFlyout(page, 'Gripper', /close/i, { x: wait.x + 8, y: wait.y + wait.height + 12 });
   await expect(workspaceBlocks(page)).toHaveCount(5);
 
   await page.getByRole('button', { name: 'Validate' }).click();

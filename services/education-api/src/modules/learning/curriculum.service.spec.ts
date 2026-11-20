@@ -19,15 +19,17 @@ describe('CurriculumService', () => {
   const mappings = { createMany: jest.fn(), deleteMany: jest.fn() };
   const coursePath = jest.fn();
   const assertActivityMediaReady = jest.fn().mockResolvedValue(undefined);
+  const assertNoArchivedAttachments = jest.fn().mockResolvedValue(undefined);
   const service = new CurriculumService({
     $queryRaw: query, $transaction: transaction,
     learning_sections: sections, learning_activities: activities,
     learning_objectives: objectives, learning_activity_objectives: mappings,
-  } as never, { coursePath } as never, { assertActivityMediaReady } as never);
+  } as never, { coursePath } as never, { assertActivityMediaReady, assertNoArchivedAttachments } as never);
 
   beforeEach(() => {
-    for (const mock of [query, transaction, executeRaw, coursePath, assertActivityMediaReady, ...Object.values(sections), ...Object.values(activities), ...Object.values(objectives), ...Object.values(mappings)]) mock.mockReset();
+    for (const mock of [query, transaction, executeRaw, coursePath, assertActivityMediaReady, assertNoArchivedAttachments, ...Object.values(sections), ...Object.values(activities), ...Object.values(objectives), ...Object.values(mappings)]) mock.mockReset();
     assertActivityMediaReady.mockResolvedValue(undefined);
+    assertNoArchivedAttachments.mockResolvedValue(undefined);
     query.mockResolvedValue([lesson]);
     transaction.mockImplementation(async (work) => work({
       $queryRaw: query, $executeRaw: executeRaw,
@@ -107,6 +109,15 @@ describe('CurriculumService', () => {
     await expect(service.createActivity(teacher as never, sectionId, { title: 'X', type: 'simulation', ordinal: 1, contentRef: { kind: 'lesson_content', key: 'summary' } } as never)).rejects.toBeInstanceOf(BadRequestException);
     objectives.findMany.mockResolvedValueOnce([]);
     await expect(service.createActivity(teacher as never, sectionId, { title: 'X', type: 'reading', ordinal: 1, contentRef: { kind: 'lesson_content', key: 'summary' }, objectiveIds: [objectiveId] } as never)).rejects.toBeInstanceOf(BadRequestException);
+    expect(activities.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses to create an activity that attaches an archived media file', async () => {
+    assertNoArchivedAttachments.mockRejectedValueOnce(new BadRequestException('This file is archived. Restore it before attaching it.'));
+    await expect(service.createActivity(teacher as never, sectionId, {
+      title: 'Read', type: 'reading', ordinal: 1, required: true,
+      contentRef: { kind: 'lesson_content', key: 'summary' }, objectiveIds: [objectiveId],
+    })).rejects.toBeInstanceOf(BadRequestException);
     expect(activities.create).not.toHaveBeenCalled();
   });
 

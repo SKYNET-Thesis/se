@@ -24,7 +24,7 @@ describe('role-aware workspace routing', () => {
         <Routes>
           <Route path="/" element={<RoleHome />} />
           <Route path="/my-learning" element={<RequireRole roles={['student']}><h1>Student My Learning</h1></RequireRole>} />
-          <Route path="/admin/users" element={<h1>Admin home</h1>} />
+          <Route path="/admin/organizations" element={<h1>Admin home</h1>} />
           <Route path="/school/classrooms" element={<h1>School home</h1>} />
           <Route path="/teacher" element={<h1>Teacher home</h1>} />
         </Routes>

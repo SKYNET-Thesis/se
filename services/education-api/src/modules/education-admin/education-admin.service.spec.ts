@@ -18,7 +18,7 @@ describe("EducationAdminService organization boundaries", () => {
   const supabaseAdmin = { invite: jest.fn() };
   const studentProvisioning = { provision: jest.fn() };
   const synchronizeIfDeliverable = jest.fn().mockResolvedValue([]);
-  const service = new EducationAdminService({ $queryRaw: queryRaw, $transaction: transaction, learning_course_offerings: { findFirst: findOffering }, learning_classrooms: { create: createClassroom, findFirst: findClassroom }, memberships: { findFirst: jest.fn() }, learning_classroom_members: { upsert: jest.fn() } } as never, scope as never, supabaseAdmin as never, studentProvisioning as never, { synchronizeIfDeliverable } as never);
+  const service = new EducationAdminService({ $queryRaw: queryRaw, $transaction: transaction, learning_course_offerings: { findFirst: findOffering }, learning_classroom_robot_allocations: { findUnique: jest.fn().mockResolvedValue(null) }, learning_classrooms: { create: createClassroom, findFirst: findClassroom }, memberships: { findFirst: jest.fn() }, learning_classroom_members: { upsert: jest.fn() } } as never, scope as never, supabaseAdmin as never, studentProvisioning as never, { synchronizeIfDeliverable } as never);
 
   beforeEach(() => { queryRaw.mockReset(); transactionQueryRaw.mockReset().mockResolvedValue([{ id: "allocation-a", classroom_id: "class-a", robot_id: "robot-a" }]); transaction.mockReset().mockImplementation(async (callback) => callback({ $queryRaw: transactionQueryRaw })); findOffering.mockReset(); createClassroom.mockReset(); findClassroom.mockReset().mockResolvedValue({ id: "class-a", organization_id: "school-a" }); scope.isSystemAdministrator.mockReset().mockReturnValue(false); });
 

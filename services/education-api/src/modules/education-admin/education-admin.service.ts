@@ -12,6 +12,7 @@ import { SupabaseAdminService } from "./supabase-admin.service";
 import { classifyImportError, ImportProvisioningError, type ImportErrorCode } from "./import-errors";
 import { StudentProvisioningService } from "./student-provisioning.service";
 import { EnrollmentDeliveryService } from "../learning/enrollment-delivery.service";
+import { DigitalTwinRevocationService } from "../learning/digital-twin-revocation.service";
 import { UpdateClassroomDto } from "./dto/update-classroom.dto";
 import { UpdateCourseOfferingDto } from "./dto/update-course-offering.dto";
 import { runCourseSyncTransaction } from "../learning/course-sync-transaction";
@@ -19,7 +20,7 @@ import { runCourseSyncTransaction } from "../learning/course-sync-transaction";
 @Injectable()
 export class EducationAdminService {
   private readonly logger = new Logger(EducationAdminService.name);
-  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly supabaseAdmin: SupabaseAdminService, private readonly studentProvisioning: StudentProvisioningService, private readonly enrollments: EnrollmentDeliveryService) {}
+  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly supabaseAdmin: SupabaseAdminService, private readonly studentProvisioning: StudentProvisioningService, private readonly enrollments: EnrollmentDeliveryService, private readonly twinRevocation?: DigitalTwinRevocationService) {}
 
   async organizations(user: AuthenticatedUser) {
     if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Organizations were not found.");
@@ -262,13 +263,15 @@ export class EducationAdminService {
 
   async archiveClassroom(user: AuthenticatedUser, organizationId: string, classroomId: string) {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
       if (classroom.status !== "archived") await tx.learning_classrooms.update({ where: { id: classroom.id }, data: { status: "archived", updated_at: new Date() } });
       // Membership, progress, attempts and results are retained; only new learning access ends.
       const released = await this.enrollments.releaseIn(tx, classroom.id);
       return { id: classroom.id, status: "archived", releasedEnrollments: released.length };
     });
+    void this.twinRevocation?.revoke({ classroomId });      // an archived classroom no longer allows live robot viewing
+    return result;
   }
 
   async reactivateClassroom(user: AuthenticatedUser, organizationId: string, classroomId: string) {
@@ -284,7 +287,7 @@ export class EducationAdminService {
 
   async removeClassroomStudent(user: AuthenticatedUser, organizationId: string, classroomId: string, studentId: string) {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.members.manage");
-    return this.prisma.$transaction(async (tx) => {
+    const outcome = await this.prisma.$transaction(async (tx) => {
       const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
       const member = await tx.learning_classroom_members.findFirst({ where: { classroom_id: classroom.id, user_id: studentId, classroom_role: "student", status: "active" }, select: { id: true } });
       if (!member) throw new NotFoundException("Classroom student was not found.");
@@ -293,6 +296,8 @@ export class EducationAdminService {
       const released = await this.enrollments.releaseIn(tx, classroom.id, studentId);
       return { removed: true, enrollment: released[0] ?? null };
     });
+    void this.twinRevocation?.revoke({ classroomId, userId: studentId });   // a removed student stops watching immediately
+    return outcome;
   }
 
   async removeClassroomStaff(user: AuthenticatedUser, organizationId: string, classroomId: string, staffUserId: string) {
@@ -433,7 +438,9 @@ export class EducationAdminService {
 
   async allocateRobot(user: AuthenticatedUser, classroomId: string, dto: AllocateClassroomRobotDto) {
     const classroom = await this.classroomForAllocation(user, classroomId);
-    return this.prisma.$transaction(async (tx) => {
+    const previous = await this.prisma.learning_classroom_robot_allocations.findUnique({ where: { classroom_id: classroomId }, select: { robot_id: true } });
+    const revokeOld = previous && previous.robot_id !== dto.robotId ? await this.twinRevocation?.prepare({ classroomId }) : undefined;   // resolved BEFORE the robot changes
+    const allocated = await this.prisma.$transaction(async (tx) => {
       // Recheck and lock both the resource and the entitlement in the same transaction as the upsert.
       // Entitlement expiry/revocation or a status change before allocation must fail closed.
       const eligible = await tx.$queryRaw<{ id: string }[]>`SELECT r.id FROM public.robots r
@@ -444,6 +451,8 @@ export class EducationAdminService {
       if (!eligible[0]) throw new NotFoundException("Robot was not eligible for this classroom.");
       return tx.$queryRaw`INSERT INTO public.learning_classroom_robot_allocations(classroom_id,robot_id,created_by_user_id) VALUES(${classroomId}::uuid,${dto.robotId}::uuid,${user.vistaUserId}::uuid) ON CONFLICT (classroom_id) DO UPDATE SET robot_id=EXCLUDED.robot_id,created_by_user_id=EXCLUDED.created_by_user_id,created_at=now() RETURNING id,classroom_id,robot_id,created_by_user_id,created_at`;
     });
+    if (revokeOld) void revokeOld();       // viewers of attempts that were bound to the previous robot are closed
+    return allocated;
   }
 
   private async classroomForAllocation(user: AuthenticatedUser, classroomId: string) {

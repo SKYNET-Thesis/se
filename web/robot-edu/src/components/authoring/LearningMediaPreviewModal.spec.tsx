@@ -165,7 +165,7 @@ describe('LearningMediaPreviewModal', () => {
     await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" /></QueryClientProvider>); await new Promise((resolve) => setTimeout(resolve, 60)); });
     expect(mediaApi.list).toHaveBeenCalled();
     await act(async () => { root.render(<QueryClientProvider client={client}><MediaAssetLibraryModal open onClose={onClose} courseId="course-1" token="session-token" /></QueryClientProvider>); });
-    expect(mediaApi.list).toHaveBeenCalledWith('course-1', 'session-token', '', '');
+    expect(mediaApi.list).toHaveBeenCalledWith('course-1', 'session-token', '', '', false);
     expect(document.body.textContent).toContain('Safety guide.pdf');
     expect(document.body.textContent).not.toContain('storage.vista.education');
   });
@@ -204,7 +204,7 @@ describe('LearningMediaPreviewModal', () => {
     expect(document.body.textContent).toContain('lecture.mp3');
     const audioFilter = [...document.querySelectorAll('button')].find((b) => b.textContent === 'audio') as HTMLButtonElement;
     await act(async () => { audioFilter.click(); await new Promise((resolve) => setTimeout(resolve, 30)); });
-    expect(mediaApi.list).toHaveBeenLastCalledWith('course-1', 'session-token', '', 'audio');
+    expect(mediaApi.list).toHaveBeenLastCalledWith('course-1', 'session-token', '', 'audio', false);
   });
 
   it('uploads an MP3 through the same authenticated media API', async () => {

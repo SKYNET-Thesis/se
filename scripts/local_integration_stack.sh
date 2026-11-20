@@ -25,6 +25,11 @@ docker run -d --name "$S3" --tmpfs /data:size=1g,uid=10001,gid=10001,mode=700 --
 sleep 8
 export VISTA_DATABASE_PROJECT_REF=local-int VISTA_DEV_DATABASE_URL="postgresql://vista_test:intpw@127.0.0.1:$PGPORT/$DB"
 python3 scripts/bootstrap_dev_database.py --confirm-local-bootstrap >/dev/null
+# Staged hardening M (revoke PUBLIC TEMP): not part of the release manifest and not approved for Production. Like the CI bootstrap workflow,
+# apply it to this disposable database only (the script refuses anything but a loopback vista_test_* database) so local runs match the hardened schema.
+for staged in 20261116_m_revoke_public_temp_privilege 20261120_q_media_archive 20261120_r_device_provisioning; do
+  [ -f "database/staged-migrations/$staged.sql" ] && python3 scripts/apply_staged_migration_to_test_database.py --database-url "postgresql://vista_test:intpw@127.0.0.1:$PGPORT/$DB" "database/staged-migrations/$staged.sql" >/dev/null
+done
 docker exec "$PG" psql -U vista_test -d $DB -c "ALTER ROLE vista_app_runtime WITH LOGIN PASSWORD 'rtpw_local'" >/dev/null
 export AWS_ACCESS_KEY_ID=vista_media_test AWS_SECRET_ACCESS_KEY=vista_media_test_only_password AWS_DEFAULT_REGION=us-east-1; unset AWS_PROFILE
 aws --endpoint-url http://127.0.0.1:59000 s3 mb s3://vista-wf03-e2e-int >/dev/null
@@ -35,6 +40,12 @@ PORT=3001
 DATABASE_URL=postgresql://vista_app_runtime:rtpw_local@127.0.0.1:$PGPORT/$DB?sslmode=disable
 VISTA_DATABASE_PROJECT_REF=local-int
 SUPABASE_URL=http://127.0.0.1:54323
+SUPABASE_SERVICE_ROLE_KEY=local-int-service-role-not-a-secret
+SUPABASE_ANON_KEY=local-int-anon-key-not-a-secret
+DEVICE_PROVISIONING_ENABLED=true
+DEVICE_AUTH_LIMIT_PER_MINUTE=40
+DEVICE_TOKEN_SECRET=local-int-device-token-secret-not-a-secret-0123456789
+STUDENT_TEMP_PASSWORD_ENABLED=true
 SUPABASE_JWT_ISSUER=http://127.0.0.1:54323/auth/v1
 SUPABASE_JWT_AUDIENCE=authenticated
 WEB_ORIGIN=http://127.0.0.1:4173

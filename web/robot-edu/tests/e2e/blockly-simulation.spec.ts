@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { dragFromFlyout, waitForBlocklyReady, workspaceBlocks } from './helpers/blockly';
 
 /**
  * Blockly → ProgramVersion → simulation/evaluation → submission → instructor review → released result, driven through the
@@ -15,19 +16,6 @@ async function signIn(page: Page, who: string) {
   await page.evaluate((v) => localStorage.setItem('sb-127-auth-token', JSON.stringify(v)), s);
   return s.access_token as string;
 }
-async function dragFromFlyout(page: Page, category: string, blockText: RegExp, to: { x: number; y: number }) {
-  const cat = page.locator('.blocklyToolboxCategory', { hasText: category });
-  await expect(cat).toBeVisible(); await page.waitForTimeout(500); await cat.click();
-  const blocks = page.locator('.blocklyFlyout .blocklyBlockCanvas > g.blocklyDraggable');
-  await expect.poll(() => blocks.count(), { timeout: 8000 }).toBeGreaterThan(0); await page.waitForTimeout(600);
-  const texts = await blocks.allTextContents(); const index = texts.findIndex((t) => blockText.test(t));
-  expect(index, `flyout ${category}: ${JSON.stringify(texts)}`).toBeGreaterThanOrEqual(0);
-  const block = blocks.nth(index);
-  const box = (await block.boundingBox())!;
-  await page.mouse.move(box.x + 12, box.y + 12); await page.mouse.down();
-  await page.mouse.move(to.x, to.y, { steps: 12 }); await page.mouse.up();
-}
-const workspaceBlocks = (page: Page) => page.locator('svg.blocklySvg > g.blocklyWorkspace > g.blocklyBlockCanvas g.blocklyDraggable');
 
 async function blockBox(page: Page, text: RegExp) {
   const rects = await workspaceBlocks(page).evaluateAll((els, source) => els.filter((el) => new RegExp(source).test(el.textContent ?? '')).map((el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; }), text.source);
@@ -57,7 +45,7 @@ test('Student builds a Blockly program in the browser, validates, runs and evalu
   const attempt = await started.json() as { id: string };
   await page.goto(`/practice/${attempt.id}`);
   await expect(page.getByRole('heading', { name: title }).first()).toBeVisible();
-  await expect(page.locator('.blocklySvg')).toBeVisible(); await page.waitForTimeout(3000);
+  await waitForBlocklyReady(page);
 
   // 1-3 build the program with real drag-and-drop: start → use left arm { home → move to Target A → wait }
   await dragFromFlyout(page, 'Program', /when\s*program\s*starts/, { x: 760, y: 560 });
@@ -81,7 +69,7 @@ test('Student builds a Blockly program in the browser, validates, runs and evalu
   await setField('300', '240'); await setField('200', '220');
   // 4-5 validate and persist: Run & evaluate saves a ProgramVersion and asks the server to evaluate it
   await page.getByRole('button', { name: 'Validate' }).click();
-  await page.waitForTimeout(1500);
+  await expect(page.getByText(/valid and ready for server evaluation/i)).toBeVisible();
   const versionSaved = page.waitForResponse((r) => /\/me\/programs\/[^/]+\/versions$/.test(r.url()) && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Save version' }).click();
   expect((await versionSaved).status()).toBe(201);
@@ -114,7 +102,7 @@ test('Student builds a Blockly program in the browser, validates, runs and evalu
   await teacherPage.goto('/'); await signIn(teacherPage, 'instructor');
   await teacherPage.goto(`/teacher/classes/${fixture.classroomId}/submissions/${submission.id}`);
   await expect(teacherPage.getByRole('heading', { level: 1, name: title })).toBeVisible();
-  await teacherPage.waitForTimeout(1500);
+  await expect(teacherPage.getByText(/Symbolic evaluation/i).first()).toBeVisible();
   const reviewText = (await teacherPage.locator('body').innerText()).replace(/\s+/g, ' ');
   expect(reviewText).toMatch(/Symbolic evaluation/i);
   await expect(teacherPage.getByText(/learning preview target matches/i)).toBeVisible();

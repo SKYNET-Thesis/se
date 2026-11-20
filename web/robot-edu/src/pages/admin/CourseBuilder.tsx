@@ -171,6 +171,15 @@ export function CourseBuilder() {
     },
     onError: (e) => setBanner({ tone: 'error', text: errorText(e, 'Could not archive the course.') }),
   });
+  const unpublish = useMutation({
+    mutationFn: () => catalogApi.unpublishCourse(courseId, token),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: courseDetailKey(courseId) });
+      await qc.invalidateQueries({ queryKey: ['admin', 'courses'] });
+      setBanner({ tone: 'ok', text: 'Course returned to draft.' });
+    },
+    onError: (e) => setBanner({ tone: 'error', text: errorText(e, 'Could not unpublish the course.') }),
+  });
   const [archiveOpen, setArchiveOpen] = useState(false);
 
   const submitDetails = (event: FormEvent) => {
@@ -230,14 +239,14 @@ export function CourseBuilder() {
   // ---- Existing course: loading / failure ----
   if (!isNew && courseQuery.isLoading) {
     return (
-      <div className="grid h-dvh place-items-center bg-canvas text-sm text-ink-muted" role="status">
-        Loading course…
-      </div>
+      <main className="grid h-dvh place-items-center bg-canvas text-sm text-ink-muted">
+        <p role="status">Loading course…</p>
+      </main>
     );
   }
   if (!isNew && !course) {
     return (
-      <div className="grid h-dvh place-items-center bg-canvas p-6 text-center">
+      <main className="grid h-dvh place-items-center bg-canvas p-6 text-center">
         <div className="max-w-md space-y-3">
           <h1 className="text-xl font-semibold text-ink">Course unavailable</h1>
           <p role="alert" className="text-sm text-ink-muted">
@@ -250,7 +259,7 @@ export function CourseBuilder() {
             </Link>
           </div>
         </div>
-      </div>
+      </main>
     );
   }
 
@@ -345,7 +354,7 @@ export function CourseBuilder() {
 
           <main id="builder-main" tabIndex={-1} className="mt-5 outline-none">
             {/* Course Details */}
-            <div role="tabpanel" aria-label="Course Details" hidden={tab !== 'details'}>
+            <div role="tabpanel" id="panel-details" aria-label="Course Details" hidden={tab !== 'details'}>
               <form onSubmit={submitDetails} noValidate className="max-w-3xl space-y-5 rounded-xl border border-line bg-surface p-5 shadow-hairline sm:p-6" aria-label="Course details">
                 <div>
                   <h3 className="text-lg font-bold">Course details</h3>
@@ -406,7 +415,7 @@ export function CourseBuilder() {
 
             {/* Curriculum: stays mounted while other tabs are open so selection and unsaved edits survive tab switches */}
             {course && (
-              <div role="tabpanel" aria-label="Curriculum" hidden={tab !== 'curriculum'}>
+              <div role="tabpanel" id="panel-curriculum" aria-label="Curriculum" hidden={tab !== 'curriculum'}>
                 <CanonicalCurriculumEditor
                   key={course.id}
                   embedded
@@ -421,14 +430,14 @@ export function CourseBuilder() {
 
             {/* Media Library */}
             {course && visited.has('media') && (
-              <div role="tabpanel" aria-label="Media Library" hidden={tab !== 'media'}>
+              <div role="tabpanel" id="panel-media" aria-label="Media Library" hidden={tab !== 'media'}>
                 <MediaAssetLibraryModal inline open onClose={() => setTab('curriculum')} courseId={course.id} token={token} />
               </div>
             )}
 
             {/* Settings: only what the backend supports (lifecycle state and archiving) */}
             {course && (
-              <div role="tabpanel" aria-label="Settings" hidden={tab !== 'settings'}>
+              <div role="tabpanel" id="panel-settings" aria-label="Settings" hidden={tab !== 'settings'}>
                 <section className="max-w-3xl space-y-5 rounded-xl border border-line bg-surface p-5 shadow-hairline sm:p-6" aria-label="Course settings">
                   <div>
                     <h3 className="text-lg font-bold">Settings</h3>
@@ -441,6 +450,13 @@ export function CourseBuilder() {
                   <p className="text-xs text-ink-muted">
                     Publishing goes through Review &amp; Publish in the header, which applies the server&apos;s readiness rules.
                   </p>
+                  {status === 'published' && canPublish && (
+                    <div className="rounded-lg border border-line p-4">
+                      <h4 className="text-sm font-semibold text-ink">Unpublish course</h4>
+                      <p className="mt-1 text-xs text-ink-muted">Returns the course to draft. Only possible while no school has delivered it and nobody is enrolled; otherwise archive it. Nothing is deleted.</p>
+                      <Button className="mt-3" size="sm" variant="secondary" disabled={unpublish.isPending} loading={unpublish.isPending} onClick={() => unpublish.mutate()}>Unpublish course</Button>
+                    </div>
+                  )}
                   <div className="rounded-lg border border-danger/30 p-4">
                     <h4 className="text-sm font-semibold text-danger">Archive course</h4>
                     <p className="mt-1 text-xs text-ink-muted">Archived courses are frozen against curriculum changes and leave the catalog.</p>

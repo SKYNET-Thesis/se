@@ -129,6 +129,7 @@ export class CurriculumService {
     const contentRef = validContentRef(input.contentRef);
     validTypeRef(input.type, contentRef);
     const content = input.content === undefined ? {} : (validateActivityContent(input.type, input.content) ?? {});
+    await this.media?.assertNoArchivedAttachments(section.course_id, input.type, content);
     await this.validateAssignmentRef(contentRef, section.lesson_id, input.type);
     const objectiveIds = await this.validObjectiveIds(input.objectiveIds ?? [], section.lesson_id);
     try {
@@ -155,6 +156,7 @@ export class CurriculumService {
     const contentRef = input.contentRef === undefined ? undefined : validContentRef(input.contentRef);
     const content = input.content === undefined ? undefined : validateActivityContent(input.type ?? activity.type, input.content);
     const effectiveType = input.type ?? activity.type;
+    if (content !== undefined) await this.media?.assertNoArchivedAttachments(activity.course_id, effectiveType, content);
     const effectiveRef = contentRef ?? validContentRef(activity.content_ref);
     // Re-check the link whenever the reference or the activity type changes, so a type change cannot leave a mismatched assignment behind.
     if (contentRef || input.type !== undefined) await this.validateAssignmentRef(effectiveRef, activity.learning_sections.lesson_id, effectiveType);

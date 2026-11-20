@@ -134,3 +134,21 @@ def test_revocation_closes_open_viewers_clears_buffers_and_refuses_new_frames():
     assert closing["code"] == 4403 and closing["reason"] == "attempt revoked"
     assert republish == 403  # a revoked attempt can never publish again
     assert still_visible == 0.9  # other attempts are unaffected
+
+
+def test_accept_selects_the_offered_viewer_subprotocol_so_browsers_do_not_abort_the_handshake():
+    auth = TwinAuthorizer(SECRET)
+    app = create_app(rate_hz=30, authorizer=auth)
+    token = auth.issue_viewer(subject="student", organization_id=ORG, robot_ids=[ROBOT], attempt_id="attempt-A")
+
+    async def run():
+        async with app.router.lifespan_context(app):
+            await seed(app, auth)
+            sock = Socket(app, token)
+            await sock.open()
+            accept = await sock.next()
+            await sock.close()
+            return accept
+
+    accept = asyncio.run(run())
+    assert accept["type"] == "websocket.accept" and accept["subprotocol"] == f"vista.twin.{token}"

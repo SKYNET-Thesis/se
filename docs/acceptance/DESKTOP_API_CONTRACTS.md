@@ -70,6 +70,7 @@ and the restricted runtime role (grant, cross-school 404, other-school robot 404
   `sequence`, `connection`, six joints). Mock = `SIMULATION` with `controller_id "offline-fixture"`.
 * **Heartbeat (opt-in):** `{type:"heartbeat", schema_version:1, server_time, origin:"mock|simulation|physical", source_mode, robot_id,
   sequence, connection, age_ms}`; treat 3 silent intervals as a dead link and reconnect with a **fresh** scope.
+* **Handshake:** the server **echoes the offered `vista.twin.<token>` subprotocol** on accept (required by RFC 6455; browsers abort otherwise — fixed 2026-11-20). A refusal decided *before* accept (no/invalid scope while streams exist) is an aborted handshake (HTTP 403 / no `open` event), not a close frame; codes below are delivered on sockets that were accepted.
 * **Close codes:** `4403` with reason `viewer scope required` | `viewer scope expired` (checked every tick during an open socket) |
   `attempt revoked`. Do not retry with the same token; request a new scope (it will 404 once the attempt is no longer in progress).
 * **Revocation:** `POST /internal/revoke-attempt` (signed simulation-publisher scope, called by the Education API) closes that
@@ -80,9 +81,14 @@ and the restricted runtime role (grant, cross-school 404, other-school robot 404
 Verified: `tests/test_attempt_scope.py` (per-attempt filtering, 6 denial cases incl. expired/no token/other school/robot/attempt,
 revocation) and the existing 56 Twin tests.
 
-**Remaining for the Twin contract:** the Education API does not yet call `/internal/revoke-attempt` automatically when an attempt is
-submitted or the allocation/entitlement is withdrawn (the 60 s TTL bounds exposure; wiring is a small follow-up); `VISTA_TWIN_WS_URL`
-discovery per environment is still an operator decision; Playwright covers the broker, not a browser WebSocket client.
+**Revocation (implemented 2026-11-20).** The Education API now calls `POST /internal/revoke-attempt` itself, best-effort and never blocking the
+business operation, with bounded retry (`DIGITAL_TWIN_REVOKE_RETRY_MS`, default `0,500,2000,5000`; retried on network error/5xx only, a 4xx is final;
+fresh signed token per delivery). Triggers: final submission of the attempt; student membership suspended; organization suspended/closed; account
+disabled; classroom archived; student removed from the classroom; a different robot allocated to the classroom (the viewers bound to the previous
+robot are revoked). Verified: unit tests (8), E2E against the real DB with a signature-verifying double (6 scenarios), and the real Twin service
+(202 for a valid signature; 403 for wrong secret, other robot, other organization, missing id, garbage token). Not automatic: entitlement *expiry*
+(no API action revokes an entitlement; the 60 s scope TTL and the in-progress check at scope issuance bound it). `VISTA_TWIN_WS_URL` discovery per
+environment is still an operator decision; Playwright covers the broker and revocation calls, not a browser WebSocket client.
 
 ## 4. Isolated local integration environment
 

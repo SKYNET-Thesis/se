@@ -698,8 +698,11 @@ export class LearningService {
         SELECT allowed_blocks,constraints FROM public.learning_assignments
         WHERE challenge_id=${dto.challengeId}::uuid AND constraints->>'kind'='symbolic_program'
         ORDER BY created_at ASC LIMIT 1`)?.[0]:undefined;
-      const allowedBlocks=Array.isArray(curriculum?.allowed_blocks)?curriculum!.allowed_blocks:[];
-      const constraints=dto.quizPassPercent === undefined ? { ...(curriculum?.constraints??{}), ...(dto.attachmentsEnabled ? { attachments: { enabled: true } } : {}) } : { kind: 'knowledge_check', passPercent: dto.quizPassPercent };
+      // A challenge authored by an instructor carries its own toolbox and target in tabletop_config (no curriculum assignment exists for it).
+      const authored=dto.challengeId&&!curriculum?(await tx.$queryRaw<{tabletop_config:{allowedBlocks?:unknown;target?:{arm:string;x:number;y:number;z:number}|null}|null}[]>`SELECT tabletop_config FROM public.learning_challenges WHERE id=${dto.challengeId}::uuid`)?.[0]?.tabletop_config:undefined;
+      const authoredTarget=authored?.target?{target:{frame:'learning_preview_v1',arm:authored.target.arm,position:{x:authored.target.x,y:authored.target.y,z:authored.target.z}}}:{};
+      const allowedBlocks=Array.isArray(curriculum?.allowed_blocks)?curriculum!.allowed_blocks:(Array.isArray(authored?.allowedBlocks)?authored!.allowedBlocks as unknown[]:[]);
+      const constraints=dto.quizPassPercent === undefined ? { ...(curriculum?.constraints??(authored?{kind:'symbolic_program',...authoredTarget}:{})), ...(dto.attachmentsEnabled ? { attachments: { enabled: true } } : {}) } : { kind: 'knowledge_check', passPercent: dto.quizPassPercent };
       const assignments=await tx.$queryRaw<{id:string}[]>`
         WITH created AS (
           INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions,allowed_blocks,constraints)

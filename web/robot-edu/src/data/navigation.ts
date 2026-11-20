@@ -1,5 +1,6 @@
 import {
   BookOpenIcon,
+  BuildingIcon,
   ClipboardCheckIcon,
   ClipboardListIcon,
   FileQuestionIcon,
@@ -10,7 +11,6 @@ import {
   LibraryIcon,
   Monitor,
   PuzzleIcon,
-  Settings2Icon,
   UsersIcon,
   type LucideIcon } from
 'lucide-react';
@@ -55,9 +55,9 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     items: [
     { to: '/teacher', label: 'Overview', icon: LayoutDashboardIcon, end: true },
     { to: '/teacher/classes', label: 'My Classes', icon: UsersIcon },
-    { to: '/teacher/courses', label: 'Courses & lessons', icon: LibraryIcon },
     { to: '/admin/courses', label: 'Course builder', icon: BookOpenIcon },
     { to: '/teacher/assignments', label: 'Assignments', icon: ClipboardCheckIcon },
+    { to: '/teacher/challenges', label: 'Blockly challenges', icon: PuzzleIcon },
     { to: '/teacher/quizzes', label: 'Quizzes', icon: FileQuestionIcon },
     { to: '/teacher/submissions', label: 'Submissions', icon: InboxIcon }]
 
@@ -85,9 +85,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
   {
     title: 'Administration',
     items: [
-    { to: '/admin/users', label: 'Users & roles', icon: UsersIcon },
-    { to: '/admin/robots', label: 'Robot resources', icon: Cpu },
-    { to: '/admin/settings', label: 'System settings', icon: Settings2Icon }]
+    { to: '/admin/organizations', label: 'Organizations', icon: BuildingIcon }]
 
   },
   {
@@ -106,7 +104,9 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     { to: '/school', label: 'School overview', icon: LayoutDashboardIcon, end: true },
     { to: '/school/users', label: 'Teachers & students', icon: UsersIcon },
     { to: '/school/classrooms', label: 'Classrooms', icon: LibraryIcon },
-    { to: '/school/import', label: 'Import users', icon: InboxIcon }]
+    { to: '/school/import', label: 'Import users', icon: InboxIcon },
+    { to: '/school/roles', label: 'Roles & permissions', icon: ClipboardCheckIcon },
+    { to: '/school/profile', label: 'School profile', icon: BuildingIcon }]
   },
   {
     title: 'Learning',

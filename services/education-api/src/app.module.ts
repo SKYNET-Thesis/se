@@ -8,6 +8,7 @@ import { StatusModule } from "./modules/status/status.module";
 import { RuntimeModule } from "./modules/runtime/runtime.module";
 import { MetadataModule } from "./modules/metadata/metadata.module";
 import { EducationAdminModule } from "./modules/education-admin/education-admin.module";
+import { DevicesModule } from "./modules/devices/devices.module";
 import { validateProductionConfig } from "./config/production-config";
 
 @Module({
@@ -21,6 +22,7 @@ import { validateProductionConfig } from "./config/production-config";
     RuntimeModule,
     MetadataModule,
     EducationAdminModule,
+    DevicesModule,
   ],
 })
 export class AppModule {}

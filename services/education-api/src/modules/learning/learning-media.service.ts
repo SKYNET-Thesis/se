@@ -36,8 +36,8 @@ export class LearningMediaService {
 
   private async authorAsset(user: AuthenticatedUser, mediaId: string, states: string[] = ['ready']) {
     const author = this.assertAuthor(user);
-    const rows = await this.prisma.$queryRaw<Array<{ id: string; course_id: string; object_key: string; original_filename: string; mime_type: string; size_bytes: number; status: string; created_at: Date }>>`
-      SELECT m.id,m.course_id,m.object_key,m.original_filename,m.mime_type,m.size_bytes::int AS size_bytes,m.status,m.created_at
+    const rows = await this.prisma.$queryRaw<Array<{ id: string; course_id: string; organization_id: string | null; object_key: string; original_filename: string; mime_type: string; size_bytes: number; status: string; created_at: Date; archived_at: Date | null }>>`
+      SELECT m.id,m.course_id,c.organization_id,m.object_key,m.original_filename,m.mime_type,m.size_bytes::int AS size_bytes,m.status,m.created_at,m.archived_at
       FROM public.learning_media_assets m JOIN public.learning_courses c ON c.id=m.course_id
       WHERE m.id=${mediaId}::uuid AND ((c.organization_id IS NULL AND ${author.admin}) OR c.organization_id = ANY(${author.orgs}::uuid[])) AND m.status=ANY(${states}::text[])`;
     if (!rows[0]) throw new NotFoundException('Learning media was not found.');
@@ -118,7 +118,7 @@ export class LearningMediaService {
     return { id: asset.id, status: 'failed' };
   }
 
-  async list(user: AuthenticatedUser, courseId: string, search = '', kind = '') {
+  async list(user: AuthenticatedUser, courseId: string, search = '', kind = '', archived = false) {
     const author = this.assertAuthor(user);
     if (search.length > 120) throw new BadRequestException('Search text is too long.');
     if (kind && !['video', 'document', 'image', 'audio'].includes(kind)) throw new BadRequestException('Media type filter is invalid.');
@@ -127,8 +127,8 @@ export class LearningMediaService {
     if (!courses[0]) throw new NotFoundException('Course was not found.');
     const mimePrefix = kind === 'video' ? 'video/%' : kind === 'image' ? 'image/%' : kind === 'audio' ? 'audio/%' : '';
     return this.prisma.$queryRaw<Array<Record<string, unknown>>>`
-      SELECT id,course_id,original_filename,mime_type,size_bytes::int AS size_bytes,status,created_at FROM public.learning_media_assets
-      WHERE course_id=${courseId}::uuid AND status='ready'
+      SELECT id,course_id,original_filename,mime_type,size_bytes::int AS size_bytes,status,created_at,archived_at,archive_reason FROM public.learning_media_assets
+      WHERE course_id=${courseId}::uuid AND status='ready' AND ((${archived} AND archived_at IS NOT NULL) OR (NOT ${archived} AND archived_at IS NULL))
         AND (${search}='' OR original_filename ILIKE ${`%${search}%`})
         AND (${kind}='' OR (${kind}='document' AND mime_type NOT LIKE 'video/%' AND mime_type NOT LIKE 'image/%' AND mime_type NOT LIKE 'audio/%') OR mime_type LIKE ${mimePrefix})
       ORDER BY created_at DESC LIMIT 200`;
@@ -145,7 +145,7 @@ export class LearningMediaService {
       SELECT a.id,a.type,l.course_id,l.id AS lesson_id,cl.id AS classroom_id,m.id AS media_id,m.object_key,m.original_filename,m.mime_type
       FROM public.learning_activities a JOIN public.learning_sections s ON s.id=a.section_id
       JOIN public.learning_lessons l ON l.id=s.lesson_id
-      JOIN public.learning_media_assets m ON m.id=${mediaId}::uuid AND m.course_id=l.course_id AND m.status='ready'
+      JOIN public.learning_media_assets m ON m.id=${mediaId}::uuid AND m.course_id=l.course_id AND m.status='ready' AND m.archived_at IS NULL
       LEFT JOIN public.learning_course_offerings o ON o.course_id=l.course_id AND o.status='active'
       LEFT JOIN public.learning_classrooms cl ON cl.offering_id=o.id AND cl.status='active'
       LEFT JOIN public.learning_enrollments e ON e.course_id=l.course_id AND e.offering_id=o.id AND e.classroom_id=cl.id
@@ -171,6 +171,58 @@ export class LearningMediaService {
     return { url: await this.storage.createDownload(activity.object_key, activity.original_filename, activity.mime_type, disposition), filename: activity.original_filename, mimeType: activity.mime_type, expiresIn: 900 };
   }
 
+  /** Activities of the course that still reference the file (draft or published): same reference definition the student route resolves. */
+  private async references(courseId: string, mediaId: string) {
+    return this.prisma.$queryRaw<Array<{ id: string; title: string; status: string; module_title: string }>>`
+      SELECT a.id, a.title, a.status, l.title AS module_title
+      FROM public.learning_activities a JOIN public.learning_sections s ON s.id=a.section_id JOIN public.learning_lessons l ON l.id=s.lesson_id
+      WHERE l.course_id=${courseId}::uuid AND (
+        a.content->>'videoMediaId' = ${mediaId}
+        OR COALESCE(a.content->'mediaIds','[]'::jsonb) ? ${mediaId}
+        OR (jsonb_typeof(a.content->'blocks')='array' AND EXISTS(SELECT 1 FROM jsonb_array_elements(a.content->'blocks') b WHERE b->>'mediaId'=${mediaId})))
+      ORDER BY l.ordinal, a.ordinal LIMIT 20`;
+  }
+
+  /** Soft-archives a file nobody references. Idempotent. The object stays in the bucket; nothing is deleted. */
+  async archive(user: AuthenticatedUser, mediaId: string, reason?: string) {
+    const asset = await this.authorAsset(user, mediaId, ['ready']);
+    if (asset.archived_at) return { id: asset.id, archived: true, archivedAt: asset.archived_at };
+    const used = await this.references(asset.course_id, asset.id);
+    if (used.length) {
+      throw new ConflictException({ code: 'MEDIA_IN_USE', message: `This file is used by ${used.length} lesson item${used.length === 1 ? '' : 's'}: ${used.slice(0, 5).map((row) => `“${row.title}” (${row.module_title})`).join(', ')}${used.length > 5 ? ', …' : ''}. Remove it from them first.`, references: used.map((row) => ({ activityId: row.id, title: row.title, module: row.module_title, status: row.status })) });
+    }
+    const archivedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.$executeRaw`UPDATE public.learning_media_assets SET archived_at=${archivedAt}, archived_by_user_id=${user.vistaUserId}::uuid, archive_reason=${reason?.trim() || null} WHERE id=${asset.id}::uuid AND archived_at IS NULL`;
+      if (updated === 1) await tx.$executeRaw`INSERT INTO public.audit_logs(actor_user_id, organization_id, action, target_type, target_id, details) VALUES(${user.vistaUserId}::uuid, ${asset.organization_id}::uuid, 'media.archived', 'learning_media', ${asset.id}::uuid, jsonb_build_object('courseId', ${asset.course_id}::text, 'filename', ${asset.original_filename}::text))`;
+    });
+    return { id: asset.id, archived: true, archivedAt };
+  }
+
+  /** Restores an archived file to the course library. Idempotent. */
+  async restore(user: AuthenticatedUser, mediaId: string) {
+    const asset = await this.authorAsset(user, mediaId, ['ready']);
+    if (!asset.archived_at) return { id: asset.id, archived: false };
+    await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.$executeRaw`UPDATE public.learning_media_assets SET archived_at=NULL, archived_by_user_id=NULL, archive_reason=NULL WHERE id=${asset.id}::uuid AND archived_at IS NOT NULL`;
+      if (updated === 1) await tx.$executeRaw`INSERT INTO public.audit_logs(actor_user_id, organization_id, action, target_type, target_id, details) VALUES(${user.vistaUserId}::uuid, ${asset.organization_id}::uuid, 'media.restored', 'learning_media', ${asset.id}::uuid, jsonb_build_object('courseId', ${asset.course_id}::text, 'filename', ${asset.original_filename}::text))`;
+    });
+    return { id: asset.id, archived: false };
+  }
+
+  /** Draft-time guard: content may not newly attach a file that is archived (restore it first). Unknown ids are left to the publish-time check. */
+  async assertNoArchivedAttachments(courseId: string, type: string, content: unknown) {
+    const value = content && typeof content === 'object' && !Array.isArray(content) ? content as Record<string, unknown> : {};
+    const ids = new Set<string>();
+    if (type === 'video' && typeof value.videoMediaId === 'string') ids.add(value.videoMediaId);
+    if (Array.isArray(value.mediaIds)) value.mediaIds.forEach((id) => { if (typeof id === 'string') ids.add(id); });
+    if (Array.isArray(value.blocks)) value.blocks.forEach((block) => { const id = block && typeof block === 'object' ? (block as Record<string, unknown>).mediaId : undefined; if (typeof id === 'string') ids.add(id); });
+    const valid = [...ids].filter((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id));
+    if (!valid.length) return;
+    const archived = await this.prisma.$queryRaw<Array<{ original_filename: string }>>`SELECT original_filename FROM public.learning_media_assets WHERE course_id=${courseId}::uuid AND id=ANY(${valid}::uuid[]) AND archived_at IS NOT NULL`;
+    if (archived.length) throw new ConflictException(`An archived Learning Media file cannot be attached (${archived.map((row) => row.original_filename).slice(0, 3).join(', ')}). Restore it first.`);
+  }
+
   async assertActivityMediaReady(courseId: string, type: string, content: unknown) {
     const value = content && typeof content === 'object' && !Array.isArray(content) ? content as Record<string, unknown> : {};
     const ids = new Set<string>();
@@ -184,8 +236,8 @@ export class LearningMediaService {
     const imageIds = new Set<string>();
     if (Array.isArray(value.blocks)) value.blocks.forEach((block) => { if (block && typeof block === 'object' && (block as Record<string, unknown>).type === 'image' && typeof (block as Record<string, unknown>).mediaId === 'string') imageIds.add((block as Record<string, string>).mediaId); });
     const found = await this.prisma.$queryRaw<Array<{ id: string; mime_type: string }>>`
-      SELECT id,mime_type FROM public.learning_media_assets WHERE course_id=${courseId}::uuid AND id=ANY(${[...ids]}::uuid[]) AND status='ready'`;
-    if (found.length !== ids.size) throw new ConflictException('Every attached Learning Media file must be ready and belong to this course.');
+      SELECT id,mime_type FROM public.learning_media_assets WHERE course_id=${courseId}::uuid AND id=ANY(${[...ids]}::uuid[]) AND status='ready' AND archived_at IS NULL`;
+    if (found.length !== ids.size) throw new ConflictException('Every attached Learning Media file must be ready, not archived, and belong to this course.');
     if (type === 'video' && !found.some((row) => row.id === videoMediaId && row.mime_type.startsWith('video/'))) throw new ConflictException('Video activity must reference a video file.');
     if (type === 'reading' && found.some((row) => row.mime_type.startsWith('video/'))) throw new ConflictException('Reading activities may attach documents and images, not video files.');
     if (found.some((row) => imageIds.has(row.id) && !row.mime_type.startsWith('image/'))) throw new ConflictException('Inline reading images must reference image files.');
