@@ -33,7 +33,7 @@ def test_requires_explicit_fake_follower_mode_without_fallback():
 def test_fails_closed_when_checkik_is_not_ready(override, code):
     subject = adapter(**override)
     with pytest.raises(AdapterError, match=code):
-        subject.execute("run-1", {"type": "wait", "durationMs": 1}, threading.Event(), 1.0)
+        subject.execute("run-1", "robot-a", {"type": "wait", "durationMs": 1}, threading.Event(), 1.0)
 
 
 def test_executes_canonical_gripper_sequence_on_fake_follower():
@@ -44,10 +44,14 @@ def test_executes_canonical_gripper_sequence_on_fake_follower():
     )
     cancel = threading.Event()
     deadline = time.monotonic() + 1
-    subject.execute("run-1", {"type": "arm.select", "arm": "left"}, cancel, deadline)
-    subject.execute("run-1", {"type": "gripper.open", "resolvedArm": "left"}, cancel, deadline)
-    subject.execute("run-1", {"type": "wait", "durationMs": 1}, cancel, deadline)
-    subject.execute("run-1", {"type": "gripper.close", "resolvedArm": "left"}, cancel, deadline)
+    result = subject.execute("run-1", "robot-a", {"type": "arm.select", "arm": "left"}, cancel, deadline)
+    subject.execute("run-1", "robot-a", {"type": "gripper.open", "resolvedArm": "left"}, cancel, deadline)
+    subject.execute("run-1", "robot-a", {"type": "wait", "durationMs": 1}, cancel, deadline)
+    result = subject.execute("run-1", "robot-a", {"type": "gripper.close", "resolvedArm": "left"}, cancel, deadline)
+    assert result["telemetry"]["source_mode"] == "SIMULATION"
+    assert result["telemetry"]["robot_id"] == "robot-a"
+    assert [joint["name"] for joint in result["telemetry"]["measured"]] == ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
+    assert result["telemetry"]["measured"][-1] == {"name": "gripper", "position": 0.0, "unit": "percent"}
     assert follower.commands == [
         {"type": "arm.select", "arm": "left"},
         {"type": "gripper.open", "arm": "left"},
@@ -60,9 +64,9 @@ def test_cancellation_and_deadline_are_enforced():
     cancel = threading.Event()
     cancel.set()
     with pytest.raises(AdapterError, match="execution_cancelled"):
-        adapter().execute("run-1", {"type": "wait", "durationMs": 1}, cancel, time.monotonic() + 1)
+        adapter().execute("run-1", "robot-a", {"type": "wait", "durationMs": 1}, cancel, time.monotonic() + 1)
     with pytest.raises(AdapterError, match="execution_timeout"):
-        adapter().execute("run-2", {"type": "wait", "durationMs": 1}, threading.Event(), time.monotonic() - 1)
+        adapter().execute("run-2", "robot-a", {"type": "wait", "durationMs": 1}, threading.Event(), time.monotonic() - 1)
 
 
 def test_stop_latches_motion_lock_and_cancels_run():
@@ -70,4 +74,4 @@ def test_stop_latches_motion_lock_and_cancels_run():
     subject.stop("run-1")
     assert subject.status()["backend"] == {"motionEnabled": False, "latchedMotionLock": True}
     with pytest.raises(AdapterError, match="safety_stop_active"):
-        subject.execute("run-1", {"type": "wait", "durationMs": 1}, threading.Event(), time.monotonic() + 1)
+        subject.execute("run-1", "robot-a", {"type": "wait", "durationMs": 1}, threading.Event(), time.monotonic() + 1)

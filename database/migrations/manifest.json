@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "baselineSha256": "5b140ce7b5f9b71e5c013f45ec9298cde48db29ac5e6a979b78aea694c2ef962",
-  "sourceCommit": "760de9f8b6904e50aebb0b47b4778affae2f23aa",
+  "sourceCommit": "f5fa0446952af139ab3642cddc805fa4440dc7cc",
   "migrations": [
     {
       "version": "20261110_d_activity_content",
@@ -62,6 +62,18 @@
       "path": "database/migrations/20261118_n_student_password_change_required.sql",
       "sha256": "ac032b1fd56cecbabad4512ba428f461a23cfce95b8626e78060b45e52abd049",
       "order": 10
+    },
+    {
+      "version": "20261119_o_wf01_robot_allocation_permission",
+      "path": "database/migrations/20261119_o_wf01_robot_allocation_permission.sql",
+      "sha256": "6aa109ea5520c76de9cd2937e24535ec3069728b45a5aa4cb64ab831127f8e7c",
+      "order": 11
+    },
+    {
+      "version": "20261119_p_course_level_tags_prerequisites_assignment_difficulty",
+      "path": "database/migrations/20261119_p_course_level_tags_prerequisites_assignment_difficulty.sql",
+      "sha256": "20ff102585ceff63e44e64d8da1bca898dce84b3b7a49f5dbc07399fd17aa236",
+      "order": 12
     }
   ]
 }

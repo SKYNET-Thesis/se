@@ -21,6 +21,19 @@ async def post(app, body, token):
     await app({"type":"http","method":"POST","path":"/internal/physical-telemetry","raw_path":b"/internal/physical-telemetry","query_string":b"","headers":[(b"authorization",f"Bearer {token}".encode())],"scheme":"http","server":("127.0.0.1",8000),"client":("127.0.0.1",1234),"http_version":"1.1"}, receive, send)
     return sent
 
+async def post_path(app, path, body, token):
+    sent = []
+    async def send(message): sent.append(message)
+    sent_request = False
+    async def receive():
+        nonlocal sent_request
+        if not sent_request:
+            sent_request = True
+            return {"type":"http.request","body":json.dumps(body).encode(),"more_body":False}
+        await asyncio.Event().wait()
+    await app({"type":"http","method":"POST","path":path,"raw_path":path.encode(),"query_string":b"","headers":[(b"authorization",f"Bearer {token}".encode())],"scheme":"http","server":("127.0.0.1",8000),"client":("127.0.0.1",1234),"http_version":"1.1"}, receive, send)
+    return sent
+
 def build(current):
     auth = TwinAuthorizer("test-secret", clock=lambda: current[0])
     owner = LeLabFollowerTelemetryAdapter(robot_id="so101-a", organization_id="org-a", owner_id="lelab-a")
@@ -75,4 +88,25 @@ def test_physical_websocket_closes_when_viewer_scope_expires_after_connecting():
                 task.cancel()
                 try: await task
                 except asyncio.CancelledError: pass
+    asyncio.run(run())
+
+def test_signed_simulation_publisher_accepts_only_ordered_simulation_joint_frames():
+    current=[NOW]
+    auth=TwinAuthorizer("test-secret", clock=lambda: current[0])
+    app=create_app(rate_hz=100,authorizer=auth,clock=lambda:current[0])
+    token=auth.issue_simulation_publisher(subject="r1-local",organization_id="org-a",robot_id="robot-a")
+    telemetry={"schema_version":1,"robot_id":"robot-a","source_mode":"SIMULATION","controller_id":"checkik-fake-follower","measured_at":NOW.isoformat(),"sequence":1,"connection":"connected","measured":[{"name":name,"position":0,"unit":"percent" if name=="gripper" else "rad"} for name in ("shoulder_pan","shoulder_lift","elbow_flex","wrist_flex","wrist_roll","gripper")]}
+    body={"organization_id":"org-a","robot_id":"robot-a","experiment_id":"exp-a","telemetry":telemetry}
+    async def run():
+        accepted=await post_path(app,"/internal/simulation-telemetry",body,token)
+        assert accepted[0]["status"]==202
+        assert json.loads(accepted[-1]["body"])["mujoco"]=="model_unconfigured"
+        reordered=dict(body,telemetry=dict(telemetry,sequence=0))
+        rejected=await post_path(app,"/internal/simulation-telemetry",reordered,token)
+        assert rejected[0]["status"]==403
+        forged=dict(body,telemetry=dict(telemetry,source_mode="LIVE_PHYSICAL"))
+        rejected=await post_path(app,"/internal/simulation-telemetry",forged,token)
+        assert rejected[0]["status"]==403
+        rejected=await post_path(app,"/internal/simulation-telemetry",body,"bad-token")
+        assert rejected[0]["status"]==403
     asyncio.run(run())

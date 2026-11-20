@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { cn } from '../../utils/cn';
 
 export interface TabItem<T extends string> {
@@ -19,6 +19,12 @@ interface TabsProps<T extends string> {
 
 export function Tabs<T extends string>({ items, value, onChange, label, className, size = 'md' }: TabsProps<T>) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
+  // aria-controls must reference an element that exists; pages that swap content without a labelled panel get no dangling reference.
+  const [panels, setPanels] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    const next = Object.fromEntries(items.map((item) => [item.id, Boolean(document.getElementById(`panel-${item.id}`))]));
+    if (items.some((item) => next[item.id] !== panels[item.id])) setPanels(next);
+  });
   const onKeyDown = (e: React.KeyboardEvent, index: number) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
     e.preventDefault();
@@ -38,7 +44,7 @@ export function Tabs<T extends string>({ items, value, onChange, label, classNam
             type="button"
             id={`tab-${item.id}`}
             aria-selected={selected}
-            aria-controls={`panel-${item.id}`}
+            aria-controls={panels[item.id] ? `panel-${item.id}` : undefined}
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(item.id)}
             onKeyDown={(e) => onKeyDown(e, i)}

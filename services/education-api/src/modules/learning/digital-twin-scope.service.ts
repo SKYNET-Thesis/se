@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createHmac, randomUUID } from "node:crypto";
 import { PrismaService } from "../../common/database/prisma.service";
@@ -8,6 +8,7 @@ const AUDIENCE = "vista-digital-twin-viewer";
 const TTL_SECONDS = 60;
 
 interface TelemetryScopeRow { organization_id: string; robot_id: string; }
+interface AttemptScopeRow { organization_id: string; classroom_id: string; assignment_id: string; robot_id: string; }
 interface AvailableRobotRow {
   id: string;
   name: string;
@@ -59,6 +60,50 @@ export class DigitalTwinScopeService {
     const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
     const signature = createHmac("sha256", secret).update(encoded).digest("base64url");
     return { token: `v1.${encoded}.${signature}`, expiresAt: new Date(exp * 1000).toISOString(), organizationId: scope.organization_id, robotId: scope.robot_id };
+  }
+
+  /**
+   * Attempt-bound viewer scope. One server-side authorization path proves, in a single query: the JWT subject owns the attempt, the
+   * attempt is in progress, its delivery is published and open, the classroom and school are active, the student's membership is
+   * active and permitted, and the robot is allocated to THAT classroom with a currently valid entitlement. The Twin then filters
+   * telemetry by the attempt claim, so a robot-wide stream can never leak another attempt's frames.
+   */
+  async issueAttemptViewerScope(user: AuthenticatedUser, attemptId: string, robotId: string, labSessionId?: string) {
+    const rows = await this.prisma.$queryRaw<AttemptScopeRow[]>`
+      SELECT c.organization_id, c.id AS classroom_id, ca.assignment_id, allocation.robot_id
+      FROM public.learning_assignment_attempts at
+      JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id AND ca.status='published'
+        AND (ca.close_at IS NULL OR ca.close_at>now())
+      JOIN public.learning_classrooms c ON c.id=ca.classroom_id AND c.status='active'
+      JOIN public.organizations o ON o.id=c.organization_id AND o.status='active'
+      JOIN public.learning_classroom_members cm ON cm.classroom_id=c.id AND cm.user_id=at.learner_user_id AND cm.status='active'
+      JOIN public.memberships m ON m.id=cm.membership_id AND m.user_id=at.learner_user_id
+        AND m.organization_id=c.organization_id AND m.status='active'
+      JOIN public.learning_classroom_robot_allocations allocation ON allocation.classroom_id=c.id AND allocation.robot_id=${robotId}::uuid
+      WHERE at.id=${attemptId}::uuid AND at.learner_user_id=${user.vistaUserId}::uuid AND at.status='in_progress'
+        AND EXISTS (
+          SELECT 1 FROM public.role_permissions rp JOIN public.permissions permission ON permission.id=rp.permission_id
+          WHERE rp.role_id=m.role_id AND permission.code='learning.experiment.execute')
+        AND EXISTS (
+          SELECT 1 FROM public.org_entitlements entitlement
+          WHERE entitlement.organization_id=c.organization_id AND entitlement.robot_id=allocation.robot_id
+            AND entitlement.resource_type='robot' AND entitlement.valid_from<=now()
+            AND (entitlement.valid_to IS NULL OR entitlement.valid_to>now()))
+      LIMIT 1`;
+    const scope = rows[0];
+    // 404 for every failure mode: the response must not reveal whether the attempt exists, belongs to someone else, or is closed.
+    if (user.status !== "active" || !scope) throw new NotFoundException("Digital Twin telemetry is not available for this attempt.");
+    const secret = this.config.get<string>("DIGITAL_TWIN_SCOPE_SECRET")?.trim();
+    if (!secret) throw new ServiceUnavailableException("Digital Twin scope broker is not configured.");
+    const exp = Math.floor(Date.now() / 1000) + TTL_SECONDS;
+    const payload = {
+      aud: AUDIENCE, exp, jti: randomUUID(), kind: "viewer", org: scope.organization_id, robots: [scope.robot_id], sub: user.vistaUserId,
+      attempt_id: attemptId, assignment_id: scope.assignment_id, classroom_id: scope.classroom_id, ...(labSessionId ? { lab_session_id: labSessionId } : {}),
+    };
+    const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+    const signature = createHmac("sha256", secret).update(encoded).digest("base64url");
+    return { token: `v1.${encoded}.${signature}`, expiresAt: new Date(exp * 1000).toISOString(), organizationId: scope.organization_id, classroomId: scope.classroom_id,
+      assignmentId: scope.assignment_id, attemptId, robotId: scope.robot_id, ...(labSessionId ? { labSessionId } : {}) };
   }
 
   async availableRobots(user: AuthenticatedUser) {

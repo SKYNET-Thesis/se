@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 
@@ -13,9 +14,28 @@ from .authorization import AuthorizationError, TwinAuthorizer
 from .mock import LatestState, MockTelemetry, load_fixture
 from .physical import LeLabFollowerTelemetryAdapter, TelemetryRejected
 from .calibration import VisualCalibrationStore
+from .contracts import JointState, SourceMode
+from .mujoco_sync import synchronize_simulation_state
 
 
 DEFAULT_FIXTURE = Path(__file__).resolve().parents[2] / "fixtures" / "so101_joint_states.json"
+
+
+HEARTBEAT_MIN_SECONDS, HEARTBEAT_MAX_SECONDS = 0.25, 10.0
+
+
+def heartbeat_interval(query_string: bytes) -> float | None:
+    """Opt-in keepalive: `?heartbeat=<seconds>` (clamped). Clients that do not ask never see a heartbeat frame."""
+    values = parse_qs(query_string.decode("latin-1")).get("heartbeat")
+    if not values:
+        return None
+    try:
+        seconds = float(values[0])
+    except ValueError:
+        return None
+    if seconds != seconds or seconds in (float("inf"), float("-inf")):
+        return None
+    return min(HEARTBEAT_MAX_SECONDS, max(HEARTBEAT_MIN_SECONDS, seconds))
 
 
 def create_app(
@@ -34,6 +54,10 @@ def create_app(
     )
     latest = LatestState()
     physical_latest = LatestState()
+    # Keyed by (robot_id, attempt_id|None): frames published for one attempt are never visible to another attempt's viewer.
+    simulation_latest: dict[tuple[str, str | None], LatestState] = {}
+    simulation_organizations: dict[tuple[str, str | None], str] = {}
+    revoked_attempts: set[str] = set()
     auth = authorizer or TwinAuthorizer(None)
 
     async def produce() -> None:
@@ -85,11 +109,82 @@ def create_app(
         except (AuthorizationError, TelemetryRejected, ValueError):
             raise HTTPException(status_code=403, detail="physical telemetry rejected") from None
 
+    @app.post("/internal/simulation-telemetry", status_code=202)
+    async def ingest_simulation_telemetry(request: Request) -> dict[str, object]:
+        """Accepts only signed, short-lived R1 simulation telemetry; owns no robot control."""
+        try:
+            token = request.headers.get("authorization", "")
+            token = token.removeprefix("Bearer ") if token.startswith("Bearer ") else ""
+            body = await request.json()
+            if not isinstance(body, dict) or not all(isinstance(body.get(key), str) and body[key] for key in ("organization_id", "robot_id", "experiment_id")):
+                raise TelemetryRejected("simulation identity is required")
+            org, robot = body["organization_id"], body["robot_id"]
+            attempt = body.get("attempt_id")
+            if attempt is not None and not (isinstance(attempt, str) and attempt):
+                raise TelemetryRejected("attempt identity is invalid")
+            auth.verify_simulation_publisher(token, robot_id=robot, organization_id=org)
+            if attempt in revoked_attempts:
+                raise TelemetryRejected("attempt is revoked")
+            state = JointState.model_validate(body.get("telemetry"))
+            if state.source_mode is not SourceMode.SIMULATION or state.robot_id != robot:
+                raise TelemetryRejected("simulation telemetry identity mismatch")
+            key = (robot, attempt)
+            slot = simulation_latest.setdefault(key, LatestState())
+            previous = slot.latest(now())
+            if previous is not None and previous.sequence == state.sequence and previous.model_dump(mode="json") == state.model_dump(mode="json"):
+                return {"status": "accepted", "sequence": state.sequence, "mujoco": "duplicate_unchanged"}
+            if not slot.publish(state):
+                raise TelemetryRejected("out-of-order telemetry")
+            simulation_organizations[key] = org
+            model_path = os.getenv("VISTA_TWIN_MUJOCO_MODEL_PATH")
+            twin = None
+            if model_path:
+                try:
+                    twin = synchronize_simulation_state(state, model_path)
+                except (OSError, RuntimeError, ValueError):
+                    return {"status": "accepted", "sequence": state.sequence, "mujoco": "unavailable", "twin": None}
+            return {"status": "accepted", "sequence": state.sequence, "mujoco": "synchronized" if twin else "model_unconfigured", "twin": twin}
+        except (AuthorizationError, TelemetryRejected, ValueError, TypeError):
+            raise HTTPException(status_code=403, detail="simulation telemetry rejected") from None
+
+    @app.post("/internal/revoke-attempt", status_code=202)
+    async def revoke_attempt(request: Request) -> dict[str, object]:
+        """Signed simulation-publisher call (Education API): close that attempt's viewers and drop its buffered frames."""
+        try:
+            token = request.headers.get("authorization", "")
+            token = token.removeprefix("Bearer ") if token.startswith("Bearer ") else ""
+            body = await request.json()
+            if not isinstance(body, dict) or not all(isinstance(body.get(key), str) and body[key] for key in ("organization_id", "robot_id", "attempt_id")):
+                raise TelemetryRejected("revocation identity is required")
+            auth.verify_simulation_publisher(token, robot_id=body["robot_id"], organization_id=body["organization_id"])
+            attempt = body["attempt_id"]
+            revoked_attempts.add(attempt)
+            for key in [key for key in simulation_latest if key[1] == attempt]:
+                simulation_latest.pop(key, None)
+                simulation_organizations.pop(key, None)
+            return {"status": "revoked", "attempt_id": attempt}
+        except (AuthorizationError, TelemetryRejected, ValueError, TypeError):
+            raise HTTPException(status_code=403, detail="revocation rejected") from None
+
     def viewer_token(websocket: WebSocket) -> str:
         for protocol in websocket.scope.get("subprotocols", []):
             if isinstance(protocol, str) and protocol.startswith("vista.twin."):
                 return protocol.removeprefix("vista.twin.")
         return ""
+
+    def simulation_viewer_scope(websocket: WebSocket, at: datetime):
+        """First buffered simulation stream this token may see: robot, organization AND attempt must all match."""
+        token = viewer_token(websocket)
+        for (robot, attempt), slot in simulation_latest.items():
+            if slot.latest(at) is None:
+                continue
+            try:
+                scope = auth.verify_viewer(token, robot_id=robot, organization_id=simulation_organizations[(robot, attempt)])
+            except AuthorizationError:
+                continue
+            if scope.attempt_id == attempt:
+                return scope
+        return None
 
     @app.websocket("/ws/twin")
     async def twin(websocket: WebSocket) -> None:
@@ -104,8 +199,20 @@ def create_app(
             except AuthorizationError:
                 await websocket.close(code=4403)
                 return
-        await websocket.accept()
+        if physical is None:
+            viewer_scope = simulation_viewer_scope(websocket, now())
+            if simulation_latest and viewer_scope is None:
+                await websocket.close(code=4403, reason="viewer scope required")
+                return
+        # RFC 6455 4.2.2: a client that offered a subprotocol aborts the handshake unless the server selects one of them
+        # (every browser does). The scope token travels in that subprotocol, so echo exactly the offered one.
+        offered = next((p for p in websocket.scope.get("subprotocols", []) if isinstance(p, str) and p.startswith("vista.twin.")), None)
+        await websocket.accept(subprotocol=offered)
         sent_sequence = -1
+        interval = heartbeat_interval(websocket.scope.get("query_string", b""))
+        loop = asyncio.get_running_loop()
+        last_sent = loop.time()
+        tick = 1 / source.rate_hz if interval is None else min(1 / source.rate_hz, interval / 2)
         try:
             while True:
                 current_time = now()
@@ -119,14 +226,41 @@ def create_app(
                     except AuthorizationError:
                         await websocket.close(code=4403, reason="viewer scope required")
                         return
+                if viewer_scope is None:
+                    viewer_scope = simulation_viewer_scope(websocket, current_time)
+                    if simulation_latest and viewer_scope is None:
+                        await websocket.close(code=4403, reason="viewer scope required")
+                        return
                 if viewer_scope is not None and current_time >= viewer_scope.expires_at:
                     await websocket.close(code=4403, reason="viewer scope expired")
                     return
-                state = physical_state or latest.latest(current_time)
+                if viewer_scope is not None and viewer_scope.attempt_id in revoked_attempts:
+                    await websocket.close(code=4403, reason="attempt revoked")
+                    return
+                simulation_state = None
+                if viewer_scope is not None and viewer_scope.kind == "viewer":
+                    for robot in viewer_scope.robot_ids:
+                        key = (robot, viewer_scope.attempt_id)
+                        slot = simulation_latest.get(key)
+                        if slot is not None and simulation_organizations.get(key) == viewer_scope.organization_id:
+                            simulation_state = slot.latest(current_time)
+                            if simulation_state is not None:
+                                break
+                state = physical_state or simulation_state or latest.latest(current_time)
                 if state is not None and state.sequence != sent_sequence:
                     await websocket.send_json(state.model_dump(mode="json", exclude_none=True))
                     sent_sequence = state.sequence
-                await asyncio.sleep(1 / source.rate_hz)
+                    last_sent = loop.time()
+                elif interval is not None and loop.time() - last_sent >= interval:
+                    origin = "physical" if physical_state is not None else "simulation" if simulation_state is not None else "mock"
+                    await websocket.send_json({
+                        "type": "heartbeat", "schema_version": 1, "server_time": current_time.isoformat(), "origin": origin,
+                        "source_mode": state.source_mode.value if state else None, "robot_id": state.robot_id if state else None,
+                        "sequence": state.sequence if state else None, "connection": state.connection if state else "disconnected",
+                        "age_ms": max(0, int((current_time - state.measured_at).total_seconds() * 1000)) if state else None,
+                    })
+                    last_sent = loop.time()
+                await asyncio.sleep(tick)
         except WebSocketDisconnect:
             return
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { assignmentApi } from '../../lib/api';
 import { Button } from '../ui/Button';
+import { LEVEL_LABEL, type AcademicLevel } from '../academic/LevelBadge';
 
 type Row = { title: string; description: string; maxPoints: string };
 const field = 'mt-1 w-full rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink';
@@ -56,6 +57,7 @@ export function AssignmentConfigPanel({ classroomId, assignmentId, token, schedu
         {rubricMsg && <p role="status" className="text-sm text-ink-muted">{rubricMsg}</p>}
       </div>}
     </section>
+    <AssignmentAcademicSection classroomId={classroomId} assignmentId={assignmentId} token={token} />
     <section aria-label="Delivery schedule">
       <h3 className="text-[13px] font-semibold text-ink">Schedule and attempts</h3>
       <div className="mt-2 grid gap-3 sm:grid-cols-4">
@@ -68,4 +70,34 @@ export function AssignmentConfigPanel({ classroomId, assignmentId, token, schedu
       <p className="mt-2 text-xs text-ink-muted">Students cannot start a new attempt before the opening time or after the closing time. Leave a field empty for no limit.</p>
     </section>
   </div>;
+}
+
+const TYPE_LABEL: Record<string, string> = { knowledge: 'Knowledge-based', quiz: 'Quiz-based assessment', blockly: 'Blockly programming', simulation: 'Simulation', robot_lab: 'Robot Lab (where configured)', manual_final: 'Manual instructor-graded final' };
+const METHOD_LABEL: Record<string, string> = { automatic: 'Automatic', manual: 'Manual (instructor)', mixed: 'Automatic + manual' };
+
+/** Assignment difficulty is independent of the course level; type, pass score, grading method and objectives are shown to students. */
+function AssignmentAcademicSection({ classroomId, assignmentId, token }: { classroomId: string; assignmentId: string; token: string }) {
+  const client = useQueryClient();
+  const academic = useQuery({ queryKey: ['assignment-academic', assignmentId], queryFn: () => assignmentApi.getAcademic(classroomId, assignmentId, token), enabled: Boolean(token) });
+  const [difficulty, setDifficulty] = useState(''); const [type, setType] = useState(''); const [method, setMethod] = useState(''); const [pass, setPass] = useState(''); const [objectives, setObjectives] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => { const d = academic.data; if (!d) return; setDifficulty(d.difficulty ?? ''); setType(d.assignmentType ?? ''); setMethod(d.gradingMethod ?? ''); setPass(d.passScore === null ? '' : String(d.passScore)); setObjectives(d.learningObjectives.join('\n')); }, [academic.data]);
+  const save = useMutation({
+    mutationFn: () => assignmentApi.updateAcademic(classroomId, assignmentId, token, { difficulty: difficulty || null, assignmentType: type || null, gradingMethod: method || null, passScore: pass === '' ? null : Number(pass), learningObjectives: objectives.split('\n').map((line) => line.trim()).filter(Boolean) }),
+    onSuccess: async () => { setMessage('Academic settings saved.'); await client.invalidateQueries({ queryKey: ['assignment-academic', assignmentId] }); },
+    onError: (e) => setMessage(e instanceof Error ? e.message : 'The academic settings could not be saved.'),
+  });
+  const hint = type === 'manual_final' || type === 'robot_lab' ? 'This type needs manual or mixed grading.' : difficulty === 'BEGINNER' ? 'Beginner assignments can be Blockly-only and need no robot or Digital Twin.' : difficulty === 'ADVANCED' ? 'Advanced assignments may use simulation or a Robot Lab and support manual grading.' : null;
+  return <section aria-label="Academic settings">
+    <h3 className="text-[13px] font-semibold text-ink">Academic settings</h3>
+    <div className="mt-2 grid gap-3 sm:grid-cols-4">
+      <label className="text-sm">Difficulty<select aria-label="Assignment difficulty" className={field} value={difficulty} onChange={(e) => setDifficulty(e.target.value)}><option value="">Not set</option>{(Object.keys(LEVEL_LABEL) as AcademicLevel[]).map((level) => <option key={level} value={level}>{LEVEL_LABEL[level]}</option>)}</select></label>
+      <label className="text-sm">Assignment type<select aria-label="Assignment type" className={field} value={type} onChange={(e) => setType(e.target.value)}><option value="">Not set</option>{Object.entries(TYPE_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label className="text-sm">Grading method<select aria-label="Grading method" className={field} value={method} onChange={(e) => setMethod(e.target.value)}><option value="">Not set</option>{Object.entries(METHOD_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label className="text-sm">Pass score{academic.data?.maxScore ? ` (max ${academic.data.maxScore})` : ''}<input aria-label="Pass score" className={field} type="number" min={0} value={pass} onChange={(e) => setPass(e.target.value)} /></label>
+    </div>
+    <label className="mt-3 block text-sm">Learning objectives (one per line)<textarea aria-label="Learning objectives" className={field} rows={3} value={objectives} onChange={(e) => setObjectives(e.target.value)} /></label>
+    <div className="mt-2 flex items-center gap-3"><Button size="sm" loading={save.isPending} onClick={() => { setMessage(null); save.mutate(); }}>Save academic settings</Button>{message && <p role="status" className="text-sm text-ink-muted">{message}</p>}</div>
+    {hint && <p className="mt-2 text-xs text-ink-muted">{hint}</p>}
+  </section>;
 }

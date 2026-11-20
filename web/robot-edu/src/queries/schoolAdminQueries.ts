@@ -1,5 +1,5 @@
 export type SchoolTab = 'overview' | 'users' | 'classrooms';
-export interface PeopleFilters { page: number; pageSize: number; search: string; role: 'all' | 'student' | 'instructor'; }
+export interface PeopleFilters { page: number; pageSize: number; search: string; role: 'all' | 'student' | 'instructor'; status?: 'active' | 'suspended'; }
 export interface CandidateFilters { page: number; pageSize: number; search: string; }
 
 export const schoolAdminKeys = {

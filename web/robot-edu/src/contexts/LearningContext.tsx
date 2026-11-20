@@ -1,13 +1,9 @@
 import React, { createContext, useCallback, useContext, useMemo } from 'react';
 import type { Assignment, AssignmentProgress, Course, Lesson, Submission, SubmissionReview } from '../types/learning';
-import { demoAssignments } from '../data/assignments';
-import { demoCourses } from '../data/courses';
-import { demoSubmissions } from '../data/demoSubmissions';
 import { demoPersonas } from '../data/demoPersonas';
 import { usePersistentState } from '../hooks/usePersistentState';
 import { createId } from '../utils/id';
 import { isRecord, STORAGE_KEYS } from '../utils/storage';
-import { daysFromNow } from '../utils/format';
 
 interface Catalog {
   courses: Course[];
@@ -56,14 +52,8 @@ const isCatalog = (v: unknown): v is Catalog => isRecord(v) && Array.isArray(v.c
 const isLearner = (v: unknown): v is LearnerState => isRecord(v) && Array.isArray(v.completedLessons) && isRecord(v.progress);
 const isSubmissions = (v: unknown): v is Submission[] => Array.isArray(v) && v.every((s) => isRecord(s) && typeof s.id === 'string');
 
-const seedLearner = (): LearnerState => ({
-  completedLessons: ['motion-frames', 'motion-reach'],
-  lastLesson: { courseId: 'rob-101', lessonId: 'motion-first-program' },
-  progress: {
-    'asg-reach': { assignmentId: 'asg-reach', status: 'in_progress', programId: 'prog_reach', note: '', updatedAt: daysFromNow(0, 8), submittedAt: null },
-    'asg-sort-red': { assignmentId: 'asg-sort-red', status: 'in_progress', programId: 'prog_pick_red', note: '', updatedAt: daysFromNow(-1, 16), submittedAt: null }
-  }
-});
+/** No demo content: real course, assignment and progress data comes from the Education API. */
+const seedLearner = (): LearnerState => ({ completedLessons: [], lastLesson: null, progress: {} });
 
 const emptyProgress = (assignmentId: string): AssignmentProgress => ({
   assignmentId,
@@ -75,9 +65,9 @@ const emptyProgress = (assignmentId: string): AssignmentProgress => ({
 });
 
 export function LearningProvider({ children }: {children: React.ReactNode;}) {
-  const [catalog, setCatalog] = usePersistentState<Catalog>(STORAGE_KEYS.catalog, 1, () => ({ courses: demoCourses, assignments: demoAssignments }), isCatalog);
-  const [learner, setLearner] = usePersistentState<LearnerState>(STORAGE_KEYS.learning, 1, seedLearner, isLearner);
-  const [submissions, setSubmissions] = usePersistentState<Submission[]>(STORAGE_KEYS.submissions, 1, () => demoSubmissions, isSubmissions);
+  const [catalog, setCatalog] = usePersistentState<Catalog>(STORAGE_KEYS.catalog, 2, () => ({ courses: [], assignments: [] }), isCatalog);
+  const [learner, setLearner] = usePersistentState<LearnerState>(STORAGE_KEYS.learning, 2, seedLearner, isLearner);
+  const [submissions, setSubmissions] = usePersistentState<Submission[]>(STORAGE_KEYS.submissions, 2, () => [], isSubmissions);
 
   const getCourse = useCallback((id: string) => catalog.courses.find((c) => c.id === id), [catalog.courses]);
   const getAssignment = useCallback((id: string) => catalog.assignments.find((a) => a.id === id), [catalog.assignments]);

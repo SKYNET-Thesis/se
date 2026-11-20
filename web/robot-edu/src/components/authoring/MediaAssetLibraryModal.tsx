@@ -58,13 +58,16 @@ export function MediaAssetLibraryModal({ open, onClose, courseId, token, onSelec
   const client = useQueryClient();
   const [filterType, setFilterType] = useState(initialKind ?? '');
   const [search, setSearch] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [previewAsset, setPreviewAsset] = useState<ApiLearningMedia | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [retryFile, setRetryFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const mediaQuery = useQuery({ queryKey: ['learning-media', courseId, search, filterType], queryFn: () => learningMediaApi.list(courseId, token, search, filterType), enabled: (open || inline) && Boolean(courseId && token), staleTime: 20_000 });
+  const mediaQuery = useQuery({ queryKey: ['learning-media', courseId, search, filterType, showArchived], queryFn: () => learningMediaApi.list(courseId, token, search, filterType, showArchived), enabled: (open || inline) && Boolean(courseId && token), staleTime: 20_000 });
   const previewQuery = useQuery({ queryKey: ['learning-media-author-url', previewAsset?.id], queryFn: () => learningMediaApi.authorUrl(previewAsset!.id, token), enabled: Boolean(previewAsset && token), staleTime: 30_000 });
 
   const upload = async (file?: File) => {
@@ -82,6 +85,16 @@ export function MediaAssetLibraryModal({ open, onClose, courseId, token, onSelec
     }
   };
 
+  const changeArchive = async (row: ApiLearningMedia, archive: boolean) => {
+    setBusyId(row.id); setError(null); setNotice(null);
+    try {
+      if (archive) await learningMediaApi.archive(row.id, token); else await learningMediaApi.restore(row.id, token);
+      await client.invalidateQueries({ queryKey: ['learning-media', courseId] });
+      setNotice(archive ? `“${row.original_filename}” was archived. It is hidden from the library and can be restored.` : `“${row.original_filename}” was restored to the library.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : archive ? 'The file could not be archived.' : 'The file could not be restored.');
+    } finally { setBusyId(null); }
+  };
   const rows = mediaQuery.data ?? [];
   const icon = (type: MediaAsset['type']) => type === 'video' ? <VideoIcon className="h-5 w-5 text-blue-600" /> : type === 'audio' ? <MusicIcon className="h-5 w-5 text-amber-600" /> : type === 'image' ? <ImageIcon className="h-5 w-5 text-emerald-600" /> : <FileTextIcon className="h-5 w-5 text-indigo-600" />;
   const preview = previewAsset && previewQuery.data?.url ? assetOf(previewAsset, previewQuery.data.url) : null;
@@ -90,7 +103,7 @@ export function MediaAssetLibraryModal({ open, onClose, courseId, token, onSelec
   <div className="space-y-4">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-1 items-center gap-2 rounded-md border border-line-strong bg-surface px-3 py-1.5"><SearchIcon className="h-4 w-4 text-ink-subtle" /><input placeholder="Search files by name..." value={search} onChange={(event) => setSearch(event.target.value)} className="w-full bg-transparent text-sm outline-none text-ink" aria-label="Search library assets" /></div>
-      <div className="flex flex-wrap gap-1.5">{[['', 'all'], ['video', 'video'], ['document', 'document'], ['image', 'image'], ['audio', 'audio']].map(([value, label]) => <button key={value || 'all'} type="button" onClick={() => setFilterType(value)} className={`rounded-md px-2.5 py-1 text-xs font-semibold capitalize ${filterType === value ? 'bg-accent text-accent-contrast' : 'bg-sunken text-ink-muted'}`}>{label}</button>)}</div>
+      <div className="flex flex-wrap gap-1.5">{[['', 'all'], ['video', 'video'], ['document', 'document'], ['image', 'image'], ['audio', 'audio']].map(([value, label]) => <button key={value || 'all'} type="button" onClick={() => setFilterType(value)} className={`rounded-md px-2.5 py-1 text-xs font-semibold capitalize ${filterType === value ? 'bg-accent text-white' : 'bg-sunken text-ink-muted'}`}>{label}</button>)}</div>
     </div>
     <div className="flex items-center gap-3 rounded-lg border border-dashed border-line-strong bg-sunken/20 p-4">
       <UploadCloudIcon className="h-6 w-6 text-ink-subtle" /><span className="flex-1"><span className="block text-xs font-semibold text-ink">Upload learning media</span><span className="mt-0.5 block text-xs text-ink-muted">{LEARNING_MEDIA_FORMATS_LABEL} · 250 MB maximum</span></span>
@@ -101,10 +114,13 @@ export function MediaAssetLibraryModal({ open, onClose, courseId, token, onSelec
         <Button type="button" size="sm" variant="secondary" loading={uploading} disabled={uploading || !courseId || !token} onClick={() => fileInput.current?.click()}>Choose file</Button>
       </div>
     </div>
+    <div className="flex items-center justify-between gap-2"><span className="text-xs text-ink-muted">{showArchived ? 'Archived files are hidden from lessons. Restore one to use it again.' : 'Files used by a lesson cannot be archived until they are removed from it.'}</span>
+      <Button type="button" size="sm" variant="ghost" onClick={() => { setShowArchived((value) => !value); setNotice(null); setError(null); }} aria-pressed={showArchived}>{showArchived ? 'Back to library' : 'Show archived'}</Button></div>
+    {notice && <p role="status" className="rounded-md bg-ok-soft p-3 text-sm text-ok">{notice}</p>}
     {error && <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{error}</p>}
     {mediaQuery.isError && <p role="alert" className="text-sm text-danger">Learning Media library could not be loaded.</p>}
     <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
-      {mediaQuery.isLoading ? <p role="status" className="p-8 text-center text-sm text-ink-muted">Loading course media…</p> : rows.length === 0 ? <p className="rounded-lg border border-dashed border-line p-8 text-center text-sm text-ink-muted" role="status">{search ? 'No files match your search.' : 'No learning media is available in this course yet.'}</p> : rows.map((row) => { const asset = assetOf(row); return <div key={row.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface p-3.5"><div className="flex min-w-0 flex-1 items-start gap-3"><div className="mt-0.5 shrink-0">{icon(asset.type)}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h5 className="min-w-0 truncate text-sm font-semibold text-ink" title={asset.name}>{asset.name}</h5><Badge tone="neutral" className="shrink-0">{asset.format}</Badge></div><p className="mt-1 text-xs text-ink-muted">{asset.size} · {asset.uploadedAt} · Ready</p></div></div><div className="ml-3 flex shrink-0 items-center gap-2"><Button size="sm" variant="ghost" icon={<EyeIcon className="h-3.5 w-3.5" />} onClick={() => setPreviewAsset(row)} aria-label={`Preview ${asset.name}`}>Preview</Button>{selectionMode && (disallowKinds?.[asset.type] ? <span className="max-w-[11rem] text-right text-xs text-ink-muted">{disallowKinds[asset.type]}</span> : <Button size="sm" variant="primary" onClick={() => { onSelectAsset?.(asset); onClose(); }}>Use file</Button>)}</div></div>; })}
+      {mediaQuery.isLoading ? <p role="status" className="p-8 text-center text-sm text-ink-muted">Loading course media…</p> : rows.length === 0 ? <p className="rounded-lg border border-dashed border-line p-8 text-center text-sm text-ink-muted" role="status">{search ? 'No files match your search.' : showArchived ? 'No archived files.' : 'No learning media is available in this course yet.'}</p> : rows.map((row) => { const asset = assetOf(row); return <div key={row.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-surface p-3.5"><div className="flex min-w-0 flex-1 items-start gap-3"><div className="mt-0.5 shrink-0">{icon(asset.type)}</div><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h5 className="min-w-0 truncate text-sm font-semibold text-ink" title={asset.name}>{asset.name}</h5><Badge tone="neutral" className="shrink-0">{asset.format}</Badge></div><p className="mt-1 text-xs text-ink-muted">{asset.size} · {asset.uploadedAt} · {showArchived ? `Archived${row.archive_reason ? ` — ${row.archive_reason}` : ''}` : 'Ready'}</p></div></div><div className="ml-3 flex shrink-0 items-center gap-2"><Button size="sm" variant="ghost" icon={<EyeIcon className="h-3.5 w-3.5" />} onClick={() => setPreviewAsset(row)} aria-label={`Preview ${asset.name}`}>Preview</Button>{showArchived ? <Button size="sm" variant="secondary" loading={busyId === row.id} disabled={busyId !== null} onClick={() => void changeArchive(row, false)} aria-label={`Restore ${asset.name}`}>Restore</Button> : <>{!selectionMode && <Button size="sm" variant="ghost" loading={busyId === row.id} disabled={busyId !== null} onClick={() => void changeArchive(row, true)} aria-label={`Archive ${asset.name}`}>Archive</Button>}{selectionMode && (disallowKinds?.[asset.type] ? <span className="max-w-[11rem] text-right text-xs text-ink-muted">{disallowKinds[asset.type]}</span> : <Button size="sm" variant="primary" onClick={() => { onSelectAsset?.(asset); onClose(); }}>Use file</Button>)}</>}</div></div>; })}
     </div>
   </div>
   );

@@ -53,7 +53,7 @@ const adminUser = { vistaUserId: identities.admin.id, status: 'active', systemPe
 // Bootstrap is limited by assertIsolatedTarget() to the disposable local DB.
 const fixtureRolePermissions: Record<string, { scope: string; permissions: string[] }> = {
   system_admin: { scope: 'system', permissions: ['org.manage'] },
-  school_admin: { scope: 'organization', permissions: ['learning.delivery.manage', 'learning.course.author', 'education.classroom.read', 'education.classroom.manage', 'education.classroom.members.manage', 'education.members.read', 'education.members.provision'] },
+  school_admin: { scope: 'organization', permissions: ['learning.delivery.manage', 'learning.course.author', 'education.classroom.read', 'education.classroom.manage', 'education.classroom.members.manage', 'education.classroom.resource.allocate', 'education.members.read', 'education.members.provision'] },
   instructor: { scope: 'organization', permissions: ['learning.delivery.manage', 'learning.course.author', 'learning.course.publish', 'learning.work.review', 'learning.assessment.assess'] },
   student: { scope: 'organization', permissions: ['learning.work.write'] },
 };
@@ -121,9 +121,20 @@ async function seed(): Promise<Record<string, unknown>> {
   await curriculum.setSectionStatus(adminUser as never, section.id, 'published');
   await curriculum.setActivityStatus(adminUser as never, reading.id, 'published');
   await curriculum.setActivityStatus(adminUser as never, knowledgeCheck.id, 'published');
+  await db.learning_courses.update({ where: { id: course.id }, data: { status: 'published' } });
 
   const offering = await db.learning_course_offerings.create({ data: { course_id: course.id, organization_id: org.id, code: 'E2E-243-OFFERING', title: 'Phase 2.4.3 Test Offering', status: 'active', created_by: identities.schoolAdmin.id } });
   const classroom = await db.learning_classrooms.create({ data: { organization_id: org.id, offering_id: offering.id, name: 'Phase 2.4.3 Test Classroom', code: 'E2E-243-CLASS', status: 'active', created_by: identities.schoolAdmin.id } });
+  const allocatedRobot = await db.robots.create({ data: { name: 'WF-01 entitled robot', serial_no: 'E2E-WF01-ENTITLED', model_name: 'SO-101', status: 'available', owner_organization_id: org.id } });
+  await db.org_entitlements.create({ data: { organization_id: org.id, resource_type: 'robot', robot_id: allocatedRobot.id, valid_from: new Date(Date.now() - 60_000) } });
+  const replacementRobot = await db.robots.create({ data: { name: 'WF-01 replacement robot', serial_no: 'E2E-WF01-REPLACEMENT', model_name: 'SO-101', status: 'available', owner_organization_id: org.id } });
+  await db.org_entitlements.create({ data: { organization_id: org.id, resource_type: 'robot', robot_id: replacementRobot.id, valid_from: new Date(Date.now() - 60_000) } });
+  const expiredRobot = await db.robots.create({ data: { name: 'WF-01 expired robot', serial_no: 'E2E-WF01-EXPIRED', model_name: 'SO-101', status: 'available', owner_organization_id: org.id } });
+  await db.org_entitlements.create({ data: { organization_id: org.id, resource_type: 'robot', robot_id: expiredRobot.id, valid_from: new Date(Date.now() - 120_000), valid_to: new Date(Date.now() - 60_000) } });
+  const maintenanceRobot = await db.robots.create({ data: { name: 'WF-01 maintenance robot', serial_no: 'E2E-WF01-MAINT', model_name: 'SO-101', status: 'maintenance', owner_organization_id: org.id } });
+  await db.org_entitlements.create({ data: { organization_id: org.id, resource_type: 'robot', robot_id: maintenanceRobot.id, valid_from: new Date(Date.now() - 60_000) } });
+  const foreignRobot = await db.robots.create({ data: { name: 'WF-01 foreign robot', serial_no: 'E2E-WF01-FOREIGN', model_name: 'SO-101', status: 'available', owner_organization_id: otherOrg.id } });
+  await db.org_entitlements.create({ data: { organization_id: otherOrg.id, resource_type: 'robot', robot_id: foreignRobot.id, valid_from: new Date(Date.now() - 60_000) } });
   const programAssignment = await db.learning_assignments.create({ data: { lesson_id: lesson.id, title: 'Blockly review assignment', instructions: 'Submit a saved Blockly ProgramVersion for instructor review.', constraints: {}, allowed_blocks: [] } });
   const programDelivery = await db.learning_classroom_assignments.create({ data: { classroom_id: classroom.id, assignment_id: programAssignment.id, status: 'published', published_by: identities.instructor.id } });
   const rubricCriterion = await db.learning_rubric_criteria.create({ data: { assignment_id: programAssignment.id, title: 'Program evidence', max_points: 10, ordinal: 1 } });
@@ -141,6 +152,7 @@ async function seed(): Promise<Record<string, unknown>> {
     objectiveId: objective.id, questionId: question.id, questionVersionId: version.id, canonicalQuizAssignmentId: quiz.id,
     sectionId: section.id, readingActivityId: reading.id, videoActivityId: video.id, quizActivityId: knowledgeCheck.id,
     classroomId: classroom.id, offeringId: offering.id, enrollmentId: enrollment.id,
+    allocatedRobotId: allocatedRobot.id, replacementRobotId: replacementRobot.id, expiredRobotId: expiredRobot.id, maintenanceRobotId: maintenanceRobot.id, foreignRobotId: foreignRobot.id,
     programAssignmentId: programAssignment.id, programDeliveryId: programDelivery.id, rubricCriterionId: rubricCriterion.id,
     otherSchoolId: otherOrg.id, otherClassroomId: otherClassroom.id,
     users: Object.fromEntries(Object.entries(identities).map(([key, value]) => [key, { userId: value.id, authUserId: value.auth, email: value.email }])),

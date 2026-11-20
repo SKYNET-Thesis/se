@@ -1,3 +1,7 @@
+import { OrganizationManagementService } from "./organization-management.service";
+import { AssignOrganizationAdministratorDto, CreateOrganizationDto, UpdateOrganizationDto } from "./dto/organization.dto";
+import { SchoolProfileService } from "./school-profile.service";
+import { UpdateAccountStatusDto, UpdateMemberStatusDto, UpdateSchoolProfileDto } from "./dto/school-profile.dto";
 import { Body, Controller, Delete, Get, Header, Param, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../identity/auth/current-user.decorator";
@@ -24,8 +28,22 @@ import { ReissueStudentTemporaryPasswordDto } from "./dto/reissue-student-tempor
 @UseGuards(SupabaseAuthGuard)
 @Controller("education-admin")
 export class EducationAdminController {
-  constructor(private readonly educationAdmin: EducationAdminService, private readonly queries: SchoolAdminQueryService, private readonly classroomStudentImports: ClassroomStudentImportService) {}
+  constructor(private readonly schoolProfile: SchoolProfileService, private readonly orgManagement: OrganizationManagementService, private readonly educationAdmin: EducationAdminService, private readonly queries: SchoolAdminQueryService, private readonly classroomStudentImports: ClassroomStudentImportService) {}
 
+  @Get("organizations/managed") managedOrganizations(@CurrentUser() user: AuthenticatedUser) { return this.orgManagement.list(user); }
+  @Post("organizations") createOrganization(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateOrganizationDto) { return this.orgManagement.create(user, dto); }
+  @Get("organizations/:organizationId/detail") organizationDetail(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string) { return this.orgManagement.detail(user, organizationId); }
+  @Patch("organizations/:organizationId") updateOrganization(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Body() dto: UpdateOrganizationDto) { return this.orgManagement.update(user, organizationId, dto); }
+  @Get("organizations/:organizationId/administrators") organizationAdministrators(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string) { return this.orgManagement.administrators(user, organizationId); }
+  @Post("organizations/:organizationId/administrators") assignOrganizationAdministrator(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Body() dto: AssignOrganizationAdministratorDto) { return this.orgManagement.assignAdministrator(user, organizationId, dto); }
+  @Delete("organizations/:organizationId/administrators/:userId") revokeOrganizationAdministrator(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("userId", ParseUUIDPipe) userId: string) { return this.orgManagement.revokeAdministrator(user, organizationId, userId); }
+  @Get("organizations/:organizationId/profile") schoolProfileGet(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string) { return this.schoolProfile.profile(user, organizationId); }
+  @Patch("organizations/:organizationId/profile") schoolProfileUpdate(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Body() dto: UpdateSchoolProfileDto) { return this.schoolProfile.updateProfile(user, organizationId, dto.name); }
+  @Get("organizations/:organizationId/roles") schoolRoles(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string) { return this.schoolProfile.roles(user, organizationId); }
+  @Patch("organizations/:organizationId/members/:userId/status") setMemberStatus(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("userId", ParseUUIDPipe) userId: string, @Body() dto: UpdateMemberStatusDto) { return this.schoolProfile.setMemberStatus(user, organizationId, userId, dto.status); }
+  @Post("organizations/:organizationId/members/:userId/invitation") reissueInstructorInvitation(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("userId", ParseUUIDPipe) userId: string) { return this.schoolProfile.reissueInstructorInvitation(user, organizationId, userId); }
+  @Post("organizations/:organizationId/administrators/:userId/invitation") reissueAdministratorInvitation(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("userId", ParseUUIDPipe) userId: string) { return this.orgManagement.reissueAdministratorInvitation(user, organizationId, userId); }
+  @Patch("users/:userId/status") setAccountStatus(@CurrentUser() user: AuthenticatedUser, @Param("userId", ParseUUIDPipe) userId: string, @Body() dto: UpdateAccountStatusDto) { return this.orgManagement.setAccountStatus(user, userId, dto.status); }
   @Get("organizations") organizations(@CurrentUser() user: AuthenticatedUser) { return this.educationAdmin.organizations(user); }
   @Get("organizations/:organizationId/members") members(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string) { return this.educationAdmin.members(user, organizationId); }
   @Get("organizations/:organizationId/overview") overview(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string) { return this.queries.overview(user, organizationId); }

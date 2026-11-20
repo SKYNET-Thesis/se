@@ -270,7 +270,7 @@ describe('CourseBuilder', () => {
       api.mediaList.mockResolvedValue([{ id: 'm1', course_id: 'course-1', original_filename: 'arm-demo.mp4', mime_type: 'video/mp4', size_bytes: 2_000_000, status: 'ready', created_at: '2026-01-01T00:00:00Z' }]);
       await render('/admin/courses/course-1?tab=media');
       await waitFor(() => expect(panel('Media Library')!.textContent).toContain('arm-demo.mp4'));
-      expect(api.mediaList).toHaveBeenCalledWith('course-1', 'admin-token', '', '');
+      expect(api.mediaList).toHaveBeenCalledWith('course-1', 'admin-token', '', '', false);
       expect(document.querySelector('[role="dialog"]')).toBeNull(); // inline, not a modal
     });
 

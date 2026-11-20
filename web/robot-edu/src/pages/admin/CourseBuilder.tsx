@@ -1,3 +1,5 @@
+import { CourseAcademicFields, sameAcademic, type AcademicValue } from '../../components/academic/CourseAcademicFields';
+import { isAcademicLevel } from '../../components/academic/LevelBadge';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -54,6 +56,8 @@ export function CourseBuilder() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [academic, setAcademic] = useState<AcademicValue>({ level: '', tags: [], prerequisiteCourseIds: [] });
+  const academicOf = (c: { level?: string | null; tags?: string[]; prerequisiteCourseIds?: string[] } | undefined | null): AcademicValue => ({ level: isAcademicLevel(c?.level) ? c!.level as AcademicValue['level'] : '', tags: c?.tags ?? [], prerequisiteCourseIds: c?.prerequisiteCourseIds ?? [] });
   const loadedRef = useRef<{ id: string; title: string; description: string } | null>(null);
   const detailsDirtyRef = useRef(false);
   useEffect(() => {
@@ -65,13 +69,15 @@ export function CourseBuilder() {
     if (previous?.id !== course.id || untouched) {
       setTitle(course.title);
       setDescription(course.description ?? '');
+      setAcademic(academicOf(course));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course]);
 
   const baseTitle = course?.title ?? '';
   const baseDescription = course?.description ?? '';
-  const detailsDirty = isNew ? Boolean(title.trim() || description.trim()) : Boolean(course) && (title !== baseTitle || description !== baseDescription);
+  const academicDirty = isNew ? Boolean(academic.level || academic.tags.length || academic.prerequisiteCourseIds.length) : Boolean(course) && !sameAcademic(academic, academicOf(course));
+  const detailsDirty = isNew ? Boolean(title.trim() || description.trim() || academicDirty) : Boolean(course) && (title !== baseTitle || description !== baseDescription || academicDirty);
   detailsDirtyRef.current = detailsDirty;
 
   const titleError = !title.trim() ? 'Course title is required.' : title.length > TITLE_MAX ? `Keep the title within ${TITLE_MAX} characters.` : null;
@@ -131,7 +137,7 @@ export function CourseBuilder() {
   // ---- Mutations ----
   const creatingRef = useRef(false);
   const create = useMutation({
-    mutationFn: (body: { title: string; description?: string }) => catalogApi.createGlobalCourse(token, body),
+    mutationFn: (body: { title: string; description?: string; level?: string; tags?: string[]; prerequisiteCourseIds?: string[] }) => catalogApi.createGlobalCourse(token, body),
     onSuccess: async (created) => {
       qc.setQueryData(courseDetailKey(created.id), created);
       await qc.invalidateQueries({ queryKey: ['admin', 'courses'] });
@@ -145,11 +151,12 @@ export function CourseBuilder() {
     },
   });
   const save = useMutation({
-    mutationFn: (body: { title: string; description: string }) => catalogApi.updateGlobalCourse(courseId, token, body),
+    mutationFn: (body: { title: string; description: string; level?: string; tags?: string[]; prerequisiteCourseIds?: string[] }) => catalogApi.updateGlobalCourse(courseId, token, body),
     onSuccess: async (updated) => {
       qc.setQueryData(courseDetailKey(updated.id), updated);
       setTitle(updated.title);
       setDescription(updated.description ?? '');
+      setAcademic(academicOf(updated));
       await qc.invalidateQueries({ queryKey: ['admin', 'courses'] });
       setBanner({ tone: 'ok', text: 'Course details saved.' });
     },
@@ -164,6 +171,15 @@ export function CourseBuilder() {
     },
     onError: (e) => setBanner({ tone: 'error', text: errorText(e, 'Could not archive the course.') }),
   });
+  const unpublish = useMutation({
+    mutationFn: () => catalogApi.unpublishCourse(courseId, token),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: courseDetailKey(courseId) });
+      await qc.invalidateQueries({ queryKey: ['admin', 'courses'] });
+      setBanner({ tone: 'ok', text: 'Course returned to draft.' });
+    },
+    onError: (e) => setBanner({ tone: 'error', text: errorText(e, 'Could not unpublish the course.') }),
+  });
   const [archiveOpen, setArchiveOpen] = useState(false);
 
   const submitDetails = (event: FormEvent) => {
@@ -174,9 +190,9 @@ export function CourseBuilder() {
     if (isNew) {
       if (creatingRef.current || create.isPending) return; // create the draft exactly once
       creatingRef.current = true;
-      create.mutate({ title: title.trim(), description: description.trim() || undefined });
+      create.mutate({ title: title.trim(), description: description.trim() || undefined, ...(academic.level ? { level: academic.level } : {}), ...(academic.tags.length ? { tags: academic.tags } : {}), ...(academic.prerequisiteCourseIds.length ? { prerequisiteCourseIds: academic.prerequisiteCourseIds } : {}) });
     } else if (!save.isPending && detailsDirty) {
-      save.mutate({ title: title.trim(), description: description.trim() });
+      save.mutate({ title: title.trim(), description: description.trim(), ...(academicDirty ? { ...(academic.level ? { level: academic.level } : {}), tags: academic.tags, prerequisiteCourseIds: academic.prerequisiteCourseIds } : {}) });
     }
   };
 
@@ -223,14 +239,14 @@ export function CourseBuilder() {
   // ---- Existing course: loading / failure ----
   if (!isNew && courseQuery.isLoading) {
     return (
-      <div className="grid h-dvh place-items-center bg-canvas text-sm text-ink-muted" role="status">
-        Loading course…
-      </div>
+      <main className="grid h-dvh place-items-center bg-canvas text-sm text-ink-muted">
+        <p role="status">Loading course…</p>
+      </main>
     );
   }
   if (!isNew && !course) {
     return (
-      <div className="grid h-dvh place-items-center bg-canvas p-6 text-center">
+      <main className="grid h-dvh place-items-center bg-canvas p-6 text-center">
         <div className="max-w-md space-y-3">
           <h1 className="text-xl font-semibold text-ink">Course unavailable</h1>
           <p role="alert" className="text-sm text-ink-muted">
@@ -243,7 +259,7 @@ export function CourseBuilder() {
             </Link>
           </div>
         </div>
-      </div>
+      </main>
     );
   }
 
@@ -338,7 +354,7 @@ export function CourseBuilder() {
 
           <main id="builder-main" tabIndex={-1} className="mt-5 outline-none">
             {/* Course Details */}
-            <div role="tabpanel" aria-label="Course Details" hidden={tab !== 'details'}>
+            <div role="tabpanel" id="panel-details" aria-label="Course Details" hidden={tab !== 'details'}>
               <form onSubmit={submitDetails} noValidate className="max-w-3xl space-y-5 rounded-xl border border-line bg-surface p-5 shadow-hairline sm:p-6" aria-label="Course details">
                 <div>
                   <h3 className="text-lg font-bold">Course details</h3>
@@ -376,6 +392,8 @@ export function CourseBuilder() {
                   </span>
                 </label>
 
+                <CourseAcademicFields value={academic} onChange={setAcademic} courseId={isNew ? undefined : courseId} disabled={isArchived} />
+
                 {course && (course.label || course.level || course.recommendedGrades || course.learningOutcome || (course.competencies?.length ?? 0) > 0) && (
                   <dl className="grid gap-3 rounded-lg border border-line bg-sunken/30 p-4 text-sm sm:grid-cols-2" aria-label="Course metadata">
                     {course.label && <Meta term="Label" value={course.label} />}
@@ -397,7 +415,7 @@ export function CourseBuilder() {
 
             {/* Curriculum: stays mounted while other tabs are open so selection and unsaved edits survive tab switches */}
             {course && (
-              <div role="tabpanel" aria-label="Curriculum" hidden={tab !== 'curriculum'}>
+              <div role="tabpanel" id="panel-curriculum" aria-label="Curriculum" hidden={tab !== 'curriculum'}>
                 <CanonicalCurriculumEditor
                   key={course.id}
                   embedded
@@ -412,14 +430,14 @@ export function CourseBuilder() {
 
             {/* Media Library */}
             {course && visited.has('media') && (
-              <div role="tabpanel" aria-label="Media Library" hidden={tab !== 'media'}>
+              <div role="tabpanel" id="panel-media" aria-label="Media Library" hidden={tab !== 'media'}>
                 <MediaAssetLibraryModal inline open onClose={() => setTab('curriculum')} courseId={course.id} token={token} />
               </div>
             )}
 
             {/* Settings: only what the backend supports (lifecycle state and archiving) */}
             {course && (
-              <div role="tabpanel" aria-label="Settings" hidden={tab !== 'settings'}>
+              <div role="tabpanel" id="panel-settings" aria-label="Settings" hidden={tab !== 'settings'}>
                 <section className="max-w-3xl space-y-5 rounded-xl border border-line bg-surface p-5 shadow-hairline sm:p-6" aria-label="Course settings">
                   <div>
                     <h3 className="text-lg font-bold">Settings</h3>
@@ -432,6 +450,13 @@ export function CourseBuilder() {
                   <p className="text-xs text-ink-muted">
                     Publishing goes through Review &amp; Publish in the header, which applies the server&apos;s readiness rules.
                   </p>
+                  {status === 'published' && canPublish && (
+                    <div className="rounded-lg border border-line p-4">
+                      <h4 className="text-sm font-semibold text-ink">Unpublish course</h4>
+                      <p className="mt-1 text-xs text-ink-muted">Returns the course to draft. Only possible while no school has delivered it and nobody is enrolled; otherwise archive it. Nothing is deleted.</p>
+                      <Button className="mt-3" size="sm" variant="secondary" disabled={unpublish.isPending} loading={unpublish.isPending} onClick={() => unpublish.mutate()}>Unpublish course</Button>
+                    </div>
+                  )}
                   <div className="rounded-lg border border-danger/30 p-4">
                     <h4 className="text-sm font-semibold text-danger">Archive course</h4>
                     <p className="mt-1 text-xs text-ink-muted">Archived courses are frozen against curriculum changes and leave the catalog.</p>

@@ -18,3 +18,11 @@ export class UpdateScheduleDto {
 export class ReopenGradingDto {
   @IsString() @MinLength(5) @MaxLength(1000) reason!: string;
 }
+
+export class UpdateAssignmentAcademicDto {
+  @IsOptional() @IsString() difficulty?: string | null;
+  @IsOptional() @IsString() assignmentType?: string | null;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) passScore?: number | null;
+  @IsOptional() @IsString() gradingMethod?: string | null;
+  @IsOptional() @IsArray() @ArrayMaxSize(12) @IsString({ each: true }) @MaxLength(300, { each: true }) learningObjectives?: string[];
+}

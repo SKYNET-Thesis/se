@@ -12,14 +12,14 @@ const context = (authorization?: string, handler: unknown = {}) => {
 describe("SupabaseAuthGuard JWKS and temporary password gate", () => {
   beforeAll(() => { process.env.STUDENT_TEMP_PASSWORD_ENABLED = "true"; });
   afterAll(() => { delete process.env.STUDENT_TEMP_PASSWORD_ENABLED; });
-  const queryRaw = jest.fn();
+  const queryRaw = jest.fn(); const executeRaw = jest.fn();
   const config = { get: jest.fn((key: string) => ({
     SUPABASE_URL: "https://project.supabase.co", SUPABASE_JWT_AUDIENCE: "authenticated",
   })[key]) };
   const reflector = { getAllAndOverride: jest.fn() };
-  const guard = new SupabaseAuthGuard(config as never, { $queryRaw: queryRaw } as never, reflector as never);
+  const guard = new SupabaseAuthGuard(config as never, { $queryRaw: queryRaw, $executeRaw: executeRaw } as never, reflector as never);
 
-  beforeEach(() => { mockJwtVerify.mockReset(); queryRaw.mockReset(); config.get.mockClear(); reflector.getAllAndOverride.mockReset(); });
+  beforeEach(() => { mockJwtVerify.mockReset(); queryRaw.mockReset(); executeRaw.mockReset().mockResolvedValue(1); config.get.mockClear(); reflector.getAllAndOverride.mockReset(); });
 
   it("verifies issuer/audience, resolves JWT sub through auth_user_id, and builds CurrentUser", async () => {
     mockJwtVerify.mockResolvedValue({ payload: { sub: "00000000-0000-0000-0000-000000000001" } });
@@ -33,6 +33,50 @@ describe("SupabaseAuthGuard JWKS and temporary password gate", () => {
       issuer: "https://project.supabase.co/auth/v1", audience: "authenticated",
     });
     expect(request.user).toMatchObject({ authUserId: "00000000-0000-0000-0000-000000000001", vistaUserId: "user-1" });
+  });
+
+  describe("invited -> active (privilege-escalation guard)", () => {
+    const sub = "00000000-0000-0000-0000-000000000009";
+    const invitedUser = () => queryRaw.mockResolvedValueOnce([{ id: "user-9", email: "teacher@vista.test", status: "invited", password_change_required: false }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    const run = async (claims: Record<string, unknown>) => {
+      mockJwtVerify.mockResolvedValue({ payload: { sub, ...claims } }); invitedUser();
+      const ctx = context("Bearer signed"); await guard.canActivate(ctx);
+      return ctx.switchToHttp().getRequest().user.status as string;
+    };
+
+    it("activates only when the conditional statement confirms the invitation (1 row updated)", async () => {
+      executeRaw.mockResolvedValue(1);
+      expect(await run({ email: "Teacher@Vista.test", role: "authenticated" })).toBe("active");
+      expect(executeRaw).toHaveBeenCalledTimes(1);
+    });
+
+    it("stays invited when the database refuses the promotion (no membership, inactive organization, self-registered, other subject, e-mail mismatch)", async () => {
+      executeRaw.mockResolvedValue(0);
+      expect(await run({ email: "teacher@vista.test" })).toBe("invited");
+    });
+
+    it("the promotion statement itself enforces admin-created, subject link, e-mail match, active membership, active organization and a non-student role", async () => {
+      executeRaw.mockResolvedValue(1);
+      await run({ email: "teacher@vista.test" });
+      const sql = (executeRaw.mock.calls[0][0] as string[]).join("?");
+      for (const required of ["u.status='invited'", "u.signup_method='admin_created'", "u.auth_user_id=", "lower(u.email)=", "m.status='active'", "o.status='active'", "r.code IN ('instructor','school_admin')"]) expect(sql).toContain(required);
+    });
+
+    it.each([
+      ["no e-mail claim", {}],
+      ["anonymous identity", { email: "teacher@vista.test", is_anonymous: true }],
+      ["non-authenticated role claim", { email: "teacher@vista.test", role: "service_role" }],
+    ])("never attempts activation for %s", async (_name, claims) => {
+      expect(await run(claims)).toBe("invited");
+      expect(executeRaw).not.toHaveBeenCalled();
+    });
+  });
+
+  it("does not touch accounts that are already active", async () => {
+    mockJwtVerify.mockResolvedValue({ payload: { sub: "00000000-0000-0000-0000-000000000010", email: "a@vista.test" } });
+    queryRaw.mockResolvedValueOnce([{ id: "user-10", email: "a@vista.test", status: "active", password_change_required: false }]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    await guard.canActivate(context("Bearer signed"));
+    expect(executeRaw).not.toHaveBeenCalled();
   });
 
   it("rejects missing or invalid bearer tokens without a fallback identity", async () => {

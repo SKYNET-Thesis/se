@@ -32,13 +32,14 @@ export class SchoolAdminQueryService {
     this.assertOrganizationPermission(user, organizationId, "education.members.read");
     const search = query.search?.trim() || null;
     const role = query.role ?? null;
+    const membershipStatus = query.status ?? "active";
     const offset = (query.page - 1) * query.pageSize;
     const temporaryColumns = studentTempPasswordEnabled()
       ? Prisma.sql`p.password_change_required AS "passwordChangeRequired", p.temporary_password_expires_at AS "temporaryPasswordExpiresAt"`
       : Prisma.sql`false AS "passwordChangeRequired", NULL::timestamptz AS "temporaryPasswordExpiresAt"`;
     const rows = await this.prisma.$queryRaw<Array<PageRow<Record<string, unknown>>>>`
       WITH filtered AS (
-        SELECT u.id, u.full_name AS "displayName", r.code AS role,
+        SELECT u.id, u.full_name AS "displayName", r.code AS role, m.status AS "membershipStatus",
                p.student_code AS "studentCode", p.employee_code AS "employeeCode",
                p.grade_level AS "gradeLevel", u.email,
                ${temporaryColumns},
@@ -49,7 +50,8 @@ export class SchoolAdminQueryService {
         JOIN public.users u ON u.id=m.user_id
         JOIN public.roles r ON r.id=m.role_id
         LEFT JOIN public.education_school_user_profiles p ON p.organization_id=m.organization_id AND p.user_id=u.id
-        WHERE m.organization_id=${organizationId}::uuid AND m.status='active'
+        WHERE m.organization_id=${organizationId}::uuid AND m.status=${membershipStatus}
+          AND r.code IN ('student','instructor')
           AND (${role}::text IS NULL OR r.code=${role})
           AND (${search}::text IS NULL OR u.full_name ILIKE '%' || ${search} || '%'
             OR COALESCE(u.email,'') ILIKE '%' || ${search} || '%'

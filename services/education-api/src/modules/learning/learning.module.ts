@@ -1,3 +1,8 @@
+import { DigitalTwinRevocationService } from './digital-twin-revocation.service';
+import { UnpublishController } from './unpublish.controller';
+import { UnpublishService } from './unpublish.service';
+import { ChallengeAuthoringController } from './challenge-authoring.controller';
+import { ChallengeAuthoringService } from './challenge-authoring.service';
 import { Module } from "@nestjs/common";
 import { IdentityModule } from "../identity/identity.module";
 import { LearningController } from "./learning.controller";
@@ -32,7 +37,7 @@ import { CurriculumController } from './curriculum.controller';
 import { CurriculumService } from './curriculum.service';
 import { QuestionBankController } from './question-bank.controller';
 import { QuestionBankService } from './question-bank.service';
-import { DigitalTwinScopeController } from './digital-twin-scope.controller';
+import { AttemptDigitalTwinController, DigitalTwinScopeController } from './digital-twin-scope.controller';
 import { DigitalTwinScopeService } from './digital-twin-scope.service';
 import { EnrollmentDeliveryService } from './enrollment-delivery.service';
 import { LearningMediaController } from './learning-media.controller';
@@ -45,5 +50,10 @@ import { SubmissionFileStorage } from './submission-file.storage';
 import { IotCommandService } from "./iot-command.service";
 import { IotPublishRecoveryService } from "./iot-publish-recovery.service";
 import { IotPublishRecoveryRunner } from "./iot-publish-recovery.runner";
-@Module({imports:[IdentityModule],controllers:[LearningController,AssignmentConfigController,ProgrammingController,AssessmentController,ExperimentController,LearningInsightsController,VrLessonController,DemonstrationLessonController,PhysicalExecutionController,ProgressionController,CurriculumController,QuestionBankController,DigitalTwinScopeController,LearningMediaController,SubmissionFilesController],providers:[LearningService,AssignmentConfigService,LearningScopeService,ProgrammingService,AssessmentService,ExperimentService,SchematicEngineService,SymbolicRuleCompilerService,SymbolicRuleEvaluatorService,SymbolicEvaluationPreparationService,SymbolicEvaluationService,LearningInsightsService,VrLessonService,DemonstrationLessonService,RobotRuntimeClient,IotCommandService,IotPublishRecoveryService,IotPublishRecoveryRunner,PhysicalExecutionService,ProgressionService,ActivityProgressService,CurriculumService,QuestionBankService,DigitalTwinScopeService,EnrollmentDeliveryService,LearningMediaService,LearningMediaStorage,SubmissionFilesService,SubmissionFileStorage,SchemaCompatibilityService],exports:[LearningScopeService,EnrollmentDeliveryService,LearningMediaService]})
+import { CourseDiscoveryController } from "./course-discovery.controller";
+import { CourseDiscoveryService } from "./course-discovery.service";
+import { DigitalTwinTelemetryClient } from "./digital-twin-telemetry.client";
+import { ExperimentEvidenceStorage } from "./experiment-evidence.storage";
+import { ExperimentEvidenceService } from "./experiment-evidence.service";
+@Module({imports:[IdentityModule],controllers:[UnpublishController,ChallengeAuthoringController,LearningController,AssignmentConfigController,ProgrammingController,AssessmentController,ExperimentController,LearningInsightsController,VrLessonController,DemonstrationLessonController,PhysicalExecutionController,ProgressionController,CurriculumController,QuestionBankController,DigitalTwinScopeController,AttemptDigitalTwinController,CourseDiscoveryController,LearningMediaController,SubmissionFilesController],providers:[DigitalTwinRevocationService,UnpublishService,ChallengeAuthoringService,LearningService,AssignmentConfigService,LearningScopeService,ProgrammingService,AssessmentService,ExperimentService,SchematicEngineService,SymbolicRuleCompilerService,SymbolicRuleEvaluatorService,SymbolicEvaluationPreparationService,SymbolicEvaluationService,LearningInsightsService,VrLessonService,DemonstrationLessonService,RobotRuntimeClient,DigitalTwinTelemetryClient,ExperimentEvidenceStorage,ExperimentEvidenceService,IotCommandService,IotPublishRecoveryService,IotPublishRecoveryRunner,PhysicalExecutionService,ProgressionService,ActivityProgressService,CurriculumService,QuestionBankService,DigitalTwinScopeService,EnrollmentDeliveryService,CourseDiscoveryService,LearningMediaService,LearningMediaStorage,SubmissionFilesService,SubmissionFileStorage,SchemaCompatibilityService],exports:[DigitalTwinRevocationService,LearningScopeService,EnrollmentDeliveryService,LearningMediaService]})
 export class LearningModule {}

@@ -153,6 +153,20 @@ export class SupabaseAdminService {
     return response.json() as Promise<SupabaseAdminUser>;
   }
 
+  /** Sends the invitation e-mail again to a person who has not accepted it yet (the caller has verified that locally). */
+  async resendInvite(email: string, fullName: string): Promise<void> {
+    const baseUrl = this.config.get<string>("SUPABASE_URL")?.replace(/\/$/, "");
+    const serviceRole = this.config.get<string>("SUPABASE_SERVICE_ROLE_KEY");
+    if (!baseUrl || !serviceRole) throw new ImportProvisioningError("ACCOUNT_INVITE_FAILED", "Supabase Admin configuration is incomplete.");
+    const inviteUrl = new URL(`${baseUrl}/auth/v1/invite`);
+    const redirectTo = this.config.get<string>("SUPABASE_INVITE_REDIRECT_URL")?.trim();
+    if (redirectTo) inviteUrl.searchParams.set("redirect_to", redirectTo);
+    let response: Response;
+    try { response = await fetch(inviteUrl, { method: "POST", headers: { apikey: serviceRole, Authorization: `Bearer ${serviceRole}`, "Content-Type": "application/json" }, body: JSON.stringify({ email, data: { full_name: fullName } }), signal: AbortSignal.timeout(10_000) }); }
+    catch (error) { throw new ImportProvisioningError("ACCOUNT_INVITE_FAILED", error instanceof Error ? error.message : "Invite network failure."); }
+    if (!response.ok) throw new ImportProvisioningError("ACCOUNT_INVITE_FAILED", `Invite HTTP ${response.status}`);
+  }
+
   private async findStudentIdentityByAlias(email: string, baseUrl: string, serviceRole: string): Promise<SupabaseAdminUser | null> {
     for (let page = 1; page <= 100; page += 1) {
       let response: Response;

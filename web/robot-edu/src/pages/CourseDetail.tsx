@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, Navigate, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRightIcon, ChevronDownIcon, ChevronLeftIcon, CircleDotIcon, Clock3Icon, FileQuestionIcon, LockIcon } from 'lucide-react';
 import { Badge } from '../components/ui/Badge';
@@ -7,6 +7,7 @@ import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { LinkButton } from '../components/ui/LinkButton';
 import { ProgressBar } from '../components/ui/ProgressBar';
+import { useOptionalRole } from '../contexts/RoleContext';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { countLabel } from '../lib/terms';
 import { catalogApi, progressionApi, type CoursePathLesson } from '../lib/api';
@@ -16,11 +17,14 @@ export function CourseDetail() {
   const { courseId = '' } = useParams();
   const { session, loading: authLoading, sessionRevision } = useSupabaseSession();
   const token = session?.access_token ?? '';
+  // The learner path (progress, locks) only exists for students; authoring roles open the course in the course builder instead.
+  const role = useOptionalRole()?.role;
+  const staffRedirect = role === 'admin' || role === 'teacher' || role === 'school_admin';
 
   const pathQuery = useQuery({
     queryKey: studentLearningKeys.coursePath(courseId, session?.user.id, sessionRevision),
     queryFn: () => progressionApi.coursePath(courseId, token),
-    enabled: Boolean(!authLoading && token && courseId),
+    enabled: Boolean(!authLoading && token && courseId && !staffRedirect),
     staleTime: 30_000,
   });
 
@@ -30,6 +34,8 @@ export function CourseDetail() {
     enabled: Boolean(!authLoading && token && courseId),
     staleTime: 60_000,
   });
+
+  if (staffRedirect && courseId) return <Navigate to={`/admin/courses/${courseId}`} replace />;
 
   const loading = authLoading || pathQuery.isLoading;
   const error = pathQuery.error;

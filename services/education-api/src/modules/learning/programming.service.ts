@@ -1,3 +1,4 @@
+import { DigitalTwinRevocationService } from "./digital-twin-revocation.service";
 import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
@@ -17,7 +18,7 @@ export interface ProgramRow { id: string; owner_user_id: string; assignment_id: 
 
 @Injectable()
 export class ProgrammingService {
-  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly progression?: ProgressionService, private readonly compat?: SchemaCompatibilityService) {}
+  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly progression?: ProgressionService, private readonly compat?: SchemaCompatibilityService, private readonly twinRevocation?: DigitalTwinRevocationService) {}
 
   async programForAttempt(user: AuthenticatedUser, attemptId: string) {
     const attempt = await this.ownAttempt(user, attemptId);
@@ -114,7 +115,7 @@ export class ProgrammingService {
    */
   async submit(user: AuthenticatedUser, attemptId: string, dto: SubmitAttemptDto) {
     await this.compat?.requireStage2();
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const attempt = await loadOwnAttempt(tx, user.vistaUserId, attemptId, true);
       if (!attempt.program_id) throw new NotFoundException("Attempt program was not found.");
       await this.scope.assertStudentClassroomAccess(user, attempt.classroom_id, { requireActiveEnrollment: true });
@@ -179,6 +180,9 @@ export class ProgrammingService {
         : { completedLessonId: null, newlyUnlockedLessonIds: [] };
       return { ...submissions[0], evaluated, progression };
     });
+    // The final submission ends the right to watch this attempt live: close its Twin viewers now (best-effort, never blocks the submission).
+    void this.twinRevocation?.revoke({ attemptIds: [attemptId] });
+    return result;
   }
 
   private async isCurriculumProgramming(db: Pick<PrismaService, "$queryRaw">, assignmentId: string | null): Promise<boolean> {

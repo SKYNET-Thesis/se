@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from "class-validator";
+import { IsBoolean, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from "class-validator";
 
 const nonBlank = { message: "Value cannot be empty or whitespace." };
 
@@ -26,4 +26,9 @@ export class UpdateClassroomDto {
   @Min(1)
   @Max(10000)
   capacity?: number;
+
+  /** School opt-in: students of this school may enroll themselves (subject to capacity, prerequisites and an active, published offering). */
+  @IsOptional()
+  @IsBoolean()
+  selfEnrollmentOpen?: boolean;
 }
