@@ -15,6 +15,7 @@ export class AssessmentController {
   constructor(private readonly assessments: AssessmentService) {}
   @Get("classrooms/:classroomId/submissions") list(@CurrentUser() user: AuthenticatedUser,@Param("classroomId") id:string){return this.assessments.classroomSubmissions(user,id)}
   @Get("submissions/:submissionId") detail(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string){return this.assessments.instructorSubmission(user,id)}
+  @Get("submissions/:submissionId/experiments/:experimentId/artifacts/:artifactId/download") teacherArtifact(@CurrentUser() user:AuthenticatedUser,@Param("submissionId",ParseUUIDPipe) submissionId:string,@Param("experimentId",ParseUUIDPipe) experimentId:string,@Param("artifactId",ParseUUIDPipe) artifactId:string){return this.assessments.teacherEvidenceDownload(user,submissionId,experimentId,artifactId)}
   @Get("submissions/:submissionId/assessment") assessment(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string){return this.assessments.assessment(user,id)}
   @Get("submissions/:submissionId/feedback") instructorFeedback(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string){return this.assessments.instructorFeedback(user,id)}
   @Post("submissions/:submissionId/assessment") assess(@CurrentUser() user: AuthenticatedUser,@Param("submissionId") id:string,@Body() dto:AssessSubmissionDto){return this.assessments.assess(user,id,dto)}

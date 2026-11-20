@@ -36,6 +36,19 @@ describe("LearningService assignment delivery", () => {
     expect(sql).toContain("c.status='active'");
   });
 
+  it('returns the grading rubric in the student-visible assignment payload (published deliveries only for learners)', async () => {
+    const classroomSpy = jest.spyOn(service as never, 'classroom' as never).mockResolvedValue(undefined as never);
+    (service as unknown as { scope: { canManageClassroom: jest.Mock } }).scope.canManageClassroom = jest.fn().mockResolvedValue(false);
+    queryRaw.mockResolvedValueOnce([{ classroom_id: 'class-a' }]).mockResolvedValueOnce([{ id: 'delivery-a', rubric: [{ title: 'Clarity', maxPoints: 6 }] }]);
+    const result = await service.assignment(user as never, 'delivery-a') as { rubric: unknown[] };
+    expect(result.rubric).toHaveLength(1);
+    const sql = (queryRaw.mock.calls[1][0] as TemplateStringsArray).join('?');
+    expect(sql).toContain('learning_rubric_criteria');
+    expect(sql).toContain('AS rubric');
+    expect(sql).toContain("ca.status='published'");
+    classroomSpy.mockRestore();
+  });
+
   it('creates a draft delivery referencing the canonical assignment without cloning it', async () => {
     const txQuery = jest.fn().mockResolvedValueOnce([{ id: 'canonical-quiz', lesson_id: 'lesson-a' }]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 'delivery-a', status: 'draft', assignment_id: 'canonical-quiz' }]);
     transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => work({ $queryRaw: txQuery }));
@@ -192,7 +205,7 @@ describe("LearningService assignment delivery", () => {
       $executeRaw: executeRaw.mockResolvedValue(undefined),
       $queryRaw: jest.fn().mockResolvedValueOnce([]).mockResolvedValueOnce([{ n:2, existing:1 }]),
     }));
-    await expect(service.startAttempt(user, "classroom-assignment-a")).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.startAttempt(user, "classroom-assignment-a")).rejects.toMatchObject({ response: { code: "ATTEMPT_LIMIT_REACHED" } }); // a clear 409, no longer a misleading 404
   });
 
   it("creates assignment content and classroom delivery atomically as a draft", async () => {
@@ -236,6 +249,25 @@ describe("LearningService assignment delivery", () => {
     expect(values).toContain(true); // not a quiz: the rubric is inherited
     // still exactly two statements: the content+rubric statement and the draft delivery
     expect(txQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("inherits the curriculum blocks and target of a challenge's canonical assignment so the student toolbox can satisfy the challenge", async () => {
+    const rootQuery = jest.fn().mockResolvedValueOnce([{ id: "lesson-1", organization_id: "org-1" }]).mockResolvedValueOnce([{ id: "challenge-1" }]);
+    const target = { frame: "learning_preview_v1", arm: "left", position: { x: 240, y: 220, z: 120 } };
+    const txQuery = jest.fn()
+      .mockResolvedValueOnce([{ allowed_blocks: ["arm.select", "home", "preview.move_xyz", "wait"], constraints: { kind: "symbolic_program", target } }])
+      .mockResolvedValueOnce([{ id: "assignment-1" }])
+      .mockResolvedValueOnce([{ id: "delivery-1", status: "draft" }]);
+    const draftService = new LearningService(
+      { $queryRaw: rootQuery, $transaction: jest.fn(async (work) => work({ $queryRaw: txQuery })) } as never,
+      { assertTeacherClassroomAccess: jest.fn().mockResolvedValue(undefined) } as never,
+    );
+    await draftService.createAssignment(user, "class-1", { lessonId: "lesson-1", challengeId: "challenge-1", title: "Reach Target A", attachmentsEnabled: true });
+    const [templateStrings] = txQuery.mock.calls[0] as [TemplateStringsArray];
+    expect(templateStrings.join("?")).toContain("constraints->>'kind'='symbolic_program'");
+    const insertValues = (txQuery.mock.calls[1] as unknown[]).slice(1);
+    expect(insertValues).toContain(JSON.stringify(["arm.select", "home", "preview.move_xyz", "wait"]));
+    expect(insertValues).toContain(JSON.stringify({ kind: "symbolic_program", target, attachments: { enabled: true } }));
   });
 
   it("never gives a Question Bank quiz an inherited rubric", async () => {
@@ -375,6 +407,40 @@ describe("LearningService assignment delivery", () => {
 
     await expect((publishService as unknown as { publishAssignment: Function }).publishAssignment(user, "class-1", "assignment-from-class-2"))
       .rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  describe("evidence attachments setting", () => {
+    const build = (constraints: unknown) => {
+      const update = jest.fn().mockResolvedValue({ id: "a-1" });
+      const findUnique = jest.fn().mockResolvedValue({ constraints });
+      const svc = new LearningService(
+        { $queryRaw: jest.fn().mockResolvedValue([{ classroom_id: "class-1" }]), learning_assignments: { update, findUnique } } as never,
+        { assertTeacherClassroomAccess: jest.fn().mockResolvedValue(undefined) } as never,
+      );
+      return { svc, update };
+    };
+    it("lets an instructor enable attachments on a programming assignment without dropping its other constraints", async () => {
+      const { svc, update } = build({ kind: "symbolic_program", note: "keep" });
+      await svc.updateAssignment(user, "class-1", "a-1", { attachmentsEnabled: true });
+      expect(update.mock.calls[0][0].data.constraints).toEqual({ kind: "symbolic_program", note: "keep", attachments: { enabled: true } });
+    });
+    it("can switch attachments off again", async () => {
+      const { svc, update } = build({ attachments: { enabled: true } });
+      await svc.updateAssignment(user, "class-1", "a-1", { attachmentsEnabled: false });
+      expect(update.mock.calls[0][0].data.constraints).toEqual({ attachments: { enabled: false } });
+    });
+    it("refuses attachments on machine-graded quizzes and physical labs", async () => {
+      for (const kind of ["knowledge_check", "physical_lab"]) {
+        const { svc, update } = build({ kind });
+        await expect(svc.updateAssignment(user, "class-1", "a-1", { attachmentsEnabled: true })).rejects.toBeInstanceOf(BadRequestException);
+        expect(update).not.toHaveBeenCalled();
+      }
+    });
+    it("a title-only edit leaves constraints untouched", async () => {
+      const { svc, update } = build({ attachments: { enabled: true } });
+      await svc.updateAssignment(user, "class-1", "a-1", { title: "New" });
+      expect(update.mock.calls[0][0].data).toEqual({ title: "New" });
+    });
   });
 
   it("denies editing shared assignment content unless the instructor can manage every delivery", async () => {

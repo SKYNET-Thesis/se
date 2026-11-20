@@ -1,7 +1,8 @@
+import { normalizeAssignmentAcademic } from './course-academic';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/database/prisma.service';
 import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
-import { ReplaceRubricDto, UpdateScheduleDto } from './dto/assignment-config.dto';
+import { ReplaceRubricDto, UpdateAssignmentAcademicDto, UpdateScheduleDto } from './dto/assignment-config.dto';
 import { LearningScopeService } from './learning-scope.service';
 
 /** Instructor-side configuration of a delivered (non-quiz) assignment: rubric criteria and delivery schedule. */
@@ -16,6 +17,27 @@ export class AssignmentConfigService {
     if (!rows.some((r) => r.classroom_id === classroomId)) throw new NotFoundException('Assignment was not found.');
     for (const id of new Set(rows.map((r) => r.classroom_id))) await this.scope.assertTeacherClassroomAccess(user, id);
     return { isQuiz: (rows[0].constraints as { kind?: string } | null)?.kind === 'knowledge_check' };
+  }
+
+  /** Academic classification, independent of the course level: difficulty, type, pass score, grading method and objectives. */
+  async getAcademic(user: AuthenticatedUser, classroomId: string, assignmentId: string) {
+    await this.authorize(user, classroomId, assignmentId);
+    const rows = await this.prisma.$queryRaw<Array<{ difficulty: string | null; assignment_type: string | null; pass_score: string | null; grading_method: string | null; learning_objectives: unknown; max_score: string | null }>>`
+      SELECT a.difficulty,a.assignment_type,a.pass_score,a.grading_method,a.learning_objectives,(SELECT SUM(max_points) FROM public.learning_rubric_criteria WHERE assignment_id=a.id) AS max_score
+      FROM public.learning_assignments a WHERE a.id=${assignmentId}::uuid`;
+    const r = rows[0];
+    return { assignmentId, difficulty: r.difficulty, assignmentType: r.assignment_type, passScore: r.pass_score === null ? null : Number(r.pass_score), gradingMethod: r.grading_method,
+      learningObjectives: Array.isArray(r.learning_objectives) ? r.learning_objectives : [], maxScore: r.max_score === null ? null : Number(r.max_score) };
+  }
+
+  async updateAcademic(user: AuthenticatedUser, classroomId: string, assignmentId: string, dto: UpdateAssignmentAcademicDto) {
+    await this.authorize(user, classroomId, assignmentId);
+    const data = normalizeAssignmentAcademic(dto);
+    const maxRows = await this.prisma.$queryRaw<{ max_score: string | null }[]>`SELECT SUM(max_points) AS max_score FROM public.learning_rubric_criteria WHERE assignment_id=${assignmentId}::uuid`;
+    const maxScore = maxRows[0]?.max_score === null || maxRows[0]?.max_score === undefined ? null : Number(maxRows[0].max_score);
+    if (data.pass_score !== undefined && data.pass_score !== null && maxScore !== null && data.pass_score > maxScore) throw new BadRequestException(`Pass score cannot exceed the maximum score (${maxScore}).`);
+    await this.prisma.learning_assignments.update({ where: { id: assignmentId }, data });
+    return this.getAcademic(user, classroomId, assignmentId);
   }
 
   async getRubric(user: AuthenticatedUser, classroomId: string, assignmentId: string) {

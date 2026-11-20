@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertCircleIcon, ArrowLeftIcon, CheckCircle2Icon, EyeIcon, EyeOffIcon, MailIcon } from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
@@ -10,8 +10,18 @@ export type StudentMode = 'login' | 'setup' | 'recovery';
 
 export function Login() {
   const { client, session, loading, configurationError } = useSupabaseSession();
-  const [loginType, setLoginType] = useState<'email' | 'student'>('email');
-  const [studentMode, setStudentMode] = useState<StudentMode>('login');
+  // `?mode=setup` is a deep link for students who were already issued a legacy Setup Code (the link is hidden once temporary passwords are enabled).
+  const deepLinkSetup = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'setup';
+  const [loginType, setLoginType] = useState<'email' | 'student'>(deepLinkSetup ? 'student' : 'email');
+  const [studentMode, setStudentMode] = useState<StudentMode>(deepLinkSetup ? 'setup' : 'login');
+  // What the SERVER currently does for new students (null = not known yet; a failed probe falls back to the legacy experience).
+  const [temporaryPasswordEnabled, setTemporaryPasswordEnabled] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (loginType !== 'student' || temporaryPasswordEnabled !== null) return;
+    let live = true;
+    studentAuthApi.capabilities().then((c) => { if (live) setTemporaryPasswordEnabled(Boolean(c?.temporaryPasswordEnabled)); }).catch(() => { if (live) setTemporaryPasswordEnabled(false); });
+    return () => { live = false; };
+  }, [loginType, temporaryPasswordEnabled]);
 
   const [email, setEmail] = useState('');
   const [schoolCode, setSchoolCode] = useState('');
@@ -24,11 +34,13 @@ export function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const [error, setError] = useState<string | null>(null);
+  const restrictionReason = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('reason') : null;
+  const [error, setError] = useState<string | null>(restrictionReason === 'TEMPORARY_PASSWORD_EXPIRED' ? 'Your temporary password has expired. Ask your school administrator to issue a new one.' : restrictionReason === 'SESSION_ROTATED' ? 'Your password changed, so you were signed out. Sign in again.' : null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
 
-  if (session && !submitting) return <Navigate to="/" replace />;
+  if (session && !submitting) return <Navigate to={passwordChangeRequired ? '/student/change-password' : '/'} replace />;
 
   const resetFormState = () => {
     setError(null);
@@ -76,6 +88,7 @@ export function Login() {
       }
 
       let accessToken: string;
+      let requiresPasswordChange = false;
 
       // 2. Email Sign-in Flow
       if (loginType === 'email') {
@@ -117,6 +130,8 @@ export function Login() {
             studentCode: studentCode.trim(),
             password,
           });
+          requiresPasswordChange = Boolean(authSession.password_change_required);
+          setPasswordChangeRequired(requiresPasswordChange);
 
           const { data, error: sessionError } = await client.auth.setSession({
             access_token: authSession.access_token,
@@ -127,6 +142,9 @@ export function Login() {
           accessToken = data.session.access_token;
         }
       }
+
+      // Restricted first-login sessions may call only the password-change endpoint until rotation completes.
+      if (requiresPasswordChange) return;
 
       // Verify active roles
       const access = await identityApi.roles(accessToken);
@@ -487,16 +505,23 @@ export function Login() {
                 <div className="mt-6 flex flex-col items-center gap-3 text-center">
                   {loginType === 'student' && studentMode === 'login' && (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setStudentMode('setup');
-                          resetFormState();
-                        }}
-                        className="text-sm font-medium text-accent hover:text-accent-hover underline underline-offset-4 transition-colors"
-                      >
-                        First time here? Set up your account
-                      </button>
+                      {temporaryPasswordEnabled === true && (
+                        <p className="max-w-xs text-sm leading-relaxed text-ink-muted">
+                          First time signing in? Use the temporary password provided by your school. You&apos;ll be asked to create a new password.
+                        </p>
+                      )}
+                      {temporaryPasswordEnabled === false && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStudentMode('setup');
+                            resetFormState();
+                          }}
+                          className="text-sm font-medium text-accent hover:text-accent-hover underline underline-offset-4 transition-colors"
+                        >
+                          First time here? Set up your account
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => {

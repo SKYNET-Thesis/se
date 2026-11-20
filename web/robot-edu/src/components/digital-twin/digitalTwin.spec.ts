@@ -2,7 +2,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SO101_JOINTS, SO101_MESHES, SO101_NAMES, resolveSo101Mesh, toUrdfRadians } from './so101Model';
-import { acceptTwinFrame, isFresh, parseTwinFrame } from './twinTelemetry';
+import { acceptTwinFrame, HEARTBEAT_TIMEOUT_MS, isFresh, linkSilent, parseTwinFrame, parseTwinHeartbeat, withHeartbeat } from './twinTelemetry';
 
 const root = resolve(process.cwd(), 'public/assets/so101');
 const urdf = readFileSync(resolve(root, 'urdf/so101_new_calib.urdf'), 'utf8');
@@ -55,6 +55,12 @@ describe('read-only mock telemetry boundary', () => {
       { measured_at: '2026-11-05T00:00:00' },
     ]) expect(parseTwinFrame({ ...fixture, ...field })).toBeNull();
   });
+  it('accepts a real allocated robot id only when it is the expected, viewer-scoped robot', () => {
+    const allocated = { ...fixture, robot_id: '14141414-1414-4141-8141-141414141414' };
+    expect(parseTwinFrame(allocated)).toBeNull();
+    expect(parseTwinFrame(allocated, allocated.robot_id)?.robot_id).toBe(allocated.robot_id);
+    expect(parseTwinFrame(allocated, 'another-robot')).toBeNull();
+  });
   it('rejects out-of-order packets and old measurements', () => {
     const first = parseTwinFrame(fixture)!;
     expect(acceptTwinFrame(first, { ...first, sequence: 1 })).toBe(false);
@@ -86,5 +92,21 @@ describe('physical telemetry boundary', () => {
         ? { ...reading, position: 2, unit: 'rad' as const }
         : reading),
     })).toBeNull();
+  });
+});
+
+describe('heartbeat and silent-link detection', () => {
+  const beat = { type: 'heartbeat', schema_version: 1, server_time: '2026-11-19T10:00:00+00:00', origin: 'mock', source_mode: 'SIMULATION', robot_id: 'robot-a', sequence: 4, connection: 'connected', age_ms: 12 };
+  it('accepts only well-formed versioned heartbeats and labels their origin', () => {
+    expect(parseTwinHeartbeat(beat)).toMatchObject({ origin: 'mock', connection: 'connected', sequence: 4 });
+    expect(parseTwinHeartbeat({ ...beat, origin: 'physical', connection: 'stale', sequence: null })).toMatchObject({ origin: 'physical', connection: 'stale', sequence: null });
+    for (const bad of [null, 'x', { ...beat, type: 'frame' }, { ...beat, schema_version: 2 }, { ...beat, origin: 'robot' }, { ...beat, connection: 'ok' }, { ...beat, server_time: 'later' }]) expect(parseTwinHeartbeat(bad)).toBeNull();
+    expect(parseTwinHeartbeat({ ...beat, sequence: -1 })?.sequence).toBeNull();
+  });
+  it('treats a link silent for three heartbeat intervals as dead and opts in to the keepalive', () => {
+    expect(linkSilent(1000, 1000 + HEARTBEAT_TIMEOUT_MS)).toBe(false);
+    expect(linkSilent(1000, 1001 + HEARTBEAT_TIMEOUT_MS)).toBe(true);
+    expect(withHeartbeat('ws://127.0.0.1:8767/ws/twin')).toBe('ws://127.0.0.1:8767/ws/twin?heartbeat=2');
+    expect(withHeartbeat('wss://example.test/ws/twin?heartbeat=5')).toBe('wss://example.test/ws/twin?heartbeat=5');
   });
 });

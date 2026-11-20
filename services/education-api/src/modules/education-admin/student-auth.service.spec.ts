@@ -8,21 +8,27 @@ describe("StudentAuthService", () => {
   const queryRaw = jest.fn();
   const prismaExecuteRaw = jest.fn();
   const executeRaw = jest.fn();
+  const txQueryRaw = jest.fn();
   const transaction = jest.fn();
   const supabase = {
     authenticateStudent: jest.fn(),
     createStudentIdentity: jest.fn(),
     deleteStudentIdentity: jest.fn(),
     setStudentPassword: jest.fn(),
+    revokeOtherSessions: jest.fn().mockResolvedValue(true),
     replaceStudentLoginEmail: jest.fn(),
   };
   const service = new StudentAuthService({ $queryRaw: queryRaw, $executeRaw: prismaExecuteRaw, $transaction: transaction } as never, supabase as never);
+
+  beforeAll(() => { process.env.STUDENT_TEMP_PASSWORD_ENABLED = "true"; });
+  afterAll(() => { delete process.env.STUDENT_TEMP_PASSWORD_ENABLED; });
 
   beforeEach(() => {
     queryRaw.mockReset();
     prismaExecuteRaw.mockReset().mockResolvedValue(1);
     executeRaw.mockReset().mockResolvedValue(1);
-    transaction.mockReset().mockImplementation(callback => callback({ $executeRaw: executeRaw }));
+    transaction.mockReset().mockImplementation(callback => callback({ $executeRaw: executeRaw, $queryRaw: txQueryRaw }));
+    txQueryRaw.mockReset();
     supabase.authenticateStudent.mockReset().mockResolvedValue(session);
     supabase.createStudentIdentity.mockReset().mockResolvedValue({ id: "auth-user-1" });
     supabase.deleteStudentIdentity.mockReset().mockResolvedValue(undefined);
@@ -31,11 +37,11 @@ describe("StudentAuthService", () => {
   });
 
   it("maps school and student codes to an internal Supabase identifier without returning it", async () => {
-    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_user_id: "auth-user-1", email: "contact@example.test", status: "active", account_state: "active" }]);
+    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_user_id: "auth-user-1", email: "contact@example.test", status: "active", account_state: "active", password_change_required: false }]);
 
     const result = await service.login({ schoolCode: "VST-SCHOOL", studentCode: "S-1", password: "secret" });
 
-    expect(result).toEqual(session);
+    expect(result).toEqual({ ...session, password_change_required: false });
     expect(supabase.authenticateStudent).toHaveBeenCalledWith("student-user-1@students.auth.vista.invalid", "secret");
     expect(JSON.stringify(result)).not.toContain("contact@example.test");
   });
@@ -102,6 +108,40 @@ describe("StudentAuthService", () => {
     expect(executeRaw.mock.calls[2][0].join(" ")).toContain("account_state IN ('account_setup_pending', 'invited')");
   });
 
+
+  it("changes a temporary password once and returns a newer Supabase session", async () => {
+    txQueryRaw.mockResolvedValueOnce([{ user_id: "user-1", auth_user_id: "auth-user-1" }])
+      .mockResolvedValueOnce([{ password_changed_at: new Date(Date.now() - 1500) }]);
+    executeRaw.mockResolvedValueOnce(1);
+    const actor = { vistaUserId: "user-1", authUserId: "auth-user-1" } as never;
+    const result = await service.changeFirstLoginPassword(actor, { currentPassword: "temporary-password", newPassword: "new-secure-password" });
+    expect(result).toEqual(session);
+    expect(supabase.authenticateStudent).toHaveBeenNthCalledWith(1, "student-user-1@students.auth.vista.invalid", "temporary-password");
+    expect(supabase.setStudentPassword).toHaveBeenCalledWith("auth-user-1", "new-secure-password");
+    expect(supabase.authenticateStudent).toHaveBeenNthCalledWith(2, "student-user-1@students.auth.vista.invalid", "new-secure-password");
+    expect(executeRaw.mock.calls[0][0].join(" ")).toContain("password_change_required = false");
+    // Prisma's 5 s default interactive-transaction timeout is too short for four identity-provider round trips under classroom concurrency.
+    expect(transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 15_000, timeout: 45_000 });
+  });
+
+  it("rejects a wrong temporary password without updating Supabase", async () => {
+    txQueryRaw.mockResolvedValueOnce([{ user_id: "user-1", auth_user_id: "auth-user-1" }]);
+    supabase.authenticateStudent.mockRejectedValueOnce(new Error("invalid credential"));
+    await expect(service.changeFirstLoginPassword({ vistaUserId: "user-1", authUserId: "auth-user-1" } as never, { currentPassword: "wrong-password", newPassword: "new-secure-password" })).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(supabase.setStudentPassword).not.toHaveBeenCalled();
+  });
+
+  it("rejects concurrent or repeated completion after the database row lock finds no pending state", async () => {
+    txQueryRaw.mockResolvedValueOnce([]);
+    await expect(service.changeFirstLoginPassword({ vistaUserId: "user-1", authUserId: "auth-user-1" } as never, { currentPassword: "temporary-password", newPassword: "new-secure-password" })).rejects.toMatchObject({ status: 409 });
+    expect(supabase.authenticateStudent).not.toHaveBeenCalled();
+  });
+
+  it("rejects temporary-password reuse before contacting Supabase", async () => {
+    await expect(service.changeFirstLoginPassword({ vistaUserId: "user-1", authUserId: "auth-user-1" } as never, { currentPassword: "same-password", newPassword: "same-password" })).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
   it("consumes a hashed password recovery code and authenticates with the new password", async () => {
     queryRaw.mockResolvedValue([{ user_id: "user-1", auth_user_id: "auth-existing", recovery_token_id: "token-1" }]);
 
@@ -124,5 +164,27 @@ describe("StudentAuthService", () => {
 
     expect(supabase.setStudentPassword).not.toHaveBeenCalled();
     expect(supabase.authenticateStudent).not.toHaveBeenCalled();
+  });
+});
+
+describe("StudentAuthService with the temporary-password rollout disabled (default)", () => {
+  const queryRaw = jest.fn();
+  const supabase = { authenticateStudent: jest.fn() };
+  const service = new StudentAuthService({ $queryRaw: queryRaw } as never, supabase as never);
+  beforeEach(() => { delete process.env.STUDENT_TEMP_PASSWORD_ENABLED; queryRaw.mockReset(); supabase.authenticateStudent.mockReset(); });
+
+  it("does not read any temporary-password column when logging in (safe before the migration is applied)", async () => {
+    queryRaw.mockResolvedValue([{ user_id: "user-1", auth_user_id: "auth-1", status: "active", account_state: "active", password_change_required: false, temporary_password_expires_at: null }]);
+    supabase.authenticateStudent.mockResolvedValue({ access_token: "a", refresh_token: "r", expires_in: 3600, token_type: "bearer" });
+    const result = await service.login({ schoolCode: "S", studentCode: "C", password: "existing-password-123" } as never);
+    expect(result).toMatchObject({ password_change_required: false });
+    const sql = (queryRaw.mock.calls[0][0] as { strings?: string[] } | TemplateStringsArray);
+    const text = JSON.stringify(Array.isArray(sql) ? sql : (sql as { strings?: string[] }).strings ?? sql) + JSON.stringify(queryRaw.mock.calls[0].slice(1));
+    expect(text).not.toMatch(/p2\.password_change_required|p3\.temporary_password_expires_at/);
+  });
+
+  it("refuses the first-login password change endpoint without touching the database", async () => {
+    await expect(service.changeFirstLoginPassword({ vistaUserId: "u", authUserId: "a" } as never, { currentPassword: "x", newPassword: "y".repeat(14) })).rejects.toMatchObject({ status: 409 });
+    expect(queryRaw).not.toHaveBeenCalled();
   });
 });

@@ -12,6 +12,7 @@ import { SupabaseAdminService } from "./supabase-admin.service";
 import { classifyImportError, ImportProvisioningError, type ImportErrorCode } from "./import-errors";
 import { StudentProvisioningService } from "./student-provisioning.service";
 import { EnrollmentDeliveryService } from "../learning/enrollment-delivery.service";
+import { DigitalTwinRevocationService } from "../learning/digital-twin-revocation.service";
 import { UpdateClassroomDto } from "./dto/update-classroom.dto";
 import { UpdateCourseOfferingDto } from "./dto/update-course-offering.dto";
 import { runCourseSyncTransaction } from "../learning/course-sync-transaction";
@@ -19,7 +20,7 @@ import { runCourseSyncTransaction } from "../learning/course-sync-transaction";
 @Injectable()
 export class EducationAdminService {
   private readonly logger = new Logger(EducationAdminService.name);
-  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly supabaseAdmin: SupabaseAdminService, private readonly studentProvisioning: StudentProvisioningService, private readonly enrollments: EnrollmentDeliveryService) {}
+  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly supabaseAdmin: SupabaseAdminService, private readonly studentProvisioning: StudentProvisioningService, private readonly enrollments: EnrollmentDeliveryService, private readonly twinRevocation?: DigitalTwinRevocationService) {}
 
   async organizations(user: AuthenticatedUser) {
     if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Organizations were not found.");
@@ -48,11 +49,14 @@ export class EducationAdminService {
   async classrooms(user: AuthenticatedUser, organizationId: string) {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.read");
     return this.prisma.$queryRaw`
-      SELECT c.id, c.organization_id, c.offering_id, c.name, c.code, c.description, c.capacity, c.status,
+      SELECT c.id, c.organization_id, c.offering_id, c.name, c.code, c.description, c.capacity, c.status, c.self_enrollment_open AS "selfEnrollmentOpen",
              o.code AS offering_code, o.title AS offering_title,
              COUNT(cm.id) FILTER (WHERE cm.status = 'active' AND cm.classroom_role = 'student')::int AS student_count,
              COUNT(cm.id) FILTER (WHERE cm.status = 'active' AND cm.classroom_role IN ('teacher', 'teaching_assistant'))::int AS teaching_staff_count,
-             (jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name)) FILTER (WHERE r.id IS NOT NULL))->0 AS allocated_robot
+             (jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name)) FILTER (WHERE r.id IS NOT NULL AND r.status='available' AND EXISTS (
+               SELECT 1 FROM public.org_entitlements e WHERE e.robot_id=r.id AND e.organization_id=c.organization_id AND e.resource_type='robot'
+                 AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now())
+             )))->0 AS allocated_robot
       FROM public.learning_classrooms c
       JOIN public.learning_course_offerings o ON o.id = c.offering_id
       LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id = c.id
@@ -108,6 +112,7 @@ export class EducationAdminService {
           ...(dto.code === undefined ? {} : { code: dto.code.trim() }),
           ...(dto.description === undefined ? {} : { description: dto.description.trim() || null }),
           ...(dto.capacity === undefined ? {} : { capacity: dto.capacity }),
+          ...(dto.selfEnrollmentOpen === undefined ? {} : { self_enrollment_open: dto.selfEnrollmentOpen }),
         },
       });
     } catch (error: unknown) {
@@ -258,13 +263,15 @@ export class EducationAdminService {
 
   async archiveClassroom(user: AuthenticatedUser, organizationId: string, classroomId: string) {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
       if (classroom.status !== "archived") await tx.learning_classrooms.update({ where: { id: classroom.id }, data: { status: "archived", updated_at: new Date() } });
       // Membership, progress, attempts and results are retained; only new learning access ends.
       const released = await this.enrollments.releaseIn(tx, classroom.id);
       return { id: classroom.id, status: "archived", releasedEnrollments: released.length };
     });
+    void this.twinRevocation?.revoke({ classroomId });      // an archived classroom no longer allows live robot viewing
+    return result;
   }
 
   async reactivateClassroom(user: AuthenticatedUser, organizationId: string, classroomId: string) {
@@ -280,7 +287,7 @@ export class EducationAdminService {
 
   async removeClassroomStudent(user: AuthenticatedUser, organizationId: string, classroomId: string, studentId: string) {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.members.manage");
-    return this.prisma.$transaction(async (tx) => {
+    const outcome = await this.prisma.$transaction(async (tx) => {
       const classroom = await this.lockedClassroom(tx, organizationId, classroomId);
       const member = await tx.learning_classroom_members.findFirst({ where: { classroom_id: classroom.id, user_id: studentId, classroom_role: "student", status: "active" }, select: { id: true } });
       if (!member) throw new NotFoundException("Classroom student was not found.");
@@ -289,6 +296,8 @@ export class EducationAdminService {
       const released = await this.enrollments.releaseIn(tx, classroom.id, studentId);
       return { removed: true, enrollment: released[0] ?? null };
     });
+    void this.twinRevocation?.revoke({ classroomId, userId: studentId });   // a removed student stops watching immediately
+    return outcome;
   }
 
   async removeClassroomStaff(user: AuthenticatedUser, organizationId: string, classroomId: string, staffUserId: string) {
@@ -321,7 +330,7 @@ export class EducationAdminService {
       : await this.prisma.$queryRaw<Array<{ code: string }>>`SELECT lower(student_code) AS code FROM public.education_school_user_profiles WHERE organization_id=${organizationId}::uuid AND student_code IS NOT NULL AND lower(student_code)=ANY(${requestedCodes}::text[])`;
     const schoolCode = dto.kind === "students" && requestedCodes.length ? await this.ensureSchoolCode(organizationId) : undefined;
     const existingCodes = new Set(existingRows.map(item => item.code));
-    const results = [] as Array<{ row: number; status: "created" | "unchanged" | "failed"; code?: ImportErrorCode; message?: string; name?: string; schoolCode?: string; studentCode?: string; setupCode?: string }>;
+    const results = [] as Array<{ row: number; status: "created" | "unchanged" | "failed"; code?: ImportErrorCode; message?: string; name?: string; schoolCode?: string; studentCode?: string; setupCode?: string; temporaryPassword?: string; temporaryPasswordExpiresAt?: string; credentialProvisioningPending?: boolean }>;
     for (const { index, row, code, errors } of prepared) {
       if (errors.length) { results.push({ row: index + 2, status: "failed", code: "VALIDATION_ERROR", message: errors.join(" "), name: `${row.firstName} ${row.lastName}`.trim(), ...(dto.kind === "teachers" ? { schoolCode: row.employeeCode } : { studentCode: row.studentCode }) }); continue; }
       if (existingCodes.has(code) && dto.kind === "teachers") { results.push({ row: index + 2, status: "unchanged", name: `${row.firstName} ${row.lastName}`.trim(), schoolCode: row.employeeCode }); continue; }
@@ -329,6 +338,14 @@ export class EducationAdminService {
       catch (error) { const safe = classifyImportError(error); const identifier = dto.kind === "teachers" ? row.employeeCode : row.studentCode; this.logger.error({ event: "school_user_import_failed", kind: dto.kind, row: index + 2, organizationId, identifier, code: safe.code, error: error instanceof ImportProvisioningError ? error.internalDetail : error instanceof Error ? error.message : String(error) }); results.push({ row: index + 2, status: "failed", ...safe, name: `${row.firstName} ${row.lastName}`.trim(), ...(dto.kind === "teachers" ? { schoolCode: identifier } : { studentCode: identifier }) }); }
     }
     return { processed: results.length, created: results.filter(item => item.status === "created").length, unchanged: results.filter(item => item.status === "unchanged").length, failed: results.filter(item => item.status === "failed").length, schoolCode, results };
+  }
+
+  async reissueStudentTemporaryPassword(user: AuthenticatedUser, organizationId: string, studentId: string, confirmed: boolean) {
+    await this.assertOrganizationPermission(user, organizationId, "education.members.provision");
+    if (!confirmed) throw new NotFoundException("Temporary password reissue was not confirmed.");
+    const issued = await this.studentProvisioning.reissueTemporaryPassword(organizationId, studentId, user.vistaUserId);
+    const rows = await this.prisma.$queryRaw<Array<{ school_code: string | null }>>`SELECT school_code FROM public.organizations WHERE id=${organizationId}::uuid LIMIT 1`;
+    return { ...issued, schoolCode: rows[0]?.school_code };
   }
 
   async issueStudentPasswordRecovery(user: AuthenticatedUser, organizationId: string, studentId: string) {
@@ -381,7 +398,7 @@ export class EducationAdminService {
   private async provisionImportRow(organizationId: string, kind: "teachers" | "students", row: ImportSchoolUserRowDto) {
     if (kind === "students") {
       const student = await this.studentProvisioning.provision(organizationId, row);
-      return { status: student.status, setupCode: student.setupCode, name: `${row.firstName.trim()} ${row.lastName.trim()}`, studentCode: row.studentCode?.trim() };
+      return { status: student.status, setupCode: student.setupCode, temporaryPassword: student.temporaryPassword, temporaryPasswordExpiresAt: student.temporaryPasswordExpiresAt, credentialProvisioningPending: student.credentialProvisioningPending, name: `${row.firstName.trim()} ${row.lastName.trim()}`, studentCode: row.studentCode?.trim() };
     }
     const email = row.email?.trim().toLowerCase() || null; const code = (kind === "teachers" ? row.employeeCode : row.studentCode)!.trim(); const fullName = `${row.firstName.trim()} ${row.lastName.trim()}`;
     let authUserId: string | null = null;
@@ -416,14 +433,26 @@ export class EducationAdminService {
 
   async eligibleRobots(user: AuthenticatedUser, classroomId: string) {
     const classroom = await this.classroomForAllocation(user, classroomId);
-    return this.prisma.$queryRaw`SELECT DISTINCT r.id,r.name,r.serial_no AS "serialNo",r.model_name AS "modelName",r.status FROM public.robots r JOIN public.org_entitlements e ON e.robot_id=r.id WHERE e.organization_id=${classroom.organization_id}::uuid AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now()) ORDER BY r.name`;
+    return this.prisma.$queryRaw`SELECT DISTINCT r.id,r.name,r.serial_no AS "serialNo",r.model_name AS "modelName",r.status FROM public.robots r JOIN public.org_entitlements e ON e.robot_id=r.id WHERE e.organization_id=${classroom.organization_id}::uuid AND e.resource_type='robot' AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now()) AND r.status='available' ORDER BY r.name`;
   }
 
   async allocateRobot(user: AuthenticatedUser, classroomId: string, dto: AllocateClassroomRobotDto) {
     const classroom = await this.classroomForAllocation(user, classroomId);
-    const eligible = await this.prisma.$queryRaw<{ id: string }[]>`SELECT r.id FROM public.robots r JOIN public.org_entitlements e ON e.robot_id=r.id WHERE r.id=${dto.robotId}::uuid AND e.organization_id=${classroom.organization_id}::uuid AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now()) LIMIT 1`;
-    if (!eligible[0]) throw new NotFoundException("Robot was not eligible for this classroom.");
-    return this.prisma.$transaction((tx) => tx.$queryRaw`INSERT INTO public.learning_classroom_robot_allocations(classroom_id,robot_id,created_by_user_id) VALUES(${classroomId}::uuid,${dto.robotId}::uuid,${user.vistaUserId}::uuid) ON CONFLICT (classroom_id) DO UPDATE SET robot_id=EXCLUDED.robot_id,created_by_user_id=EXCLUDED.created_by_user_id,created_at=now() RETURNING id,classroom_id,robot_id,created_by_user_id,created_at`);
+    const previous = await this.prisma.learning_classroom_robot_allocations.findUnique({ where: { classroom_id: classroomId }, select: { robot_id: true } });
+    const revokeOld = previous && previous.robot_id !== dto.robotId ? await this.twinRevocation?.prepare({ classroomId }) : undefined;   // resolved BEFORE the robot changes
+    const allocated = await this.prisma.$transaction(async (tx) => {
+      // Recheck and lock both the resource and the entitlement in the same transaction as the upsert.
+      // Entitlement expiry/revocation or a status change before allocation must fail closed.
+      const eligible = await tx.$queryRaw<{ id: string }[]>`SELECT r.id FROM public.robots r
+        JOIN public.org_entitlements e ON e.robot_id=r.id
+        WHERE r.id=${dto.robotId}::uuid AND r.status='available' AND e.organization_id=${classroom.organization_id}::uuid
+          AND e.resource_type='robot' AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now())
+        ORDER BY e.valid_from DESC LIMIT 1 FOR UPDATE OF r,e`;
+      if (!eligible[0]) throw new NotFoundException("Robot was not eligible for this classroom.");
+      return tx.$queryRaw`INSERT INTO public.learning_classroom_robot_allocations(classroom_id,robot_id,created_by_user_id) VALUES(${classroomId}::uuid,${dto.robotId}::uuid,${user.vistaUserId}::uuid) ON CONFLICT (classroom_id) DO UPDATE SET robot_id=EXCLUDED.robot_id,created_by_user_id=EXCLUDED.created_by_user_id,created_at=now() RETURNING id,classroom_id,robot_id,created_by_user_id,created_at`;
+    });
+    if (revokeOld) void revokeOld();       // viewers of attempts that were bound to the previous robot are closed
+    return allocated;
   }
 
   private async classroomForAllocation(user: AuthenticatedUser, classroomId: string) {

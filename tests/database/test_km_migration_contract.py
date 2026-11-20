@@ -63,10 +63,10 @@ class KmMigrationContractTests(unittest.TestCase):
         self.assertEqual(m["requiresApplied"], kl["requiresApplied"] + kl["versions"])  # M requires K-L applied first
         self.assertIn("BLOCKED", m["productionStatus"])
 
-    def test_manifest_stops_at_l_and_m_is_staged_byte_identical_and_never_manifested(self):
+    def test_manifest_ends_with_n_after_l_and_m_is_staged_byte_identical_and_never_manifested(self):
         manifest = json.loads((ROOT / "database/migrations/manifest.json").read_text())["migrations"]
         versions = [e["version"] for e in manifest]
-        self.assertEqual(versions[-2:], ["20261116_k_course_authoring_capabilities", "20261116_l_runtime_role"])
+        self.assertEqual(versions[-5:], ["20261116_k_course_authoring_capabilities", "20261116_l_runtime_role", "20261118_n_student_password_change_required", "20261119_o_wf01_robot_allocation_permission", "20261119_p_course_level_tags_prerequisites_assignment_difficulty"])  # N (additive student columns) follows L, then the unscoped local WF-01 candidate O; M stays staged
         self.assertNotIn("20261116_m_revoke_public_temp_privilege", versions)
         self.assertFalse((ROOT / "database/migrations/20261116_m_revoke_public_temp_privilege.sql").exists())  # not in the manifest directory either
         staged = (ROOT / "database/staged-migrations/20261116_m_revoke_public_temp_privilege.sql").read_bytes()

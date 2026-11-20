@@ -1,6 +1,22 @@
 /** NestJS is the only application-data boundary for the browser. */
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
+  constructor(readonly status: number, message: string, readonly code?: string) { super(message); }
+}
+
+/** Student-auth restrictions the API reports on any authenticated route (temporary password gate, expiry, rotated session). */
+export const AUTH_RESTRICTION_EVENT = "vista:auth-restriction";
+function applyAuthRestriction(status: number, code?: string) {
+  if (typeof window === "undefined" || !code) return;
+  if (code === "PASSWORD_CHANGE_REQUIRED" && status === 403) {
+    if (window.location.pathname !== "/student/change-password") window.location.assign("/student/change-password");
+  } else if ((code === "SESSION_ROTATED" && status === 401) || (code === "TEMPORARY_PASSWORD_EXPIRED" && status === 403)) {
+    window.dispatchEvent(new CustomEvent(AUTH_RESTRICTION_EVENT, { detail: { code } }));
+  }
+}
+async function errorFromResponse(response: Response): Promise<ApiError> {
+  const body = await response.json().catch(() => null) as { message?: string; code?: string } | null;
+  applyAuthRestriction(response.status, body?.code);
+  return new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`, body?.code);
 }
 
 const baseUrl = (((import.meta as any).env?.VITE_API_BASE_URL as string | undefined) ?? "/api/v1").replace(/\/$/, "");
@@ -16,10 +32,7 @@ export async function apiGet<T>(path: string, accessToken: string): Promise<T> {
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Cache-Control": "no-store" },
   });
-  if (!response.ok) {
-    const body = await response.json().catch(() => null) as { message?: string } | null;
-    throw new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`);
-  }
+  if (!response.ok) throw await errorFromResponse(response);
   return readJson<T>(response);
 }
 
@@ -29,16 +42,21 @@ export async function apiGetOptional<T>(path: string, accessToken: string): Prom
     cache: "no-store",
     headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json", "Cache-Control": "no-store" },
   });
-  if (!response.ok) {
-    const body = await response.json().catch(() => null) as { message?: string } | null;
-    throw new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`);
-  }
+  if (!response.ok) throw await errorFromResponse(response);
   const text = await response.text();
   return text.trim() ? JSON.parse(text) as T : null;
 }
 
 export interface ApiEnrollmentSync { classrooms: number; enrolled: number }
-export interface ApiCourse { enrollmentSync?: ApiEnrollmentSync; id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
+export interface ApiAssignmentAcademic { assignmentId: string; difficulty: string | null; assignmentType: string | null; passScore: number | null; gradingMethod: string | null; learningObjectives: string[]; maxScore: number | null }
+export interface ApiCatalogCourse { classroomId: string; classroomName: string; schoolName: string; courseId: string; title: string; description: string | null; level: string | null; levelLabel: string | null; tags: string[]; prerequisites: Array<{ id: string; title: string; completed: boolean }>; capacity: number | null; seatsLeft: number | null; eligible: boolean; reasons: string[] }
+export interface ApiLearningPath {
+  courses: Array<{ id: string; title: string; description: string | null; level: string | null; levelLabel: string | null; tags: string[]; totalLessons: number; completedLessons: number; progressPercent: number;
+    state: 'completed' | 'in_progress' | 'available' | 'locked'; unmetPrerequisites: Array<{ id: string; title: string; enrolled: boolean }>; lockedReason: string | null }>;
+  recommendedNext: { id: string; title: string; level: string | null; reason: string } | null;
+  levels: Array<{ code: string; label: string; total: number; completed: number }>;
+}
+export interface ApiCourse { levelLabel?: string | null; tags?: string[]; prerequisiteCourseIds?: string[]; enrollmentSync?: ApiEnrollmentSync; id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
 export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
 
 export type LessonProgressStatus = "completed" | "current" | "available" | "locked" | "in_progress";
@@ -237,7 +255,7 @@ export interface KnowledgeCheckSubmissionResult {
 
 export async function apiRequest<T>(path: string, accessToken: string, method: "POST" | "PUT" | "PATCH" | "DELETE", body?: unknown): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { method, headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", Accept: "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
-  if (!response.ok) { const payload = await response.json().catch(() => null) as { message?: string } | null; throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`); }
+  if (!response.ok) throw await errorFromResponse(response);
   return readJson<T>(response);
 }
 
@@ -285,24 +303,27 @@ export interface ApiOrganizationMembership { membershipId?: string; organization
 export interface ApiAccessContext { systemRoleCodes: string[]; memberships: ApiOrganizationMembership[]; }
 export interface ApiSchoolMember { id:string; full_name:string; email:string|null; status:string; membership_id:string; membership_status:string; role_code:string; employee_code?:string|null; student_code?:string|null; grade_level?:string|null; guardian_email?:string|null; account_state?:'active'|'invited'|'account_setup_pending'; }
 export interface ApiSchoolOverview { studentsCount:number; teachersCount:number; classroomsCount:number; robotResourcesCount:number; accountSetupPendingCount:number; }
-export interface ApiSchoolPerson { id:string; displayName:string; role:'student'|'instructor'; studentCode?:string|null; employeeCode?:string|null; gradeLevel?:string|null; email:string|null; accountState:'active'|'invited'|'account_setup_pending'; }
+export interface ApiSchoolPerson { membershipStatus?:'active'|'suspended'; id:string; displayName:string; role:'student'|'instructor'; studentCode?:string|null; employeeCode?:string|null; gradeLevel?:string|null; email:string|null; accountState:'active'|'invited'|'account_setup_pending'; passwordChangeRequired?:boolean; temporaryPasswordExpiresAt?:string|null; }
 export interface ApiMemberCandidate { userId:string; displayName:string; organizationRole:'student'|'instructor'; schoolCode:string|null; accountState:'active'|'invited'|'account_setup_pending'; alreadyMember:boolean; }
 export interface ApiPage<T> { items:T[]; page:number; pageSize:number; total:number; }
 export type ApiImportErrorCode='VALIDATION_ERROR'|'DUPLICATE_USER'|'ACCOUNT_INVITE_FAILED'|'ACCOUNT_PROVISIONING_FAILED'|'DATABASE_WRITE_FAILED'|'NOT_AUTHORIZED'|'UNKNOWN_IMPORT_ERROR';
-export interface ApiSchoolImportResult { processed:number; created:number; unchanged:number; failed:number; schoolCode?:string; results:Array<{row:number;status:'created'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name?:string;schoolCode?:string;studentCode?:string;setupCode?:string}>; }
+export interface ApiSchoolImportResult { processed:number; created:number; unchanged:number; failed:number; schoolCode?:string; results:Array<{row:number;status:'created'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name?:string;schoolCode?:string;studentCode?:string;setupCode?:string;temporaryPassword?:string;temporaryPasswordExpiresAt?:string;credentialProvisioningPending?:boolean}>; }
 export interface ApiClassroomStudentPreviewRow { row:number;firstName:string;lastName:string;studentCode:string;gradeLevel:string;email:string|null;status:'new_student'|'existing_student'|'already_in_class'|'needs_review';errors:string[];warnings:string[]; }
 export interface ApiClassroomStudentPreview { processed:number;newStudents:number;existingStudents:number;alreadyInClass:number;needsReview:number;rows:ApiClassroomStudentPreviewRow[]; }
-export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string}>; }
-export interface ApiSchoolClassroom { id:string; organization_id:string; offering_id:string; name:string; code:string; description?:string|null; capacity?:number|null; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
+export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string;temporaryPassword?:string;temporaryPasswordExpiresAt?:string;setupCode?:string}>;schoolCode?:string; }
+export interface ApiSchoolClassroom { selfEnrollmentOpen?:boolean; id:string; organization_id:string; offering_id:string; name:string; code:string; description?:string|null; capacity?:number|null; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
 export interface ApiOffering { id:string; code:string; title:string; status:string; }
 export interface ApiChallengeCondition { type: string; description: string | null; ruleKey: string; }
 export interface ApiDeliveryChallenge { id:string; title:string; description?:string|null; conditions?:ApiChallengeCondition[]; }
 export interface ApiDeliveryRubricCriterion { title: string; description: string | null; maxPoints: number | string; }
 export interface ApiDeliveryOption { course_id:string; course_title:string; lesson_id:string; lesson_title:string; title:string; instructions:string; challenge_id:string|null; challenges:ApiDeliveryChallenge[]; rubric?:ApiDeliveryRubricCriterion[]; }
 export interface ApiEnrollment { id: string; course_id: string; classroom_id: string | null; status: string; enrolled_at?: string; completed_at?: string | null; }
-export interface ApiClassroomAssignment { id: string; classroom_id: string; assignment_id: string; lesson_id: string; lesson_title?:string; challenge_id: string | null; challenge_title?:string|null; title: string; instructions: string | null; allowed_blocks?: unknown; constraints?: unknown; status: string; available_from?:string|null; due_at?:string|null; close_at?:string|null; max_attempts?:number|null; published_by?:string|null; }
+export interface ApiClassroomAssignment {
+  difficulty?: string | null; assignment_type?: string | null; pass_score?: number | null; grading_method?: string | null; learning_objectives?: string[];
+  /** Grading criteria shown to the student before submission. */
+  rubric?: Array<{ id: string; title: string; description?: string | null; maxPoints: number }>; id: string; classroom_id: string; assignment_id: string; lesson_id: string; lesson_title?:string; challenge_id: string | null; challenge_title?:string|null; title: string; instructions: string | null; allowed_blocks?: unknown; constraints?: unknown; status: string; available_from?:string|null; due_at?:string|null; close_at?:string|null; max_attempts?:number|null; published_by?:string|null; }
 export interface ApiPublishedQuiz { canonical_assignment_id: string; quiz_title: string; instructions: string; lesson_id: string; lesson_title: string; course_id: string; course_title: string; course_status: string; pass_percent: number; question_count: number; already_assigned: boolean; }
-export interface ApiAttempt { id: string; classroom_assignment_id: string; attempt_number?: number; program_id?: string | null; status: string; started_at?: string; submitted_at?: string | null; workspace_snapshot?: unknown; result_snapshot?: unknown; quiz?: unknown; draft_response?: { answers?: Array<{ questionId: string; optionId?: string; optionIds?: string[] }> } | null; draft_saved_at?: string | null; grading_released_at?: string | null; }
+export interface ApiAttempt { id: string; classroom_assignment_id: string; attempt_number?: number; program_id?: string | null; status: string; started_at?: string; submitted_at?: string | null; workspace_snapshot?: unknown; result_snapshot?: unknown; quiz?: unknown; draft_response?: { answers?: Array<{ questionId: string; optionId?: string; optionIds?: string[] }> } | null; draft_saved_at?: string | null; grading_released_at?: string | null; grading_released?: boolean; }
 export interface ApiProgram { id: string; title: string; workspace_json: Record<string, unknown>; robot_program: Record<string, unknown>; }
 export interface ApiProgramVersion { id: string; version_number: number; robot_program: Record<string, unknown>; }
 export interface ApiSubmission { id: string; program_version_id: string; status: string; assignment_id?:string; program_id?:string; submitted_at?:string|null; }
@@ -343,7 +364,7 @@ export interface ApiFeedback { id: string; submission_id: string; content: strin
 export interface ApiRubricCriterion { id: string; title: string; description: string | null; maxPoints: number | string; ordinal: number; }
 export interface ApiInstructorSubmission { id: string; assignment_id: string; learner_user_id: string; status: string; submitted_at: string | null; attempt_id?: string; attempt_number?: number; grading_released_at?: string | null; origin?: 'original' | 'reconstructed'; attempt?: { id: string; attemptNumber: number; gradingReleasedAt: string | null } | null; full_name?: string; email?: string | null; assignment_title?:string; review_status?:string; rubric_criteria?: ApiRubricCriterion[]; overall_feedback?: string | null; }
 export type ExecutionProvenance='SIMULATION'|'MOCK_RUNTIME'|'PHYSICAL_ROBOT'|'UNVERIFIED_RUNTIME';
-export interface ApiTeacherExperimentEvidence {id:string;executionMode:string;executionProvenance?:ExecutionProvenance;method:string;status:string;startedAt:string|null;endedAt:string|null;createdAt:string;provenance:{programVersionId:string|null;runtimeAdapterMode?:string|null};result:Record<string,unknown>;metrics:Record<string,unknown>;events:Array<{index:number;type:string;occurredAt:string;state?:string|null;errorCode?:string|null}>;artifacts:Array<{id:string;type:string;mimeType:string|null;createdAt:string;availability:'unavailable'|'local_only'|'metadata_only'}>;controlSession:{id:string;state:string;startedAt:string|null;endedAt:string|null;robot:{id:string;name:string;model:string;serial:string}}|null;demonstration:{id:string;status:string;startedAt:string;endedAt:string|null;frameCount:number|null;checksum:string|null;durationS:number|null;artifactAvailability:'unavailable'|'local_only'|'metadata_only';segments:Array<{index:number;startMs:number;endMs:number;action:string|null;arm:string|null;object:string|null}>;reflection:{prompt:string;response:string|null;createdAt:string}|null;datasets:Array<{id:string;name:string;version:string;split:string;frozen:boolean;huggingFaceRepo:string|null;huggingFaceRevision:string|null}>}|null;modelMetadata:{evaluationRunId:string;status:string;outcome:string|null;createdAt:string;checkpoint:{id:string;version:string;step:number|null};model:{id:string;name:string;status:string}}|null;}
+export interface ApiTeacherExperimentEvidence {id:string;executionMode:string;executionProvenance?:ExecutionProvenance;method:string;status:string;startedAt:string|null;endedAt:string|null;createdAt:string;provenance:{programVersionId:string|null;runtimeAdapterMode?:string|null};result:Record<string,unknown>;metrics:Record<string,unknown>;events:Array<{index:number;type:string;occurredAt:string;state?:string|null;errorCode?:string|null}>;artifacts:Array<{id:string;type:string;mimeType:string|null;createdAt:string;availability:'available'|'unavailable'|'local_only'|'access_unverified';downloadPath?:string|null}>;controlSession:{id:string;state:string;startedAt:string|null;endedAt:string|null;robot:{id:string;name:string;model:string;serial:string}}|null;demonstration:{id:string;status:string;startedAt:string;endedAt:string|null;frameCount:number|null;checksum:string|null;durationS:number|null;artifactAvailability:'unavailable'|'local_only'|'access_unverified';segments:Array<{index:number;startMs:number;endMs:number;action:string|null;arm:string|null;object:string|null}>;reflection:{prompt:string;response:string|null;createdAt:string}|null;datasets:Array<{id:string;name:string;version:string;split:string;frozen:boolean;huggingFaceRepo:string|null;huggingFaceRevision:string|null}>}|null;modelMetadata:{evaluationRunId:string;status:string;outcome:string|null;createdAt:string;checkpoint:{id:string;version:string;step:number|null};model:{id:string;name:string;status:string}}|null;}
 export interface ApiInstructorSubmissionDetail extends ApiInstructorSubmission { email?:string|null;program_version:{id:string;versionNumber:number;workspaceJson:Record<string,unknown>;robotProgram:Record<string,unknown>;/** `submission` = the copy frozen on the submission row at submit time; `version` = legacy fallback to the program version. */snapshotSource?:'submission'|'version';validationResult:Record<string,unknown>;changeSummary?:string|null;createdAt:string}|null;experiment:{id:string;status:string;executionMode:string;createdAt:string;endedAt?:string|null}|null;experiments:ApiTeacherExperimentEvidence[];symbolic_evaluation:ApiSymbolicEvaluation|null;assessment:{id:string;overallFeedback:string|null;reviewedAt:string;scores:Array<{criterionId:string;awardedPoints:number;comment?:string|null}>}|null;feedback:Array<{id:string;content:string;createdAt:string}>; }
 export type ApiRecord = Record<string, unknown>;
 export interface ApiIdentity { id: string; fullName: string; email: string | null; status: string; signupMethod: string; emailVerifiedAt: string | null; createdAt: string; updatedAt: string; }
@@ -453,25 +474,64 @@ export const identityApi = {
   memberships: (token: string) => apiGet<ApiOrganizationMembership[]>("/me/memberships", token),
   updateProfile: (token: string, fullName: string) => apiRequest<ApiIdentity>("/me/profile", token, "PATCH", { fullName }),
 };
-export interface ApiStudentAuthSession { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; token_type: string; }
+export interface ApiStudentAuthSession { access_token: string; refresh_token: string; expires_in: number; expires_at?: number; token_type: string; password_change_required?: boolean; }
+export interface ApiStudentAuthCapabilities { temporaryPasswordEnabled: boolean; }
 export interface ApiStudentPasswordRecoveryCode { recoveryCode: string; expiresAt: string; }
+export async function apiPublicGet<T>(path: string): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`, { cache: "no-store", headers: { Accept: "application/json" } });
+  if (!response.ok) throw new ApiError(response.status, `API request failed (${response.status}).`);
+  return readJson<T>(response);
+}
 export const studentAuthApi = {
+  capabilities: () => apiPublicGet<ApiStudentAuthCapabilities>("/auth/students/capabilities"),
   login: (body: { schoolCode: string; studentCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/login", body),
   setup: (body: { schoolCode: string; studentCode: string; setupCode: string; password: string }) => apiPublicPost<ApiStudentAuthSession>("/auth/students/setup", body),
   recover: (body: { schoolCode: string; studentCode: string; recoveryCode: string; password: string }) => apiPublicPost<{ status: "password_updated" }>("/auth/students/recover", body),
+  changePassword: (token: string, body: { currentPassword: string; newPassword: string }) => apiRequest<ApiStudentAuthSession>("/auth/students/password", token, "PATCH", body),
 };
+export interface ApiManagedOrganization { id:string; name:string; schoolCode:string|null; type:string; segment:string; status:'active'|'suspended'|'closed'; contractStart:string|null; contractEnd:string|null; createdAt:string; updatedAt:string; administratorCount:number; instructorCount:number; studentCount:number; classroomCount:number; }
+export interface ApiOrganizationAdministrator { userId:string; fullName:string; email:string|null; userStatus:string; membershipId:string; membershipStatus:string; accountState:'invited'|'active'; }
+export interface ApiManagedOrganizationDetail extends ApiManagedOrganization { administrators: ApiOrganizationAdministrator[]; }
+export interface ApiChallengeRule { ruleKey:string; ruleConfig:Record<string,unknown>; description?:string; }
+export interface ApiAuthoredChallenge { id:string; title:string; description:string; status:'draft'|'published'; allowedBlocks:string[]; target:{arm:'left'|'right';x:number;y:number;z:number}|null; assignmentCount:number; conditions:ApiChallengeRule[]; }
+export interface ApiChallengeSummary { id:string; title:string; description:string|null; status:'draft'|'published'; updatedAt:string; allowedBlocks:string[]; ruleCount:number; assignmentCount:number; }
+export type ApiChallengeBody = { title?:string; description?:string; allowedBlocks?:string[]; target?:ApiAuthoredChallenge['target']; conditions?:ApiChallengeRule[] };
+export const challengeAuthoringApi = {
+  list: (token:string) => apiGet<ApiChallengeSummary[]>('/author/challenges',token),
+  get: (id:string,token:string) => apiGet<ApiAuthoredChallenge>(`/author/challenges/${id}`,token),
+  create: (token:string, body:ApiChallengeBody) => apiRequest<ApiAuthoredChallenge>('/author/challenges',token,'POST',body),
+  update: (id:string,token:string, body:ApiChallengeBody) => apiRequest<ApiAuthoredChallenge>(`/author/challenges/${id}`,token,'PATCH',body),
+  publish: (id:string,token:string) => apiRequest<ApiAuthoredChallenge>(`/author/challenges/${id}/publish`,token,'POST'),
+  unpublish: (id:string,token:string) => apiRequest<ApiAuthoredChallenge>(`/author/challenges/${id}/unpublish`,token,'POST'),
+  remove: (id:string,token:string) => apiRequest<{id:string;deleted:boolean}>(`/author/challenges/${id}`,token,'DELETE'),
+};
+export interface ApiSchoolProfile { id:string; name:string; schoolCode:string|null; segment:string; status:string; contractStart:string|null; contractEnd:string|null; createdAt:string; administrators:Array<{userId:string;fullName:string;email:string|null}>; }
+export interface ApiSchoolRole { code:string; name:string; permissions:string[]; memberCount:number; }
 export const educationAdminApi = {
+  reissueInstructorInvitation: (organizationId:string,userId:string,token:string) => apiRequest<{userId:string;email:string;status:string}>(`/education-admin/organizations/${organizationId}/members/${userId}/invitation`,token,'POST'),
+  reissueAdministratorInvitation: (organizationId:string,userId:string,token:string) => apiRequest<{userId:string;email:string;status:string}>(`/education-admin/organizations/${organizationId}/administrators/${userId}/invitation`,token,'POST'),
+  setAccountStatus: (userId:string,token:string,status:'active'|'disabled') => apiRequest<{userId:string;status:string}>(`/education-admin/users/${userId}/status`,token,'PATCH',{status}),
+  schoolProfile: (id:string,token:string) => apiGet<ApiSchoolProfile>(`/education-admin/organizations/${id}/profile`,token),
+  updateSchoolProfile: (id:string,token:string,body:{name:string}) => apiRequest<ApiSchoolProfile>(`/education-admin/organizations/${id}/profile`,token,'PATCH',body),
+  schoolRoles: (id:string,token:string) => apiGet<ApiSchoolRole[]>(`/education-admin/organizations/${id}/roles`,token),
+  setMemberStatus: (id:string,userId:string,token:string,status:'active'|'suspended') => apiRequest<{userId:string;status:string}>(`/education-admin/organizations/${id}/members/${userId}/status`,token,'PATCH',{status}),
+  managedOrganizations: (token:string) => apiGet<ApiManagedOrganization[]>(`/education-admin/organizations/managed`,token),
+  organizationDetail: (id:string,token:string) => apiGet<ApiManagedOrganizationDetail>(`/education-admin/organizations/${id}/detail`,token),
+  createOrganization: (token:string, body:{name:string;schoolCode?:string;segment?:string;contractStart?:string;contractEnd?:string}) => apiRequest<ApiManagedOrganizationDetail>(`/education-admin/organizations`,token,'POST',body),
+  updateOrganization: (id:string,token:string, body:{name?:string;segment?:string;status?:string;contractStart?:string;contractEnd?:string}) => apiRequest<ApiManagedOrganizationDetail>(`/education-admin/organizations/${id}`,token,'PATCH',body),
+  assignOrganizationAdministrator: (id:string,token:string, body:{email:string;fullName:string}) => apiRequest<ApiOrganizationAdministrator[]>(`/education-admin/organizations/${id}/administrators`,token,'POST',body),
+  revokeOrganizationAdministrator: (id:string,userId:string,token:string) => apiRequest<ApiOrganizationAdministrator[]>(`/education-admin/organizations/${id}/administrators/${userId}`,token,'DELETE'),
   courses: (organizationId:string,token:string) => apiGet<ApiCourse[]>(`/education-admin/organizations/${organizationId}/courses`,token),
   publishedCourses: (organizationId:string,token:string) => apiGet<ApiCourse[]>(`/education-admin/organizations/${organizationId}/published-courses`,token),
   overview: (organizationId:string,token:string) => apiGet<ApiSchoolOverview>(`/education-admin/organizations/${organizationId}/overview`,token),
-  people: (organizationId:string,token:string,filters:{page:number;pageSize:number;search?:string;role?:'student'|'instructor'}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);if(filters.role)query.set('role',filters.role);return apiGet<ApiPage<ApiSchoolPerson>>(`/education-admin/organizations/${organizationId}/people?${query}`,token); },
+  people: (organizationId:string,token:string,filters:{page:number;pageSize:number;search?:string;role?:'student'|'instructor';status?:'active'|'suspended'}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.status)query.set('status',filters.status);if(filters.search)query.set('search',filters.search);if(filters.role)query.set('role',filters.role);return apiGet<ApiPage<ApiSchoolPerson>>(`/education-admin/organizations/${organizationId}/people?${query}`,token); },
   offerings: (organizationId:string,token:string) => apiGet<ApiOffering[]>(`/education-admin/organizations/${organizationId}/offerings`,token),
   members: (organizationId:string, token:string) => apiGet<ApiSchoolMember[]>(`/education-admin/organizations/${organizationId}/members`, token),
   classrooms: (organizationId:string, token:string) => apiGet<ApiSchoolClassroom[]>(`/education-admin/organizations/${organizationId}/classrooms`, token),
   classroomMembers: (organizationId:string, classroomId:string, token:string) => apiGet<ApiRecord[]>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`, token),
   memberCandidates: (organizationId:string,classroomId:string,token:string,filters:{page:number;pageSize:number;search?:string}) => { const query=new URLSearchParams({page:String(filters.page),pageSize:String(filters.pageSize)});if(filters.search)query.set('search',filters.search);return apiGet<ApiPage<ApiMemberCandidate>>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/member-candidates?${query}`,token); },
   createClassroom: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms`,token,'POST',body),
-  updateClassroom: (organizationId:string,classroomId:string,token:string,body:{name?:string;code?:string;description?:string;capacity?:number}) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}`,token,'PATCH',body),
+  updateClassroom: (organizationId:string,classroomId:string,token:string,body:{name?:string;code?:string;description?:string;capacity?:number;selfEnrollmentOpen?:boolean}) => apiRequest<ApiSchoolClassroom>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}`,token,'PATCH',body),
   updateCourse: (organizationId:string,courseId:string,token:string,body:{title?:string;description?:string}) => apiRequest<ApiCourse>(`/education-admin/organizations/${organizationId}/courses/${courseId}`,token,'PATCH',body),
   archiveClassroom: (organizationId:string,classroomId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/archive`,token,'POST'),
   reactivateClassroom: (organizationId:string,classroomId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/reactivate`,token,'POST'),
@@ -481,6 +541,7 @@ export const educationAdminApi = {
   activateCourseOffering: (organizationId:string, offeringId:string, token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/course-offerings/${offeringId}/activate`,token,'POST'),
   importUsers: (organizationId:string,token:string,body:ApiRecord) => apiRequest<ApiSchoolImportResult>(`/education-admin/organizations/${organizationId}/user-imports`,token,'POST',body),
   issueStudentPasswordRecovery: (organizationId:string,studentId:string,token:string) => apiRequest<ApiStudentPasswordRecoveryCode>(`/education-admin/organizations/${organizationId}/students/${studentId}/password-recovery`,token,'POST'),
+  reissueStudentTemporaryPassword: (organizationId:string,studentId:string,token:string) => apiRequest<{studentId:string;temporaryPassword:string;temporaryPasswordExpiresAt:string;schoolCode?:string|null}>(`/education-admin/organizations/${organizationId}/students/${studentId}/temporary-password/reissue`,token,'POST',{confirm:true}),
   previewClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentPreview>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports/preview`,token,'POST',body),
   confirmClassroomStudentImport: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiClassroomStudentImportResult>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/student-imports`,token,'POST',body),
   upsertMember: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`,token,'POST',body),
@@ -491,12 +552,13 @@ export const educationAdminApi = {
   allocateRobot: (classroomId:string,token:string,robotId:string) => apiRequest<ApiRecord>(`/education-admin/classrooms/${classroomId}/robot-allocation`,token,'PUT',{robotId}),
 };
 export const catalogApi = {
-  createGlobalCourse: (token:string, body:{title:string;description?:string}) => apiRequest<ApiCourse>('/admin/courses',token,'POST',body),
-  updateGlobalCourse: (courseId:string,token:string,body:{title?:string;description?:string}) => apiRequest<ApiCourse>(`/admin/courses/${courseId}`,token,'PATCH',body),
+  createGlobalCourse: (token:string, body:{title:string;description?:string;level?:string;tags?:string[];prerequisiteCourseIds?:string[]}) => apiRequest<ApiCourse>('/admin/courses',token,'POST',body),
+  updateGlobalCourse: (courseId:string,token:string,body:{title?:string;description?:string;level?:string;tags?:string[];prerequisiteCourseIds?:string[]}) => apiRequest<ApiCourse>(`/admin/courses/${courseId}`,token,'PATCH',body),
   publishGlobalCourse: (courseId:string,token:string) => apiRequest<ApiCourse>(`/admin/courses/${courseId}/publish`,token,'POST'),
   /** Idempotent, all-or-nothing retry that enrolls the members of every active classroom of a published course. */
   syncCourseEnrollments: (courseId:string,token:string) => apiRequest<ApiEnrollmentSync>(`/admin/courses/${courseId}/enrollments/sync`,token,'POST'),
   archiveGlobalCourse: (courseId:string,token:string) => apiRequest<ApiCourse>(`/admin/courses/${courseId}/archive`,token,'POST'),
+  unpublishCourse: (courseId:string,token:string) => apiRequest<{id:string;status:string}>(`/admin/courses/${courseId}/unpublish`,token,'POST'),
   createLesson: (courseId:string,token:string,body:{title:string;content?:Record<string,unknown>}) => apiRequest<ApiRecord>(`/admin/courses/${courseId}/lessons`,token,'POST',body),
   updateLesson: (lessonId:string,token:string,body:{title?:string;content?:Record<string,unknown>}) => apiRequest<ApiRecord>(`/admin/lessons/${lessonId}`,token,'PATCH',body),
   reorderLessons: async (courseId:string,token:string,orderedIds:string[]) => {
@@ -505,7 +567,11 @@ export const catalogApi = {
   },
   setLessonPrerequisites: (lessonId:string,token:string,prerequisiteLessonIds:string[]) => apiRequest<ApiRecord>(`/admin/lessons/${lessonId}/prerequisites`,token,'POST',{prerequisiteLessonIds}),
   authorSections: (lessonId:string,token:string) => apiGet<ApiRecord[]>(`/author/lessons/${lessonId}/sections`,token),
-  courses: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiCourse>>(`/courses?page=${page}&pageSize=${pageSize}`, token),
+  courses: (token: string, page = 1, pageSize = 20, filters: { level?: string; tag?: string; q?: string } = {}) => apiGet<ApiCollection<ApiCourse>>(`/courses?page=${page}&pageSize=${pageSize}${filters.level ? `&level=${encodeURIComponent(filters.level)}` : ''}${filters.tag ? `&tag=${encodeURIComponent(filters.tag)}` : ''}${filters.q ? `&q=${encodeURIComponent(filters.q)}` : ''}`, token),
+  courseCatalog: (token: string, filters: { level?: string; tag?: string; q?: string } = {}) => apiGet<{ items: ApiCatalogCourse[] }>(`/me/course-catalog?${new URLSearchParams(Object.entries(filters).filter(([, v]) => v) as string[][]).toString()}`, token),
+  enrollInCourse: (classroomId: string, token: string) => apiRequest<{ status: 'enrolled'; courseId: string; title: string }>(`/me/course-catalog/${classroomId}/enroll`, token, 'POST', {}),
+  courseTags: (token: string) => apiGet<{ used: Array<{ tag: string; courses: number }>; suggested: string[]; levels: Array<{ code: string; label: string }> }>('/course-tags', token),
+  learningPath: (token: string) => apiGet<ApiLearningPath>('/me/learning-path', token),
   course: (courseId: string, token: string) => apiGet<ApiCourse>(`/courses/${courseId}`, token),
   lessons: (courseId: string, token: string) => apiGet<ApiRecord[]>(`/courses/${courseId}/lessons`, token),
   lesson: (lessonId: string, token: string) => apiGet<ApiRecord>(`/lessons/${lessonId}`, token),
@@ -549,9 +615,11 @@ export const curriculumApi = {
 };
 export type ApiProgrammingAssignment = { id: string; lessonId: string; title: string; instructions: string; allowedBlocks: string[]; challengeId: string | null; kind: string | null };
 
-export type ApiLearningMedia = { id: string; course_id: string; original_filename: string; mime_type: string; size_bytes: number; status: 'pending' | 'ready' | 'failed'; created_at: string };
+export type ApiLearningMedia = { id: string; course_id: string; original_filename: string; mime_type: string; size_bytes: number; status: 'pending' | 'ready' | 'failed'; created_at: string; archived_at?: string | null; archive_reason?: string | null };
 export const learningMediaApi = {
-  list: (courseId: string, token: string, search = '', kind = '') => apiGet<ApiLearningMedia[]>(`/admin/courses/${courseId}/media?search=${encodeURIComponent(search)}&kind=${encodeURIComponent(kind)}`, token),
+  list: (courseId: string, token: string, search = '', kind = '', archived = false) => apiGet<ApiLearningMedia[]>(`/admin/courses/${courseId}/media?search=${encodeURIComponent(search)}&kind=${encodeURIComponent(kind)}${archived ? '&archived=true' : ''}`, token),
+  archive: (mediaId: string, token: string, reason?: string) => apiRequest<{ id: string; archived: boolean }>(`/admin/media/${mediaId}/archive`, token, 'POST', reason ? { reason } : {}),
+  restore: (mediaId: string, token: string) => apiRequest<{ id: string; archived: boolean }>(`/admin/media/${mediaId}/restore`, token, 'POST'),
   createUpload: (courseId: string, token: string, file: File) => apiRequest<{ media: ApiLearningMedia; upload: { url: string; fields: Record<string, string> } }>(`/admin/courses/${courseId}/media/uploads`, token, 'POST', { filename: file.name, contentType: file.type, sizeBytes: file.size }),
   completeUpload: (mediaId: string, token: string) => apiRequest<ApiLearningMedia>(`/admin/media/${mediaId}/complete`, token, 'POST'),
   failUpload: (mediaId: string, token: string) => apiRequest<{ id: string; status: string }>(`/admin/media/${mediaId}/fail`, token, 'POST'),
@@ -643,6 +711,7 @@ export interface ApiQuizResult { attemptId: string; learnerUserId: string; fullN
 export interface ApiLearnerProgress { learnerUserId: string; fullName: string | null; email: string | null; lessonCount: number; lessonsCompleted: number; progressPercent: number; attemptsSubmitted: number; bestScore: number | null; lastActivityAt: string | null }
 export interface ApiRubricConfig { assignmentId: string; criteria: Array<{ id: string; title: string; description: string | null; maxPoints: number; ordinal: number }>; editable: boolean; lockedReason: string | null; totalPoints: number }
 export const assignmentApi = {
+  unpublish: (classroomId:string,assignmentId:string,token:string) => apiRequest<{id:string;status:string}>(`/classrooms/${classroomId}/assignments/${assignmentId}/unpublish`,token,'POST'),
   list: learnerApi.assignments,
   detail: (id: string, token: string) => apiGet<ApiClassroomAssignment>(`/classroom-assignments/${id}`, token),
   assignment: (id: string, token: string) => apiGet<ApiRecord>(`/assignments/${id}`, token),
@@ -655,6 +724,8 @@ export const assignmentApi = {
   update: (classroomId: string, assignmentId: string, token: string, body: ApiRecord) => apiRequest<ApiRecord>(`/classrooms/${classroomId}/assignments/${assignmentId}`, token, "PATCH", body),
   getRubric: (classroomId: string, assignmentId: string, token: string) => apiGet<ApiRubricConfig>(`/classrooms/${classroomId}/assignments/${assignmentId}/rubric`, token),
   replaceRubric: (classroomId: string, assignmentId: string, token: string, criteria: Array<{ title: string; description?: string; maxPoints: number }>) => apiRequest<ApiRubricConfig>(`/classrooms/${classroomId}/assignments/${assignmentId}/rubric`, token, "PUT", { criteria }),
+  getAcademic: (classroomId: string, assignmentId: string, token: string) => apiGet<ApiAssignmentAcademic>(`/classrooms/${classroomId}/assignments/${assignmentId}/academic`, token),
+  updateAcademic: (classroomId: string, assignmentId: string, token: string, body: Partial<Omit<ApiAssignmentAcademic, 'assignmentId' | 'maxScore'>>) => apiRequest<ApiAssignmentAcademic>(`/classrooms/${classroomId}/assignments/${assignmentId}/academic`, token, 'PATCH', body),
   updateSchedule: (classroomId: string, assignmentId: string, token: string, body: { availableFrom?: string | null; dueAt?: string | null; closeAt?: string | null; maxAttempts?: number | null }) => apiRequest<ApiRecord>(`/classrooms/${classroomId}/assignments/${assignmentId}/schedule`, token, "PATCH", body),
   publish: (classroomId:string,assignmentId:string,token:string) => apiRequest<ApiClassroomAssignment>(`/classrooms/${classroomId}/assignments/${assignmentId}/publish`,token,"POST"),
 };

@@ -21,6 +21,9 @@ export function Dialog({ open, onClose, title, description, children, footer, si
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const reduce = useReducedMotion();
+  // Keep the latest onClose without re-running the focus effect: an inline handler changes every render and would pull focus back to the first field while typing.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -46,7 +49,7 @@ export function Dialog({ open, onClose, title, description, children, footer, si
       if (topmostDialog && topmostDialog !== panelRef.current) return;
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
       }
       if (e.key === 'Tab' && panelRef.current) {
         const focusables = Array.from(panelRef.current.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter(
@@ -70,7 +73,7 @@ export function Dialog({ open, onClose, title, description, children, footer, si
       document.removeEventListener('keydown', onKey);
       previous?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return createPortal(
     <AnimatePresence>

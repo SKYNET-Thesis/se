@@ -83,6 +83,19 @@ describe('SubmissionReviewDetail', () => {
     expect(container.textContent).toContain('No ProgramVersion was recorded'); expect(container.querySelector('[data-testid="readonly-blockly"]')).toBeNull();
   });
 
+  it('does not imply an experiment artifact reference was delivered or checked', async () => {
+    mocks.submission.mockResolvedValue(detail({ experiments: [{
+      id: 'exp-1', executionMode: 'schematic', method: 'blockly', status: 'succeeded',
+      createdAt: '2026-11-13T01:00:00Z', startedAt: null, endedAt: null,
+      provenance: { programVersionId: 'pv-1' }, result: {}, metrics: {}, events: [],
+      artifacts: [{ id: 'artifact-1', type: 'trajectory', mimeType: 'application/json', createdAt: '2026-11-13T01:00:00Z', availability: 'access_unverified' }],
+      controlSession: null, demonstration: null, modelMetadata: null,
+    }] }));
+    await mount(<SubmissionReviewDetail submissionId="sub-1" token="tok" classroomId="c1" allSubmissions={[]} onSelect={() => undefined} />);
+    expect(container.textContent).toContain('Artifact reference recorded; file access not verified');
+    expect(container.textContent).not.toContain('Metadata available');
+  });
+
   it('enables release only after an assessment exists, asks for confirmation, then calls the release endpoint once', async () => {
     mocks.submission.mockResolvedValue(detail({ assessment: { id: 'as1', overallFeedback: 'Nice', reviewedAt: '2026-11-13T02:00:00Z', scores: [{ criterionId: 'c1', awardedPoints: 9, comment: null }] } }));
     await mount(<SubmissionReviewDetail submissionId="sub-1" token="tok" classroomId="c1" allSubmissions={[]} onSelect={() => undefined} />);

@@ -1,7 +1,7 @@
 # Production SQL migration stream
 
 This directory is the source inventory for SQL releases owned by the SQL
-release runner. The active manifest selects migrations D through L (K: authoring/publishing capabilities, L: restricted runtime role, hosted-compatible revision; K–L are local release candidates, unapproved and unapplied outside disposable databases). Migration M (revocation of the PUBLIC TEMP privilege) is STAGED in `database/staged-migrations/` and deliberately not part of the manifest against the
+release runner. The active manifest selects migrations D through L plus N (student temporary-password columns, additive; release scope `N`) and O (WF-01 School Admin robot-allocation permission; local candidate with no reviewed release scope yet, unapproved and unapplied outside disposable databases) (K: authoring/publishing capabilities, L: restricted runtime role, hosted-compatible revision; K–L are local release candidates, unapproved and unapplied outside disposable databases). Migration M (revocation of the PUBLIC TEMP privilege) is STAGED in `database/staged-migrations/` and deliberately not part of the manifest against the
 verified 2026-11-09 Production baseline. Migrations A–C are excluded because
 their schema is already represented in that baseline and their historical
 Production versions must not be replayed.

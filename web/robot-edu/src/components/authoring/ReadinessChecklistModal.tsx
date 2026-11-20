@@ -206,7 +206,7 @@ export function ReadinessChecklistModal({
             </span>
             <span className="text-xs text-ink-muted">Edit</span>
             <span className="h-px w-8 bg-line" />
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-2xs font-bold text-accent-contrast">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent text-2xs font-bold text-white">
               2
             </span>
             <span className="text-xs font-semibold text-ink">Review &amp; Publish</span>

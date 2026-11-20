@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { assertLevel, LEVEL_LABELS, MAX_PREREQUISITES, normalizeTags, SUGGESTED_TAGS, type AcademicLevel } from './course-academic';
 import { PrismaService } from "../../common/database/prisma.service";
 import { Prisma } from "@prisma/client";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
@@ -33,9 +34,54 @@ export class LearningService {
    * Everyone else creates content for their own school: the organization is derived from the caller's memberships
    * that carry `learning.course.author`; a client-supplied organizationId is only accepted when it is one of those.
    */
-  async createGlobalCourse(user: AuthenticatedUser, input: { title: string; description?: string; organizationId?: string }) {
+  /** Validates and maps level / tags / prerequisites. Prerequisites must be unarchived, global or from the same school, never the course itself, and acyclic. */
+  private async courseAcademicData(courseId: string | null, organizationId: string | null, input: { level?: string; tags?: string[]; prerequisiteCourseIds?: string[] }) {
+    const data: { level_id?: string; tags?: string[]; prerequisite_course_ids?: string[] } = {};
+    if (input.level !== undefined) {
+      const code = assertLevel(input.level);
+      const rows = await this.prisma.$queryRaw<{ id: string }[]>`SELECT id FROM public.learning_levels WHERE code=${code}`;
+      if (!rows[0]) throw new ConflictException('Course levels are not configured; the LMS academic metadata migration has not been applied.');
+      data.level_id = rows[0].id;
+    }
+    if (input.tags !== undefined) data.tags = normalizeTags(input.tags);
+    if (input.prerequisiteCourseIds !== undefined) {
+      const ids = [...new Set(input.prerequisiteCourseIds)];
+      if (ids.length > MAX_PREREQUISITES) throw new BadRequestException(`A course can have at most ${MAX_PREREQUISITES} prerequisites.`);
+      if (courseId && ids.includes(courseId)) throw new BadRequestException('A course cannot be its own prerequisite.');
+      if (ids.length) {
+        const found = await this.prisma.$queryRaw<{ id: string; organization_id: string | null; status: string; prerequisite_course_ids: string[] }[]>`
+          SELECT id, organization_id, status, prerequisite_course_ids FROM public.learning_courses WHERE id = ANY(${ids}::uuid[])`;
+        if (found.length !== ids.length || found.some((row) => row.status === 'archived' || (row.organization_id !== null && row.organization_id !== organizationId))) {
+          throw new BadRequestException('Every prerequisite must be an existing, unarchived course of this school or a global course.');
+        }
+        if (courseId) {
+          const graph = new Map(found.map((row) => [row.id, row.prerequisite_course_ids]));
+          const stack = [...ids]; const visited = new Set<string>();
+          while (stack.length) {
+            const current = stack.pop()!;
+            if (visited.has(current)) continue;
+            visited.add(current);
+            if (!graph.has(current)) {
+              const more = await this.prisma.$queryRaw<{ prerequisite_course_ids: string[] }[]>`SELECT prerequisite_course_ids FROM public.learning_courses WHERE id=${current}::uuid`;
+              graph.set(current, more[0]?.prerequisite_course_ids ?? []);
+            }
+            for (const next of graph.get(current)!) {
+              if (next === courseId) throw new ConflictException('These prerequisites would create a circular dependency.');
+              stack.push(next);
+            }
+          }
+        }
+      }
+      data.prerequisite_course_ids = ids;
+    }
+    return data;
+  }
+
+  async createGlobalCourse(user: AuthenticatedUser, input: { title: string; description?: string; organizationId?: string; level?: string; tags?: string[]; prerequisiteCourseIds?: string[] }) {
     const organizationId = this.resolveAuthoringOrganization(user, input.organizationId);
+    const academic = await this.courseAcademicData(null, organizationId, input);
     return this.prisma.learning_courses.create({ data: {
+      ...academic,
       title: requiredTitle(input.title, 'Course title'), description: input.description?.trim(), status: 'draft', created_by: user.vistaUserId,
       ...(organizationId ? { organization_id: organizationId } : {}),
     } });
@@ -53,9 +99,11 @@ export class LearningService {
     throw new NotFoundException('Course was not found.');
   }
 
-  async updateGlobalCourse(user: AuthenticatedUser, courseId: string, input: { title?: string; description?: string }) {
-    await this.authorCourse(user, courseId);
+  async updateGlobalCourse(user: AuthenticatedUser, courseId: string, input: { title?: string; description?: string; level?: string; tags?: string[]; prerequisiteCourseIds?: string[] }) {
+    const existing = await this.authorCourse(user, courseId);
+    const academic = await this.courseAcademicData(courseId, existing.organization_id, input);
     return this.prisma.learning_courses.update({ where: { id: courseId }, data: {
+      ...academic,
       ...(input.title === undefined ? {} : { title: requiredTitle(input.title, 'Course title') }),
       ...(input.description === undefined ? {} : { description: input.description.trim() }),
     } });
@@ -174,13 +222,21 @@ export class LearningService {
     return course;
   }
 
-  async courses(user: AuthenticatedUser, page: PaginationDto) {
+  async courses(user: AuthenticatedUser, page: PaginationDto & { level?: string; tag?: string; q?: string }) {
     const unrestricted = this.scope.isSystemAdministrator(user);
     const authoredOrgs = this.scope.authoringOrganizationIds(user);
+    const level = page.level ? assertLevel(page.level) : null;
+    const tag = page.tag?.trim() || null;
+    const search = page.q?.trim() || null;
     const rows = await this.prisma.$queryRaw<CourseRow[]>`
-      SELECT DISTINCT c.id,c.title,c.description,c.status,c.created_at,c.updated_at,c.organization_id AS "organizationId"
+      SELECT DISTINCT c.id,c.title,c.description,c.status,c.created_at,c.updated_at,c.organization_id AS "organizationId",
+        lv.code AS level,lv.title AS "levelLabel",c.tags,c.prerequisite_course_ids AS "prerequisiteCourseIds"
       FROM public.learning_courses c
-      WHERE ${unrestricted} OR c.organization_id = ANY(${authoredOrgs}::uuid[]) OR (c.status='published' AND EXISTS (
+      LEFT JOIN public.learning_levels lv ON lv.id=c.level_id
+      WHERE (${level}::text IS NULL OR lv.code=${level})
+        AND (${tag}::text IS NULL OR EXISTS (SELECT 1 FROM unnest(c.tags) AS t WHERE lower(t)=lower(${tag})))
+        AND (${search}::text IS NULL OR c.title ILIKE '%'||${search}||'%' OR COALESCE(c.description,'') ILIKE '%'||${search}||'%')
+        AND (${unrestricted} OR c.organization_id = ANY(${authoredOrgs}::uuid[]) OR (c.status='published' AND EXISTS (
         SELECT 1 FROM public.learning_enrollments e
         JOIN public.learning_course_offerings o ON o.id=e.offering_id AND o.course_id=c.id AND o.status='active'
         JOIN public.learning_classrooms cl ON cl.id=e.classroom_id AND cl.offering_id=o.id AND cl.status='active'
@@ -189,18 +245,69 @@ export class LearningService {
         JOIN public.memberships m ON m.id=cm.membership_id AND m.user_id=e.learner_user_id
           AND m.organization_id=cl.organization_id AND m.status='active'
         WHERE e.course_id=c.id AND e.learner_user_id=${user.vistaUserId}::uuid AND e.status='active'
-      ))
+      )))
       ORDER BY c.created_at DESC LIMIT ${page.pageSize} OFFSET ${(page.page - 1) * page.pageSize}
     `;
     return { items: rows, page: page.page, pageSize: page.pageSize };
+  }
+
+  /** Existing tag vocabulary visible to the caller (their schools and global courses) merged with the suggested SO-101 vocabulary. */
+  async courseTags(user: AuthenticatedUser) {
+    const unrestricted = this.scope.isSystemAdministrator(user);
+    const orgs = this.scope.authoringOrganizationIds(user);
+    const rows = await this.prisma.$queryRaw<{ tag: string; courses: bigint }[]>`
+      SELECT min(t) AS tag, count(*) AS courses FROM public.learning_courses c, unnest(c.tags) AS t
+      WHERE ${unrestricted} OR c.organization_id IS NULL OR c.organization_id = ANY(${orgs}::uuid[]) GROUP BY lower(t) ORDER BY count(*) DESC, min(t) LIMIT 200`;
+    const used = rows.map((row) => ({ tag: row.tag, courses: Number(row.courses) }));
+    const known = new Set(used.map((row) => row.tag.toLocaleLowerCase()));
+    return { used, suggested: SUGGESTED_TAGS.filter((tag) => !known.has(tag.toLocaleLowerCase())), levels: Object.entries(LEVEL_LABELS).map(([code, label]) => ({ code, label })) };
+  }
+
+  /**
+   * Student learning path across the courses the student is actively enrolled in: BEGINNER → INTERMEDIATE → ADVANCED, completion
+   * from lesson progress, prerequisite status and a recommended next course. Prerequisites are guidance here (they never block access to
+   * an enrolled course), so a student is never locked out of delivered content by a configuration mistake.
+   */
+  async learningPath(user: AuthenticatedUser) {
+    const rows = await this.prisma.$queryRaw<Array<{ id: string; title: string; description: string | null; level: string | null; levelLabel: string | null; ordinal: number | null; tags: string[]; prerequisiteCourseIds: string[]; totalLessons: bigint; completedLessons: bigint }>>`
+      SELECT c.id,c.title,c.description,lv.code AS level,lv.title AS "levelLabel",lv.ordinal,c.tags,c.prerequisite_course_ids AS "prerequisiteCourseIds",
+        (SELECT count(*) FROM public.learning_lessons l WHERE l.course_id=c.id) AS "totalLessons",
+        (SELECT count(*) FROM public.learning_lessons l JOIN public.learning_lesson_progress p ON p.lesson_id=l.id AND p.learner_user_id=${user.vistaUserId}::uuid AND p.status='completed' WHERE l.course_id=c.id) AS "completedLessons"
+      FROM public.learning_courses c LEFT JOIN public.learning_levels lv ON lv.id=c.level_id
+      WHERE c.status='published' AND EXISTS (
+        SELECT 1 FROM public.learning_enrollments e
+        JOIN public.learning_course_offerings o ON o.id=e.offering_id AND o.course_id=c.id AND o.status='active'
+        JOIN public.learning_classrooms cl ON cl.id=e.classroom_id AND cl.offering_id=o.id AND cl.status='active'
+        JOIN public.learning_classroom_members cm ON cm.classroom_id=cl.id AND cm.user_id=e.learner_user_id AND cm.classroom_role='student' AND cm.status='active'
+        JOIN public.memberships m ON m.id=cm.membership_id AND m.user_id=e.learner_user_id AND m.organization_id=cl.organization_id AND m.status='active'
+        WHERE e.course_id=c.id AND e.learner_user_id=${user.vistaUserId}::uuid AND e.status='active')
+      ORDER BY COALESCE(lv.ordinal, 99), c.created_at`;
+    const wanted = [...new Set(rows.flatMap((row) => row.prerequisiteCourseIds))].filter((id) => !rows.some((row) => row.id === id));
+    const outside = wanted.length ? await this.prisma.$queryRaw<{ id: string; title: string }[]>`SELECT id,title FROM public.learning_courses WHERE id=ANY(${wanted}::uuid[]) AND status='published'` : [];
+    const titles = new Map([...rows.map((row) => [row.id, row.title] as const), ...outside.map((row) => [row.id, row.title] as const)]);
+    const done = new Map(rows.map((row) => [row.id, Number(row.totalLessons) > 0 && Number(row.completedLessons) >= Number(row.totalLessons)]));
+    const courses = rows.map((row) => {
+      const total = Number(row.totalLessons); const completed = Number(row.completedLessons);
+      const unmet = row.prerequisiteCourseIds.filter((id) => done.get(id) !== true).map((id) => ({ id, title: titles.get(id) ?? 'Another course', enrolled: done.has(id) }));
+      const complete = total > 0 && completed >= total;
+      const state = complete ? 'completed' : unmet.length ? 'locked' : completed > 0 ? 'in_progress' : 'available';
+      return { id: row.id, title: row.title, description: row.description, level: row.level, levelLabel: row.levelLabel, tags: row.tags, totalLessons: total, completedLessons: completed,
+        progressPercent: total ? Math.round((completed / total) * 100) : 0, state, unmetPrerequisites: unmet,
+        lockedReason: unmet.length ? `Complete ${unmet.map((item) => item.title).join(' and ')} first${unmet.some((item) => !item.enrolled) ? ' (ask your school to enroll you if it is not in your list)' : ''}.` : null };
+    });
+    const recommended = courses.find((course) => course.state === 'in_progress') ?? courses.find((course) => course.state === 'available') ?? null;
+    return { courses, recommendedNext: recommended ? { id: recommended.id, title: recommended.title, level: recommended.level, reason: recommended.state === 'in_progress' ? 'Continue where you left off.' : 'Next course on your path.' } : null,
+      levels: (['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as AcademicLevel[]).map((code) => ({ code, label: LEVEL_LABELS[code], total: courses.filter((c) => c.level === code).length, completed: courses.filter((c) => c.level === code && c.state === 'completed').length })) };
   }
 
   async course(user: AuthenticatedUser, courseId: string) {
     const unrestricted=this.scope.isSystemAdministrator(user);
     const authoredOrgs=this.scope.authoringOrganizationIds(user);
     const rows=await this.prisma.$queryRaw<CourseRow[]>`
-      SELECT c.id,c.title,c.description,c.status,c.created_at,c.updated_at,c.organization_id AS "organizationId"
+      SELECT c.id,c.title,c.description,c.status,c.created_at,c.updated_at,c.organization_id AS "organizationId",
+        lv.code AS level,lv.title AS "levelLabel",c.tags,c.prerequisite_course_ids AS "prerequisiteCourseIds"
       FROM public.learning_courses c
+      LEFT JOIN public.learning_levels lv ON lv.id=c.level_id
       WHERE c.id=${courseId}::uuid AND (${unrestricted} OR c.organization_id = ANY(${authoredOrgs}::uuid[]) OR (c.status='published' AND EXISTS (
         SELECT 1 FROM public.learning_enrollments e
         JOIN public.learning_course_offerings o ON o.id=e.offering_id AND o.course_id=c.id AND o.status='active'
@@ -436,11 +543,11 @@ export class LearningService {
       ORDER BY ca.created_at DESC`;
   }
 
-  async classroom(user: AuthenticatedUser, classroomId: string) { await this.scope.assertClassroomAccess(user, classroomId); const rows=await this.prisma.$queryRaw<ClassroomRow[]>`SELECT c.id,c.organization_id,c.offering_id,c.name,c.code,c.description,c.capacity,c.status,c.created_at,c.updated_at,CASE WHEN r.id IS NULL THEN NULL ELSE jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name) END AS allocated_robot FROM public.learning_classrooms c LEFT JOIN public.learning_classroom_robot_allocations ar ON ar.classroom_id=c.id LEFT JOIN public.robots r ON r.id=ar.robot_id WHERE c.id=${classroomId}::uuid`; if (!rows[0]) throw new NotFoundException("Classroom was not found."); return rows[0]; }
+  async classroom(user: AuthenticatedUser, classroomId: string) { await this.scope.assertClassroomAccess(user, classroomId); const rows=await this.prisma.$queryRaw<ClassroomRow[]>`SELECT c.id,c.organization_id,c.offering_id,c.name,c.code,c.description,c.capacity,c.status,c.created_at,c.updated_at,CASE WHEN r.id IS NULL OR r.status<>'available' OR NOT EXISTS (SELECT 1 FROM public.org_entitlements e WHERE e.robot_id=r.id AND e.organization_id=c.organization_id AND e.resource_type='robot' AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now())) THEN NULL ELSE jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name) END AS allocated_robot FROM public.learning_classrooms c LEFT JOIN public.learning_classroom_robot_allocations ar ON ar.classroom_id=c.id LEFT JOIN public.robots r ON r.id=ar.robot_id WHERE c.id=${classroomId}::uuid`; if (!rows[0]) throw new NotFoundException("Classroom was not found."); return rows[0]; }
   async assignments(user: AuthenticatedUser, classroomId: string) {
     await this.classroom(user,classroomId);
     const canManage = await this.scope.canManageClassroom(user, classroomId);
-    return this.prisma.$queryRaw`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,ca.published_by,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.classroom_id=${classroomId}::uuid AND (${canManage} OR ca.status='published') ORDER BY ca.created_at DESC`;
+    return this.prisma.$queryRaw`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,ca.published_by,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints,a.difficulty,a.assignment_type,a.pass_score::float AS pass_score,a.grading_method,a.learning_objectives,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=a.id),'[]'::jsonb) AS rubric FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.classroom_id=${classroomId}::uuid AND (${canManage} OR ca.status='published') ORDER BY ca.created_at DESC`;
   }
   async assignment(user: AuthenticatedUser, classroomAssignmentId: string) {
     const rows = await this.prisma.$queryRaw<{ classroom_id: string }[]>`SELECT classroom_id FROM public.learning_classroom_assignments WHERE id=${classroomAssignmentId}::uuid`;
@@ -448,7 +555,7 @@ export class LearningService {
     const classroomId = rows[0].classroom_id;
     await this.classroom(user, classroomId);
     const canManage = await this.scope.canManageClassroom(user, classroomId);
-    const assignment = await this.prisma.$queryRaw<Record<string, unknown>[]>`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.id=${classroomAssignmentId}::uuid AND (${canManage} OR ca.status='published')`;
+    const assignment = await this.prisma.$queryRaw<Record<string, unknown>[]>`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints,a.difficulty,a.assignment_type,a.pass_score::float AS pass_score,a.grading_method,a.learning_objectives,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=a.id),'[]'::jsonb) AS rubric FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.id=${classroomAssignmentId}::uuid AND (${canManage} OR ca.status='published')`;
     if (!assignment[0]) throw new NotFoundException("Assignment was not found.");
     return assignment[0];
   }
@@ -556,6 +663,7 @@ export class LearningService {
   }
   async createAssignment(user:AuthenticatedUser,classroomId:string,dto:CreateAssignmentDto) {
     if (dto.quizPassPercent !== undefined && dto.challengeId !== undefined) throw new BadRequestException('A Question Bank quiz cannot use a robot challenge.');
+    if (dto.quizPassPercent !== undefined && dto.attachmentsEnabled) throw new BadRequestException('A Question Bank quiz is machine-graded and does not accept evidence attachments.');
     await this.scope.assertTeacherClassroomAccess(user,classroomId);
     const lessons=await this.prisma.$queryRaw<{id:string;organization_id:string}[]>`
       SELECT l.id,c.organization_id
@@ -582,10 +690,23 @@ export class LearningService {
       // the criteria of the most recent assignment of the same lesson in the same organization (the same template that
       // pre-fills the title/instructions). Quizzes are machine-graded and never inherit a rubric. One statement, so the
       // content, its rubric and (below) the delivery are created or rolled back together.
+      // A curriculum challenge is only playable with the blocks and target its canonical assignment declares (for example
+      // Course 1 "Reach Target A" needs the Movement blocks and the learning-preview target). A delivery created from the
+      // challenge therefore inherits those two declarations; without them the student toolbox would lack the blocks the
+      // challenge's rules require. Only the curriculum declaration is copied: never rubric, schedule or student data.
+      const curriculum=dto.challengeId?(await tx.$queryRaw<{allowed_blocks:unknown;constraints:Record<string,unknown>}[]>`
+        SELECT allowed_blocks,constraints FROM public.learning_assignments
+        WHERE challenge_id=${dto.challengeId}::uuid AND constraints->>'kind'='symbolic_program'
+        ORDER BY created_at ASC LIMIT 1`)?.[0]:undefined;
+      // A challenge authored by an instructor carries its own toolbox and target in tabletop_config (no curriculum assignment exists for it).
+      const authored=dto.challengeId&&!curriculum?(await tx.$queryRaw<{tabletop_config:{allowedBlocks?:unknown;target?:{arm:string;x:number;y:number;z:number}|null}|null}[]>`SELECT tabletop_config FROM public.learning_challenges WHERE id=${dto.challengeId}::uuid`)?.[0]?.tabletop_config:undefined;
+      const authoredTarget=authored?.target?{target:{frame:'learning_preview_v1',arm:authored.target.arm,position:{x:authored.target.x,y:authored.target.y,z:authored.target.z}}}:{};
+      const allowedBlocks=Array.isArray(curriculum?.allowed_blocks)?curriculum!.allowed_blocks:(Array.isArray(authored?.allowedBlocks)?authored!.allowedBlocks as unknown[]:[]);
+      const constraints=dto.quizPassPercent === undefined ? { ...(curriculum?.constraints??(authored?{kind:'symbolic_program',...authoredTarget}:{})), ...(dto.attachmentsEnabled ? { attachments: { enabled: true } } : {}) } : { kind: 'knowledge_check', passPercent: dto.quizPassPercent };
       const assignments=await tx.$queryRaw<{id:string}[]>`
         WITH created AS (
-          INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions,constraints)
-          VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""},${JSON.stringify(dto.quizPassPercent === undefined ? {} : { kind: 'knowledge_check', passPercent: dto.quizPassPercent })}::jsonb) RETURNING id
+          INSERT INTO public.learning_assignments(lesson_id,challenge_id,title,instructions,allowed_blocks,constraints)
+          VALUES(${dto.lessonId}::uuid,${dto.challengeId??null}::uuid,${dto.title},${dto.instructions??""},${JSON.stringify(allowedBlocks)}::jsonb,${JSON.stringify(constraints)}::jsonb) RETURNING id
         ), copied AS (
           INSERT INTO public.learning_rubric_criteria(assignment_id,ordinal,title,description,max_points)
           SELECT (SELECT id FROM created),rc.ordinal,rc.title,rc.description,rc.max_points
@@ -650,7 +771,15 @@ export class LearningService {
     const classroomIds=[...new Set(deliveries.map((delivery)=>delivery.classroom_id))];
     if(!classroomIds.includes(classroomId)) throw new NotFoundException("Assignment was not found.");
     for(const deliveryClassroomId of classroomIds) await this.scope.assertTeacherClassroomAccess(user,deliveryClassroomId);
-    return this.prisma.learning_assignments.update({where:{id:assignmentId},data:{...(dto.title!==undefined?{title:dto.title}:{}),...(dto.instructions!==undefined?{instructions:dto.instructions}:{})}});
+    let constraints: Record<string, unknown> | undefined;
+    if(dto.attachmentsEnabled!==undefined){
+      const current=await this.prisma.learning_assignments.findUnique({where:{id:assignmentId},select:{constraints:true}});
+      const existing=(current?.constraints&&typeof current.constraints==='object'&&!Array.isArray(current.constraints)?current.constraints:{}) as Record<string,unknown>;
+      if(existing.kind==='knowledge_check'||existing.kind==='physical_lab') throw new BadRequestException('This assignment type does not accept evidence attachments.');
+      // Evidence rides on the existing Learning Media/submission-file pipeline: type allow-list, 25 MB per file and 5 files per attempt are enforced server-side.
+      constraints={...existing,attachments:{...(existing.attachments&&typeof existing.attachments==='object'?existing.attachments as object:{}),enabled:dto.attachmentsEnabled}};
+    }
+    return this.prisma.learning_assignments.update({where:{id:assignmentId},data:{...(dto.title!==undefined?{title:dto.title}:{}),...(dto.instructions!==undefined?{instructions:dto.instructions}:{}),...(constraints?{constraints:constraints as Prisma.InputJsonValue}:{})}});
   }
   async startAttempt(user:AuthenticatedUser,classroomAssignmentId:string) {
     const assignment = await this.prisma.$queryRaw<{ classroom_id:string; lesson_id?: string; assignment_id?: string; challenge_id?: string|null; constraints?:unknown; course_organization_id?:string|null; max_attempts:number|null }[]>`
@@ -686,8 +815,9 @@ export class LearningService {
         FROM public.learning_assignment_attempts
         WHERE classroom_assignment_id=${classroomAssignmentId}::uuid AND learner_user_id=${user.vistaUserId}::uuid`;
       const next = rows[0];
-      if (!next || (assignment[0].max_attempts !== null && next.existing >= assignment[0].max_attempts)) {
-        throw new NotFoundException("Assignment was not found.");
+      if (!next) throw new NotFoundException("Assignment was not found.");
+      if (assignment[0].max_attempts !== null && next.existing >= assignment[0].max_attempts) {
+        throw new ConflictException({ code: 'ATTEMPT_LIMIT_REACHED', message: 'You have used all attempts allowed for this assignment.' });
       }
       const config = assignment[0].constraints as { kind?: string; passPercent?: number } | undefined;
       if (config?.kind === 'knowledge_check' && !assignment[0].challenge_id) {
@@ -707,7 +837,7 @@ export class LearningService {
       return created[0];
     });
   }
-  async myAttempts(user:AuthenticatedUser){return this.prisma.$queryRaw`SELECT id,classroom_assignment_id,attempt_number,status,score,(result_snapshot->>'passed')::boolean AS passed,started_at,submitted_at FROM public.learning_assignment_attempts WHERE learner_user_id=${user.vistaUserId}::uuid ORDER BY started_at DESC`;}
+  async myAttempts(user:AuthenticatedUser){return this.prisma.$queryRaw`SELECT id,classroom_assignment_id,attempt_number,status,score,(result_snapshot->>'passed')::boolean AS passed,started_at,submitted_at,grading_released_at,(grading_released_at IS NOT NULL) AS grading_released FROM public.learning_assignment_attempts WHERE learner_user_id=${user.vistaUserId}::uuid ORDER BY started_at DESC`;}
   /**
    * The learner's own attempts of one classroom assignment, newest first, each with ITS OWN submission, attachments
    * and release state (never the latest submission's). Instructor grading is not included here (see myGrading).
@@ -741,5 +871,5 @@ export class LearningService {
   async assertAttemptWritable(user:AuthenticatedUser,id:string){const r=await this.prisma.$queryRaw<{classroom_id:string}[]>`SELECT ca.classroom_id FROM public.learning_assignment_attempts a JOIN public.learning_classroom_assignments ca ON ca.id=a.classroom_assignment_id WHERE a.id=${id}::uuid AND a.learner_user_id=${user.vistaUserId}::uuid`;if(!r[0])throw new NotFoundException("Attempt was not found.");await this.scope.assertStudentClassroomAccess(user,r[0].classroom_id,{requireActiveEnrollment:true});}
   async assignmentTitleForAttempt(user:AuthenticatedUser,id:string){await this.myAttempt(user,id);const r=await this.prisma.$queryRaw<{title:string}[]>`SELECT a.title FROM public.learning_assignment_attempts at JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id JOIN public.learning_assignments a ON a.id=ca.assignment_id WHERE at.id=${id}::uuid AND at.learner_user_id=${user.vistaUserId}::uuid`;return r[0]?.title??null;}
 }
-export interface CourseRow { id:string; title:string; description:string|null; status:string; created_at:Date; updated_at:Date; }
+export interface CourseRow { id:string; title:string; description:string|null; status:string; created_at:Date; updated_at:Date; level?:string|null; levelLabel?:string|null; tags?:string[]; prerequisiteCourseIds?:string[]; }
 export interface ClassroomRow { id:string; organization_id:string; offering_id:string; name:string; code:string; description:string|null; capacity:number|null; status:string; created_at:Date; updated_at:Date; }

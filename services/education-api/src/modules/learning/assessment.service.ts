@@ -6,12 +6,33 @@ import { AssessSubmissionDto } from "./dto/assess-submission.dto";
 import { CreateFeedbackDto } from "./dto/create-feedback.dto";
 import { CreateReflectionDto } from "./dto/create-reflection.dto";
 import { LearningScopeService } from "./learning-scope.service";
+import { ExperimentEvidenceService } from "./experiment-evidence.service";
 
 interface SubmissionScope { attempt_id:string; id:string; assignment_id:string; learner_user_id:string; program_id:string; program_version_id:string|null; classroom_id:string; }
 
 @Injectable()
 export class AssessmentService {
-  constructor(private readonly prisma:PrismaService, private readonly scope:LearningScopeService) {}
+  constructor(private readonly prisma:PrismaService, private readonly scope:LearningScopeService, private readonly evidenceArtifacts?:ExperimentEvidenceService) {}
+
+  async teacherEvidenceDownload(user:AuthenticatedUser,submissionId:string,experimentId:string,artifactId:string){
+    const submission=await this.submissionScope(submissionId);
+    await this.scope.assertTeacherClassroomPermission(user,submission.classroom_id,["learning.work.review"]);
+    if(!this.evidenceArtifacts)throw new NotFoundException("Experiment evidence was not found.");
+    return this.evidenceArtifacts.teacherDownload(submissionId,experimentId,artifactId);
+  }
+
+  async studentEvidenceDownload(user:AuthenticatedUser,experimentId:string,artifactId:string){
+    const rows=await this.prisma.$queryRaw<Array<{classroom_id:string}>>`
+      SELECT ca.classroom_id FROM public.learning_experiments e
+      JOIN public.learning_submissions s ON s.id=e.submission_id AND s.learner_user_id=e.learner_user_id
+      JOIN public.learning_assignment_attempts at ON at.id=s.attempt_id
+      JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id AND ca.assignment_id=s.assignment_id
+      WHERE e.id=${experimentId}::uuid AND e.learner_user_id=${user.vistaUserId}::uuid`;
+    if(!rows[0])throw new NotFoundException("Experiment evidence was not found.");
+    await this.scope.assertStudentClassroomAccess(user,rows[0].classroom_id,{requireActiveEnrollment:true});
+    if(!this.evidenceArtifacts)throw new NotFoundException("Experiment evidence was not found.");
+    return this.evidenceArtifacts.studentDownloadFromClassroom(user,experimentId,artifactId);
+  }
 
   async classroomSubmissions(user:AuthenticatedUser,classroomId:string) {
     await this.scope.assertTeacherClassroomPermission(user,classroomId,["learning.work.review"]);
@@ -240,8 +261,10 @@ export class AssessmentService {
         ) ORDER BY ev.event_index) FROM public.learning_experiment_events ev WHERE ev.experiment_id=e.id),'[]'::jsonb) AS events,
         COALESCE((SELECT jsonb_agg(jsonb_build_object(
           'id',a.id,'type',a.artifact_type,'mimeType',a.mime_type,'createdAt',a.created_at,
-          'availability',CASE WHEN a.storage_path IS NULL AND a.external_uri IS NULL THEN 'unavailable'
-            WHEN COALESCE(a.external_uri,'') LIKE 'local://%' THEN 'local_only' ELSE 'metadata_only' END
+          'availability',CASE WHEN a.metadata->>'schema'='vista.experiment.telemetry.v1' AND a.storage_path IS NOT NULL THEN 'available'
+            WHEN a.storage_path IS NULL AND a.external_uri IS NULL THEN 'unavailable'
+            WHEN COALESCE(a.external_uri,'') LIKE 'local://%' THEN 'local_only' ELSE 'access_unverified' END,
+          'downloadPath',CASE WHEN a.metadata->>'schema'='vista.experiment.telemetry.v1' AND a.storage_path IS NOT NULL THEN '/api/v1/submissions/'||s.id||'/experiments/'||e.id||'/artifacts/'||a.id||'/download' ELSE NULL END
         ) ORDER BY a.created_at) FROM public.learning_experiment_artifacts a WHERE a.experiment_id=e.id),'[]'::jsonb) AS artifacts,
         CASE WHEN cs.id IS NULL THEN NULL ELSE jsonb_build_object(
           'id',cs.id,'state',cs.state,'startedAt',cs.started_at,'endedAt',cs.ended_at,
@@ -252,7 +275,7 @@ export class AssessmentService {
           'frameCount',d.frame_count,'checksum',d.checksum,
           'durationS',d.metrics->'durationS',
           'artifactAvailability',CASE WHEN d.storage_uri IS NULL THEN 'unavailable'
-            WHEN d.storage_uri LIKE 'local://%' THEN 'local_only' ELSE 'metadata_only' END,
+            WHEN d.storage_uri LIKE 'local://%' THEN 'local_only' ELSE 'access_unverified' END,
           'segments',COALESCE((SELECT jsonb_agg(jsonb_build_object(
             'index',seg.segment_index,'startMs',seg.start_ms,'endMs',seg.end_ms,
             'action',seg.semantic_action,'arm',seg.arm_side,'object',seg.object_label
@@ -265,7 +288,7 @@ export class AssessmentService {
           ) ORDER BY dv.created_at DESC) FROM public.dataset_episodes de JOIN public.dataset_versions dv ON dv.id=de.dataset_version_id
             WHERE de.demonstration_episode_id=d.id AND dv.organization_id=c.organization_id),'[]'::jsonb)
         ) END AS demonstration,
-        CASE WHEN er.id IS NULL THEN NULL ELSE jsonb_build_object(
+        CASE WHEN er.id IS NULL OR mc.id IS NULL OR model.id IS NULL THEN NULL ELSE jsonb_build_object(
           'evaluationRunId',er.id,'status',er.status,'outcome',er.outcome,'createdAt',er.created_at,
           'checkpoint',jsonb_build_object('id',mc.id,'version',mc.version,'step',mc.step),
           'model',jsonb_build_object('id',model.id,'name',model.name,'status',model.status)

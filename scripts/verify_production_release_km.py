@@ -73,20 +73,56 @@ def runtime_sequence_allowlist(root: Path) -> set[str]:
     return set(re.findall(r"(?im)^\s*GRANT\s+[^;]+\s+ON\s+SEQUENCE\s+public\.([a-z_0-9]+)\s+TO\s+vista_app_runtime\s*;", sql))
 
 
-def runtime_expected_table_privileges(root: Path) -> dict[str, set[str]]:
-    """Exact table grants declared by L, including restrictive catalog/audit/token grants."""
+# Later, separately released ADDITIVE migrations that add tables. They are NOT part of the frozen K-L/M policy, so a Production K-L/M
+# verification still rejects their tables. Only the DISPOSABLE staged path (staged=True: migration M applied through
+# apply_staged_migration_to_test_database.py, optionally followed by these) accepts them, and only with the EXACT grants their own SQL declares
+# (parsed here, never hand-copied), RLS enabled and nothing for PUBLIC/anon/authenticated.
+STAGED_EXTENSION_FILES = ["database/staged-migrations/20261120_r_device_provisioning.sql"]
+
+
+def staged_extension_privileges(root: Path) -> dict[str, set[str]]:
+    """{table: exact runtime privileges} declared by the staged additive migrations (single source of truth: their SQL)."""
+    expected: dict[str, set[str]] = {}
+    for name in STAGED_EXTENSION_FILES:
+        path = root / name
+        if not path.exists():
+            continue
+        sql = path.read_text()
+        for block in re.finditer(r"FOREACH\s+t\s+IN\s+ARRAY\s+ARRAY\[([^\]]+)\]\s+LOOP(.*?)END\s+LOOP", sql, re.S | re.I):
+            grant = re.search(r"GRANT\s+([A-Z, ]+?)\s+ON\s+TABLE\s+public\.%I\s+TO\s+vista_app_runtime", block.group(2), re.I)
+            if not grant:
+                raise ValueError(f"{name}: a table loop without a runtime GRANT cannot be verified")
+            privileges = {item.strip().upper() for item in grant.group(1).split(",") if item.strip()}
+            for table in re.findall(r"'([a-z_0-9]+)'", block.group(1)):
+                expected[table] = privileges
+    return expected
+
+
+def present_staged_extension(url: str, root: Path) -> dict[str, set[str]]:
+    """The staged-extension tables that exist in this database (an extension that was not applied is simply not expected)."""
+    declared = staged_extension_privileges(root)
+    if not declared:
+        return {}
+    names = ",".join(f"'{name}'" for name in sorted(declared))
+    found = base.query(url, f"SELECT COALESCE(json_agg(relname),'[]'::json)::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relname IN ({names})")
+    return {name: declared[name] for name in found}
+
+
+def runtime_expected_table_privileges(root: Path, extension: dict[str, set[str]] | None = None) -> dict[str, set[str]]:
+    """Exact table grants declared by L, including restrictive catalog/audit/token grants (plus the staged extension tables, when given)."""
     allow = runtime_allowlist(root)
     expected = {name: {"SELECT", "INSERT", "UPDATE", "DELETE"} for name in allow}
     for name in ("permissions", "roles", "role_permissions", "user_system_roles"):
         expected[name] = {"SELECT"}
     expected["audit_logs"] = {"INSERT"}
     expected["auth_tokens"] = {"SELECT", "INSERT", "UPDATE"}
+    expected.update(extension or {})
     return expected
 
 
-def runtime_grants_sql(root: Path) -> str:
+def runtime_grants_sql(root: Path, extension: dict[str, set[str]] | None = None) -> str:
     """Return a redacted aggregate ACL query for every public relation, sequence and function."""
-    tables = runtime_expected_table_privileges(root)
+    tables = runtime_expected_table_privileges(root, extension)
     seq_allow = sorted(runtime_sequence_allowlist(root))
     table_values = ",".join(
         f"('{name}',ARRAY[{','.join(repr(p) for p in sorted(privs))}]::text[])"
@@ -217,12 +253,16 @@ def verify(url: str, pre: dict, root: Path | None = None, scope_name: str = "M",
           WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f') AND has_table_privilege('{RUNTIME_ROLE}',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')),
       'audit_select',COALESCE(has_table_privilege('{RUNTIME_ROLE}','public.audit_logs','SELECT'),false),
       'audit_insert',COALESCE(has_table_privilege('{RUNTIME_ROLE}','public.audit_logs','INSERT'),false))::text""")
-    allow = runtime_allowlist(root)
+    extension = present_staged_extension(url, root) if staged else {}
+    allow = runtime_allowlist(root) | set(extension)
     outside = sorted(set(least["public_tables_outside_allowlist"]) - allow)
     check("runtime role is not a member of any role and owns nothing", least["member_of"] == 0 and least["owns"] == 0)
     check("runtime role holds no explicit privilege outside schema public (platform schemas untouched)", least["explicit_outside_public"] == 0, f"{least['explicit_outside_public']} found")
     check("runtime role has privileges only on the frozen table allowlist", not outside, ", ".join(outside[:5]))
-    grants = base.query(url, runtime_grants_sql(root))
+    grants = base.query(url, runtime_grants_sql(root, extension))
+    if extension:
+        closed = base.query(url, "SELECT COALESCE(json_agg(c.relname),'[]'::json)::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN (%s) AND (NOT c.relrowsecurity OR EXISTS (SELECT 1 FROM aclexplode(COALESCE(c.relacl, acldefault('r', c.relowner))) a WHERE a.grantee=0 OR a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon','authenticated'))))" % ",".join(f"'{name}'" for name in sorted(extension)))
+        check("staged additive tables have RLS enabled and no PUBLIC/anon/authenticated privilege", closed == [], ", ".join(closed))
     check("complete table allowlist has exactly the required privileges", grants["table_missing_or_extra_privileges"] == 0,
           f"{grants['table_missing_or_extra_privileges']} relation(s) differ")
     check("complete sequence allowlist has exactly the required privileges", grants["sequence_missing_or_extra_privileges"] == 0,

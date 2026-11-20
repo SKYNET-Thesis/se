@@ -173,7 +173,12 @@ class StaticSafeguardTests(unittest.TestCase):
         self.assertEqual(d_i["versions"], [e["version"] for e in manifest["migrations"]][: len(d_i["versions"])])
         self.assertIn("20261114_j_one_submission_per_attempt", d_i["excludedVersions"])  # Stage J can never ride along with D-I
         registered = [e["version"] for e in manifest["migrations"]]
-        self.assertEqual(registered, d_i["versions"] + scopes["J"]["versions"] + scopes["K-L"]["versions"])  # J precedes K-L in the manifest; M is staged, not manifested
+        reviewed = d_i["versions"] + scopes["J"]["versions"] + scopes["K-L"]["versions"] + scopes["N"]["versions"] + scopes["O-P"]["versions"]
+        self.assertEqual(registered[:len(reviewed)], reviewed)  # J precedes K-L, which precede N; M is staged, not manifested
+        # Every manifest migration now belongs to exactly one reviewed (not necessarily approved) scope.
+        unscoped = registered[len(reviewed):]
+        self.assertEqual(unscoped, [])
+        
         self.assertEqual(scopes["K-L"]["requiresApplied"], d_i["versions"] + scopes["J"]["versions"])  # K-L needs exactly D-J applied: J is a hard prerequisite
         self.assertEqual(scopes["K-L"]["excludedVersions"], ["20261116_m_revoke_public_temp_privilege"])  # M can never ride along with K-L
         self.assertEqual(scopes["K-L"]["productionStatus"].split()[0], "READY")
@@ -181,6 +186,22 @@ class StaticSafeguardTests(unittest.TestCase):
         self.assertEqual(before, scopes["J"]["expectedCatalogAfter"])  # K-L starts from exactly the schema J leaves behind
         self.assertEqual({k: v for k, v in after.items() if k != "policies"}, {k: v for k, v in before.items() if k != "policies"})  # and adds only the runtime role's RLS policies
         self.assertGreater(after["policies"], before["policies"])
+
+    def test_n_is_a_column_only_additive_scope_that_requires_d_to_l(self):
+        scopes = json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"]
+        n = scopes["N"]
+        self.assertEqual(n["versions"], ["20261118_n_student_password_change_required"])
+        self.assertEqual(n["requiresApplied"], scopes["D-I"]["versions"] + scopes["J"]["versions"] + scopes["K-L"]["versions"])
+        self.assertEqual(n["excludedVersions"], ["20261116_m_revoke_public_temp_privilege"])  # M can never ride along with N
+        self.assertEqual(n["expectedCatalogBefore"], scopes["K-L"]["expectedCatalogAfter"])  # starts from exactly the K-L schema
+        self.assertEqual(n["expectedCatalogAfter"], n["expectedCatalogBefore"])  # columns only: no table/policy/trigger/function is added
+        self.assertEqual(n["verifier"], "n")
+        sql = (ROOT / "database/migrations/20261118_n_student_password_change_required.sql").read_text()
+        code = "\n".join(line for line in sql.splitlines() if not line.lstrip().startswith("--"))
+        self.assertEqual(code.upper().count("ADD COLUMN IF NOT EXISTS"), 5)
+        for forbidden in ("DROP", "DELETE", "UPDATE ", "INSERT", "GRANT", "REVOKE", "POLICY", "TRIGGER", "CREATE ", "TRUNCATE", "SET NOT NULL", "ENABLE ROW"):
+            self.assertNotIn(forbidden, code.upper(), forbidden)  # additive columns only; no backfill, no privilege or policy change
+        self.assertIn("NOT NULL DEFAULT FALSE", code.upper())  # the only NOT NULL column has a constant default: metadata-only, existing rows read false
 
     def test_kl_and_m_hosted_releases_are_blocked_until_hosted_compatibility_evidence_exists(self):
         for name in ("M",):
@@ -550,7 +571,8 @@ class ReleaseFlowTests(unittest.TestCase):
         manifest_path = repo / "database/migrations/manifest.json"
         manifest = json.loads(manifest_path.read_text())
         # Later, separately reviewed scopes (K-L) are never part of the D-I/J scenarios either.
-        later = set(json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"].get("K-L", {}).get("versions", []))
+        _scopes = json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"]
+        later = set(_scopes.get("K-L", {}).get("versions", [])) | set(_scopes.get("N", {}).get("versions", []))  | set(_scopes.get("O-P", {}).get("versions", []))  # K-L, N and O-P are separately reviewed later scopes
         manifest["migrations"] = [e for e in manifest["migrations"] if e["version"] != J_VERSION and e["version"] not in later]  # D-I scenarios never see Stage J
         (repo / "database/migrations" / f"{J_VERSION}.sql").unlink(missing_ok=True)
         for version in later:
@@ -1018,3 +1040,27 @@ class ReleaseFlowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReleaseScopeOPTests(unittest.TestCase):
+    def test_scope_o_p_is_defined_pinned_proposed_and_registered(self):
+        scopes = json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"]
+        manifest = {e["version"]: e for e in json.loads((ROOT / "database/migrations/manifest.json").read_text())["migrations"]}
+        scope = scopes["O-P"]
+        self.assertEqual(scope["versions"], ["20261119_o_wf01_robot_allocation_permission", "20261119_p_course_level_tags_prerequisites_assignment_difficulty"])
+        for version in scope["versions"]:
+            self.assertEqual(scope["sha256"][version], manifest[version]["sha256"])
+        self.assertTrue(scope["productionStatus"].startswith("PROPOSED, NOT APPROVED"))
+        self.assertIn("20261118_n_student_password_change_required", scope["requiresApplied"])
+        self.assertTrue(set(scope["requiresApplied"]).isdisjoint(scope["versions"]))
+        self.assertEqual(scope["expectedCatalogBefore"], scope["expectedCatalogAfter"])   # additive columns, one grant: no table/policy/trigger/function change
+        self.assertEqual(scope["verifier"], "op")
+        self.assertIn('"O-P"', (ROOT / ".github/workflows/production-database-release.yml").read_text())
+        runner = (ROOT / "scripts/production_db_release.py").read_text()
+        self.assertIn('"op": verifier_op', runner)
+
+    def test_migration_p_is_additive_and_never_destructive(self):
+        sql = (ROOT / "database/migrations/20261119_p_course_level_tags_prerequisites_assignment_difficulty.sql").read_text().upper()
+        for forbidden in ("DROP ", "DELETE ", "TRUNCATE", "UPDATE PUBLIC.", "CREATE TABLE", "ALTER POLICY", "CREATE POLICY", "GRANT ", "ENABLE ROW LEVEL"):
+            self.assertNotIn(forbidden, sql)
+        self.assertIn("ON CONFLICT (CODE) DO NOTHING", sql)

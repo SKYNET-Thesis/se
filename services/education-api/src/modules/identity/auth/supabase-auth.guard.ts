@@ -6,10 +6,13 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { Reflector } from "@nestjs/core";
 import { Request } from "express";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { PrismaService } from "../../../common/database/prisma.service";
 import { AuthenticatedUser } from "./authenticated-user.interface";
+import { ALLOW_PASSWORD_CHANGE_ONLY_KEY } from "./allow-password-change.decorator";
+import { studentTempPasswordEnabled } from "../../education-admin/student-temp-password.feature";
 
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
@@ -19,6 +22,7 @@ export class SupabaseAuthGuard implements CanActivate {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly reflector: Reflector,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -38,10 +42,28 @@ export class SupabaseAuthGuard implements CanActivate {
 
     // auth.users is intentionally not a Prisma relation.  The scalar mapping is
     // queried explicitly until Prisma can safely introspect the cross-schema FK.
-    const users = await this.prisma.$queryRaw<VistaUserRow[]>`
-      SELECT id, email, status
-      FROM public.users
-      WHERE auth_user_id = ${payload.sub}::uuid
+    const users = studentTempPasswordEnabled()
+      ? await this.prisma.$queryRaw<VistaUserRow[]>`
+      SELECT u.id, u.email, u.status, EXISTS (
+        SELECT 1 FROM public.education_school_user_profiles p
+        WHERE p.user_id = u.id AND p.person_type = 'student' AND p.password_change_required = true
+      ) AS password_change_required, (
+        SELECT MAX(p.password_changed_at) FROM public.education_school_user_profiles p
+        WHERE p.user_id = u.id AND p.person_type = 'student'
+      ) AS password_changed_at, (
+        SELECT MIN(p.temporary_password_expires_at) FROM public.education_school_user_profiles p
+        WHERE p.user_id = u.id AND p.person_type = 'student' AND p.password_change_required = true
+          AND p.temporary_password_expires_at IS NOT NULL
+      ) AS temporary_password_expires_at
+      FROM public.users u
+      WHERE u.auth_user_id = ${payload.sub}::uuid
+      LIMIT 1
+    `
+      : await this.prisma.$queryRaw<VistaUserRow[]>`
+      SELECT u.id, u.email, u.status, false AS password_change_required,
+        NULL::timestamptz AS password_changed_at, NULL::timestamptz AS temporary_password_expires_at
+      FROM public.users u
+      WHERE u.auth_user_id = ${payload.sub}::uuid
       LIMIT 1
     `;
     const user = users[0];
@@ -51,6 +73,41 @@ export class SupabaseAuthGuard implements CanActivate {
     }
     if (user.status === "disabled") {
       throw new ForbiddenException("This VISTA account is disabled.");
+    }
+    // Invitation acceptance. A verified provider token alone is NOT enough to activate an account. Activation happens in ONE conditional
+    // statement that also proves: the row was created by an administrator (never self-registered), it is linked to this exact provider
+    // subject, the token carries a non-anonymous authenticated identity whose e-mail equals the invited address, and the person holds an
+    // ACTIVE instructor/school-admin membership in an ACTIVE organization. Anything else leaves the account "invited" (no authoring rights).
+    // Students never activate here (they use the temporary-password / setup-code flows) and a disabled account is rejected above.
+    if (user.status === "invited") {
+      const emailClaim = typeof payload.email === "string" ? payload.email.trim().toLowerCase() : null;
+      const identityVerified = emailClaim !== null && payload.is_anonymous !== true && (payload.role === undefined || payload.role === "authenticated");
+      if (identityVerified) {
+        const promoted = await this.prisma.$executeRaw`
+          UPDATE public.users u SET status='active', email_verified_at=COALESCE(u.email_verified_at, now()), updated_at=now()
+          WHERE u.id=${user.id}::uuid AND u.status='invited' AND u.signup_method='admin_created' AND u.auth_user_id=${payload.sub}::uuid
+            AND u.email IS NOT NULL AND lower(u.email)=${emailClaim}
+            AND EXISTS (
+              SELECT 1 FROM public.memberships m
+              JOIN public.organizations o ON o.id=m.organization_id AND o.status='active'
+              JOIN public.roles r ON r.id=m.role_id AND r.scope='organization' AND r.code IN ('instructor','school_admin')
+              WHERE m.user_id=u.id AND m.status='active')`;
+        if (promoted === 1) user.status = "active";
+      }
+    }
+    const passwordChangedAt = user.password_changed_at ? new Date(user.password_changed_at).getTime() : null;
+    if (passwordChangedAt !== null && (typeof payload.iat !== "number" || payload.iat * 1000 <= passwordChangedAt)) {
+      throw new UnauthorizedException({ code: "SESSION_ROTATED", message: "This session is stale. Sign in again." });
+    }
+    const temporaryExpiry = user.temporary_password_expires_at ? new Date(user.temporary_password_expires_at).getTime() : null;
+    if (user.password_change_required && temporaryExpiry !== null && temporaryExpiry <= Date.now()) {
+      throw new ForbiddenException({ code: "TEMPORARY_PASSWORD_EXPIRED", message: "Temporary password expired. Ask your school administrator to reissue it." });
+    }
+    const passwordChangeOnly = this.reflector?.getAllAndOverride<boolean>(ALLOW_PASSWORD_CHANGE_ONLY_KEY, [
+      context.getHandler(), context.getClass(),
+    ]) ?? false;
+    if (user.password_change_required && !passwordChangeOnly) {
+      throw new ForbiddenException({ code: "PASSWORD_CHANGE_REQUIRED", message: "Change your temporary password to continue." });
     }
 
     const [systemRows, membershipRows] = await Promise.all([
@@ -66,10 +123,11 @@ export class SupabaseAuthGuard implements CanActivate {
         SELECT
           m.id AS membership_id,
           m.organization_id,
-          m.status,
+          CASE WHEN o.status = 'active' THEN m.status ELSE 'suspended' END AS status,
           r.code AS role_code,
           p.code AS permission_code
         FROM public.memberships m
+        JOIN public.organizations o ON o.id = m.organization_id
         JOIN public.roles r ON r.id = m.role_id
         LEFT JOIN public.role_permissions rp ON rp.role_id = r.id
         LEFT JOIN public.permissions p ON p.id = rp.permission_id
@@ -155,6 +213,9 @@ interface VistaUserRow {
   id: string;
   email: string;
   status: string;
+  password_change_required: boolean;
+  password_changed_at: Date | string | null;
+  temporary_password_expires_at: Date | string | null;
 }
 
 interface SystemPermissionRow {

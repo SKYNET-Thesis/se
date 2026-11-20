@@ -87,7 +87,7 @@ export class ClassroomStudentImportService {
     const validCodes = [...new Set(prepared.filter(item => item.errors.length === 0).map(item => item.code))];
     const existing = await this.resolveStudents(organizationId, classroomId, validCodes);
     const byCode = new Map(existing.map(student => [student.code, student]));
-    const results: Array<{ row: number; status: "created_and_added" | "existing_added" | "unchanged" | "failed"; code?: ImportErrorCode; message?: string; name: string; studentCode?: string }> = [];
+    const results: Array<{ row: number; status: "created_and_added" | "existing_added" | "unchanged" | "failed"; code?: ImportErrorCode; message?: string; name: string; studentCode?: string; temporaryPassword?: string; temporaryPasswordExpiresAt?: string; setupCode?: string }> = [];
 
     for (const item of prepared) {
       const name = `${item.row.firstName ?? ""} ${item.row.lastName ?? ""}`.trim();
@@ -110,8 +110,12 @@ export class ClassroomStudentImportService {
           await this.studentProvisioning.addExistingStudentToClassroom({ userId: student.userId, membershipId: student.membershipId }, classroomId);
           results.push({ ...base, status: "existing_added" });
         } else {
-          await this.studentProvisioning.provision(organizationId, item.row, classroomId);
-          results.push({ ...base, status: "created_and_added" });
+          const provisioned = await this.studentProvisioning.provision(organizationId, item.row, classroomId);
+          if (provisioned.credentialProvisioningPending) {
+            results.push({ ...base, status: "failed", code: "ACCOUNT_PROVISIONING_FAILED", message: "Account provisioning is still being reconciled. Retry this row shortly." });
+          } else {
+            results.push({ ...base, status: provisioned.status === "created" ? "created_and_added" : "existing_added", temporaryPassword: provisioned.temporaryPassword, temporaryPasswordExpiresAt: provisioned.temporaryPasswordExpiresAt, setupCode: provisioned.setupCode });
+          }
         }
       } catch (error) {
         const safe = classifyImportError(error);
@@ -125,7 +129,9 @@ export class ClassroomStudentImportService {
       await this.enrollments.synchronizeIfDeliverable(classroomId);
     }
 
+    const schoolCodeRows = results.some(item => item.temporaryPassword || item.setupCode) ? await this.prisma.$queryRaw<Array<{ school_code: string | null }>>`SELECT school_code FROM public.organizations WHERE id=${organizationId}::uuid LIMIT 1` : [];
     return {
+      schoolCode: schoolCodeRows[0]?.school_code ?? undefined,
       processed: results.length,
       createdAndAdded: results.filter(item => item.status === "created_and_added").length,
       existingAdded: results.filter(item => item.status === "existing_added").length,

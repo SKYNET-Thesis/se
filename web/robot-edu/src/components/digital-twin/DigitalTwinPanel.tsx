@@ -34,6 +34,8 @@ export function DigitalTwinPanel({
   const source =
     telemetry.frame?.source_mode === 'LIVE_PHYSICAL'
       ? 'PHYSICAL — MEASURED FOLLOWER'
+      : telemetry.frame?.controller_id === 'checkik-fake-follower'
+      ? 'SIMULATION — FAKE FOLLOWER'
       : mode === 'simulation'
       ? 'SIMULATION — MOCK DATA'
       : 'PHYSICAL SOURCE UNAVAILABLE';
@@ -105,6 +107,8 @@ export function DigitalTwinPanel({
                   <dd className="font-medium text-ink">
                     {telemetry.frame?.source_mode === 'LIVE_PHYSICAL'
                       ? 'Physical / measured follower'
+                      : telemetry.frame?.controller_id === 'checkik-fake-follower'
+                      ? 'Simulation / fake follower'
                       : mode === 'simulation'
                       ? 'Simulation / Mock'
                       : 'Offline / physical source unavailable'}
@@ -121,6 +125,10 @@ export function DigitalTwinPanel({
                 <div>
                   <dt className="text-ink-subtle">Freshness</dt>
                   <dd className="font-medium text-ink">{telemetry.fresh ? 'Fresh' : 'Stale / unavailable'}</dd>
+                </div>
+                <div>
+                  <dt className="text-ink-subtle">Heartbeat</dt>
+                  <dd className="font-medium text-ink">{telemetry.heartbeat ? `${telemetry.heartbeat.connection} · ${telemetry.heartbeat.origin === 'physical' ? 'live physical' : telemetry.heartbeat.origin}` : telemetry.transport === 'connected' ? 'Waiting' : '—'}</dd>
                 </div>
                 <div>
                   <dt className="text-ink-subtle">Calibration</dt>

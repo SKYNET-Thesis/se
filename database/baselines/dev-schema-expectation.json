@@ -1,10 +1,10 @@
 {
   "counts": {
-    "columns": 814,
-    "constraints": 502,
+    "columns": 827,
+    "constraints": 504,
     "foreign_tables": 0,
     "functions": 15,
-    "indexes": 246,
+    "indexes": 247,
     "materialized_views": 0,
     "policies": 48,
     "rls_enabled": 49,
@@ -24,8 +24,11 @@
     "20261113_i_attempt_submission_foundation",
     "20261114_j_one_submission_per_attempt",
     "20261116_k_course_authoring_capabilities",
-    "20261116_l_runtime_role"
+    "20261116_l_runtime_role",
+    "20261118_n_student_password_change_required",
+    "20261119_o_wf01_robot_allocation_permission",
+    "20261119_p_course_level_tags_prerequisites_assignment_difficulty"
   ],
   "note": "Schema fingerprint of a fresh PostgreSQL 17 bootstrap (baseline + manifest migrations) for a database owned by user vista_test. Regenerate with --verify-only --write-expectation after a reviewed manifest change.",
-  "schemaFingerprint": "51f5f109ce0fde787203ec2696903261e7cc305561613a2a91c907a5a113f682"
+  "schemaFingerprint": "0b9a1eebd76741e5d2267fbf51e7a11acb8f2662c024487f68bbd341be0e7638"
 }

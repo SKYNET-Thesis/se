@@ -13,6 +13,7 @@ const authMocks = vi.hoisted(() => ({
   studentLogin: vi.fn(),
   studentSetup: vi.fn(),
   studentRecover: vi.fn(),
+  capabilities: vi.fn(),
 }));
 
 const mockSessionState = {
@@ -40,6 +41,7 @@ vi.mock('../lib/api', () => ({
     login: authMocks.studentLogin,
     setup: authMocks.studentSetup,
     recover: authMocks.studentRecover,
+    capabilities: authMocks.capabilities,
   },
 }));
 
@@ -68,6 +70,7 @@ describe('Login Component', () => {
       data: { session: { access_token: 'student-token', refresh_token: 'student-refresh' } },
       error: null,
     });
+    authMocks.capabilities.mockResolvedValue({ temporaryPasswordEnabled: false });
     authMocks.signOut.mockResolvedValue({});
     authMocks.roles.mockResolvedValue({
       systemRoleCodes: ['system_admin'],
@@ -161,6 +164,42 @@ describe('Login Component', () => {
       refresh_token: 'student-refresh',
     });
     expect(authMocks.roles).toHaveBeenCalledWith('student-token');
+  });
+
+  const buttonTexts = () => Array.from(container.querySelectorAll('button')).map((b) => b.textContent ?? '');
+
+  it('feature OFF: keeps the legacy onboarding (Setup Code link) and no temporary-password guidance', async () => {
+    authMocks.capabilities.mockResolvedValue({ temporaryPasswordEnabled: false });
+    await clickButton('Student Code'); await tick();
+    expect(buttonTexts().some((t) => t.includes('First time here? Set up your account'))).toBe(true);
+    expect(buttonTexts().some((t) => t.includes('Forgot password?'))).toBe(true);
+    expect(container.textContent).not.toContain('temporary password provided by your school');
+  });
+
+  it('feature ON: shows the temporary-password guidance, hides the legacy link, keeps Forgot password', async () => {
+    authMocks.capabilities.mockResolvedValue({ temporaryPasswordEnabled: true });
+    await clickButton('Student Code'); await tick();
+    expect(container.textContent).toContain("First time signing in? Use the temporary password provided by your school. You'll be asked to create a new password.");
+    expect(buttonTexts().some((t) => t.includes('Set up your account'))).toBe(false);
+    expect(buttonTexts().some((t) => t.includes('Forgot password?'))).toBe(true);
+    expect(container.querySelector('#login-school-code')).not.toBeNull();
+    expect(container.querySelector('#login-student-code')).not.toBeNull();
+    expect(container.querySelector('#login-password')).not.toBeNull();
+  });
+
+  it('a failed capability probe falls back to the legacy experience (never hides the only onboarding path)', async () => {
+    authMocks.capabilities.mockRejectedValue(new Error('network'));
+    await clickButton('Student Code'); await tick();
+    expect(buttonTexts().some((t) => t.includes('First time here? Set up your account'))).toBe(true);
+  });
+
+  it('feature ON: the legacy Setup Code flow stays reachable through ?mode=setup for students who already hold a Setup Code', async () => {
+    authMocks.capabilities.mockResolvedValue({ temporaryPasswordEnabled: true });
+    window.history.pushState({}, '', '/login?mode=setup');
+    try {
+      await act(async () => { root.render(<Login />); }); await tick();
+      expect(container.querySelector('#login-setup-code')).not.toBeNull();
+    } finally { window.history.pushState({}, '', '/'); }
   });
 
   it('navigates to first-time setup and activates account', async () => {

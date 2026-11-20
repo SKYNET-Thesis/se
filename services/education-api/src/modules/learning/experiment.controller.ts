@@ -20,5 +20,7 @@ export class ExperimentController { constructor(private readonly experiments:Exp
  @Get("me/experiments/:experimentId/result") result(@CurrentUser()u:AuthenticatedUser,@Param("experimentId")id:string){return this.experiments.result(u,id)}
  @Get("me/experiments/:experimentId/events") events(@CurrentUser()u:AuthenticatedUser,@Param("experimentId")id:string){return this.experiments.events(u,id)}
  @Get("me/experiments/:experimentId/artifacts") artifacts(@CurrentUser()u:AuthenticatedUser,@Param("experimentId")id:string){return this.experiments.artifacts(u,id)}
+ @Get("me/experiments/:experimentId/artifacts/:artifactId/download") artifactDownload(@CurrentUser()u:AuthenticatedUser,@Param("experimentId",ParseUUIDPipe)id:string,@Param("artifactId",ParseUUIDPipe)artifactId:string){return this.experiments.artifactDownload(u,id,artifactId)}
+ @Get("me/experiments/:experimentId/evidence/:artifactId/download") evidenceDownload(@CurrentUser()u:AuthenticatedUser,@Param("experimentId",ParseUUIDPipe)id:string,@Param("artifactId",ParseUUIDPipe)artifactId:string){return this.experiments.studentEvidenceDownload(u,id,artifactId)}
  @Post("me/experiment-comparisons") compare(@CurrentUser()u:AuthenticatedUser,@Body()dto:CreateExperimentComparisonDto){return this.experiments.compare(u,dto)}
 }

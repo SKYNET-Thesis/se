@@ -7,32 +7,34 @@ import { LearningProvider } from './contexts/LearningContext';
 import { ProgramsProvider } from './contexts/ProgramsContext';
 import { RoleProvider } from './contexts/RoleContext';
 import { Courses } from './pages/Courses';
+import { LearningPath } from './pages/LearningPath';
+import { CourseCatalog } from './pages/CourseCatalog';
 import { CourseDetail } from './pages/CourseDetail';
 import { LessonViewer } from './pages/LessonViewer';
 import { CourseInfo } from './pages/CourseInfo';
 import { ActivityReader } from './pages/ActivityReader';
-import { AssignmentDetail } from './pages/AssignmentDetail';
 const Studio = lazy(() => import('./pages/Studio').then((module) => ({ default: module.Studio })));
 const Practice = lazy(() => import('./pages/Practice').then((module) => ({ default: module.Practice })));
 import { SimulationResult } from './pages/SimulationResult';
 const RobotLab = lazy(() => import('./pages/RobotLab').then((module) => ({ default: module.RobotLab })));
 import { TeacherOverview } from './pages/teacher/TeacherOverview';
-import { TeacherCourses } from './pages/teacher/TeacherCourses';
 import { TeacherAssignments } from './pages/teacher/TeacherAssignments';
 import { TeacherAssignmentEditor } from './pages/teacher/TeacherAssignmentEditor';
 import { QuizDeliveries } from './pages/teacher/QuizDeliveries';
 import { TeacherSubmissions } from './pages/teacher/TeacherSubmissions';
-import { AdminUsers } from './pages/admin/AdminUsers';
-import { AdminRobots } from './pages/admin/AdminRobots';
-import { AdminSettings } from './pages/admin/AdminSettings';
+import { AdminOrganizations } from './pages/admin/AdminOrganizations';
 import { AdminCourses } from './pages/admin/AdminCourses';
 const CourseBuilder = lazy(() => import('./pages/admin/CourseBuilder').then((module) => ({ default: module.CourseBuilder })));
 import { NotFound } from './pages/NotFound';
 import { Login } from './pages/Login';
+import { StudentPasswordChange } from './pages/StudentPasswordChange';
 import { LearningLoop } from './pages/LearningLoop';
 import { MyLearning } from './pages/MyLearning';
 import { TeacherClasses } from './pages/teacher/TeacherClasses';
 import { TeacherClassDetail } from './pages/teacher/TeacherClassDetail';
+import { TeacherChallenges } from './pages/teacher/TeacherChallenges';
+import { SchoolProfile } from './pages/school/SchoolProfile';
+import { SchoolRoles } from './pages/school/SchoolRoles';
 import { SchoolManagement } from './pages/school/SchoolManagement';
 import { SupabaseSessionProvider } from './contexts/SupabaseSessionContext';
 import { RequireSession } from './components/auth/RequireSession';
@@ -61,6 +63,7 @@ export function App() {
             <ProgramsProvider>
               <Routes>
                 <Route path="login" element={<Login />} />
+                <Route path="student/change-password" element={<StudentPasswordChange />} />
                 <Route index element={<PublicEntry />} />
                 <Route path="home-v2" element={<Navigate to="/" replace />} />
                 {/* Full-page workspace: deliberately outside AppShell so the editor owns the whole viewport. */}
@@ -69,6 +72,8 @@ export function App() {
                   <Route path="account" element={<AccountSettings />} />
                   <Route path="settings" element={<WebSettings />} />
                   <Route path="courses" element={<Courses />} />
+                  <Route path="catalog" element={<RequireRole roles={['student']}><CourseCatalog /></RequireRole>} />
+                  <Route path="learning-path" element={<RequireRole roles={['student']}><LearningPath /></RequireRole>} />
                   <Route path="courses/:courseId" element={<CourseDetail />} />
                   <Route path="courses/:courseId/info" element={<CourseInfo />} />
                   <Route path="courses/:courseId/lessons/:lessonId" element={<LessonViewer />} />
@@ -77,7 +82,7 @@ export function App() {
                   <Route path="my-learning" element={<RequireRole roles={['student']}><MyLearning /></RequireRole>} />
                   <Route path="my-learning/:classroomAssignmentId" element={<RequireRole roles={['student']}><StudentAssignmentDetail /></RequireRole>} />
                   <Route path="learning-loop" element={<LearningLoop />} />
-                  <Route path="assignments/:assignmentId" element={<AssignmentDetail />} />
+                  <Route path="assignments/:assignmentId" element={<Navigate to="/my-learning" replace />} />
                   <Route path="studio" element={<Suspense fallback={<RouteFallback />}><Studio /></Suspense>} />
                   <Route path="studio/:programId" element={<Suspense fallback={<RouteFallback />}><Studio /></Suspense>} />
                   <Route path="practice/:attemptId" element={<Suspense fallback={<RouteFallback />}><Practice mode="physical-enabled" /></Suspense>} />
@@ -87,16 +92,18 @@ export function App() {
                   <Route path="teacher/classes" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherClasses /></RequireRole>} />
                   <Route path="teacher/classes/:classroomId" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherClassDetail /></RequireRole>} />
                   <Route path="teacher/classes/:classroomId/submissions/:submissionId" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherSubmissionReview /></RequireRole>} />
-                  <Route path="teacher/courses" element={<RequireRole roles={['teacher']}><TeacherCourses /></RequireRole>} />
+                  <Route path="teacher/courses" element={<Navigate to="/admin/courses" replace />} />
                   <Route path="teacher/assignments" element={<RequireRole roles={['teacher']}><TeacherAssignments /></RequireRole>} />
                   <Route path="teacher/assignments/new" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
                   <Route path="teacher/assignments/:classroomId/:assignmentId/edit" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
                   <Route path="teacher/assignments/:classroomId/:assignmentId" element={<RequireRole roles={['teacher']}><TeacherAssignmentEditor /></RequireRole>} />
  <Route path="teacher/quizzes" element={<RequireRole roles={['teacher']}><QuizDeliveries audience="teacher" /></RequireRole>} />
+                  <Route path="teacher/challenges" element={<RequireRole roles={['teacher']}><TeacherChallenges /></RequireRole>} />
                   <Route path="teacher/submissions" element={<RequireRole roles={['teacher']}><TeacherSubmissions /></RequireRole>} />
-                  <Route path="admin/users" element={<RequireRole roles={['admin']}><AdminUsers /></RequireRole>} />
-                  <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />
-                  <Route path="admin/settings" element={<RequireRole roles={['admin']}><AdminSettings /></RequireRole>} />
+                  <Route path="admin/organizations" element={<RequireRole roles={['admin']}><AdminOrganizations /></RequireRole>} />
+                  <Route path="admin/users" element={<Navigate to="/admin/organizations" replace />} />
+                  <Route path="admin/robots" element={<Navigate to="/admin/organizations" replace />} />
+                  <Route path="admin/settings" element={<Navigate to="/admin/organizations" replace />} />
                   <Route path="admin/courses" element={<RequireRole roles={['admin', 'teacher', 'school_admin']}><AdminCourses /></RequireRole>} />
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />
                   <Route path="school/users" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="users" /></RequireRole>} />
@@ -104,6 +111,8 @@ export function App() {
  <Route path="school/quizzes" element={<RequireRole roles={['school_admin']}><QuizDeliveries audience="school" /></RequireRole>} />
                   <Route path="school/courses" element={<RequireRole roles={['school_admin']}><SchoolCourses /></RequireRole>} />
                   <Route path="school/offerings" element={<RequireRole roles={['school_admin']}><SchoolOfferings /></RequireRole>} />
+                  <Route path="school/profile" element={<RequireRole roles={['school_admin']}><SchoolProfile /></RequireRole>} />
+                  <Route path="school/roles" element={<RequireRole roles={['school_admin']}><SchoolRoles /></RequireRole>} />
                   <Route path="school/import" element={<RequireRole roles={['school_admin']}><SchoolImportUsers /></RequireRole>} />
                   <Route path="*" element={<NotFound />} />
                 </Route>

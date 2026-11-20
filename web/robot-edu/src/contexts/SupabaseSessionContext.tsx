@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import { nextSessionRevision } from "./sessionRevision";
+import { AUTH_RESTRICTION_EVENT } from "../lib/api";
 
 interface SessionContextValue { session: Session | null; client: SupabaseClient | null; loading: boolean; configurationError: string | null; sessionRevision: number; }
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -31,6 +32,15 @@ export function SupabaseSessionProvider({ children }: { children: React.ReactNod
     const { data: subscription } = client.auth.onAuthStateChange((_event, next) => { applySession(next); setLoading(false); });
     return () => subscription.subscription.unsubscribe();
   }, [applySession, client]);
+  useEffect(() => {
+    if (!client) return;
+    const onRestriction = (event: Event) => {
+      const code = (event as CustomEvent<{ code?: string }>).detail?.code ?? "SESSION_ROTATED";
+      void client.auth.signOut().finally(() => window.location.assign(`/login?reason=${encodeURIComponent(code)}`));
+    };
+    window.addEventListener(AUTH_RESTRICTION_EVENT, onRestriction);
+    return () => window.removeEventListener(AUTH_RESTRICTION_EVENT, onRestriction);
+  }, [client]);
   const value = useMemo(() => ({ session, client, loading, configurationError: error, sessionRevision }), [session, client, loading, error, sessionRevision]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

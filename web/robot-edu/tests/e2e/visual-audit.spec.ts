@@ -1,4 +1,4 @@
-import { test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 
 /**
@@ -14,16 +14,18 @@ const fixture = process.env.VISTA_VISUAL_AUDIT === '1' ? (JSON.parse(await readF
 
 const widths = (process.env.VISTA_VISUAL_AUDIT_WIDTHS ?? '1440,1024,768,390').split(',').map(Number);
 const only = process.env.VISTA_VISUAL_AUDIT_ONLY?.split(',');
-const screens: Array<[string, string, (f: Fixture) => string]> = [
+/** Ids that are not in the fixture are resolved at run time (see resolveIds); a screen whose id cannot be resolved is reported as skipped, never faked. */
+interface Ids { submissionId?: string; quizDeliveryId?: string }
+const screens: Array<[string, string, (f: Fixture, ids: Ids) => string]> = [
   ['student', 'student-my-learning', () => '/my-learning'],
   ['student', 'student-courses', () => '/courses'],
   ['student', 'student-course', (f) => `/courses/${f.courseId}`],
   ['student', 'student-lesson', (f) => `/courses/${f.courseId}/lessons/${f.lessonId}`],
   ['student', 'student-activity', (f) => `/courses/${f.courseId}/lessons/${f.lessonId}/activities/${f.readingActivityId}`],
   ['student', 'student-quiz', (f) => `/courses/${f.courseId}/lessons/${f.lessonId}/activities/${(f as unknown as { quizActivityId: string }).quizActivityId}`],
-  ['instructor', 'teacher-assignment-edit', (f) => `/teacher/assignments/${f.classroomId}/2091a24b-938b-4819-b562-9d8b767fb3a9/edit`],
-  ['instructor', 'teacher-submission-review', (f) => `/teacher/classes/${f.classroomId}/submissions/ff575d88-58f0-44a4-b667-d4eda1630901`],
-  ['student', 'student-quiz-delivery', () => '/my-learning/8b45e60b-a4e1-45a7-956c-dd1361e8835f'],
+  ['instructor', 'teacher-assignment-edit', (f) => `/teacher/assignments/${f.classroomId}/${(f as unknown as { programAssignmentId: string }).programAssignmentId}/edit`],
+  ['instructor', 'teacher-submission-review', (f, ids) => (ids.submissionId ? `/teacher/classes/${f.classroomId}/submissions/${ids.submissionId}` : '')],
+  ['student', 'student-quiz-delivery', (_f, ids) => (ids.quizDeliveryId ? `/my-learning/${ids.quizDeliveryId}` : '')],
   ['student', 'student-assignment', (f) => `/my-learning/${f.programDeliveryId}`],
   ['instructor', 'teacher-overview', () => '/teacher'],
   ['instructor', 'teacher-classes', () => '/teacher/classes'],
@@ -32,13 +34,40 @@ const screens: Array<[string, string, (f: Fixture) => string]> = [
   ['instructor', 'teacher-assignment-new', () => '/teacher/assignments/new'],
   ['instructor', 'course-list', () => '/admin/courses'],
   ['instructor', 'course-builder', (f) => `/admin/courses/${f.courseId}`],
-  // extra courses authored by the earlier E2E runs in the disposable database (ids are local to that database)
-  ['instructor', 'builder-unlock-course', () => '/admin/courses/7d208138-f365-4509-932b-9d12c89e4dcb'],
-  ['instructor', 'builder-media-course', () => '/admin/courses/49f29440-ad3f-4057-90cc-4c4e1d93aed9'],
-  ['student', 'student-locked-course', () => '/courses/7d208138-f365-4509-932b-9d12c89e4dcb'],
-  ['student', 'student-locked-module', () => '/courses/7d208138-f365-4509-932b-9d12c89e4dcb/lessons/f19c9cf8-2b8f-43f9-bc56-6d409b172824'],
-  ['student', 'student-media-activity', () => '/courses/49f29440-ad3f-4057-90cc-4c4e1d93aed9/lessons/86585e6d-06cd-4098-a968-8c4730d440a3/activities/8e5ce2e9-3ebe-4d22-9c7b-b4b7b01c578e'],
+  ['student', 'student-media-activity', (f) => `/courses/${f.courseId}/lessons/${f.lessonId}/activities/${(f as unknown as { videoActivityId: string }).videoActivityId}`],
 ];
+
+const apiBase = process.env.VISTA_E2E_API_BASE_URL!;
+const tokenOf = async (page: Page, who: string) => ((await (await page.request.get(`http://127.0.0.1:${authPort}/token?sub=${fixture.users[who].authUserId}`)).json()) as { access_token: string }).access_token;
+const api = async (page: Page, token: string, method: string, path: string, data?: unknown) => {
+  const r = await page.request.fetch(`${apiBase}${path}`, { method, headers: { Authorization: `Bearer ${token}` }, ...(data === undefined ? {} : { data }) });
+  const text = await r.text(); let body: any = text; try { body = JSON.parse(text); } catch { /* text */ }
+  return { status: r.status(), body };
+};
+/** Resolves ids from THIS database: an existing submission (or a new one made through the student API) and a published quiz delivery. */
+async function resolveIds(page: Page): Promise<Ids> {
+  const f = fixture as unknown as Fixture & { canonicalQuizAssignmentId: string };
+  const [teacher, student] = [await tokenOf(page, 'instructor'), await tokenOf(page, 'student')];
+  const ids: Ids = {};
+  const listed = (await api(page, teacher, 'GET', `/classrooms/${f.classroomId}/submissions`)).body as Array<{ id: string }>;
+  ids.submissionId = Array.isArray(listed) ? listed[0]?.id : undefined;
+  if (!ids.submissionId) {
+    const attempt = await api(page, student, 'POST', `/classroom-assignments/${f.programDeliveryId}/attempts`);
+    if (attempt.status < 300) {
+      const program = (await api(page, student, 'POST', `/me/attempts/${attempt.body.id}/program`, { title: 'P', workspaceJson: { blocks: { languageVersion: 0, blocks: [] } }, robotProgram: { kind: 'robot_program', schemaVersion: 1, steps: [] } })).body;
+      const version = (await api(page, student, 'POST', `/me/programs/${program.id}/versions`, { changeSummary: 'audit' })).body;
+      ids.submissionId = (await api(page, student, 'POST', `/me/attempts/${attempt.body.id}/submission`, { programVersionId: version.id })).body?.id;
+    }
+  }
+  const delivery = await api(page, teacher, 'POST', `/classrooms/${f.classroomId}/quiz-deliveries`, { canonicalAssignmentId: f.canonicalQuizAssignmentId });
+  if (delivery.status < 300) { await api(page, teacher, 'POST', `/classrooms/${f.classroomId}/assignments/${delivery.body.assignment_id}/publish`); ids.quizDeliveryId = delivery.body.id; }
+  else {
+    const rows = (await api(page, teacher, 'GET', `/classrooms/${f.classroomId}/assignments`)).body as Array<{ id: string; assignment_id: string }>;
+    const existing = Array.isArray(rows) ? rows.find((row) => row.assignment_id === f.canonicalQuizAssignmentId) : undefined;
+    ids.quizDeliveryId = existing?.id;
+  }
+  return ids;
+}
 
 async function signIn(page: Page, who: string) {
   const value = await (await page.request.get(`http://127.0.0.1:${authPort}/token?sub=${fixture.users[who].authUserId}`)).json();
@@ -51,12 +80,14 @@ test('capture LMS screens at 1440/1024/768/390', async ({ page }) => {
   await mkdir(outDir, { recursive: true });
   const report: Array<{ screen: string; width: number; overflowPx: number; culprits?: string[] }> = [];
   let current = '';
+  const ids = await resolveIds(page);
   for (const [who, name, url] of screens) {
     if (only && !only.some((o) => name.includes(o))) continue;
     if (current !== who) { await signIn(page, who); current = who; }
+    if (!url(fixture, ids)) { report.push({ screen: name, width: 0, overflowPx: 0, culprits: ['SKIPPED: id could not be resolved in this database'] } as never); continue; }
     for (const width of widths) {
       await page.setViewportSize({ width, height: 2400 });
-      await page.goto(url(fixture));
+      await page.goto(url(fixture, ids));
       await page.waitForLoadState('networkidle');
       await page.waitForFunction(() => !/^Loading/.test(document.body.innerText.trim()), null, { timeout: 15_000 }).catch(() => undefined);
       await page.waitForTimeout(600);
@@ -70,29 +101,42 @@ test('capture LMS screens at 1440/1024/768/390', async ({ page }) => {
 });
 
 test('capture course builder tabs and editors (interactive states)', async ({ page }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(600_000);
   await mkdir(outDir, { recursive: true });
   await signIn(page, 'instructor');
+  // The course is authored through the real Course Builder UI in THIS database (no ids carried over from any other database).
+  await page.setViewportSize({ width: 1440, height: 1300 });
+  await page.goto('/admin/courses');
+  await page.getByRole('button', { name: 'Create Course' }).click();
+  await page.getByRole('textbox', { name: 'Course Title' }).fill(`Visual audit course ${Date.now().toString(36)}`);
+  await page.getByRole('textbox', { name: /^Description/ }).fill('Course authored by the visual audit.');
+  await page.getByRole('button', { name: 'Create Draft' }).click();
+  await page.waitForURL(/\/admin\/courses\/[0-9a-f-]{36}/);
+  const courseUrl = new URL(page.url()).pathname;
+  const addVia = async (opener: () => Promise<void>, dialogName: string, text: string) => {
+    await opener();
+    const dialog = page.getByRole('dialog', { name: dialogName });
+    await dialog.getByRole('textbox').fill(text);
+    await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(dialog).not.toBeVisible();
+  };
+  await addVia(() => page.getByRole('button', { name: 'Add module' }).click(), 'Add module', 'First module');
+  await addVia(() => page.getByRole('button', { name: /Add Lesson/ }).first().click(), 'Add lesson', 'Gate lesson');
+  await addVia(() => page.getByRole('button', { name: 'Quick Add Quiz' }).first().click(), 'Add activity', 'Gate quiz');
+  await addVia(() => page.getByRole('button', { name: 'Add', exact: true }).first().click(), 'Add module', 'Second module');
   for (const width of widths) {
     await page.setViewportSize({ width, height: 2000 });
-    const open = async () => { await page.goto('/admin/courses/7d208138-f365-4509-932b-9d12c89e4dcb'); await page.getByRole('tab', { name: /Curriculum/ }).click().catch(() => undefined); await page.waitForTimeout(800); };
+    const open = async () => { await page.goto(courseUrl); await page.getByRole('tab', { name: /Curriculum/ }).click().catch(() => undefined); await page.waitForTimeout(800); };
     await open();
     await page.getByText('Gate quiz').first().click().catch(() => undefined); await page.waitForTimeout(1000);
     await page.screenshot({ path: `${outDir}/builder-quiz-editor-${width}.png` });
     await open();
     await page.getByRole('button', { name: /Module 2: Second module/ }).first().click().catch(() => undefined); await page.waitForTimeout(800);
     await page.screenshot({ path: `${outDir}/builder-module-editor-${width}.png` });
-    await open();
-    await page.getByRole('tab', { name: /Structure & Publishing/ }).click().catch(() => undefined); await page.waitForTimeout(800);
-    await page.screenshot({ path: `${outDir}/builder-publishing-${width}.png` });
-    await open();
-    await page.getByRole('tab', { name: /Media Library/ }).click().catch(() => undefined); await page.waitForTimeout(800);
-    await page.screenshot({ path: `${outDir}/builder-media-library-${width}.png` });
-    await open();
-    await page.getByRole('tab', { name: /Course Details/ }).click().catch(() => undefined); await page.waitForTimeout(800);
-    await page.screenshot({ path: `${outDir}/builder-details-${width}.png` });
-    await open();
-    await page.getByRole('tab', { name: /^Settings/ }).click().catch(() => undefined); await page.waitForTimeout(800);
-    await page.screenshot({ path: `${outDir}/builder-settings-${width}.png` });
+    for (const [tab, file] of [[/Structure & Publishing/, 'publishing'], [/Media Library/, 'media-library'], [/Course Details/, 'details'], [/^Settings/, 'settings']] as const) {
+      await open();
+      await page.getByRole('tab', { name: tab }).click(); await page.waitForTimeout(800);
+      await page.screenshot({ path: `${outDir}/builder-${file}-${width}.png` });
+    }
   }
 });

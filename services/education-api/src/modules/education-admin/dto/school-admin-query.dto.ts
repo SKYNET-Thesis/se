@@ -13,6 +13,10 @@ export class SchoolPeopleQueryDto {
 
   @IsOptional() @IsIn(["student", "instructor"])
   role?: "student" | "instructor";
+
+  /** Membership state to list; defaults to active people. */
+  @IsOptional() @IsIn(["active", "suspended"])
+  status?: "active" | "suspended";
 }
 
 export class MemberCandidateQueryDto {

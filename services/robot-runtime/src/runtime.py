@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from hashlib import sha256
 import json
+from math import isfinite
 from threading import Event, Lock, Thread
 import time
 from typing import Any
@@ -55,8 +56,8 @@ class CheckikHttpAdapter:
     def status(self) -> dict[str, Any]:
         return self._request("/status")
 
-    def execute(self, run_id: str, step: dict[str, Any], timeout_ms: int) -> dict[str, Any]:
-        return self._request("/execute", {"runId": run_id, "step": step, "timeoutMs": timeout_ms}, max(self.timeout_s, timeout_ms / 1000))
+    def execute(self, run_id: str, robot_id: str, step: dict[str, Any], timeout_ms: int) -> dict[str, Any]:
+        return self._request("/execute", {"runId": run_id, "robotId": robot_id, "step": step, "timeoutMs": timeout_ms}, max(self.timeout_s, timeout_ms / 1000))
 
     def cancel(self, run_id: str) -> None:
         self._request("/cancel", {"runId": run_id})
@@ -71,11 +72,13 @@ class Run:
     program_version_id: str
     profile: str
     program_hash: str
+    robot_id: str
     state: str = "queued"
     events: list[dict[str, Any]] = field(default_factory=list)
     error_code: str | None = None
     started_at_ms: int | None = None
     ended_at_ms: int | None = None
+    telemetry: dict[str, Any] | None = None
     cancel: Event = field(default_factory=Event, repr=False)
 
     def snapshot(self) -> dict[str, Any]:
@@ -89,6 +92,7 @@ class Run:
             "startedAtMs": self.started_at_ms,
             "endedAtMs": self.ended_at_ms,
             "events": list(self.events),
+            "telemetry": self.telemetry,
         }
 
 
@@ -139,15 +143,18 @@ class Runtime:
             "checkik": checkik,
         }
 
-    def _validate_request(self, request: Any) -> tuple[str, str, str, list[dict[str, Any]]]:
+    def _validate_request(self, request: Any) -> tuple[str, str, str, str, list[dict[str, Any]]]:
         if not isinstance(request, dict):
             raise ContractError("request_malformed")
         run_id = request.get("runId")
         version_id = request.get("programVersionId")
         profile = request.get("profile")
+        robot_id = request.get("robotId", "unassigned-simulation")
         program = request.get("program")
         if not all(isinstance(value, str) and value for value in (run_id, version_id, profile)):
             raise ContractError("run_identity_invalid")
+        if not isinstance(robot_id, str) or not robot_id:
+            raise ContractError("robot_identity_invalid")
         profiles = self.config.get("profiles")
         if not isinstance(profiles, dict) or profile not in profiles:
             raise ContractError("profile_not_allowed")
@@ -181,7 +188,7 @@ class Runtime:
                 if not isinstance(duration, int) or duration < 0 or duration > max_wait:
                     raise ContractError("wait_duration_invalid")
             normalized.append(step)
-        return run_id, version_id, profile, normalized
+        return run_id, version_id, profile, robot_id, normalized
 
     def _preflight(self, steps: list[dict[str, Any]]) -> str | None:
         if self._stopped:
@@ -196,6 +203,8 @@ class Runtime:
         snapshot = status.get("snapshot") if status.get("reachable") else None
         if not isinstance(snapshot, dict):
             return "checkik_unavailable"
+        if snapshot.get("mode") != "fake_follower":
+            return "adapter_mode_not_supported"
         backend = snapshot.get("backend")
         readiness = snapshot.get("readiness")
         if not isinstance(backend, dict) or backend.get("motionEnabled") is not True or backend.get("latchedMotionLock") is True:
@@ -216,17 +225,17 @@ class Runtime:
         return None
 
     def submit(self, request: Any) -> dict[str, Any]:
-        run_id, version_id, profile, steps = self._validate_request(request)
+        run_id, version_id, profile, robot_id, steps = self._validate_request(request)
         program_hash = self._hash(request["program"])
         with self._lock:
             if run_id in self._runs:
                 existing = self._runs[run_id]
-                if existing.program_version_id != version_id or existing.profile != profile or existing.program_hash != program_hash:
+                if existing.program_version_id != version_id or existing.profile != profile or existing.program_hash != program_hash or existing.robot_id != robot_id:
                     raise ContractError("run_identity_conflict")
                 return existing.snapshot()
             if self._active:
                 raise ContractError("execution_already_active")
-            run = Run(run_id=run_id, program_version_id=version_id, profile=profile, program_hash=program_hash)
+            run = Run(run_id=run_id, program_version_id=version_id, profile=profile, program_hash=program_hash, robot_id=robot_id)
             self._runs[run_id] = run
             reason = self._preflight(steps)
             if reason:
@@ -257,9 +266,18 @@ class Runtime:
                 if "resolvedArm" in step:
                     event["arm"] = step["resolvedArm"]
                 remaining_ms = max(1, round((run_deadline - time.monotonic()) * 1000))
-                adapter_result = self.checkik_adapter.execute(run.run_id, step, remaining_ms)
+                try:
+                    adapter_result = self.checkik_adapter.execute(run.run_id, run.robot_id, step, remaining_ms)
+                except TypeError:
+                    # Compatibility for existing in-process test adapters; the HTTP adapter always receives the scoped robot.
+                    adapter_result = self.checkik_adapter.execute(run.run_id, step, remaining_ms)
                 if not isinstance(adapter_result, dict) or adapter_result.get("ok") is not True:
                     raise RuntimeError("checkik_command_rejected")
+                telemetry = adapter_result.get("telemetry")
+                if telemetry is not None:
+                    if not self._valid_simulation_telemetry(telemetry, run.robot_id):
+                        raise RuntimeError("simulation_telemetry_invalid")
+                    run.telemetry = telemetry
                 if run.cancel.is_set() or self._stopped:
                     run.state = "stopped" if self._stopped else "cancelled"
                     run.events.append({"index": index, "type": "execution_cancelled", "atMs": self._now()})
@@ -294,6 +312,31 @@ class Runtime:
             with self._lock:
                 if self._active == run.run_id:
                     self._active = None
+
+    @staticmethod
+    def _valid_simulation_telemetry(value: Any, robot_id: str) -> bool:
+        if not isinstance(value, dict) or value.get("schema_version") != 1 or value.get("source_mode") != "SIMULATION" or value.get("robot_id") != robot_id:
+            return False
+        if value.get("connection") not in {"connected", "disconnected", "stale"} or not isinstance(value.get("controller_id"), str) or not isinstance(value.get("sequence"), int) or isinstance(value.get("sequence"), bool):
+            return False
+        try:
+            from datetime import datetime
+            timestamp = datetime.fromisoformat(str(value.get("measured_at", "")).replace("Z", "+00:00"))
+            if timestamp.tzinfo is None:
+                return False
+        except ValueError:
+            return False
+        measured = value.get("measured")
+        expected = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
+        if not isinstance(measured, list) or len(measured) != len(expected):
+            return False
+        for index, reading in enumerate(measured):
+            if not isinstance(reading, dict) or reading.get("name") != expected[index] or not isinstance(reading.get("position"), (int, float)) or isinstance(reading.get("position"), bool) or not isfinite(reading["position"]):
+                return False
+            unit = "percent" if index == 5 else "rad"
+            if reading.get("unit") != unit:
+                return False
+        return True
 
     def get(self, run_id: str) -> dict[str, Any] | None:
         run = self._runs.get(run_id)

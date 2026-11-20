@@ -16,6 +16,37 @@ export interface SupabasePasswordSession {
 export class SupabaseAdminService {
   constructor(private readonly config: ConfigService) {}
 
+  async createStudentIdentityIfMissing(internalEmail: string, password: string): Promise<{ user: SupabaseAdminUser; created: boolean }> {
+    const { baseUrl, serviceRole } = this.adminConfiguration();
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/auth/v1/admin/users`, {
+        method: "POST",
+        headers: { apikey: serviceRole, Authorization: `Bearer ${serviceRole}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ email: internalEmail, password, email_confirm: true }),
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch {
+      // A timed-out create may still have reached Auth. Resolve by exact alias before reporting failure.
+      try {
+        const possiblyCreated = await this.findStudentIdentityByAlias(internalEmail, baseUrl, serviceRole);
+        if (possiblyCreated) return { user: possiblyCreated, created: false };
+      } catch { /* preserve generic provider error */ }
+      throw new Error("Student identity provider is unavailable.");
+    }
+    if (response.ok) {
+      const user = await response.json() as SupabaseAdminUser;
+      if (!user.id) throw new Error("Student identity provider returned an invalid result.");
+      return { user, created: true };
+    }
+    // Resolve a duplicate-create race by looking up the exact internal alias. The caller must verify the orphan mapping before reuse.
+    if (response.status === 422 || response.status === 409) {
+      const raced = await this.findStudentIdentityByAlias(internalEmail, baseUrl, serviceRole);
+      if (raced) return { user: raced, created: false };
+    }
+    throw new Error("Student identity could not be created.");
+  }
+
   async createStudentIdentity(internalEmail: string, password: string): Promise<SupabaseAdminUser> {
     const { baseUrl, serviceRole } = this.adminConfiguration();
     const existing = await this.findByEmail(internalEmail, baseUrl, serviceRole);
@@ -62,8 +93,24 @@ export class SupabaseAdminService {
       method: "PUT",
       headers: { apikey: serviceRole, Authorization: `Bearer ${serviceRole}`, "Content-Type": "application/json" },
       body: JSON.stringify({ password, email_confirm: true }),
+      signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) throw new Error("Student password setup failed.");
+  }
+
+  /** Revokes every session of the signed-in student except the one that owns `accessToken` (GoTrue logout scope=others). Best effort. */
+  async revokeOtherSessions(accessToken: string): Promise<boolean> {
+    const baseUrl = this.config.get<string>("SUPABASE_URL")?.replace(/\/$/, "");
+    const anonKey = this.config.get<string>("SUPABASE_ANON_KEY");
+    if (!baseUrl || !anonKey) return false;
+    try {
+      const response = await fetch(`${baseUrl}/auth/v1/logout?scope=others`, {
+        method: "POST",
+        headers: { apikey: anonKey, Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+      return response.ok;
+    } catch { return false; }
   }
 
   async authenticateStudent(internalEmail: string, password: string): Promise<SupabasePasswordSession> {
@@ -104,6 +151,41 @@ export class SupabaseAdminService {
     catch (error) { throw new ImportProvisioningError("ACCOUNT_INVITE_FAILED", error instanceof Error ? error.message : "Invite network failure."); }
     if (!response.ok) throw new ImportProvisioningError("ACCOUNT_INVITE_FAILED", `Invite HTTP ${response.status}: ${await response.text()}`);
     return response.json() as Promise<SupabaseAdminUser>;
+  }
+
+  /** Sends the invitation e-mail again to a person who has not accepted it yet (the caller has verified that locally). */
+  async resendInvite(email: string, fullName: string): Promise<void> {
+    const baseUrl = this.config.get<string>("SUPABASE_URL")?.replace(/\/$/, "");
+    const serviceRole = this.config.get<string>("SUPABASE_SERVICE_ROLE_KEY");
+    if (!baseUrl || !serviceRole) throw new ImportProvisioningError("ACCOUNT_INVITE_FAILED", "Supabase Admin configuration is incomplete.");
+    const inviteUrl = new URL(`${baseUrl}/auth/v1/invite`);
+    const redirectTo = this.config.get<string>("SUPABASE_INVITE_REDIRECT_URL")?.trim();
+    if (redirectTo) inviteUrl.searchParams.set("redirect_to", redirectTo);
+    let response: Response;
+    try { response = await fetch(inviteUrl, { method: "POST", headers: { apikey: serviceRole, Authorization: `Bearer ${serviceRole}`, "Content-Type": "application/json" }, body: JSON.stringify({ email, data: { full_name: fullName } }), signal: AbortSignal.timeout(10_000) }); }
+    catch (error) { throw new ImportProvisioningError("ACCOUNT_INVITE_FAILED", error instanceof Error ? error.message : "Invite network failure."); }
+    if (!response.ok) throw new ImportProvisioningError("ACCOUNT_INVITE_FAILED", `Invite HTTP ${response.status}`);
+  }
+
+  private async findStudentIdentityByAlias(email: string, baseUrl: string, serviceRole: string): Promise<SupabaseAdminUser | null> {
+    for (let page = 1; page <= 100; page += 1) {
+      let response: Response;
+      try {
+        response = await fetch(`${baseUrl}/auth/v1/admin/users?page=${page}&per_page=1000`, {
+          headers: { apikey: serviceRole, Authorization: `Bearer ${serviceRole}` },
+          signal: AbortSignal.timeout(10_000),
+        });
+      } catch {
+        throw new Error("Student identity provider is unavailable.");
+      }
+      if (!response.ok) throw new Error("Student identity could not be verified.");
+      const payload = await response.json() as { users?: SupabaseAdminUser[] };
+      const users = payload.users ?? [];
+      const match = users.find(user => user.email?.toLowerCase() === email.toLowerCase());
+      if (match) return match;
+      if (users.length < 1000) return null;
+    }
+    throw new Error("Student identity could not be verified.");
   }
 
   private async findByEmail(email: string, baseUrl: string, serviceRole: string) {

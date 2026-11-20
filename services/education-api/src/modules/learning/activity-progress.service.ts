@@ -195,7 +195,7 @@ export class ActivityProgressService {
       WHERE a.id=${activityId}::uuid AND a.status='published' AND s.status='published'`;
     const activity = rows[0];
     if (!activity) throw new NotFoundException('Activity was not found.');
-    if (activity.type !== 'reading' && activity.type !== 'demonstration') throw new BadRequestException('This activity cannot be self-completed.');
+    if (activity.type !== 'reading' && activity.type !== 'video' && activity.type !== 'demonstration') throw new BadRequestException('This activity cannot be self-completed.');
     const path = await this.progression.coursePath(user, activity.course_id!);
     const lesson = path.lessons.find((item) => item.id === activity.lesson_id);
     if (!lesson) throw new NotFoundException('Activity was not found.');

@@ -1,3 +1,4 @@
+import { AttachmentsToggle } from '../../components/assignments/AttachmentsToggle';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { BotIcon, ChevronLeftIcon, InfoIcon, LockIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
@@ -106,6 +107,11 @@ export function TeacherAssignmentEditor() {
     setSavedDraftId(created.assignment_id);
     return created.assignment_id;
   };
+  const unpublish = useMutation({
+    mutationFn: () => assignmentApi.unpublish(classroomId, assignmentId!, token),
+    onSuccess: async () => { await refresh(classroomId); setLeaveTo({ notice: 'Assignment returned to draft. Students can no longer see it.' }); },
+    onError: (reason) => setActionError(reason instanceof Error ? reason.message : 'The assignment could not be unpublished.'),
+  });
   const run = useMutation({
     mutationFn: async (publish: boolean) => {
       const draftId = await persistDraft();
@@ -142,6 +148,12 @@ export function TeacherAssignmentEditor() {
 
       {(queryError || actionError) && <p role="alert" className="mt-5 border-l-4 border-danger bg-danger-soft p-3 text-sm text-danger">{actionError ?? (queryError instanceof Error ? queryError.message : 'Assignment data could not be loaded.')}</p>}
       {missing && <p role="alert" className="mt-5 border-l-4 border-danger bg-danger-soft p-3 text-sm text-danger">Assignment was not found in this classroom.</p>}
+      {existingMode && existing?.status === 'published' && (existing.constraints as { kind?: string } | null | undefined)?.kind !== 'knowledge_check' && (
+        <div className="mt-5 flex flex-wrap items-center gap-3 rounded-md border border-line p-3 text-sm">
+          <Button variant="secondary" size="sm" loading={unpublish.isPending} disabled={unpublish.isPending} onClick={() => unpublish.mutate()}>Unpublish assignment</Button>
+          <span className="text-ink-muted">Returns it to draft so you can edit it. Only possible before any student has started; otherwise close it. Nothing is deleted.</span>
+        </div>
+      )}
       {readOnly && existing && existing.status !== 'draft' && <p className="mt-5"><Link className="text-sm font-semibold text-accent-ink underline underline-offset-4" to={`/teacher/submissions?classroomId=${classroomId}&assignmentId=${assignmentId}`}>View submissions for this assignment</Link></p>}
 
       <form onSubmit={onFormSubmit} noValidate className="mt-6 space-y-5" aria-label="Assignment form">
@@ -190,9 +202,12 @@ export function TeacherAssignmentEditor() {
             <Section step={4} title="Submission settings">
               <ul className="space-y-2 text-sm text-ink-muted">
                 <li><strong className="font-medium text-ink">Attempts:</strong> students work in an attempt, run simulations as often as they like (a simulation never submits), and submit explicitly. A submission is final; a retry is a new attempt where the classroom delivery allows it.</li>
-                <li><strong className="font-medium text-ink">Attachments:</strong> students can attach files to an attempt before submitting; you can download them while reviewing.</li>
+                <li><strong className="font-medium text-ink">Attachments:</strong> optional evidence files, enabled per assignment below; you can download them while reviewing.</li>
               </ul>
-              {existingMode && existing && !(existing.constraints as { kind?: string } | null | undefined)?.kind
+              {existingMode && existing && assignmentId && (existing.constraints as { kind?: string } | null | undefined)?.kind !== 'knowledge_check' && (
+                <AttachmentsToggle classroomId={classroomId} assignmentId={assignmentId} token={token} initial={Boolean((existing.constraints as { attachments?: { enabled?: boolean } } | null | undefined)?.attachments?.enabled)} />
+              )}
+              {existingMode && existing && (existing.constraints as { kind?: string } | null | undefined)?.kind !== 'knowledge_check'
                 ? <div className="mt-4"><AssignmentConfigPanel classroomId={classroomId} assignmentId={assignmentId!} token={token} schedule={{ availableFrom: existing.available_from, dueAt: existing.due_at, closeAt: existing.close_at, maxAttempts: existing.max_attempts }} /></div>
                 : <div className="mt-3"><Note>Save the draft first; then the opening/due/closing dates, attempt limit and rubric can be configured here.</Note></div>}
             </Section>
