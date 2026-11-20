@@ -14,5 +14,7 @@ import { StudentAuthService } from "./student-auth.service";
 import { StudentAuthHttpsGuard } from "./student-auth-https.guard";
 import { StudentAuthRateLimitGuard } from "./student-auth-rate-limit.guard";
 
-@Module({ imports: [IdentityModule, LearningModule], controllers: [EducationAdminController, StudentAuthController], providers: [SchoolProfileService, OrganizationManagementService, EducationAdminService, SchoolAdminQueryService, SupabaseAdminService, StudentProvisioningService, ClassroomStudentImportService, StudentAuthService, StudentAuthHttpsGuard, StudentAuthRateLimitGuard] })
+import { OrganizationsController } from "./organizations.controller";
+
+@Module({ imports: [IdentityModule, LearningModule], controllers: [EducationAdminController, OrganizationsController, StudentAuthController], providers: [EducationAdminService, SchoolAdminQueryService, SupabaseAdminService, StudentProvisioningService, ClassroomStudentImportService, StudentAuthService, StudentAuthHttpsGuard, StudentAuthRateLimitGuard] })
 export class EducationAdminModule {}
