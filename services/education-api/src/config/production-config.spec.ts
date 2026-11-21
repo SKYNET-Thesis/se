@@ -9,6 +9,7 @@ const valid = {
 };
 
 describe("production configuration", () => {
+  it.each([undefined, "", "disabled", "always", "2026-12-01T00:00:00Z"])("accepts prerequisite enforcement setting %p", (value) => expect(() => validateProductionConfig({ ...valid, ...(value === undefined ? {} : { COURSE_PREREQUISITES_ENFORCED_FROM: value }) })).not.toThrow());
   it("accepts a complete TLS configuration", () => expect(() => validateProductionConfig(valid)).not.toThrow());
   it("rejects missing service role credentials", () => expect(() => validateProductionConfig({ ...valid, SUPABASE_SERVICE_ROLE_KEY: "" })).toThrow(/SUPABASE_SERVICE_ROLE_KEY/));
   it("rejects a plaintext browser origin", () => expect(() => validateProductionConfig({ ...valid, WEB_ORIGIN: "http://example.com" })).toThrow(/WEB_ORIGIN/));
@@ -26,6 +27,8 @@ describe("production configuration", () => {
     ["a non-loopback Twin address", { DIGITAL_TWIN_TELEMETRY_URL: "https://twin.example.com", DIGITAL_TWIN_SCOPE_SECRET: "x".repeat(40) }, /loopback/],
     ["a short Twin scope secret", { DIGITAL_TWIN_TELEMETRY_URL: "http://127.0.0.1:8767", DIGITAL_TWIN_SCOPE_SECRET: "short" }, /at least 32/],
     ["a local placeholder secret", { SUPABASE_ANON_KEY: "local-int-anon-key-not-a-secret" }, /placeholder/],
+    ["a malformed prerequisite enforcement cutoff", { COURSE_PREREQUISITES_ENFORCED_FROM: "2026-12-01" }, /COURSE_PREREQUISITES_ENFORCED_FROM/],
+    ["a cutoff without a time zone", { COURSE_PREREQUISITES_ENFORCED_FROM: "2026-12-01T00:00:00" }, /COURSE_PREREQUISITES_ENFORCED_FROM/],
   ])("rejects %s", (_name, override, pattern) => expect(() => validateProductionConfig({ ...valid, ...override })).toThrow(pattern));
   it("requires a strong signing secret when device provisioning is enabled, and rejects a malformed flag or a placeholder", () => {
     expect(() => validateProductionConfig({ ...valid, DEVICE_PROVISIONING_ENABLED: "true" })).toThrow(/DEVICE_TOKEN_SECRET/);

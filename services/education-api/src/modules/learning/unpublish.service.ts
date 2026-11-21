@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
+import { publishedDependents } from "./course-prerequisites";
 import { LearningScopeService } from "./learning-scope.service";
 
 /**
@@ -24,6 +25,8 @@ export class UnpublishService {
       if (dependents.offerings > 0 || dependents.enrollments > 0) {
         throw new ConflictException("This course is already delivered to a school or has enrolled learners. Archive it instead; learner records are kept.");
       }
+      const prerequisiteOf = await publishedDependents(tx, courseId);
+      if (prerequisiteOf.length) throw new ConflictException(`This course is a prerequisite of ${prerequisiteOf.map((item) => `"${item.title}"`).join(", ")}. Remove it from their prerequisites first.`);
       await tx.$executeRaw`UPDATE public.learning_courses SET status='draft', updated_at=now() WHERE id=${courseId}::uuid`;
       return { id: courseId, status: "draft" };
     });

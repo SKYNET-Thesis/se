@@ -62,9 +62,10 @@ export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; 
 export type LessonProgressStatus = "completed" | "current" | "available" | "locked" | "in_progress";
 
 export interface LessonLockReason {
-  code: "PREREQUISITE_NOT_COMPLETED" | "PREREQUISITE_MINIMUM_SCORE_NOT_MET";
+  code: "PREREQUISITE_NOT_COMPLETED" | "PREREQUISITE_MINIMUM_SCORE_NOT_MET" | "COURSE_PREREQUISITE_NOT_COMPLETED";
   prerequisiteLessonId: string;
   prerequisiteLessonTitle: string;
+  unmetCourses?: Array<{ id: string; title: string }>;
   message: string;
 }
 
@@ -101,6 +102,8 @@ export interface CoursePathResponse {
     recommendedGrades: string | null;
     learningOutcome: string | null;
     competencies: Array<{ code: string; title: string }>;
+    /** Course-level prerequisites not yet completed; when non-empty every unfinished module is locked. */
+    unmetPrerequisites?: Array<{ id: string; title: string }>;
   };
   progressPercent: number;
   currentLessonId: string | null;

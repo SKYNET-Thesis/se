@@ -155,6 +155,22 @@ describe("ProgressionService", () => {
     expect(txQuery).toHaveBeenCalledTimes(4);
   });
 
+  it("final submission never applies the course-level prerequisite rule, even when enforcement is on (a prerequisite added after the attempt started must not discard the work)", async () => {
+    const saved = process.env.COURSE_PREREQUISITES_ENFORCED_FROM; process.env.COURSE_PREREQUISITES_ENFORCED_FROM = "always";
+    try {
+      const txQuery = jest.fn()
+        .mockResolvedValueOnce([{ attempt_id: "attempt-1", lesson_id: "lesson-1", course_id: "course-1", classroom_id: "class-1", status: "in_progress", constraints: { kind: "knowledge_check", questions: [{ id: "safety", options: ["stop", "continue"] }] }, success_criteria: { kind: "knowledge_check", passPercent: 100, answerKey: { safety: "stop" } }, delivery_status: "published", close_at: null }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: "attempt-1" }])
+        .mockResolvedValueOnce([]);
+      transaction.mockImplementation(async (work) => work({ $queryRaw: txQuery }));
+      await expect(service.submitKnowledgeCheck(student, "attempt-1", { answers: [{ questionId: "safety", optionId: "continue" }] })).resolves.toMatchObject({ passed: false });
+      const fragments: string[] = (txQuery.mock.calls[1] as unknown[]).slice(1).flatMap((value) => (value && typeof value === "object" && "sql" in (value as object) ? [String((value as { sql: string }).sql)] : []));
+      expect(fragments).toContain("'[]'::jsonb");                                          // the course-level column is the constant empty list
+      expect(fragments.some((sql: string) => sql.includes("owner_course"))).toBe(false);          // the prerequisite sub-select is not even evaluated
+    } finally { if (saved === undefined) delete process.env.COURSE_PREREQUISITES_ENFORCED_FROM; else process.env.COURSE_PREREQUISITES_ENFORCED_FROM = saved; }
+  });
+
   it("rejects incomplete, duplicated, client-forged, or another learner knowledge-check input", async () => {
     const row = { attempt_id: "attempt-1", lesson_id: "lesson-1", course_id: "course-1", classroom_id: "class-1", status: "in_progress", constraints: { kind: "knowledge_check", questions: [{ id: "safety", options: ["stop", "continue"] }] }, success_criteria: { kind: "knowledge_check", passPercent: 100, answerKey: { safety: "stop" } } };
     transaction.mockImplementation(async (work) => work({ $queryRaw: jest.fn().mockResolvedValueOnce([row]).mockResolvedValueOnce([]) }));
@@ -266,5 +282,57 @@ describe("ProgressionService", () => {
     expect(quizzes[0].quiz_title).toBe("Safety Knowledge Check");
     expect(quizzes[0].status).toBe("passed");
     expect(quizzes[0].score).toBe(100);
+  });
+
+  describe("course-level prerequisites", () => {
+    const unmet = [{ id: "course-0", title: "SO-101 Beginner" }];
+
+    it("locks every unfinished lesson (and keeps completed ones) while a prerequisite course is incomplete", async () => {
+      queryRaw
+        .mockResolvedValueOnce([{ id: "course-1", title: "SO-101 Intermediate", status: "published", unmet_course_prerequisites: unmet }])
+        .mockResolvedValueOnce([{ ...lessons[0], progress_status: "completed", progress_percent: 100 }, ...lessons.slice(1)]);
+      const path = await service.coursePath(student, "course-1");
+      expect(path.lessons.map((lesson) => lesson.status)).toEqual(["completed", "locked", "locked", "locked", "locked"]);
+      expect(path.currentLessonId).toBeNull();
+      expect(path.lessons[1].lockReason).toMatchObject({ code: "COURSE_PREREQUISITE_NOT_COMPLETED", unmetCourses: unmet, message: "Complete SO-101 Beginner first to unlock this course." });
+      expect(path.course.unmetPrerequisites).toEqual(unmet);
+    });
+
+    it("leaves the path untouched once the prerequisite is completed", async () => {
+      queryRaw.mockResolvedValueOnce([{ id: "course-1", title: "SO-101 Intermediate", status: "published", unmet_course_prerequisites: [] }]).mockResolvedValueOnce(lessons);
+      const path = await service.coursePath(student, "course-1");
+      expect(path.lessons.map((lesson) => lesson.status)).toEqual(["current", "locked", "locked", "locked", "locked"]);
+      expect(path.lessons[0].lockReason).toBeNull();
+      expect(path.course.unmetPrerequisites).toEqual([]);
+    });
+
+    it("refuses attempts, media and knowledge checks with COURSE_PREREQUISITE_NOT_COMPLETED", async () => {
+      queryRaw.mockResolvedValueOnce([{ prerequisite_lesson_id: null, title: null, minimum_score: null, status: null, progress_percent: null, unmet_courses: unmet }]);
+      await expect(service.assertPrerequisites({ $queryRaw: queryRaw }, student.vistaUserId, "lesson-1")).rejects.toMatchObject({ response: { code: "COURSE_PREREQUISITE_NOT_COMPLETED", unmetCourses: unmet } });
+    });
+
+    it("keeps lessons the learner already completed or started reachable while the rest stay locked", async () => {
+      queryRaw
+        .mockResolvedValueOnce([{ id: "course-1", title: "SO-101 Intermediate", status: "published", unmet_course_prerequisites: unmet }])
+        .mockResolvedValueOnce([{ ...lessons[0], progress_status: "completed", progress_percent: 100 }, { ...lessons[1], progress_status: "in_progress", prerequisites: [] }, ...lessons.slice(2)]);
+      const path = await service.coursePath(student, "course-1");
+      expect(path.lessons.map((lesson) => lesson.status)).toEqual(["completed", "in_progress", "locked", "locked", "locked"]);
+      expect(path.lessons[2].lockReason).toMatchObject({ code: "COURSE_PREREQUISITE_NOT_COMPLETED" });
+    });
+
+    it("never applies the course rule to a final submission or evidence-based completion (courseLevel: false), even if the row reports unmet courses", async () => {
+      queryRaw.mockResolvedValueOnce([{ prerequisite_lesson_id: null, title: null, minimum_score: null, status: null, progress_percent: null, unmet_courses: unmet }]);
+      await expect(service.assertPrerequisites({ $queryRaw: queryRaw }, student.vistaUserId, "lesson-1", { courseLevel: false })).resolves.toBeUndefined();
+    });
+
+    it("still enforces the lesson-level rule on submission when courseLevel is false", async () => {
+      queryRaw.mockResolvedValueOnce([{ prerequisite_lesson_id: "lesson-0", title: "Intro", minimum_score: null, status: "in_progress", progress_percent: null, unmet_courses: [] }]);
+      await expect(service.assertPrerequisites({ $queryRaw: queryRaw }, student.vistaUserId, "lesson-1", { courseLevel: false })).rejects.toMatchObject({ response: { code: "PREREQUISITE_NOT_COMPLETED" } });
+    });
+
+    it("does not treat a lesson without prerequisites as blocked", async () => {
+      queryRaw.mockResolvedValueOnce([{ prerequisite_lesson_id: null, title: null, minimum_score: null, status: null, progress_percent: null, unmet_courses: [] }]);
+      await expect(service.assertPrerequisites({ $queryRaw: queryRaw }, student.vistaUserId, "lesson-1")).resolves.toBeUndefined();
+    });
   });
 });

@@ -668,9 +668,21 @@ describe('LearningService global catalog lifecycle', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
+  it('refuses to archive a course that a published course lists as its prerequisite', async () => {
+    const findFirst = jest.fn().mockResolvedValue({ id: 'course-1', organization_id: null, status: 'published' });
+    const query = jest.fn().mockResolvedValueOnce([{ activeEnrollments: 0, progressRows: 0, attemptRows: 0 }]).mockResolvedValue([{ id: 'course-2', title: 'SO-101 Intermediate' }]);
+    const update = jest.fn();
+    const service = new LearningService(
+      { learning_courses: { findUnique: findFirst, update }, $queryRaw: query } as never,
+      { isSystemAdministrator: jest.fn().mockReturnValue(true), authoringOrganizationIds: jest.fn().mockReturnValue([]), canAuthorOrganization: jest.fn().mockReturnValue(true) } as never,
+    );
+    await expect(service.archiveCourse(systemAdmin as never, 'course-1')).rejects.toThrow(/prerequisite of "SO-101 Intermediate"/);
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it('archives a published course once no active enrollment remains', async () => {
     const findFirst = jest.fn().mockResolvedValue({ id: 'course-1', organization_id: null, status: 'published' });
-    const query = jest.fn().mockResolvedValue([{ activeEnrollments: 0, progressRows: 4, attemptRows: 2 }]);
+    const query = jest.fn().mockResolvedValueOnce([{ activeEnrollments: 0, progressRows: 4, attemptRows: 2 }]).mockResolvedValue([]); // delivery evidence, then no published dependents
     const update = jest.fn().mockResolvedValue({ id: 'course-1', status: 'archived' });
     const service = new LearningService(
       { learning_courses: { findUnique: findFirst, update }, $queryRaw: query } as never,

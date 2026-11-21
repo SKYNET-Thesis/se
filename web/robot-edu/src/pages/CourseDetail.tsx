@@ -122,6 +122,16 @@ export function CourseDetail() {
         </aside>
       </header>
 
+      {path.course.unmetPrerequisites?.length ? (
+        <div role="status" data-testid="course-prerequisite-lock" className="mt-8 flex items-start gap-3 rounded-lg border border-line bg-surface p-4 text-sm text-ink-muted">
+          <LockIcon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <div>
+            <p className="font-semibold text-ink">This course is locked until its prerequisites are complete.</p>
+            <p className="mt-1">Complete {path.course.unmetPrerequisites.map((item) => item.title).join(' and ')} first. Your progress in those courses unlocks this one automatically. <Link to="/learning-path" className="font-medium text-accent-ink underline">See your learning path</Link>.</p>
+          </div>
+        </div>
+      ) : null}
+
       <section className="mt-10" aria-labelledby="lessons-heading">
         <div className="max-w-3xl">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-accent-ink">Course path</p>

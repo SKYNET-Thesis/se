@@ -22,7 +22,7 @@ const anonKey = 'local-e2e-anon-key-not-a-secret';
 export default defineConfig({
   testDir: './tests/e2e',
   testMatch: '**/*.spec.ts',
-  testIgnore: '**/student-auth-*.spec.ts', // real-Supabase suite: run with playwright.student-auth.config.ts (see docs/operations/student-temp-password.md)
+  testIgnore: ['**/student-auth-*.spec.ts', '**/staff-auth-*.spec.ts'], // real-Supabase suite: run with playwright.student-auth.config.ts (see docs/operations/student-temp-password.md)
   fullyParallel: false,
   workers: 1,
   retries: 0,
