@@ -2,6 +2,8 @@
 
 > **Status update (latest):** the items listed as incomplete in §2 below were completed in the follow-up segment: module-end quizzes (module = learning_lessons row, quiz = its last section, 20 weighted questions, progression lock), school-scoped catalog with authorized self-enrollment (classroom opt-in, capacity, prerequisites, cross-school isolation), the beginner Blockly lab bound to a seeded challenge with automatic grading, the full 3/18/180/9/6/6 curriculum, and a proposed release scope O-P. Final acceptance: **Playwright 58/58 on a fresh stack + Blockly 1/1**, Jest 1146 passed (110 suites, 5 skipped), Vitest 647, tsc/build clean, DB tests 374 OK. Release preparation is in `RELEASE_READINESS.md`; curriculum in `ACADEMIC_CURRICULUM_COVERAGE.md`. Sections below describe the earlier segment and are kept for history.
 
+> **Superseded (2026-11-21):** the §2 item "Prerequisites are guidance, not enforcement" no longer holds. Course prerequisites are now enforced server-side (candidate, not yet deployed): see [`../WEB_LMS_FINAL_ACCEPTANCE.md`](../WEB_LMS_FINAL_ACCEPTANCE.md) §C3 and [`../WEB_LMS_RELEASE_READINESS.md`](../WEB_LMS_RELEASE_READINESS.md) §2.
+
 Scope: the academic Web LMS only (robotics, CHECKIK, Digital Twin, VLA, IoT and Desktop were not touched in this sprint segment).
 Branch `sprint/vista-90`; nothing pushed, merged or deployed; no Production data touched. Local evidence only: it does not establish new
 Production acceptance.
