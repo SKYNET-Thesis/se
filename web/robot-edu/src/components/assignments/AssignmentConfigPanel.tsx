@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { assignmentApi } from '../../lib/api';
 import { Button } from '../ui/Button';
@@ -20,12 +20,13 @@ export function AssignmentConfigPanel({ classroomId, assignmentId, token, schedu
   const [from, setFrom] = useState(toLocal(schedule?.availableFrom)); const [due, setDue] = useState(toLocal(schedule?.dueAt)); const [close, setClose] = useState(toLocal(schedule?.closeAt));
   const [attempts, setAttempts] = useState(schedule?.maxAttempts ? String(schedule.maxAttempts) : '');
   const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
-  useEffect(() => { if (rubric.data) setRows(rubric.data.criteria.map((c) => ({ title: c.title, description: c.description ?? '', maxPoints: String(c.maxPoints) }))); }, [rubric.data]);
+  const dirty = useRef(false); // unsaved local edits must not be overwritten by a late or repeated server fetch
+  useEffect(() => { if (rubric.data && !dirty.current) setRows(rubric.data.criteria.map((c) => ({ title: c.title, description: c.description ?? '', maxPoints: String(c.maxPoints) }))); }, [rubric.data]);
   const total = rows.reduce((sum, r) => sum + (Number(r.maxPoints) || 0), 0);
   const invalid = !rows.length || rows.some((r) => !r.title.trim() || !(Number(r.maxPoints) > 0));
   const saveRubric = useMutation({
     mutationFn: () => assignmentApi.replaceRubric(classroomId, assignmentId, token, rows.map((r) => ({ title: r.title.trim(), ...(r.description.trim() ? { description: r.description.trim() } : {}), maxPoints: Number(r.maxPoints) }))),
-    onSuccess: async () => { setRubricMsg('Rubric saved.'); await client.invalidateQueries({ queryKey: ['assignment-rubric', assignmentId] }); },
+    onSuccess: async () => { dirty.current = false; setRubricMsg('Rubric saved.'); await client.invalidateQueries({ queryKey: ['assignment-rubric', assignmentId] }); },
     onError: (e) => setRubricMsg(e instanceof Error ? e.message : 'The rubric could not be saved.'),
   });
   const saveSchedule = useMutation({
@@ -34,7 +35,7 @@ export function AssignmentConfigPanel({ classroomId, assignmentId, token, schedu
     onError: (e) => setScheduleMsg(e instanceof Error ? e.message : 'The schedule could not be saved.'),
   });
   const editable = rubric.data?.editable ?? false;
-  const update = (i: number, patch: Partial<Row>) => setRows((cur) => cur.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const update = (i: number, patch: Partial<Row>) => { dirty.current = true; setRows((cur) => cur.map((r, idx) => (idx === i ? { ...r, ...patch } : r))); };
   return <div className="space-y-6">
     <section aria-label="Rubric editor">
       <h3 className="text-[13px] font-semibold text-ink">Rubric</h3>
@@ -46,12 +47,12 @@ export function AssignmentConfigPanel({ classroomId, assignmentId, token, schedu
           <input className={field} aria-label={`Criterion ${i + 1} title`} placeholder="Criterion title" maxLength={200} disabled={!editable} value={r.title} onChange={(e) => update(i, { title: e.target.value })} />
           <input className={field} aria-label={`Criterion ${i + 1} description`} placeholder="Description (optional)" maxLength={2000} disabled={!editable} value={r.description} onChange={(e) => update(i, { description: e.target.value })} />
           <input className={field} aria-label={`Criterion ${i + 1} max points`} type="number" min={0.01} step={0.01} disabled={!editable} value={r.maxPoints} onChange={(e) => update(i, { maxPoints: e.target.value })} />
-          {editable && <Button size="sm" variant="ghost" onClick={() => setRows((cur) => cur.filter((_, idx) => idx !== i))}>Remove</Button>}
+          {editable && <Button size="sm" variant="ghost" onClick={() => { dirty.current = true; setRows((cur) => cur.filter((_, idx) => idx !== i)); }}>Remove</Button>}
         </div>)}
         {!rows.length && <p className="text-sm text-ink-muted">No criteria yet. Add at least one so submissions can be scored.</p>}
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-ink-muted">Total: {total} points</span>
-          {editable && <><Button size="sm" variant="secondary" disabled={rows.length >= 20} onClick={() => setRows((cur) => [...cur, { title: '', description: '', maxPoints: '1' }])}>Add criterion</Button>
+          {editable && <><Button size="sm" variant="secondary" disabled={rows.length >= 20} onClick={() => { dirty.current = true; setRows((cur) => [...cur, { title: '', description: '', maxPoints: '1' }]); }}>Add criterion</Button>
             <Button size="sm" disabled={invalid} loading={saveRubric.isPending} onClick={() => { setRubricMsg(null); saveRubric.mutate(); }}>Save rubric</Button></>}
         </div>
         {rubricMsg && <p role="status" className="text-sm text-ink-muted">{rubricMsg}</p>}

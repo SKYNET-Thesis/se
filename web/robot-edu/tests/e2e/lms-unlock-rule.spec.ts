@@ -246,5 +246,37 @@ test('Unlock rule: failing the weighted quiz keeps module two locked; a passing 
   await page.goto(`/courses/${courseId}`);
   await expect(page.getByLabel('Course progress').getByText('1 of 2 modules completed')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Locked', exact: true })).toHaveCount(0);
+
+  // quiz attempt history: both attempts are listed in a stable order with their scores, survive a reload and a fresh login, and are private to the learner
+  const historyOf = async (token: string) => (await api(page, token, 'GET', `/me/classroom-assignments/${delivery.id}/attempts`));
+  const history = await historyOf(studentToken);
+  expect(history.status).toBe(200);
+  const rows = history.body as Array<{ id: string; attempt_number: number; status: string; score: number | string | null }>;
+  expect(rows.map((row) => row.attempt_number).sort()).toEqual([1, 2]);
+  expect(rows.every((row) => row.status === 'evaluated')).toBe(true);
+  const numbers = rows.map((row) => row.attempt_number);
+  expect(numbers[0] > numbers[1] || numbers[0] < numbers[1]).toBe(true);
+  const scoreByNumber = Object.fromEntries(rows.map((row) => [row.attempt_number, Number(row.score)]));
+  expect(scoreByNumber).toEqual({ 1: 25, 2: 100 });
+  const readHistoryList = async () => {
+    await page.goto(`/my-learning/${delivery.id}`);
+    const items = page.getByRole('listitem').filter({ hasText: /^Attempt \d/ });
+    await expect(items).toHaveCount(2);
+    return await items.evaluateAll((nodes) => nodes.map((node) => (node.textContent ?? '').replace(/\s+/g, ' ').trim()));
+  };
+  const listed = await readHistoryList();
+  expect(listed.map((text) => Number(/^Attempt (\d)/.exec(text)![1]))).toEqual(numbers);      // the page shows the API order
+  expect(listed.find((text) => text.startsWith('Attempt 1'))).toContain('Score 25%');
+  expect(listed.find((text) => text.startsWith('Attempt 2'))).toContain('Score 100%');
+  await page.reload();
+  expect(await readHistoryList()).toEqual(listed);                                             // refresh keeps it
+  const freshToken = await signIn(page, fixture.users.student.authUserId);                       // a new session keeps it
+  expect(((await historyOf(freshToken)).body as unknown[]).length).toBe(2);
+  expect(await readHistoryList()).toEqual(listed);
+  const otherToken = await session(page, fixture.users.otherSchoolAdmin.authUserId);             // another user never sees the learner's attempts
+  const foreign = await historyOf(otherToken.access_token);
+  expect(JSON.stringify(foreign.body)).not.toContain(rows[0].id);
+  expect(JSON.stringify(foreign.body)).not.toContain(rows[1].id);
+  expect([403, 404]).toContain((await api(page, otherToken.access_token, 'GET', `/me/attempts/${rows[0].id}`)).status);
   expect(errors).toEqual([]);
 });

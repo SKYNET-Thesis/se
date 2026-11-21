@@ -19,6 +19,8 @@ const fmt = (value?: string | null) => (value ? new Date(value).toLocaleString()
  * attempts are used, the primary start/resume action, and the history of every attempt with its own files and
  * released result. Working on an attempt happens in the existing /practice/:attemptId experience.
  */
+const ASSIGNMENT_TYPE_LABEL: Record<string, string> = { knowledge: 'Knowledge-based', quiz: 'Quiz', blockly: 'Blockly programming', simulation: 'Simulation', robot_lab: 'Robot Lab', manual_final: 'Instructor-graded final' };
+
 export function StudentAssignmentDetail() {
   useEffect(() => prefetchPracticeWorkspace(), []);
   const { classroomAssignmentId = '' } = useParams();
@@ -60,8 +62,9 @@ export function StudentAssignmentDetail() {
     <h1 className="mt-2 text-3xl font-semibold text-ink">{item.title}</h1>
     <div className="mt-3 flex flex-wrap items-center gap-2"><Badge tone={win === 'closed' ? 'danger' : win === 'past_due' || win === 'due_soon' ? 'warn' : 'ok'}>{windowLabel[win]}</Badge></div>
     <p className="mt-4 max-w-2xl whitespace-pre-wrap text-ink-muted">{item.instructions ?? 'Follow the lesson instructions and submit your work.'}</p>
-    {(item.difficulty || item.grading_method || item.pass_score != null || (item.learning_objectives?.length ?? 0) > 0) && <section aria-label="Assignment details" className="mt-4 max-w-2xl rounded-xl border border-line bg-surface p-4 text-sm">
+    {(item.difficulty || item.assignment_type || item.grading_method || item.pass_score != null || (item.learning_objectives?.length ?? 0) > 0) && <section aria-label="Assignment details" className="mt-4 max-w-2xl rounded-xl border border-line bg-surface p-4 text-sm">
       <div className="flex flex-wrap items-center gap-2"><LevelBadge level={item.difficulty} prefix="Assignment" />
+        {item.assignment_type && <span data-testid="assignment-type" className="text-ink-muted">Type: {ASSIGNMENT_TYPE_LABEL[item.assignment_type] ?? item.assignment_type}</span>}
         {item.grading_method && <span className="text-ink-muted">Grading: {item.grading_method === 'automatic' ? 'automatic' : item.grading_method === 'manual' ? 'by your instructor' : 'automatic + instructor'}</span>}
         {item.pass_score != null && <span className="text-ink-muted">Pass score: {item.pass_score}</span>}</div>
       {(item.learning_objectives?.length ?? 0) > 0 && <div className="mt-3"><p className="font-medium text-ink">Learning objectives</p><ul className="mt-1 list-disc pl-5 text-ink-muted">{item.learning_objectives!.map((objective) => <li key={objective}>{objective}</li>)}</ul></div>}
