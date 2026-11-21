@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { prerequisiteProblems, publishedDependents } from './course-prerequisites';
 import { assertLevel, LEVEL_LABELS, MAX_PREREQUISITES, normalizeTags, SUGGESTED_TAGS, type AcademicLevel } from './course-academic';
 import { PrismaService } from "../../common/database/prisma.service";
 import { Prisma } from "@prisma/client";
@@ -54,6 +55,10 @@ export class LearningService {
         if (found.length !== ids.length || found.some((row) => row.status === 'archived' || (row.organization_id !== null && row.organization_id !== organizationId))) {
           throw new BadRequestException('Every prerequisite must be an existing, unarchived course of this school or a global course.');
         }
+        // A published course may only depend on published courses that have lessons, otherwise its learners could never satisfy the rule.
+        const dependentStatus = courseId ? (await this.prisma.$queryRaw<{ status: string }[]>`SELECT status FROM public.learning_courses WHERE id=${courseId}::uuid`)[0]?.status : undefined;
+        const problems = await prerequisiteProblems(this.prisma, ids, organizationId, dependentStatus === 'published');
+        if (problems.length) throw new BadRequestException(problems.join(' '));
         if (courseId) {
           const graph = new Map(found.map((row) => [row.id, row.prerequisite_course_ids]));
           const stack = [...ids]; const visited = new Set<string>();
@@ -135,6 +140,9 @@ export class LearningService {
           `Every lesson needs at least one published section with a published activity before the course can be published (${undeliverable.length} lesson(s) are not deliverable).`,
         );
       }
+      const own = await tx.$queryRaw<Array<{ prerequisite_course_ids: string[] }>>`SELECT prerequisite_course_ids FROM public.learning_courses WHERE id=${courseId}::uuid`;
+      const prerequisiteIssues = await prerequisiteProblems(tx, own[0]?.prerequisite_course_ids ?? [], course.organization_id, true);
+      if (prerequisiteIssues.length) throw new ConflictException(`This course cannot be published yet: ${prerequisiteIssues.join(' ')}`);
       const published = await tx.learning_courses.update({ where: { id: courseId }, data: { status: 'published' } });
       if (!this.enrollmentDelivery) throw new ConflictException('Enrollment synchronization is not configured.');
       const enrollmentSync = await this.enrollmentDelivery.synchronizeCourseIn(tx, courseId);
@@ -158,6 +166,8 @@ export class LearningService {
         'This course still has active delivery. Archive classrooms and deactivate offerings before archiving it.',
       );
     }
+    const dependents = await publishedDependents(this.prisma, courseId);
+    if (dependents.length) throw new ConflictException(`This course is a prerequisite of ${dependents.map((item) => `"${item.title}"`).join(', ')}. Remove it from their prerequisites first.`);
     return this.prisma.learning_courses.update({ where: { id: courseId }, data: { status: 'archived' } });
   }
 

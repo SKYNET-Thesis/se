@@ -6,11 +6,12 @@ import { CoursePathLesson, CoursePathLockReason, CoursePathResponse, Progression
 import { assertAttemptOpen, loadOwnAttempt } from "./attempt-lifecycle";
 import { SaveQuizDraftDto } from "./dto/save-quiz-draft.dto";
 import { SubmitKnowledgeCheckDto } from "./dto/submit-knowledge-check.dto";
+import { coursePrerequisiteMessage, parseUnmet, prerequisitePolicyFromEnv, unmetCoursePrerequisitesSql } from "./course-prerequisites";
 import { LearningScopeService } from "./learning-scope.service";
 import { gradeQuestionBankQuiz, IssuedQuestionRow, issueQuestionBankQuiz } from './question-bank-quiz.snapshot';
 
 export interface QueryDb { $queryRaw<T = unknown>(query: TemplateStringsArray | unknown, ...values: unknown[]): Promise<T>; }
-interface CourseRow { id: string; title: string; status: string; description: string | null; label: string | null; level: string | null; recommended_grades: string | null; learning_outcome: string | null; competencies: Array<{ code: string; title: string }> | null; }
+interface CourseRow { id: string; title: string; status: string; description: string | null; label: string | null; level: string | null; recommended_grades: string | null; learning_outcome: string | null; competencies: Array<{ code: string; title: string }> | null; unmet_course_prerequisites?: unknown; }
 interface PrerequisiteRow { lessonId: string; title: string; required: boolean; minimumScore: number | string | null; status: string | null; progressPercent: number | string | null; }
 interface LessonRow { id: string; code?: string | null; ordinal: number; title: string; progress_status: string | null; progress_percent: number | string | null; completed_at: Date | null; prerequisites: PrerequisiteRow[] | null; summary?: string | null; learning_items?: string[] | null; estimated_minutes?: number | string | null; }
 interface KnowledgeCheckRow { delivery_status?: string; close_at?: Date | null; attempt_id: string; assignment_id?: string; lesson_id: string; course_id: string; classroom_id: string; status: string; constraints: unknown; success_criteria: unknown; workspace_snapshot?: unknown; grading_snapshot?: unknown; result_snapshot?: unknown; }
@@ -156,12 +157,12 @@ export class ProgressionService {
       if ((attempt.workspace_snapshot as { kind?: string } | undefined)?.kind === 'question_bank_quiz') {
         // An already evaluated attempt keeps returning its stored result (idempotent) even after the window closed.
         if (attempt.status !== 'evaluated') this.assertQuizWindowOpen(attempt);
-        if (attempt.status !== 'evaluated') await this.assertPrerequisites(tx, user.vistaUserId, attempt.lesson_id);
+        if (attempt.status !== 'evaluated') await this.assertPrerequisites(tx, user.vistaUserId, attempt.lesson_id, { courseLevel: false });
         return this.submitQuestionBankKnowledgeCheck(tx, user, attempt, dto);
       }
       if (attempt.status === 'evaluated') throw new NotFoundException('Knowledge check was not found.');
       this.assertQuizWindowOpen(attempt);
-      await this.assertPrerequisites(tx, user.vistaUserId, attempt.lesson_id);
+      await this.assertPrerequisites(tx, user.vistaUserId, attempt.lesson_id, { courseLevel: false });
       const definition = parseKnowledgeCheck(attempt.constraints, attempt.success_criteria);
       const score = gradeKnowledgeCheck(definition, dto);
       const passed = score >= definition.passPercent;
@@ -310,7 +311,7 @@ export class ProgressionService {
     if (!chain || chain.evaluation_id !== input.evaluationId || chain.attempt_id !== input.attemptId || chain.program_version_id !== input.programVersionId) {
       throw new ConflictException("Symbolic PASS provenance could not be verified for progression.");
     }
-    await this.assertPrerequisites(db, user.vistaUserId, chain.lesson_id);
+    await this.assertPrerequisites(db, user.vistaUserId, chain.lesson_id, { courseLevel: false });
     return this.completeLesson(db, user.vistaUserId, chain.lesson_id);
   }
 
@@ -390,6 +391,7 @@ export class ProgressionService {
   private async coursePathWithDb(db: QueryDb, user: AuthenticatedUser, courseId: string): Promise<CoursePathResponse> {
     const courses = await db.$queryRaw<CourseRow[]>`
       SELECT c.id,c.title,c.status,c.description,
+        ${unmetCoursePrerequisitesSql(Prisma.sql`c.id`, user.vistaUserId, prerequisitePolicyFromEnv())} AS unmet_course_prerequisites,
         overview.content->'courseOverview'->>'label' AS label,
         overview.content->'courseOverview'->>'level' AS level,
         overview.content->'courseOverview'->>'recommendedGrades' AS recommended_grades,
@@ -444,7 +446,12 @@ export class ProgressionService {
       WHERE l.course_id=${courseId}::uuid
       GROUP BY l.id,l.ordinal,l.title,lp.status,lp.progress_percent,lp.completed_at
       ORDER BY l.ordinal`;
-    const preliminary = rows.map((row) => this.mapLesson(row));
+    // Course-level prerequisites are enforced here: every lesson that is not already completed stays locked until the prerequisite courses are completed.
+    const unmetCourses = parseUnmet(course.unmet_course_prerequisites);
+    const courseLock: CoursePathLockReason | null = unmetCourses.length
+      ? { code: "COURSE_PREREQUISITE_NOT_COMPLETED", prerequisiteLessonId: "", prerequisiteLessonTitle: unmetCourses[0].title, unmetCourses, message: coursePrerequisiteMessage(unmetCourses) }
+      : null;
+    const preliminary = rows.map((row) => this.mapLesson(row)).map((lesson) => courseLock && lesson.status !== "completed" && lesson.status !== "in_progress" ? { ...lesson, status: "locked" as const, lockReason: courseLock } : lesson); // work already started or completed stays reachable
     const current = preliminary.find((lesson) => lesson.status === "available" || lesson.status === "in_progress") ?? null;
     const lessons = preliminary.map((lesson) => lesson.id === current?.id && lesson.status === "available" ? { ...lesson, status: "current" as const } : lesson);
     const completed = lessons.filter((lesson) => lesson.status === "completed").length;
@@ -459,6 +466,7 @@ export class ProgressionService {
         competencies: course.competencies ?? [],
         recommendedGrades: course.recommended_grades ?? null,
         learningOutcome: course.learning_outcome ?? null,
+        unmetPrerequisites: unmetCourses,
       },
       progressPercent: lessons.length ? Math.round(completed / lessons.length * 100) : 0,
       currentLessonId: current?.id ?? null,
@@ -482,11 +490,15 @@ export class ProgressionService {
     };
   }
 
-  async assertPrerequisites(db: QueryDb, learnerId: string, lessonId: string): Promise<void> {
-    const rows = await db.$queryRaw<Array<{ prerequisite_lesson_id: string; title: string; minimum_score: number | string | null; status: string | null; progress_percent: number | string | null }>>`
-      SELECT pr.prerequisite_lesson_id,pre.title,pr.minimum_score,lp.status,score.score AS progress_percent
-      FROM public.learning_lesson_prerequisites pr
-      JOIN public.learning_lessons pre ON pre.id=pr.prerequisite_lesson_id
+  /** `courseLevel: false` skips the course-level rule: used where the learner's work was authorised when it started (final submission, evidence-based completion). */
+  async assertPrerequisites(db: QueryDb, learnerId: string, lessonId: string, options: { courseLevel?: boolean } = {}): Promise<void> {
+    // One query: the lesson's own prerequisite rows (NULL row when it has none) plus the owning course's unmet course-level prerequisites.
+    const rows = await db.$queryRaw<Array<{ prerequisite_lesson_id: string | null; title: string | null; minimum_score: number | string | null; status: string | null; progress_percent: number | string | null; unmet_courses?: unknown }>>`
+      SELECT pr.prerequisite_lesson_id,pre.title,pr.minimum_score,lp.status,score.score AS progress_percent,
+        ${options.courseLevel === false ? Prisma.sql`'[]'::jsonb` : unmetCoursePrerequisitesSql(Prisma.sql`cur.course_id`, learnerId, prerequisitePolicyFromEnv(), Prisma.sql`cur.id`)} AS unmet_courses
+      FROM public.learning_lessons cur
+      LEFT JOIN public.learning_lesson_prerequisites pr ON pr.lesson_id=cur.id AND pr.required=true
+      LEFT JOIN public.learning_lessons pre ON pre.id=pr.prerequisite_lesson_id
       LEFT JOIN public.learning_lesson_progress lp ON lp.lesson_id=pre.id AND lp.learner_user_id=${learnerId}::uuid
       LEFT JOIN LATERAL (
         SELECT MAX(attempt.score) AS score FROM public.learning_assignment_attempts attempt
@@ -494,9 +506,11 @@ export class ProgressionService {
         JOIN public.learning_assignments assignment ON assignment.id=classroom_assignment.assignment_id
         WHERE attempt.learner_user_id=${learnerId}::uuid AND assignment.lesson_id=pre.id AND attempt.status='evaluated'
       ) score ON true
-      WHERE pr.lesson_id=${lessonId}::uuid AND pr.required=true
+      WHERE cur.id=${lessonId}::uuid
       ORDER BY pre.ordinal`;
-    const blocked = rows.find((row) => row.status !== "completed" || (row.minimum_score !== null && Number(row.progress_percent ?? 0) < Number(row.minimum_score)));
+    const unmetCourses = options.courseLevel === false ? [] : parseUnmet(rows[0]?.unmet_courses);
+    if (unmetCourses.length) throw new ConflictException({ code: "COURSE_PREREQUISITE_NOT_COMPLETED", unmetCourses, message: coursePrerequisiteMessage(unmetCourses) });
+    const blocked = rows.find((row) => row.prerequisite_lesson_id !== null && (row.status !== "completed" || (row.minimum_score !== null && Number(row.progress_percent ?? 0) < Number(row.minimum_score))));
     if (blocked) throw new ConflictException({ code: "PREREQUISITE_NOT_COMPLETED", prerequisiteLessonId: blocked.prerequisite_lesson_id, prerequisiteLessonTitle: blocked.title, message: `Complete ${blocked.title} before starting this lesson.` });
   }
 

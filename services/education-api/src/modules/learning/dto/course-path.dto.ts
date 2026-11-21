@@ -1,9 +1,11 @@
 export type LessonPathStatus = "completed" | "current" | "available" | "locked" | "in_progress";
 
 export interface CoursePathLockReason {
-  code: "PREREQUISITE_NOT_COMPLETED" | "PREREQUISITE_MINIMUM_SCORE_NOT_MET";
+  code: "PREREQUISITE_NOT_COMPLETED" | "PREREQUISITE_MINIMUM_SCORE_NOT_MET" | "COURSE_PREREQUISITE_NOT_COMPLETED";
   prerequisiteLessonId: string;
   prerequisiteLessonTitle: string;
+  /** Set only for COURSE_PREREQUISITE_NOT_COMPLETED: the course(s) that must be completed first. */
+  unmetCourses?: Array<{ id: string; title: string }>;
   message: string;
 }
 
@@ -35,6 +37,8 @@ export interface CoursePathResponse {
     recommendedGrades: string | null;
     learningOutcome: string | null;
     competencies: CourseOverviewCompetency[];
+    /** Course-level prerequisites the learner has not completed; non-empty means every unfinished lesson is locked. */
+    unmetPrerequisites: Array<{ id: string; title: string }>;
   };
   progressPercent: number;
   currentLessonId: string | null;

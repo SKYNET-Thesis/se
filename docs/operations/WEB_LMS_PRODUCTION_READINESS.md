@@ -27,6 +27,7 @@ definition before deploying this build, or the new task will fail its start-up c
 | `AWS_REGION` | **yes (new check)** | |
 | `TRUST_PROXY` | **yes (new check)** | Hop count, `1` behind the ALB. Without it the per-address student-auth limits throttle everyone together. |
 | `STUDENT_TEMP_PASSWORD_ENABLED` | optional | `true`/`false` only (new check). Production currently runs the feature on. |
+| `COURSE_PREREQUISITES_ENFORCED_FROM` | optional (new check) | Course-prerequisite enforcement. Absent/empty/`disabled` = off (default; nobody is locked). `always` = every enrolment. An ISO-8601 date-time **with a time zone** (e.g. `2026-12-01T00:00:00Z`) = only enrolments created at or after it; earlier enrolments keep today's access. Any other value makes the API refuse to boot in production. Enable only after the read-only impact query (`docs/operations/sql/prerequisite-enforcement-impact.sql`) has been reviewed. |
 | `STUDENT_TEMP_PASSWORD_TTL_HOURS`, `STUDENT_AUTH_ACCOUNT_LIMIT_PER_MINUTE` (10), `STUDENT_AUTH_IP_LIMIT_PER_MINUTE` (120) | optional | Defaults are the verified values. |
 | `SUPABASE_INVITE_REDIRECT_URL` | recommended | Where invited instructors / School Admins land after accepting. |
 | `SUPABASE_JWT_ISSUER`, `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWKS_URL` | optional | Override only for a custom domain. |

@@ -58,6 +58,8 @@ AWS_ACCESS_KEY_ID=vista_media_test
 AWS_SECRET_ACCESS_KEY=vista_media_test_only_password
 DIGITAL_TWIN_SCOPE_SECRET=twsecret_local
 DIGITAL_TWIN_TELEMETRY_URL=http://127.0.0.1:8767
+# Course prerequisites: enforced for enrolments created from this instant (fixture enrolments are created later, so they are enforced; E2E backdates enrolled_at to exercise grandfathering).
+COURSE_PREREQUISITES_ENFORCED_FROM=2026-01-01T00:00:00Z
 EOT
 (cd services/education-api && npm run build >/dev/null && \
   export VISTA_E2E_ADMIN_DATABASE_URL="postgresql://vista_test:intpw@127.0.0.1:$PGPORT/$DB?sslmode=disable" VISTA_TEST_DATABASE_NAME=$DB VISTA_TEST_DATABASE_PORT=$PGPORT VISTA_DATABASE_PROJECT_REF=local-int SUPABASE_URL=http://127.0.0.1:54323 \
