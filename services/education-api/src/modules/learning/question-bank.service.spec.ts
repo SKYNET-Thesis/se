@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/database/prisma.service';
 import { QuestionBankService } from './question-bank.service';
+import { toCsv } from './question-import';
 
 const org = '11111111-1111-4111-8111-111111111111';
 const course = '22222222-2222-4222-8222-222222222222';
@@ -46,6 +47,43 @@ describe('QuestionBankService', () => {
     db.learning_questions.create.mockResolvedValue(globalQuestion);
     await expect(service.createQuestion(admin, { courseId: course, lessonId: lesson, code: 'GLOBAL-1' } as never)).resolves.toEqual(globalQuestion);
     expect(db.learning_questions.create).toHaveBeenCalledWith({ data: expect.objectContaining({ organization_id: null, course_id: course, lesson_id: lesson }) });
+  });
+  it('allows a system administrator to author a draft question for a global-course lesson', async () => {
+    const globalQuestion = { ...q, organization_id: null };
+    db.learning_lessons.findUnique.mockResolvedValue({ id: lesson, course_id: course, learning_courses: { organization_id: null } });
+    db.learning_questions.findUnique.mockResolvedValue(globalQuestion);
+    db.learning_questions.create.mockResolvedValue(globalQuestion);
+    db.learning_question_versions.findFirst.mockResolvedValue(null);
+    db.learning_question_versions.findUnique.mockResolvedValue({ ...v, question: globalQuestion });
+    db.learning_question_versions.create.mockResolvedValue({ ...v, id: version, question: globalQuestion });
+    db.learning_objectives.findMany.mockResolvedValue([{ id: objective }]);
+
+    await expect(service.authorLessonQuestion(admin, lesson, { code: 'GLOBAL-DRAFT', content, objectiveId: objective, publish: false })).resolves.toMatchObject({
+      questionId: question, versionId: version, status: 'draft',
+    });
+    expect(db.learning_questions.create).toHaveBeenCalledWith({ data: expect.objectContaining({ organization_id: null, course_id: course, lesson_id: lesson, code: 'GLOBAL-DRAFT' }) });
+  });
+  it('previews imports for a global-course lesson for a system administrator', async () => {
+    db.learning_lessons.findUnique.mockResolvedValue({ id: lesson, course_id: course, learning_courses: { organization_id: null } });
+    db.learning_question_versions.findMany.mockResolvedValue([]);
+    db.learning_questions.findMany.mockResolvedValue([]);
+    const csv = Buffer.from(toCsv([
+      ['code', 'type', 'difficulty', 'cognitive_level', 'stem', 'option_a', 'option_b', 'option_c', 'correct', 'points', 'explanation'],
+      ['GQ-IMPORT', 'single_choice', 'easy', 'understand', 'Which is safe?', 'Stop', 'Go', '', 'A', '1', 'Stop first.'],
+    ]));
+
+    await expect(service.importPreview(admin, lesson, 'global.csv', csv)).resolves.toMatchObject({ total: 1, valid: 1, invalid: 0 });
+  });
+  it.each(['school admin', 'instructor'])('keeps %s from authoring a global-course lesson', async () => {
+    const nonSystemAuthor = { ...author, memberships: [{ organizationId: org, status: 'active', permissions: ['learning.course.author'] }] };
+    db.learning_lessons.findUnique.mockResolvedValue({ id: lesson, course_id: course, learning_courses: { organization_id: null } });
+    await expect(service.authorLessonQuestion(nonSystemAuthor, lesson, { code: 'NO-GLOBAL', content, objectiveId: objective })).rejects.toBeInstanceOf(NotFoundException);
+    expect(db.learning_questions.create).not.toHaveBeenCalled();
+  });
+  it('returns objectives for a global-course lesson to a system administrator', async () => {
+    db.learning_lessons.findUnique.mockResolvedValue({ id: lesson, course_id: course, learning_courses: { organization_id: null } });
+    db.learning_objectives.findMany.mockResolvedValue([{ id: objective, code: 'LO-1', description: 'Use stop safely.', ordinal: 1 }]);
+    await expect(service.lessonObjectives(admin, lesson)).resolves.toEqual([{ id: objective, code: 'LO-1', description: 'Use stop safely.', ordinal: 1 }]);
   });
   it('rejects a duplicate organization code', async () => {
     db.learning_lessons.findUnique.mockResolvedValue({ course_id: course, learning_courses: { organization_id: org } });
