@@ -312,7 +312,21 @@ export interface ApiClassroomStudentPreviewRow { row:number;firstName:string;las
 export interface ApiClassroomStudentPreview { processed:number;newStudents:number;existingStudents:number;alreadyInClass:number;needsReview:number;rows:ApiClassroomStudentPreviewRow[]; }
 export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string;temporaryPassword?:string;temporaryPasswordExpiresAt?:string;setupCode?:string}>;schoolCode?:string; }
 export interface ApiSchoolClassroom { selfEnrollmentOpen?:boolean; id:string; organization_id:string; offering_id:string; name:string; code:string; description?:string|null; capacity?:number|null; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
-export interface ApiOffering { id:string; code:string; title:string; status:string; }
+export interface ApiOffering {
+  id: string;
+  code: string;
+  title: string;
+  status: string;
+  courseId?: string;
+  courseTitle?: string;
+  academicTerm?: string | null;
+  academicYear?: number | null;
+  startAt?: string | null;
+  endAt?: string | null;
+  enrollmentOpenAt?: string | null;
+  enrollmentCloseAt?: string | null;
+  maxStudents?: number | null;
+}
 export interface ApiChallengeCondition { type: string; description: string | null; ruleKey: string; }
 export interface ApiDeliveryChallenge { id:string; title:string; description?:string|null; conditions?:ApiChallengeCondition[]; }
 export interface ApiDeliveryRubricCriterion { title: string; description: string | null; maxPoints: number | string; }
@@ -536,8 +550,8 @@ export const educationAdminApi = {
   archiveClassroom: (organizationId:string,classroomId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/archive`,token,'POST'),
   reactivateClassroom: (organizationId:string,classroomId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/reactivate`,token,'POST'),
   assignClassroomOffering: (organizationId:string,classroomId:string,offeringId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/offering`,token,'PUT',{offeringId}),
-  createCourseOffering: (organizationId:string, token:string, body:ApiRecord) => apiRequest<ApiOffering>(`/education-admin/organizations/${organizationId}/course-offerings`,token,'POST',body),
-  updateCourseOffering: (organizationId:string, offeringId:string, token:string, body:{code?:string;title?:string;academicTerm?:string;academicYear?:number}) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/course-offerings/${offeringId}`,token,'PATCH',body),
+  createCourseOffering: (organizationId:string, token:string, body:{courseId:string;code:string;title?:string;academicTerm?:string;academicYear?:number;startAt?:string;endAt?:string;enrollmentOpenAt?:string;enrollmentCloseAt?:string;maxStudents?:number}) => apiRequest<ApiOffering>(`/education-admin/organizations/${organizationId}/course-offerings`,token,'POST',body),
+  updateCourseOffering: (organizationId:string, offeringId:string, token:string, body:{code?:string;title?:string;academicTerm?:string;academicYear?:number;startAt?:string;endAt?:string;enrollmentOpenAt?:string;enrollmentCloseAt?:string;maxStudents?:number}) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/course-offerings/${offeringId}`,token,'PATCH',body),
   activateCourseOffering: (organizationId:string, offeringId:string, token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/course-offerings/${offeringId}/activate`,token,'POST'),
   importUsers: (organizationId:string,token:string,body:ApiRecord) => apiRequest<ApiSchoolImportResult>(`/education-admin/organizations/${organizationId}/user-imports`,token,'POST',body),
   issueStudentPasswordRecovery: (organizationId:string,studentId:string,token:string) => apiRequest<ApiStudentPasswordRecoveryCode>(`/education-admin/organizations/${organizationId}/students/${studentId}/password-recovery`,token,'POST'),

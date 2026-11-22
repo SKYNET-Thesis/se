@@ -72,7 +72,17 @@ export class EducationAdminService {
 
   async offerings(user: AuthenticatedUser, organizationId: string) {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.read");
-    return this.prisma.$queryRaw`SELECT o.id,o.code,COALESCE(o.title,c.title) AS title,o.status FROM public.learning_course_offerings o JOIN public.learning_courses c ON c.id=o.course_id WHERE o.organization_id=${organizationId}::uuid ORDER BY o.created_at DESC`;
+    return this.prisma.$queryRaw`
+      SELECT o.id, o.code, COALESCE(o.title, c.title) AS title, o.status,
+             o.academic_term AS "academicTerm", o.academic_year AS "academicYear",
+             o.start_at AS "startAt", o.end_at AS "endAt",
+             o.enrollment_open_at AS "enrollmentOpenAt", o.enrollment_close_at AS "enrollmentCloseAt",
+             o.max_students AS "maxStudents",
+             c.id AS "courseId", c.title AS "courseTitle"
+      FROM public.learning_course_offerings o
+      JOIN public.learning_courses c ON c.id=o.course_id
+      WHERE o.organization_id=${organizationId}::uuid
+      ORDER BY o.created_at DESC`;
   }
 
   async classroomMembers(user: AuthenticatedUser, organizationId: string, classroomId: string) {
@@ -151,14 +161,31 @@ export class EducationAdminService {
     });
   }
 
-  async createCourseOffering(user: AuthenticatedUser, organizationId: string, dto: { courseId: string; code: string; title?: string; academicTerm?: string; academicYear?: number }) {
+  async createCourseOffering(user: AuthenticatedUser, organizationId: string, dto: {
+    courseId: string;
+    code: string;
+    title?: string;
+    academicTerm?: string;
+    academicYear?: number;
+    startAt?: string;
+    endAt?: string;
+    enrollmentOpenAt?: string;
+    enrollmentCloseAt?: string;
+    maxStudents?: number;
+  }) {
     await this.assertOrganizationPermission(user, organizationId, 'education.classroom.manage');
     const course = await this.prisma.learning_courses.findFirst({ where: { id: dto.courseId, status: 'published', OR: [{ organization_id: null }, { organization_id: organizationId }] }, select: { id: true, title: true } });
     if (!course) throw new NotFoundException('Published course was not found.');
     try {
       return await this.prisma.learning_course_offerings.create({ data: {
         organization_id: organizationId, course_id: course.id, code: dto.code.trim(), title: dto.title?.trim() || course.title,
-        academic_term: dto.academicTerm?.trim(), academic_year: dto.academicYear, status: 'draft', created_by: user.vistaUserId,
+        academic_term: dto.academicTerm?.trim() || null, academic_year: dto.academicYear ?? null,
+        start_at: dto.startAt ? new Date(dto.startAt) : null,
+        end_at: dto.endAt ? new Date(dto.endAt) : null,
+        enrollment_open_at: dto.enrollmentOpenAt ? new Date(dto.enrollmentOpenAt) : null,
+        enrollment_close_at: dto.enrollmentCloseAt ? new Date(dto.enrollmentCloseAt) : null,
+        max_students: dto.maxStudents ?? null,
+        status: 'draft', created_by: user.vistaUserId,
       } });
     } catch (error: unknown) {
       if (this.isUniqueViolation(error)) throw new ConflictException('An offering with this code already exists in the organization.');
@@ -181,7 +208,12 @@ export class EducationAdminService {
           ...(dto.code === undefined ? {} : { code: dto.code.trim() }),
           ...(dto.title === undefined ? {} : { title: dto.title.trim() || null }),
           ...(dto.academicTerm === undefined ? {} : { academic_term: dto.academicTerm.trim() || null }),
-          ...(dto.academicYear === undefined ? {} : { academic_year: dto.academicYear }),
+          ...(dto.academicYear === undefined ? {} : { academic_year: dto.academicYear ?? null }),
+          ...(dto.startAt !== undefined ? { start_at: dto.startAt ? new Date(dto.startAt) : null } : {}),
+          ...(dto.endAt !== undefined ? { end_at: dto.endAt ? new Date(dto.endAt) : null } : {}),
+          ...(dto.enrollmentOpenAt !== undefined ? { enrollment_open_at: dto.enrollmentOpenAt ? new Date(dto.enrollmentOpenAt) : null } : {}),
+          ...(dto.enrollmentCloseAt !== undefined ? { enrollment_close_at: dto.enrollmentCloseAt ? new Date(dto.enrollmentCloseAt) : null } : {}),
+          ...(dto.maxStudents !== undefined ? { max_students: dto.maxStudents ?? null } : {}),
           updated_at: new Date(),
         },
       });
