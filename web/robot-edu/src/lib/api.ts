@@ -56,7 +56,7 @@ export interface ApiLearningPath {
   recommendedNext: { id: string; title: string; level: string | null; reason: string } | null;
   levels: Array<{ code: string; label: string; total: number; completed: number }>;
 }
-export interface ApiCourse { levelLabel?: string | null; tags?: string[]; prerequisiteCourseIds?: string[]; enrollmentSync?: ApiEnrollmentSync; id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
+export interface ApiCourse { organizationId?: string | null; levelLabel?: string | null; tags?: string[]; prerequisiteCourseIds?: string[]; enrollmentSync?: ApiEnrollmentSync; id: string; title: string; description: string | null; status: string; label?: string | null; level?: string | null; recommendedGrades?: string | null; learningOutcome?: string | null; competencies?: Array<{ code: string; title: string }>; }
 export interface ApiCollection<T> { items: T[]; page: number; pageSize: number; total?: number; }
 
 export type LessonProgressStatus = "completed" | "current" | "available" | "locked" | "in_progress";
@@ -315,7 +315,7 @@ export interface ApiClassroomStudentPreviewRow { row:number;firstName:string;las
 export interface ApiClassroomStudentPreview { processed:number;newStudents:number;existingStudents:number;alreadyInClass:number;needsReview:number;rows:ApiClassroomStudentPreviewRow[]; }
 export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string;temporaryPassword?:string;temporaryPasswordExpiresAt?:string;setupCode?:string}>;schoolCode?:string; }
 export interface ApiSchoolClassroom { selfEnrollmentOpen?:boolean; id:string; organization_id:string; offering_id:string; name:string; code:string; description?:string|null; capacity?:number|null; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
-export interface ApiOffering { id:string; code:string; title:string; status:string; }
+export interface ApiOffering { id:string; code:string; title:string; status:string; courseId?:string; academicTerm?:string|null; academicYear?:number|null; classrooms?:number; }
 export interface ApiChallengeCondition { type: string; description: string | null; ruleKey: string; }
 export interface ApiDeliveryChallenge { id:string; title:string; description?:string|null; conditions?:ApiChallengeCondition[]; }
 export interface ApiDeliveryRubricCriterion { title: string; description: string | null; maxPoints: number | string; }
