@@ -2,11 +2,12 @@ import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
 /** Mobile and tablet navigation carries the account controls: identity, Account Settings and Logout. Real browser, real API; desktop is unchanged. */
-const fixture = JSON.parse(await readFile(process.env.VISTA_E2E_FIXTURE_FILE!, 'utf8')) as { users: Record<string, { authUserId: string }> };
+const fixture = JSON.parse(await readFile(process.env.VISTA_E2E_FIXTURE_FILE!, 'utf8')) as { users: Record<string, { authUserId: string; email: string }> };
 const authPort = Number(process.env.VISTA_E2E_JWKS_PORT ?? 54321);
 
 async function signIn(page: Page, who: string) {
-  const s = await (await page.request.get(`http://127.0.0.1:${authPort}/token?sub=${fixture.users[who].authUserId}`)).json();
+  const user = fixture.users[who];
+  const s = await (await page.request.get(`http://127.0.0.1:${authPort}/token?sub=${user.authUserId}&email=${encodeURIComponent(user.email)}`)).json();
   await page.goto('/');
   await page.evaluate((v) => localStorage.setItem('sb-127-auth-token', JSON.stringify(v)), s);
 }

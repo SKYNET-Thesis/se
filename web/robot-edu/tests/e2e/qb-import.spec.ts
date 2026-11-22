@@ -191,7 +191,8 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   await create.getByLabel('School offering code').fill(`OFF-QBI-${run}`.toUpperCase());
   await create.getByRole('button', { name: 'Create classroom' }).click();
   await expect(create).not.toBeVisible();
-  await page.getByRole('button', { name: className }).click();
+  await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { name: 'Classroom details' })).toBeVisible();
   for (const person of ['Phase 2.4.3 Test Student', 'Phase 2.4.3 Test Instructor']) {
     await page.getByRole('button', { name: 'Add member' }).click();
     const member = page.getByRole('dialog', { name: 'Add classroom member' });

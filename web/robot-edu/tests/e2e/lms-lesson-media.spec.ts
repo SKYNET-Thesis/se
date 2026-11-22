@@ -159,7 +159,8 @@ test('Lesson text and attached media authored in the UI are what the enrolled st
   await create.getByLabel('School offering code').fill(`OFF-LC-${run}`.toUpperCase());
   await create.getByRole('button', { name: 'Create classroom' }).click();
   await expect(create).not.toBeVisible();
-  await page.getByRole('button', { name: className }).click();
+  await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { name: 'Classroom details' })).toBeVisible();
   await page.getByRole('button', { name: 'Add member' }).click();
   const member = page.getByRole('dialog', { name: 'Add classroom member' });
   await member.getByLabel('Search eligible members').fill('Phase 2.4.3 Test Student');
