@@ -84,6 +84,9 @@ test('Course → Lesson → Section → Activity → Preview → Publish → Cla
   await expect(page).toHaveURL(/\/practice\//);
   await expect(page.getByText('Which command safely stops the robot?')).toBeVisible();
   await page.getByText('Stop motion', { exact: true }).click();
+  await expect(page.getByText('Draft saved')).toBeVisible({ timeout: 10_000 });
+  await page.reload();
+  await expect(page.getByLabel('Stop motion')).toBeChecked();
   await page.getByRole('button', { name: 'Submit quiz' }).click();
   await page.getByRole('dialog', { name: 'Submit this quiz?' }).getByRole('button', { name: 'Submit quiz' }).click();
   await expect(page.getByRole('heading', { name: 'Passed' })).toBeVisible();
