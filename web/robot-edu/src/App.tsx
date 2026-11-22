@@ -113,6 +113,7 @@ export function App() {
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />
                   <Route path="school/users" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="users" /></RequireRole>} />
                   <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />
+                  <Route path="school/classrooms/:classroomId" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />
  <Route path="school/quizzes" element={<RequireRole roles={['school_admin']}><QuizDeliveries audience="school" /></RequireRole>} />
                   <Route path="school/courses" element={<RequireRole roles={['school_admin']}><SchoolCourses /></RequireRole>} />
                   <Route path="school/offerings" element={<RequireRole roles={['school_admin']}><SchoolOfferings /></RequireRole>} />
