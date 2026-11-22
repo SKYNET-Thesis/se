@@ -4,7 +4,7 @@ Spec: `web/robot-edu/tests/e2e/blockly-simulation.spec.ts`. Real Chromium, real 
 `vista_app_runtime` role, disposable PostgreSQL 17, local JWKS signer. Fixture: the WF-03 local fixture (seeded
 "Robotics Fundamentals" course, challenge **Reach Target A**). Result: **3/3 consecutive passes (≈22 s each)**.
 
-Run (see `docs/operations/phase-2-4-3-local-acceptance.md` for the stack): `VISTA_E2E_FIXTURE_FILE=/tmp/vista-wf03-e2e-fixture-*.json
+Run (see `docs/operations/phase-2-4-3-local-acceptance.md` for the stack): `VISTA_E2E_WF03_FIXTURE_FILE=/tmp/vista-wf03-e2e-fixture-*.json
 VISTA_E2E_API_BASE_URL=http://127.0.0.1:3001/api/v1 VISTA_E2E_JWKS_PORT=54323 npx playwright test tests/e2e/blockly-simulation.spec.ts`.
 
 ## Journey and what each step proves

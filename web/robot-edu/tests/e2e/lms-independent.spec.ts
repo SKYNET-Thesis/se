@@ -38,13 +38,31 @@ async function signIn(page: Page, authUserId: string): Promise<void> {
   await page.reload();
 }
 
+test('School Admin classroom directory searches, filters and opens a deep-linked detail page', async ({ page }) => {
+  await signIn(page, fixture.users.schoolAdmin.authUserId);
+  await page.goto('/school/classrooms');
+  await expect(page.getByRole('heading', { name: 'Classrooms' })).toBeVisible();
+  const search = page.getByRole('textbox', { name: 'Search classrooms' });
+  await search.fill('Phase 2.4.3 Test Classroom');
+  await expect(page.getByText('Phase 2.4.3 Test Classroom')).toBeVisible();
+  await page.getByLabel('Classroom status').selectOption('active');
+  await expect(page).toHaveURL(/status=active/);
+  await page.locator('article').filter({ hasText: 'Phase 2.4.3 Test Classroom' }).getByRole('link', { name: 'Open classroom' }).click();
+  await expect(page).toHaveURL(new RegExp(`/school/classrooms/${fixture.classroomId}$`));
+  await expect(page.getByRole('heading', { name: 'Classroom details' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Phase 2.4.3 Test Classroom' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'School administration navigation' }).getByRole('link', { name: 'Courses' })).toHaveAttribute('href', '/school/courses');
+});
+
 test('School Admin creates a classroom and enrolls an existing student', async ({ page }) => {
   await signIn(page, fixture.users.schoolAdmin.authUserId);
   await page.goto('/school/classrooms');
   await expect(page.getByRole('heading', { name: 'Classrooms' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Phase 2.4.3 Test Classroom' })).toBeVisible();
+  await expect(page.getByText('Phase 2.4.3 Test Classroom')).toBeVisible();
   const name = 'Phase 2.4.3 UI Classroom';
-  if (!(await page.getByRole('button', { name }).count())) {
+  await page.getByRole('textbox', { name: 'Search classrooms' }).fill(name);
+  const classroomAlreadyExists = (await page.getByText(name).count()) > 0;
+  if (!classroomAlreadyExists) {
     await page.getByRole('button', { name: 'Create classroom' }).click();
     const dialog = page.getByRole('dialog', { name: 'Create classroom' });
     await dialog.getByLabel('Classroom name').fill(name);
@@ -53,8 +71,10 @@ test('School Admin creates a classroom and enrolls an existing student', async (
     await dialog.getByLabel('School offering code').fill(`E2E-243-UI-OFFERING`);
     await dialog.getByRole('button', { name: 'Create classroom' }).click();
     await expect(dialog).not.toBeVisible();
+    await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);
+  } else {
+    await page.locator('article').filter({ hasText: name }).getByRole('link', { name: 'Open classroom' }).click();
   }
-  await page.getByRole('button', { name }).click();
   await page.waitForLoadState('networkidle'); // the roster must be loaded before deciding whether the student still has to be added
   if (!(await page.getByText('Phase 2.4.3 Test Student').count())) {
     await page.getByRole('button', { name: 'Add member' }).click();
@@ -65,7 +85,7 @@ test('School Admin creates a classroom and enrolls an existing student', async (
   }
   await expect(page.getByText('Phase 2.4.3 Test Student')).toBeVisible();
   await page.reload();
-  await page.getByRole('button', { name }).click();
+  await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);
   await expect(page.getByText('Phase 2.4.3 Test Student')).toBeVisible();
 });
 

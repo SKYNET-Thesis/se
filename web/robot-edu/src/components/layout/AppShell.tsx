@@ -1,8 +1,8 @@
 import { isInternalAlias, initialsOf, useDisplayName } from '../../lib/displayName';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { LogOutIcon, MenuIcon, SettingsIcon, XIcon } from 'lucide-react';
+import { LogOutIcon, MenuIcon, SettingsIcon, UserIcon, XIcon } from 'lucide-react';
 import { NotificationBell } from './NotificationBell';
 import { SidebarNav } from './SidebarNav';
 import { VistaMark } from './VistaMark';
@@ -18,9 +18,14 @@ export function AppShell() {
   const [accountOpen, setAccountOpen] = useState(false); const { client, session } = useSupabaseSession(); const { role } = useRole(); const navigate = useNavigate();
   const email=isInternalAlias(session?.user.email)?'':(session?.user.email??''); const label=useDisplayName(email||'Account'); const initials=initialsOf(String(label));
   const logout=async()=>{await client?.auth.signOut();navigate('/login',{replace:true});};
+  // Mobile navigation drawer: focus moves into it when it opens and returns to the menu button when it is dismissed (Escape, close, backdrop).
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dismissDrawer = () => { setDrawerOpen(false); window.setTimeout(() => menuButtonRef.current?.focus(), 0); };
+  useEffect(() => { if (drawerOpen) window.setTimeout(() => closeButtonRef.current?.focus(), 0); }, [drawerOpen]);
 
   useEffect(() => setDrawerOpen(false), [location.pathname]);
-  useEffect(() => { if (!drawerOpen) return; const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setDrawerOpen(false); }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown); }, [drawerOpen]);
+  useEffect(() => { if (!drawerOpen) return; const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') dismissDrawer(); }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown); }, [drawerOpen]);
 
   return (
     <div className="flex h-full w-full bg-canvas">
@@ -51,6 +56,7 @@ export function AppShell() {
           <div className="flex items-center gap-1">
             <NotificationBell />
             <button
+              ref={menuButtonRef}
               type="button"
               onClick={() => setDrawerOpen(true)}
               className="rounded-md p-2 text-ink-muted hover:bg-sunken hover:text-ink"
@@ -76,7 +82,7 @@ export function AppShell() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
-            onClick={() => setDrawerOpen(false)}
+            onClick={dismissDrawer}
             aria-hidden />
           
             <motion.aside
@@ -91,13 +97,23 @@ export function AppShell() {
             
               <div className="mb-6 flex items-center justify-between px-2">
                 <VistaMark />
-                <button type="button" onClick={() => setDrawerOpen(false)} className="rounded-md p-1.5 text-ink-muted hover:bg-sunken" aria-label="Close navigation">
+                <button ref={closeButtonRef} type="button" onClick={dismissDrawer} className="rounded-md p-1.5 text-ink-muted hover:bg-sunken" aria-label="Close navigation">
                   <XIcon className="h-5 w-5" />
                 </button>
               </div>
               <div className="flex-1 overflow-y-auto">
                 <SidebarNav onNavigate={() => setDrawerOpen(false)} />
               </div>
+              <section aria-label="Account" className="mt-3 border-t border-line pt-3">
+                <div className="px-2 pb-2">
+                  <p className="truncate text-sm font-semibold text-ink">{String(label)}</p>
+                  {email && <p className="mt-0.5 truncate text-xs text-ink-muted">{email}</p>}
+                  <p className="mt-0.5 text-xs capitalize text-ink-muted">{role?.replace('_', ' ')}</p>
+                </div>
+                <Link to="/account" onClick={() => setDrawerOpen(false)} className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm text-ink hover:bg-sunken"><UserIcon className="h-4 w-4" aria-hidden />Account Settings</Link>
+                <Link to="/settings" onClick={() => setDrawerOpen(false)} className="flex min-h-11 items-center gap-2 rounded-md px-2 text-sm text-ink hover:bg-sunken"><SettingsIcon className="h-4 w-4" aria-hidden />Settings</Link>
+                <button type="button" onClick={() => { setDrawerOpen(false); void logout(); }} className="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-sm text-ink hover:bg-sunken"><LogOutIcon className="h-4 w-4" aria-hidden />Logout</button>
+              </section>
             </motion.aside>
           </div>
         }

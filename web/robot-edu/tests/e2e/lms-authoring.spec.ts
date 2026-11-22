@@ -121,7 +121,8 @@ test('Journey 1: instructor authors, previews and publishes a school course; an 
   await dialog.getByLabel('School offering code').fill(`OFF-J1-${run}`.toUpperCase());
   await dialog.getByRole('button', { name: 'Create classroom' }).click();
   await expect(dialog).not.toBeVisible();
-  await page.getByRole('button', { name: `RC J1 ${run}` }).click();
+  await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { name: 'Classroom details' })).toBeVisible();
   await page.getByRole('button', { name: 'Add member' }).click();
   const memberDialog = page.getByRole('dialog', { name: 'Add classroom member' });
   await memberDialog.getByLabel('Search eligible members').fill('Phase 2.4.3 Test Student');
@@ -292,7 +293,8 @@ test('Journey 2: instructor authors a school question, builds and configures a q
   await create.getByLabel('School offering code').fill(`OFF-J2-${run}`.toUpperCase());
   await create.getByRole('button', { name: 'Create classroom' }).click();
   await expect(create).not.toBeVisible();
-  await page.getByRole('button', { name: className }).click();
+  await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { name: 'Classroom details' })).toBeVisible();
   for (const person of ['Phase 2.4.3 Test Student', 'Phase 2.4.3 Test Instructor']) {
     await page.getByRole('button', { name: 'Add member' }).click();
     const member = page.getByRole('dialog', { name: 'Add classroom member' });

@@ -1,3 +1,4 @@
+import { CourseOfferingsPanel } from '../../components/authoring/CourseOfferingsPanel';
 import { CourseAcademicFields, sameAcademic, type AcademicValue } from '../../components/academic/CourseAcademicFields';
 import { isAcademicLevel } from '../../components/academic/LevelBadge';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
@@ -465,6 +466,7 @@ export function CourseBuilder() {
                     </Button>
                   </div>
                 </section>
+                <div className="mt-5"><CourseOfferingsPanel course={course} token={token} /></div>
               </div>
             )}
           </main>

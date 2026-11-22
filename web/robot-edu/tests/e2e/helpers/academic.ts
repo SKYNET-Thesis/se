@@ -31,7 +31,8 @@ export async function deliverCourse(page: Page, fixture: Fixture, courseTitle: s
   await create.getByLabel('School offering code').fill(`OFF-${code}`.slice(0, 40));
   await create.getByRole('button', { name: 'Create classroom' }).click();
   await expect(create).not.toBeVisible();
-  await page.getByRole('button', { name: className }).click();
+  await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { name: 'Classroom details' })).toBeVisible();
   for (const person of members) {
     await page.getByRole('button', { name: 'Add member' }).click();
     const member = page.getByRole('dialog', { name: 'Add classroom member' });

@@ -1,3 +1,4 @@
+import { describeLearningLoadFailure } from '../queries/learningLoadError';
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { ArrowRightIcon, BookOpenIcon, Clock3Icon, GraduationCapIcon, SearchIcon, SearchXIcon, SparklesIcon, UsersIcon } from "lucide-react";
@@ -37,7 +38,7 @@ export function Courses() {
       const pathByCourse = new Map((paths as CoursePathResponse[]).map((path) => [path.course.id, path]));
       setCourses(result.items.map((course, index) => ({ ...course, lessonCount: lessonCounts[index], access: enrolled.has(course.id) ? "enrolled" : "teacher", progressPercent: pathByCourse.get(course.id)?.progressPercent ?? 0 })));
       setAttempts(ownAttempts);
-    })().catch((requestError: unknown) => { if (active) setError(requestError instanceof Error ? requestError.message : "Could not load your learning space."); }).finally(() => { if (active) setLoading(false); });
+    })().catch((requestError: unknown) => { if (active) setError(describeLearningLoadFailure(requestError).message); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [session]);
 
@@ -69,7 +70,7 @@ export function Courses() {
         {(levelFilter || tagFilter) && <button type="button" onClick={() => { setLevelFilter(""); setTagFilter(""); }} className="text-sm font-medium text-accent-ink underline">Clear filters</button>}
         <Link to="/learning-path" className="ml-auto text-sm font-medium text-accent-ink underline">View my learning path</Link>
       </div>
-      {loading ? <CourseSkeletons /> : visible.length === 0 ? <EmptyState icon={<SearchXIcon />} title={courses.length ? "No matching courses" : "No courses yet"} description={courses.length ? "Try a different search." : "Ask your teacher to add you to a classroom or course."} /> : <div className="mt-5 grid gap-4 md:grid-cols-2">{visible.map((course) => <CourseTile key={course.id} course={course} />)}</div>}</section>
+      {loading ? <CourseSkeletons /> : error ? null : visible.length === 0 ? <EmptyState icon={<SearchXIcon />} title={courses.length ? "No matching courses" : "No courses yet"} description={courses.length ? "Try a different search." : "Ask your teacher to add you to a classroom or course."} /> : <div className="mt-5 grid gap-4 md:grid-cols-2">{visible.map((course) => <CourseTile key={course.id} course={course} />)}</div>}</section>
       <aside className="space-y-5 xl:sticky xl:top-7 xl:self-start"><section className="rounded-xl border border-line bg-surface p-5"><div className="flex items-center gap-2"><SparklesIcon className="h-4 w-4 text-accent" /><h2 className="text-sm font-semibold text-ink">Keep going</h2></div><p className="mt-3 text-sm leading-relaxed text-ink-muted">{inProgress ? "You have an unfinished practice mission. Continue from the course where you left off." : "Start with the first lesson in one of your assigned courses. Every mission has a guided robot preview."}</p>{courses[0] && <Link to={`/courses/${courses[0].id}`} className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-accent-ink hover:text-accent">{inProgress ? "Continue learning" : "Begin a course"} <ArrowRightIcon className="h-4 w-4" /></Link>}</section>
       <section className="rounded-xl border border-line bg-surface p-5"><div className="flex items-center gap-2"><UsersIcon className="h-4 w-4 text-accent" /><h2 className="text-sm font-semibold text-ink">How course access works</h2></div><ol className="mt-4 space-y-3 text-sm leading-relaxed text-ink-muted"><li className="flex gap-3"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-sunken text-[11px] font-semibold text-ink">1</span>Your teacher adds you to a class or course.</li><li className="flex gap-3"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-sunken text-[11px] font-semibold text-ink">2</span>The course appears here automatically.</li><li className="flex gap-3"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-sunken text-[11px] font-semibold text-ink">3</span>New missions show as updates when your teacher publishes them.</li></ol><p className="mt-4 rounded-md bg-sunken px-3 py-2 text-xs leading-relaxed text-ink-muted">Want a different course? Ask your teacher for an enrollment or classroom invite.</p></section></aside>
     </div>

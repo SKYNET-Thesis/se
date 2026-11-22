@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KnowledgeCheckAttempt, type PublicQuizSnapshot } from './KnowledgeCheckAttempt';
@@ -79,6 +79,100 @@ describe('KnowledgeCheckAttempt', () => {
       const confirm = [...document.querySelectorAll('button')].filter((b) => b.textContent === 'Submit quiz').pop()!;
       await act(async () => { confirm.click(); });
       expect(onSubmit).toHaveBeenCalledWith([{ questionId: 'question-v1', optionId: 'stop' }]);
+    });
+  });
+
+  describe('autosave and submission reliability (A06)', () => {
+    afterEach(() => { vi.useRealTimers(); });
+    const ok = { attemptId: 'attempt-1', passed: true, score: 100, passPercent: 80, completedLessonId: null, newlyUnlockedLessonIds: [] };
+    const clickOption = async (value: string) => {
+      const option = [...container.querySelectorAll('input')].find((input) => input.value === value)!;
+      await act(async () => { option.click(); });
+    };
+    const deferred = <T,>() => {
+      let resolve!: (value: T) => void;
+      let reject!: (reason?: unknown) => void;
+      const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+      return { promise, resolve, reject };
+    };
+
+    it('serializes overlapping autosaves and writes the newest answers last', async () => {
+      vi.useFakeTimers();
+      const first = deferred<void>(); const second = deferred<void>();
+      const saves: Array<{ answers: unknown; pending: ReturnType<typeof deferred<void>> }> = [];
+      const onSaveDraft = vi.fn((answers) => {
+        const pending = saves.length === 0 ? first : second;
+        saves.push({ answers, pending });
+        return pending.promise;
+      });
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Robot Safety" snapshot={snapshot} onSubmit={vi.fn()} onSaveDraft={onSaveDraft} />); });
+
+      await clickOption('stop');
+      await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+      expect(onSaveDraft).toHaveBeenCalledTimes(1);
+      await clickOption('home');
+      await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+      expect(onSaveDraft).toHaveBeenCalledTimes(1);
+
+      await act(async () => { first.resolve(); await first.promise; });
+      expect(onSaveDraft).toHaveBeenCalledTimes(2);
+      expect(onSaveDraft.mock.calls[1][0]).toEqual([{ questionId: 'question-v1', optionId: 'home' }]);
+      await act(async () => { second.resolve(); await second.promise; });
+    });
+
+    it('flushes the latest draft before final submission and freezes answers while submitting', async () => {
+      vi.useFakeTimers();
+      const first = deferred<void>(); const latest = deferred<void>(); const submission = deferred<typeof ok>();
+      const onSaveDraft = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(latest.promise);
+      const onSubmit = vi.fn(() => submission.promise);
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Robot Safety" snapshot={snapshot} onSubmit={onSubmit} onSaveDraft={onSaveDraft} />); });
+
+      await clickOption('stop');
+      await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+      await clickOption('home');
+      await act(async () => { [...container.querySelectorAll('button')].find((button) => button.textContent === 'Submit quiz')!.click(); });
+
+      expect(container.querySelector('fieldset')!.disabled).toBe(true);
+      expect(onSubmit).not.toHaveBeenCalled();
+      await act(async () => { first.resolve(); await first.promise; });
+      expect(onSaveDraft).toHaveBeenCalledTimes(2);
+      expect(onSaveDraft.mock.calls[1][0]).toEqual([{ questionId: 'question-v1', optionId: 'home' }]);
+      await act(async () => { latest.resolve(); await latest.promise; });
+      expect(onSubmit).toHaveBeenCalledWith([{ questionId: 'question-v1', optionId: 'home' }]);
+      await act(async () => { submission.resolve(ok); await submission.promise; });
+    });
+
+    it('flushes the latest answer before same-tab navigation, even before the debounce fires', async () => {
+      const save = deferred<void>();
+      const onSaveDraft = vi.fn(() => save.promise);
+      await act(async () => { root.render(<MemoryRouter initialEntries={['/quiz']}><Routes>
+        <Route path="/quiz" element={<><KnowledgeCheckAttempt title="Robot Safety" snapshot={snapshot} onSubmit={vi.fn()} onSaveDraft={onSaveDraft} /><Link to="/next">Leave quiz</Link></>} />
+        <Route path="/next" element={<p>Next page</p>} />
+      </Routes></MemoryRouter>); });
+
+      await clickOption('home');
+      await act(async () => { (container.querySelector('a[href="/next"]') as HTMLAnchorElement).click(); });
+      expect(onSaveDraft).toHaveBeenCalledTimes(1);
+      expect(onSaveDraft).toHaveBeenCalledWith([{ questionId: 'question-v1', optionId: 'home' }]);
+      expect(container.textContent).not.toContain('Next page');
+
+      await act(async () => { save.resolve(); await save.promise; });
+      expect(container.textContent).toContain('Next page');
+    });
+
+    it('offers an explicit retry after autosave fails and keeps the latest answer', async () => {
+      vi.useFakeTimers();
+      const onSaveDraft = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(undefined);
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Robot Safety" snapshot={snapshot} onSubmit={vi.fn()} onSaveDraft={onSaveDraft} />); });
+      await clickOption('stop');
+      await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+      expect(container.textContent).toContain('Draft could not be saved');
+      const retry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Retry save');
+      expect(retry).toBeTruthy();
+      await act(async () => { retry!.click(); });
+      expect(onSaveDraft).toHaveBeenCalledTimes(2);
+      expect(onSaveDraft.mock.calls[1][0]).toEqual([{ questionId: 'question-v1', optionId: 'stop' }]);
+      expect(container.textContent).toContain('Draft saved');
     });
   });
   it('links back to the quiz page after a result so the learner can see remaining attempts and retake', async () => {

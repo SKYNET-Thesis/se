@@ -102,6 +102,7 @@ test('Journey: System Admin -> School Admin -> Instructor -> Student -> grade ->
   // 5. Student studies and passes the module quiz (UI), then submits the assignment.
   const studentToken = await signIn(page, tenant, 'student');
   const sections = await call(page, studentToken, 'GET', `/lessons/${lessons[0].id}/sections`);
+  expect(sections.status, `Student lesson sections request failed: ${JSON.stringify(sections.body)}`).toBe(200);
   const activities = ((Array.isArray(sections.body) ? sections.body : sections.body.sections) as Array<{ activities?: Array<{ id: string; type: string }> }>).flatMap((s) => s.activities ?? []);
   for (const reading of activities.filter((a) => a.type === 'reading')) expect([200, 201]).toContain((await call(page, studentToken, 'POST', `/me/activities/${reading.id}/complete`, {})).status);
   await page.goto('/my-learning');
