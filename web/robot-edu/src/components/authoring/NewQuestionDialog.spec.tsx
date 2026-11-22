@@ -62,4 +62,18 @@ describe('NewQuestionDialog', () => {
     expect(JSON.stringify(body)).not.toMatch(/organization/i);
     expect(onCreated).toHaveBeenCalled(); expect(onClose).toHaveBeenCalled();
   });
+
+  it('shows an authorization or lesson error and keeps the dialog open', async () => {
+    api.authorQuestion.mockRejectedValue(new Error('Lesson was not found.'));
+    const { onClose, onCreated } = await mount();
+    await set(document.querySelector('textarea')!, 'Which command stops the robot?');
+    await set(byLabel('Option 1'), 'Stop'); await set(byLabel('Option 2'), 'Go');
+    await click(byLabel('Correct answer 1'));
+    await set(document.querySelectorAll('textarea')[1], 'Stop halts all joints.');
+    await set(document.querySelector('input[placeholder="Learners can …"]')!, 'Learners can stop a robot.');
+    await click(save());
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Lesson was not found.');
+    expect(onCreated).not.toHaveBeenCalled(); expect(onClose).not.toHaveBeenCalled();
+  });
 });

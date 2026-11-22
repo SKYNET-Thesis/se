@@ -44,7 +44,7 @@ export function NewQuestionDialog({ open, onClose, lessonId, token, onCreated }:
   };
   const toggle = (id: string) => setCorrect((current) => type === 'multiple_choice' ? (current.includes(id) ? current.filter((x) => x !== id) : [...current, id]) : [id]);
   const message = localError ?? (create.error instanceof Error ? create.error.message : null);
-  return <Dialog open={open} onClose={() => { reset(); onClose(); }} title="New question" size="lg" description="Saved to your school's Question Bank and published for this quiz."
+  return <Dialog open={open} onClose={() => { reset(); onClose(); }} title="New question" size="lg" description="Saved to this course's Question Bank and published for this quiz."
     footer={<><Button variant="secondary" onClick={() => { reset(); onClose(); }}>Cancel</Button><Button loading={create.isPending} onClick={submit}>Save and publish question</Button></>}>
     <div className="space-y-3">
       <label className="block text-sm font-medium">Question type
