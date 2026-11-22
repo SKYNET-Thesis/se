@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KnowledgeCheckAttempt, type PublicQuizSnapshot } from './KnowledgeCheckAttempt';
@@ -140,6 +140,24 @@ describe('KnowledgeCheckAttempt', () => {
       await act(async () => { latest.resolve(); await latest.promise; });
       expect(onSubmit).toHaveBeenCalledWith([{ questionId: 'question-v1', optionId: 'home' }]);
       await act(async () => { submission.resolve(ok); await submission.promise; });
+    });
+
+    it('flushes the latest answer before same-tab navigation, even before the debounce fires', async () => {
+      const save = deferred<void>();
+      const onSaveDraft = vi.fn(() => save.promise);
+      await act(async () => { root.render(<MemoryRouter initialEntries={['/quiz']}><Routes>
+        <Route path="/quiz" element={<><KnowledgeCheckAttempt title="Robot Safety" snapshot={snapshot} onSubmit={vi.fn()} onSaveDraft={onSaveDraft} /><Link to="/next">Leave quiz</Link></>} />
+        <Route path="/next" element={<p>Next page</p>} />
+      </Routes></MemoryRouter>); });
+
+      await clickOption('home');
+      await act(async () => { container.querySelector('a[href="/next"]')!.click(); });
+      expect(onSaveDraft).toHaveBeenCalledTimes(1);
+      expect(onSaveDraft).toHaveBeenCalledWith([{ questionId: 'question-v1', optionId: 'home' }]);
+      expect(container.textContent).not.toContain('Next page');
+
+      await act(async () => { save.resolve(); await save.promise; });
+      expect(container.textContent).toContain('Next page');
     });
 
     it('offers an explicit retry after autosave fails and keeps the latest answer', async () => {
