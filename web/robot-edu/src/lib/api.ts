@@ -439,12 +439,17 @@ export const progressionApi = {
   qualifiedL4Version: (courseId: string, token: string) =>
     apiGet<ApiQualifiedProgramHandoff | null>(`/me/courses/${courseId}/qualification/c1-l4`, token),
   coursePaths: async (token: string): Promise<CoursePathResponse[]> => {
-    const enrollments = await learnerApi.enrollments(token).catch(() => [] as ApiEnrollment[]);
+    // A failed enrolment request is an ERROR, never an empty list: an expired session, a network drop or a server fault must not look like "no courses".
+    const enrollments = await learnerApi.enrollments(token);
     const courseIds = enrollments.filter((e) => e.status === "active" && e.course_id).map((e) => e.course_id);
     if (!courseIds.length) return [];
     const uniqueIds = Array.from(new Set(courseIds));
     const paths = await Promise.all(
-      uniqueIds.map((id) => progressionApi.coursePath(id, token).catch(() => null))
+      // Only a course the API says is no longer available (404 not found / 403 no access) is left out; any other failure is surfaced.
+      uniqueIds.map((id) => progressionApi.coursePath(id, token).catch((reason: unknown) => {
+        if (reason instanceof ApiError && (reason.status === 404 || reason.status === 403)) return null;
+        throw reason;
+      }))
     );
     return paths.filter((p): p is CoursePathResponse => Boolean(p));
   },
