@@ -151,7 +151,7 @@ describe('KnowledgeCheckAttempt', () => {
       </Routes></MemoryRouter>); });
 
       await clickOption('home');
-      await act(async () => { container.querySelector('a[href="/next"]')!.click(); });
+      await act(async () => { (container.querySelector('a[href="/next"]') as HTMLAnchorElement).click(); });
       expect(onSaveDraft).toHaveBeenCalledTimes(1);
       expect(onSaveDraft).toHaveBeenCalledWith([{ questionId: 'question-v1', optionId: 'home' }]);
       expect(container.textContent).not.toContain('Next page');
