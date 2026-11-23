@@ -83,3 +83,38 @@ describe('homepage STL worker lifecycle', () => {
     expect(worker.terminate).toHaveBeenCalledOnce(); expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe('indexed web meshes through the worker client', () => {
+  let worker: FakeWorker; let client: StlWorkerClient;
+  beforeEach(() => { vi.useFakeTimers(); worker = new FakeWorker(); client = new StlWorkerClient(() => worker); });
+  afterEach(() => { client.dispose(); vi.useRealTimers(); });
+  const vertices = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0]); // four vertices: not a multiple of nine floats, valid when indexed
+
+  it('accepts indexed geometry with 16- or 32-bit indices', async () => {
+    for (const index of [new Uint16Array([0, 1, 2, 1, 3, 2]), new Uint32Array([0, 1, 2])]) {
+      const job = watch(client.parse('arm.msh')); const id = worker.postMessage.mock.calls.at(-1)![0].id;
+      worker.reply({ id, position: vertices, normal: new Float32Array(12), index });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(job.resolved).toHaveBeenCalledWith({ position: vertices, normal: expect.any(Float32Array), index }); expect(job.rejected).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each([
+    ['an index outside the vertices', { index: new Uint16Array([0, 1, 9]) }],
+    ['indices that are not whole triangles', { index: new Uint16Array([0, 1]) }],
+    ['indices of the wrong type', { index: new Int16Array([0, 1, 2]) }],
+    ['normals that do not match the vertices', { index: new Uint16Array([0, 1, 2]), normal: new Float32Array(3) }],
+  ])('rejects %s and fails the whole client', async (_name, extra) => {
+    const job = watch(client.parse('arm.msh')); const id = worker.postMessage.mock.calls.at(-1)![0].id;
+    worker.reply({ id, position: vertices, ...extra });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(job.rejected).toHaveBeenCalledOnce(); expect(job.resolved).not.toHaveBeenCalled(); expect(worker.terminate).toHaveBeenCalledOnce();
+  });
+
+  it('still requires whole triangles for non-indexed (STL) meshes', async () => {
+    const job = watch(client.parse('arm.stl')); const id = worker.postMessage.mock.calls.at(-1)![0].id;
+    worker.reply({ id, position: vertices });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(job.rejected).toHaveBeenCalledOnce();
+  });
+});

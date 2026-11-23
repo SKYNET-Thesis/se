@@ -46,7 +46,7 @@ IAM role), `LEARNING_MEDIA_S3_ACCESS_KEY/SECRET_KEY`, every `RUN_*`, `VISTA_TEST
 ### Web build (Vite, public values only)
 
 `VITE_API_BASE_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (public). Optional feature flags: `VITE_DIGITAL_TWIN_WS_URL`,
-`VITE_ROBOT_EXECUTION_CLIENT`, `VITE_ROBOT_HARDWARE_ADAPTER_URL`, `VITE_HOME_V2_PREVIEW`, `VITE_SO101_3D_CLEARED` (robot/marketing, outside Web LMS acceptance).
+`VITE_ROBOT_EXECUTION_CLIENT`, `VITE_ROBOT_HARDWARE_ADAPTER_URL`, `VITE_HOME_V2_PREVIEW`, `VITE_SO101_3D_DISABLED` (kill switch: `true` makes the homepage take its poster path; the real 3D arm is on by default since its Apache-2.0 meshes were verified; the former opt-in `VITE_SO101_3D_CLEARED` is no longer read) (robot/marketing, outside Web LMS acceptance).
 Never place a service-role key, token or secret behind a `VITE_` prefix.
 
 ## 2. Supabase readiness checklist (hosted project — operator steps, not performed)

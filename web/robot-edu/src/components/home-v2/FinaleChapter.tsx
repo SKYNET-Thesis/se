@@ -3,7 +3,6 @@ import { useHomeCta } from '../home/HomeCta';
 import { approvedCredits } from '../home/media/homeAssets';
 import { useReveal } from '../home/useReveal';
 import { CREDITS, NAV } from './content';
-import { SO101_3D_ALLOWED } from './V2Scene';
 
 /**
  * S9 — the closing frame: the live arm seen from behind in rim light (not the hero again), the final
@@ -50,7 +49,6 @@ export function FinaleChapter() {
           </div>
           <div className="md:col-span-3 md:col-start-10">
             <p className="text-[14px] leading-[1.55] text-[var(--v2-soft)]">Every robot view on this page is a 3D preview. Physical robot execution is locked in this release.</p>
-            {SO101_3D_ALLOWED && import.meta.env.DEV && <p className="mt-3 text-[13px] text-[var(--v2-muted)]">Development build of Homepage V2.</p>}
             <p className="mt-3 text-[13px] text-[var(--v2-muted)]">© 2026 VISTA</p>
           </div>
         </div>

@@ -7,11 +7,12 @@ import type { CameraRig, RobotScene, StageAxis } from '../home-lab/robotScene';
 import { AssetMedia } from '../home/media/AssetMedia';
 
 /**
- * The SO-101 model is derived from the repository URDF/STL whose hardware design licence is unverified.
- * It renders only in development builds, or when a build explicitly sets VITE_SO101_3D_CLEARED=true
- * after the licence is cleared. Every other build takes the poster path (`home.v2.robot.poster`).
+ * The SO-101 model files are the unmodified SO-ARM100 STL meshes (Apache License 2.0, TheRobotStudio), verified byte-for-byte against
+ * the upstream repository, plus web derivatives of them; see public/assets/so101/NOTICE.md. The real 3D arm therefore renders in
+ * every build. VITE_SO101_3D_DISABLED=true is the kill switch: that build takes the poster path (`home.v2.robot.poster`), as does any
+ * browser without WebGL.
  */
-export const SO101_3D_ALLOWED = import.meta.env.DEV || import.meta.env.VITE_SO101_3D_CLEARED === 'true';
+export const SO101_3D_ALLOWED = import.meta.env.VITE_SO101_3D_DISABLED !== 'true';
 
 /** Loaded only when 3D is allowed, so a build without licence clearance contains no 3D model code. */
 const RobotCanvas = SO101_3D_ALLOWED ? lazy(() => import('../home-lab/RobotCanvas').then((m) => ({ default: m.RobotCanvas }))) : null;
@@ -197,6 +198,7 @@ export function V2SceneProvider({ children }: { children: ReactNode }) {
   }), []);
   const lastView = useRef<SpaceView>('product');
   const crane = useRef(0);
+  const entryTimer = useRef(0);
   const [mode, setMode] = useState<'3d' | 'poster'>(() => (RobotCanvas && webglMaybeAvailable() ? '3d' : 'poster'));
   const onStatus = useCallback((next: StageStatus) => { setStatus(next); if (next === 'error') setMode('poster'); }, []);
   const hiddenSince = useRef(false);
@@ -245,12 +247,14 @@ export function V2SceneProvider({ children }: { children: ReactNode }) {
     if (!ready || !s || !active) return;
     const cut = hiddenSince.current || reduce;
     hiddenSince.current = false;
+    s.resetUserOrbit(cut); // a reader's orbit belongs to the chapter they turned it in
+    window.clearTimeout(entryTimer.current); // the hero's delayed dolly must not land after the reader has left the hero
     if (active === 'hero') {
       if (!entered.current && !reduce) {
         // Signature move (from Concept A): dolly in from a wide, dark frame while the key light rises.
         entered.current = true;
         s.setRig(rigFor('entry'), true); s.setLight(0.05, true);
-        window.setTimeout(() => { s.setRig(rigFor('hero')); s.setLight(1); }, 120);
+        entryTimer.current = window.setTimeout(() => { s.setRig(rigFor('hero')); s.setLight(1); }, 120);
       } else { entered.current = true; s.setRig(rigFor('hero'), cut); s.setLight(1, cut); }
       s.setStageVisible(0, cut); s.setTargetOverlay(TARGET_A, 0); s.setGlow(0);
     } else if (active === 'lesson') {
@@ -357,7 +361,7 @@ export function V2SceneProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={value}>
-      <div aria-hidden={mode === 'poster' ? true : undefined} className={cn('pointer-events-none fixed inset-0 z-0 transition-opacity duration-500', visible ? 'opacity-100' : 'opacity-0')}>
+      <div aria-hidden={mode === 'poster' ? true : undefined} data-active-chapter={active ?? ''} className={cn('pointer-events-none fixed inset-0 z-0 transition-opacity duration-500', visible ? 'opacity-100' : 'opacity-0')}>
         {mode === '3d' && RobotCanvas ? (
           <Suspense fallback={<div className="absolute inset-0 bg-[#0b0d0f]" data-stage-status="loading" />}>
           <RobotCanvas

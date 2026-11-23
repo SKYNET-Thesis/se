@@ -337,8 +337,8 @@ html:has(.vista-v2) {
 }
 .v2-loop-plate {
   --pad: clamp(10px, 1.1vw, 16px);
-  --band: 124px;
-  --sw: min(calc(100cqw - 2 * var(--pad)), calc((100cqh - var(--band) - 3 * var(--pad)) * 1.6));
+  --band: 0px;
+  --sw: min(calc(100cqw - 2 * var(--pad)), calc((100cqh - 2 * var(--pad)) * 1.6));
   position: absolute;
   bottom: 0;
   left: 0;
@@ -346,7 +346,6 @@ html:has(.vista-v2) {
   gap: var(--pad);
   padding: var(--pad);
   border-radius: 6px;
-  background: var(--v2-graphite-2);
 }
 .v2-loop-screen-box {
   width: var(--sw);
@@ -355,17 +354,6 @@ html:has(.vista-v2) {
 .v2-loop-band {
   height: var(--band);
   container: loopband / inline-size;
-}
-/* A wide, short stage (a 1920 × 700 window): the band moves beside the screen, and the screen grows. */
-@container loop (min-aspect-ratio: 17 / 10) and (max-height: 620px) {
-  .v2-loop-plate {
-    --side: 300px;
-    grid-template-columns: auto var(--side);
-    --sw: min(calc(100cqw - var(--side) - 3 * var(--pad)), calc((100cqh - 2 * var(--pad)) * 1.6));
-  }
-  .v2-loop-band {
-    height: auto;
-  }
 }
 /* The band's layout: label to the left of its content when the band is wide enough. */
 @container loopband (min-width: 560px) {
@@ -427,3 +415,23 @@ html:has(.vista-v2) {
 .v2-range::-moz-range-track { height: 4px; border-radius: 999px; background: var(--v2-line-strong); }
 .v2-range::-webkit-slider-thumb { -webkit-appearance: none; margin-top: -10px; width: 24px; height: 24px; border-radius: 6px; background: var(--v2-teal); border: 3px solid var(--v2-graphite); }
 .v2-range::-moz-range-thumb { width: 18px; height: 18px; border-radius: 6px; background: var(--v2-teal); border: 3px solid var(--v2-graphite); }
+
+/* H7: the lesson loop's screen is a window onto the shared canvas (the Preview stage). It stays transparent and floods the ground
+   colour around itself, because nothing above the fixed canvas may carry a background of its own; the stage clips the flood. */
+.v2-journey-hole {
+  box-shadow: 0 0 0 100vmax var(--v2-graphite);
+}
+.v2-journey-hole > .v2-loop-screen:not([data-step='preview']) {
+  background: var(--v2-graphite-3);
+}
+.v2-panel {
+  container-type: size;
+}
+
+/* Panels answer their own width (container query), not the viewport's. */
+.v2-split { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); column-gap: clamp(12px, 2.6cqw, 28px); }
+@container (max-width: 34rem) {
+  .v2-split { grid-template-columns: minmax(0, 1fr); }
+  .v2-hide-narrow { display: none; }
+  .v2-narrow-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}

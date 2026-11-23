@@ -2,13 +2,18 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useReducedMotion } from 'framer-motion';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { cn } from '../../utils/cn';
-import { DeferredMedia } from './DeferredMedia';
 import { useReveal } from '../home/useReveal';
 import { JOURNEY } from './content';
-import { LoopThread } from './journey/LoopThread';
+import { EvaluatePanel, LearnPanel, PreviewPanel, ProgramPanel, ReflectPanel } from './journey/LoopPanels';
+import { useLessonPlayer } from '../home-lab/useLessonPlayer';
+import { LESSON_ONE_PROGRAM } from '../home-lab/lessonProgram';
+import { useV2Scene, type ScenePreset } from './V2Scene';
 import { localProgress, scrollTargetFor, stepAt, trackProgress } from './journey/loopModel';
 
 const STEPS = JOURNEY.length;
+const PREVIEW = 2;
+/** The Preview stage: the arm at ready, three-quarter view, raised in its window so the transport strip never covers it. */
+const PREVIEW_SCENE: ScenePreset = { rig: { azimuth: 0.95, elevation: 0.2, distance: 3.7, targetY: 0.42, targetZ: 0.12, fov: 28, fit: 1.5, ay: 0.4 }, light: 1, glow: 0, restArm: true };
 /** Each step's own entrance into the one frame (see v2.css: v2-loop-screen). */
 const STEP_IDS = ['learn', 'program', 'preview', 'evaluate', 'reflect'];
 /** Screens other than the current one: never focusable or interactive, even while one stays visible
@@ -33,6 +38,18 @@ export function JourneyChapter() {
   const reduce = useReducedMotion() ?? false;
   const [index, setIndex] = useState(0);
   const [local, setLocal] = useState(1);
+  const { scene, ready, active, setScenePreset } = useV2Scene();
+  const player = useLessonPlayer(LESSON_ONE_PROGRAM, scene, ready && active === 'x-journey');
+  useEffect(() => { setScenePreset('x-journey', PREVIEW_SCENE); return () => setScenePreset('x-journey', null); }, [setScenePreset]);
+  // The Preview plays once as it arrives (never with reduced motion); leaving it resets the arm to the start.
+  const { play, reset } = player;
+  useEffect(() => {
+    if (index !== PREVIEW) { reset(); return undefined; }
+    if (reduce || !ready) return undefined;
+    const t = window.setTimeout(play, 700);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- play/reset change identity with the step; only arriving at or leaving Preview should fire this
+  }, [index, ready, reduce]);
   const track = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const tabs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -100,11 +117,11 @@ export function JourneyChapter() {
       Every VISTA lesson runs the same loop, from reading the mission to reflecting on the teacher’s feedback. {pinned ? 'Scroll through it, or choose a step.' : 'Choose a step to bring its screen forward.'}
     </p>
   );
-  const text = <p className={cn('max-w-[36ch] leading-[1.45]', compact ? 'min-h-[4.35em] text-[16px]' : 'mt-6 min-h-[2.9em] text-[length:var(--v2-lead)]')} aria-live="polite">{stageStep.text}</p>;
+  const text = <p className={cn('relative z-[1] max-w-[36ch] leading-[1.45]', compact ? 'min-h-[4.35em] text-[16px]' : 'mt-6 min-h-[4.35em] text-[length:var(--v2-lead)]')} aria-live="polite">{stageStep.text}</p>;
 
   const list = (
     <div role="tablist" aria-label="Learning loop steps" aria-orientation={compact ? 'horizontal' : 'vertical'} onKeyDown={onKey}
-      className={cn(compact ? 'grid grid-cols-5 gap-1.5' : 'relative grid gap-[clamp(2px,0.6svh,8px)] pl-6')}>
+      className={cn('relative z-[1]', compact ? 'grid grid-cols-5 gap-1.5' : 'relative grid gap-[clamp(2px,0.6svh,8px)] pl-6')}>
       {!compact && (
         <span aria-hidden className="absolute bottom-2 left-0 top-2 w-[2px] bg-white/10">
           <span className="v2-loop-rail absolute inset-0 bg-[var(--v2-teal)]" />
@@ -128,11 +145,14 @@ export function JourneyChapter() {
 
   // One frame for all five screens. The arriving screen enters with its step's own transformation over
   // the one it replaces, which stays beneath until the entrance has finished (CSS; instant with reduced motion).
+  const panels = [<LearnPanel key="l" />, <ProgramPanel key="p" />, <PreviewPanel key="v" player={player} />, <EvaluatePanel key="e" />, <ReflectPanel key="r" />];
+  // The window is the screen box itself: transparent, with a flood of ground colour around it (box-shadow), so the Preview's
+  // card shows the shared canvas while every other card is opaque. Nothing above it may carry a background.
   const screens = (
-    <div id="v2-journey-panel" role="tabpanel" aria-labelledby={`v2-journey-tab-${index}`} className="absolute inset-0 overflow-hidden rounded-[3px] bg-[var(--v2-graphite-3)]">
+    <div id="v2-journey-panel" role="tabpanel" aria-labelledby={`v2-journey-tab-${index}`} className="v2-journey-hole absolute inset-0 rounded-[3px]">
       {JOURNEY.map((s, i) => (
         <div key={s.name} aria-hidden={i !== index} {...(i !== index ? INERT : {})} data-step={STEP_IDS[i]} className={cn('v2-stack-card v2-loop-screen absolute inset-0', i === index && 'is-on')}>
-          <DeferredMedia id={s.asset} minWidth={560} />
+          {panels[i]}
         </div>
       ))}
       {/* Evaluate: one pass of the rule checker over the screen as it arrives. */}
@@ -142,20 +162,18 @@ export function JourneyChapter() {
 
   if (desktop) {
     return (
-      <section id="v2-journey" ref={reveal} aria-labelledby="v2-journey-title" className="v2-anchor v2-reveal relative z-10 bg-[var(--v2-graphite)]">
+      <section id="v2-journey" ref={reveal} data-scene="x-journey" aria-labelledby="v2-journey-title" className="v2-anchor v2-reveal relative z-10">
         <div ref={track} className="relative [overflow-anchor:none]">
-          <div ref={stage} className="sticky top-[var(--v2-header)] grid h-[calc(100svh-var(--v2-header))] grid-cols-[minmax(300px,30%)_minmax(0,1fr)] gap-x-[clamp(32px,4vw,80px)] px-[var(--v2-margin)] py-[clamp(20px,5svh,64px)]">
-            <div className="flex min-h-0 flex-col justify-between gap-6">
+          <div ref={stage} className="sticky top-[var(--v2-header)] grid h-[calc(100svh-var(--v2-header))] overflow-clip grid-cols-[minmax(300px,30%)_minmax(0,1fr)] gap-x-[clamp(32px,4vw,80px)] px-[var(--v2-margin)] py-[clamp(20px,5svh,64px)]">
+            <div className="relative z-[1] flex min-h-0 flex-col justify-between gap-6">
               <div>{title}{intro}</div>
               <div>{list}{text}</div>
             </div>
             {/* The frame sizes to the stage, never past it: as wide as the column allows, as tall as the screen does. */}
-            {/* One plate: the screen, and the thread as a band beneath it (beside it on a wide, short stage). It sizes to
-                the stage both ways, never past it. See v2.css. */}
+            {/* One plate holding the screen; it sizes to the stage both ways, never past it. See v2.css. */}
             <div className="v2-loop-box relative min-h-0">
-              <div data-shutter style={{ ['--d' as string]: 200 }} className="v2-loop-plate">
+              <div className="v2-loop-plate">
                 <div className="v2-loop-screen-box relative">{screens}</div>
-                <LoopThread step={index} local={local} className="v2-loop-band v2-loop-thread" />
               </div>
             </div>
           </div>
@@ -168,16 +186,15 @@ export function JourneyChapter() {
   // Phones, tablets and short screens: the heading reads in flow, then a compact stage pins below the
   // header (frame, thread, words) sized to fit the screen. Too short to pin: normal flow.
   return (
-    <section id="v2-journey" ref={reveal} aria-labelledby="v2-journey-title" className="v2-anchor v2-anchor-tight v2-reveal relative z-10 bg-[var(--v2-graphite)]">
-      <div className="px-[var(--v2-margin)] pb-6 pt-[var(--v2-section)]">{title}{intro}</div>
+    <section id="v2-journey" ref={reveal} data-scene="x-journey" aria-labelledby="v2-journey-title" className="v2-anchor v2-anchor-tight v2-reveal relative z-10">
+      <div className="bg-[var(--v2-graphite)] px-[var(--v2-margin)] pb-6 pt-[var(--v2-section)]">{title}{intro}</div>
       {/* The compact stage keeps one height through all five steps (the thread and words have room reserved), and
           scroll anchoring is off here: a stage that changed height would nudge the scroll and flip the step back. */}
       <div ref={track} className="relative [overflow-anchor:none]">
-        <div ref={stage} className={cn('grid gap-3 bg-[var(--v2-graphite)] px-[var(--v2-margin)] pb-6 pt-3', pinned && 'sticky top-[var(--v2-header)]')}>
+        <div ref={stage} className={cn('grid content-start gap-3 overflow-clip px-[var(--v2-margin)] pb-6 pt-3', pinned && 'sticky top-[var(--v2-header)] min-h-[calc(100svh-var(--v2-header))]')}>
           {list}
-          <div data-shutter style={{ ['--d' as string]: 160 }} className="mt-2 grid w-[min(100%,calc((100svh-var(--v2-header)-360px)*1.6+24px))] min-w-[min(100%,280px)] gap-3 rounded-[6px] bg-[var(--v2-graphite-2)] p-3">
-            <div className="relative aspect-[16/10] w-full">{screens}</div>
-            <LoopThread step={index} local={local} className="v2-loop-thread min-h-[9.25rem]" />
+          <div className="relative mt-2 w-[min(100%,calc((100svh-var(--v2-header)-340px)*1.6+24px))] min-w-[min(100%,280px)]">
+            <div className="relative aspect-[4/5] w-full sm:aspect-[16/10]">{screens}</div>
           </div>
           {text}
         </div>

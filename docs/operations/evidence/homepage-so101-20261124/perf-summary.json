@@ -1,0 +1,97 @@
+{
+  "before_gpu_dpr2": {
+    "gl": "ANGLE (AMD, AMD Radeon Graphics (radeonsi renoir ACO), OpenGL ES 3.2)",
+    "dpr": 2,
+    "meanFps": 57.1,
+    "worstPassP99Ms": 50.1,
+    "worstFrameMs": 116.7,
+    "framesOver50ms": 11,
+    "framesOver100ms": 1,
+    "so101PayloadMB": 16.15,
+    "trianglesPerFrame": 797832,
+    "webglContextLost": 0,
+    "consoleProblems": [
+      "warning: THREE.WebGLShadowMap: PCFSoftShadowMap has been removed. Using PCFShadowMap instead."
+    ],
+    "timeToReadyMs": 1652
+  },
+  "before_gpu_dpr1": {
+    "gl": "ANGLE (AMD, AMD Radeon Graphics (radeonsi renoir ACO), OpenGL ES 3.2)",
+    "dpr": 1,
+    "meanFps": 58.5,
+    "worstPassP99Ms": 50.1,
+    "worstFrameMs": 99.9,
+    "framesOver50ms": 7,
+    "framesOver100ms": 0,
+    "so101PayloadMB": 16.15,
+    "trianglesPerFrame": 797832,
+    "webglContextLost": 0,
+    "consoleProblems": [
+      "warning: THREE.WebGLShadowMap: PCFSoftShadowMap has been removed. Using PCFShadowMap instead."
+    ],
+    "timeToReadyMs": 1718
+  },
+  "after_engine_gpu_dpr2": {
+    "gl": "ANGLE (AMD, AMD Radeon Graphics (radeonsi renoir ACO), OpenGL ES 3.2)",
+    "dpr": 2,
+    "meanFps": 59.3,
+    "worstPassP99Ms": 33.3,
+    "worstFrameMs": 50.1,
+    "framesOver50ms": 1,
+    "framesOver100ms": 0,
+    "so101PayloadMB": 1.19,
+    "trianglesPerFrame": 80660,
+    "webglContextLost": 0,
+    "consoleProblems": [
+      "warning: THREE.WebGLShadowMap: PCFSoftShadowMap has been removed. Using PCFShadowMap instead."
+    ],
+    "timeToReadyMs": 1510
+  },
+  "final_gpu_dpr2": {
+    "gl": "ANGLE (AMD, AMD Radeon Graphics (radeonsi renoir ACO), OpenGL ES 3.2)",
+    "dpr": 2,
+    "meanFps": 58.7,
+    "worstPassP99Ms": 33.4,
+    "worstFrameMs": 50.1,
+    "framesOver50ms": 1,
+    "framesOver100ms": 0,
+    "so101PayloadMB": 1.19,
+    "trianglesPerFrame": 80660,
+    "webglContextLost": 0,
+    "consoleProblems": [],
+    "timeToReadyMs": 1438
+  },
+  "final_gpu_dpr1": {
+    "gl": "ANGLE (AMD, AMD Radeon Graphics (radeonsi renoir ACO), OpenGL ES 3.2)",
+    "dpr": 1,
+    "meanFps": 59.1,
+    "worstPassP99Ms": 33.3,
+    "worstFrameMs": 50,
+    "framesOver50ms": 0,
+    "framesOver100ms": 0,
+    "so101PayloadMB": 1.19,
+    "trianglesPerFrame": 80660,
+    "webglContextLost": 0,
+    "consoleProblems": [],
+    "timeToReadyMs": 1399
+  },
+  "after_engine_software_dpr1": {
+    "gl": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+    "dpr": 1,
+    "meanFps": 10.2,
+    "worstPassP99Ms": 416.7,
+    "worstFrameMs": 650,
+    "framesOver50ms": 389,
+    "framesOver100ms": 340,
+    "so101PayloadMB": 1.19,
+    "trianglesPerFrame": 80660,
+    "webglContextLost": 0,
+    "consoleProblems": [
+      "warning: THREE.WebGLShadowMap: PCFSoftShadowMap has been removed. Using PCFShadowMap instead.",
+      "warning: THREE.WebGLRenderer: KHR_parallel_shader_compile extension not supported.",
+      "warning: [.WebGL-0x1aec02830000]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels",
+      "warning: [.WebGL-0x1aec02830000]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)"
+    ],
+    "timeToReadyMs": 5090
+  }
+}

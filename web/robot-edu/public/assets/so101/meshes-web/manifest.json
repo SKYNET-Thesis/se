@@ -1,0 +1,148 @@
+{
+  "format": "VMESH v1",
+  "parameters": {
+    "ratio": 0.2,
+    "maxRelativeError": 0.002,
+    "creaseDegrees": 40
+  },
+  "tool": "meshoptimizer (three/examples/jsm/libs/meshopt_simplifier.module.js)",
+  "files": {
+    "base_motor_holder_so101_v1.msh": {
+      "source": "base_motor_holder_so101_v1.stl",
+      "sourceSha256": "8cd2f241037ea377af1191fffe0dd9d9006beea6dcc48543660ed41647072424",
+      "trianglesBefore": 37540,
+      "trianglesAfter": 7508,
+      "relativeError": 0.00013,
+      "absoluteErrorUnits": 0,
+      "bytesBefore": 1877084,
+      "bytesAfter": 118508
+    },
+    "base_so101_v2.msh": {
+      "source": "base_so101_v2.stl",
+      "sourceSha256": "bb12b7026575e1f70ccc7240051f9d943553bf34e5128537de6cd86fae33924d",
+      "trianglesBefore": 9430,
+      "trianglesAfter": 2662,
+      "relativeError": 0.00199,
+      "absoluteErrorUnits": 0.0002,
+      "bytesBefore": 471584,
+      "bytesAfter": 68448
+    },
+    "motor_holder_so101_base_v1.msh": {
+      "source": "motor_holder_so101_base_v1.stl",
+      "sourceSha256": "31242ae6fb59d8b15c66617b88ad8e9bded62d57c35d11c0c43a70d2f4caa95b",
+      "trianglesBefore": 22586,
+      "trianglesAfter": 4516,
+      "relativeError": 0.00022,
+      "absoluteErrorUnits": 0,
+      "bytesBefore": 1129384,
+      "bytesAfter": 75208
+    },
+    "motor_holder_so101_wrist_v1.msh": {
+      "source": "motor_holder_so101_wrist_v1.stl",
+      "sourceSha256": "887f92e6013cb64ea3a1ab8675e92da1e0beacfd5e001f972523540545e08011",
+      "trianglesBefore": 21042,
+      "trianglesAfter": 4208,
+      "relativeError": 0.00023,
+      "absoluteErrorUnits": 0,
+      "bytesBefore": 1052184,
+      "bytesAfter": 70720
+    },
+    "moving_jaw_so101_v1.msh": {
+      "source": "moving_jaw_so101_v1.stl",
+      "sourceSha256": "785a9dded2f474bc1d869e0d3dae398a3dcd9c0c345640040472210d2861fa9d",
+      "trianglesBefore": 28270,
+      "trianglesAfter": 5654,
+      "relativeError": 0.00022,
+      "absoluteErrorUnits": 0,
+      "bytesBefore": 1413584,
+      "bytesAfter": 100920
+    },
+    "rotation_pitch_so101_v1.msh": {
+      "source": "rotation_pitch_so101_v1.stl",
+      "sourceSha256": "9be900cc2a2bf718102841ef82ef8d2873842427648092c8ed2ca1e2ef4ffa34",
+      "trianglesBefore": 17672,
+      "trianglesAfter": 3534,
+      "relativeError": 0.00066,
+      "absoluteErrorUnits": 0.0001,
+      "bytesBefore": 883684,
+      "bytesAfter": 66976
+    },
+    "sts3215_03a_no_horn_v1.msh": {
+      "source": "sts3215_03a_no_horn_v1.stl",
+      "sourceSha256": "75ef3781b752e4065891aea855e34dc161a38a549549cd0970cedd07eae6f887",
+      "trianglesBefore": 17316,
+      "trianglesAfter": 3462,
+      "relativeError": 0.00055,
+      "absoluteErrorUnits": 0,
+      "bytesBefore": 865884,
+      "bytesAfter": 69124
+    },
+    "sts3215_03a_v1.msh": {
+      "source": "sts3215_03a_v1.stl",
+      "sourceSha256": "a37c871fb502483ab96c256baf457d36f2e97afc9205313d9c5ab275ef941cd0",
+      "trianglesBefore": 19080,
+      "trianglesAfter": 3816,
+      "relativeError": 0.00063,
+      "absoluteErrorUnits": 0,
+      "bytesBefore": 954084,
+      "bytesAfter": 77744
+    },
+    "under_arm_so101_v1.msh": {
+      "source": "under_arm_so101_v1.stl",
+      "sourceSha256": "d01d1f2de365651dcad9d6669e94ff87ff7652b5bb2d10752a66a456a86dbc71",
+      "trianglesBefore": 39516,
+      "trianglesAfter": 7902,
+      "relativeError": 0.00022,
+      "absoluteErrorUnits": 0,
+      "bytesBefore": 1975884,
+      "bytesAfter": 134284
+    },
+    "upper_arm_so101_v1.msh": {
+      "source": "upper_arm_so101_v1.stl",
+      "sourceSha256": "475056e03a17e71919b82fd88ab9a0b898ab50164f2a7943652a6b2941bb2d4f",
+      "trianglesBefore": 26068,
+      "trianglesAfter": 5210,
+      "relativeError": 0.00032,
+      "absoluteErrorUnits": 0,
+      "bytesBefore": 1303484,
+      "bytesAfter": 95228
+    },
+    "waveshare_mounting_plate_so101_v2.msh": {
+      "source": "waveshare_mounting_plate_so101_v2.stl",
+      "sourceSha256": "e197e24005a07d01bbc06a8c42311664eaeda415bf859f68fa247884d0f1a6e9",
+      "trianglesBefore": 1254,
+      "trianglesAfter": 304,
+      "relativeError": 0.00199,
+      "absoluteErrorUnits": 0.0001,
+      "bytesBefore": 62784,
+      "bytesAfter": 6856
+    },
+    "wrist_roll_follower_so101_v1.msh": {
+      "source": "wrist_roll_follower_so101_v1.stl",
+      "sourceSha256": "4b17b410a12d64ec39554abc3e8054d8a97384b2dc4a8d95a5ecb2a93670f5f4",
+      "trianglesBefore": 28796,
+      "trianglesAfter": 5758,
+      "relativeError": 0.0003,
+      "absoluteErrorUnits": 0,
+      "bytesBefore": 1439884,
+      "bytesAfter": 104424
+    },
+    "wrist_roll_pitch_so101_v2.msh": {
+      "source": "wrist_roll_pitch_so101_v2.stl",
+      "sourceSha256": "6c7ec5525b4d8b9e397a30ab4bb0037156a5d5f38a4adf2c7d943d6c56eda5ae",
+      "trianglesBefore": 53994,
+      "trianglesAfter": 10798,
+      "relativeError": 0.00022,
+      "absoluteErrorUnits": 0,
+      "bytesBefore": 2699784,
+      "bytesAfter": 187044
+    }
+  },
+  "totals": {
+    "trianglesBefore": 322564,
+    "trianglesAfter": 65332,
+    "bytesBefore": 16129292,
+    "bytesAfter": 1175484,
+    "worstRelativeError": 0.00199
+  }
+}
