@@ -70,6 +70,7 @@ test('Course → Lesson → Section → Activity → Preview → Publish → Cla
     delivery = await createdDeliveryResponse.json() as { id: string; assignment_id: string; status: string };
     const published = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith(`/classrooms/${fixture.classroomId}/assignments/${delivery!.assignment_id}/publish`));
     await page.getByRole('button', { name: 'Publish to learners' }).click();
+    await page.getByRole('dialog', { name: 'Publish this quiz to students?' }).getByRole('button', { name: 'Publish to students' }).click();
     expect((await published).ok()).toBeTruthy();
   }
 

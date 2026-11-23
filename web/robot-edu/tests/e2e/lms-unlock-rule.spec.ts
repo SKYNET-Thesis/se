@@ -208,6 +208,7 @@ test('Unlock rule: failing the weighted quiz keeps module two locked; a passing 
   const delivery = await (await delivered).json() as { id: string; assignment_id: string };
   const published = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/classrooms/${classroomId}/assignments/${delivery.assignment_id}/publish`));
   await page.getByRole('button', { name: 'Publish to learners' }).click();
+  await page.getByRole('dialog', { name: 'Publish this quiz to students?' }).getByRole('button', { name: 'Publish to students' }).click();
   expect((await published).ok()).toBeTruthy();
 
   // student: module two is locked in the UI and over the API

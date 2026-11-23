@@ -213,6 +213,7 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   const delivery = await (await delivered).json() as { id: string; assignment_id: string };
   const published = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/classrooms/${classroomId}/assignments/${delivery.assignment_id}/publish`));
   await page.getByRole('button', { name: 'Publish to learners' }).click();
+  await page.getByRole('dialog', { name: 'Publish this quiz to students?' }).getByRole('button', { name: 'Publish to students' }).click();
   expect((await published).ok()).toBeTruthy();
 
   // 11. student: heavy (3 pt) wrong, light (1 pt) right => 1 of 4 = 25%, not passed; then both right => 100%

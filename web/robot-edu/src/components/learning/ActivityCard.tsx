@@ -16,14 +16,18 @@ export function ActivityCard({
 }) {
   const locked = completion === 'locked' || activity.status === 'unavailable';
   const state = locked ? 'locked' : completion;
+  // The server marks a quiz done once any attempt passed; a later failed attempt does not undo it. Say "Passed" so the tick
+  // is not read as "your last attempt went well".
+  const quizPassed = activity.type === 'knowledge_check' && state === 'completed';
   const content = (
     <>
-      <ActivityCompletionIndicator state={state} activityTitle={activity.title} />
+      <ActivityCompletionIndicator state={state} activityTitle={activity.title} doneLabel={activity.type === 'knowledge_check' ? 'passed' : 'completed'} />
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium leading-5 text-ink">{activity.title}</span>
         <span className="mt-0.5 block text-xs text-ink-muted">
           {activityTypeLabels[activity.type]}
           {activity.durationMinutes ? ` • ${activity.durationMinutes} min` : ''}
+          {quizPassed && <span className="font-medium text-ok"> • Passed</span>}
         </span>
       </span>
     </>

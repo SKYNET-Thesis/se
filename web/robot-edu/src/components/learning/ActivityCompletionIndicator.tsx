@@ -4,11 +4,14 @@ import type { ActivityCompletionState } from './activityCompletionState';
 export function ActivityCompletionIndicator({
   state,
   activityTitle,
+  doneLabel = 'completed',
 }: {
   state: ActivityCompletionState;
   activityTitle: string;
+  /** What "done" means for this activity: a quiz is done when passed on any attempt, not when attempted. */
+  doneLabel?: string;
 }) {
-  const label = state === 'completed' ? 'completed' : state === 'locked' ? 'locked' : state === 'checking' ? 'completion status unverified' : 'not completed';
+  const label = state === 'completed' ? doneLabel : state === 'locked' ? 'locked' : state === 'checking' ? 'completion status unverified' : 'not completed';
   return (
     <span
       role="img"

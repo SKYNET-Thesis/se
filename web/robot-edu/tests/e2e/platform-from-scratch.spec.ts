@@ -296,6 +296,7 @@ test('Journey: a brand-new school teaches a brand-new course from creation to co
   const quizDelivery = await (await quizDelivered).json() as { id: string; assignment_id: string };
   const quizPublished = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/classrooms/${classroomId}/assignments/${quizDelivery.assignment_id}/publish`));
   await page.getByRole('button', { name: 'Publish to learners' }).click();
+  await page.getByRole('dialog', { name: 'Publish this quiz to students?' }).getByRole('button', { name: 'Publish to students' }).click();
   expect((await quizPublished).ok()).toBeTruthy();
 
   const labTitle = `Lab: Open and close ${run}`; const homeworkTitle = `Plan the safe motion ${run}`;

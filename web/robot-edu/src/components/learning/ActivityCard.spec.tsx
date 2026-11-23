@@ -59,4 +59,19 @@ describe('activity completion', () => {
     expect(locked.container.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('Understanding Meet Your Robot: locked');
     locked.unmount();
   });
+
+  it('says Passed for a quiz the server marks done, so the tick is not read as the latest attempt passing', async () => {
+    const quiz: LessonActivity = { ...activity, id: 'quiz-1', type: 'knowledge_check', title: 'Safety Knowledge Check' };
+    const done = await renderCard({ activity: quiz, completion: 'completed' });
+    expect(done.container.textContent).toContain('Passed');
+    expect(done.container.querySelector('[role="img"]')?.getAttribute('aria-label')).toBe('Safety Knowledge Check: passed');
+    await done.unmount();
+    const open = await renderCard({ activity: quiz, completion: 'incomplete' });
+    expect(open.container.textContent).not.toContain('Passed');
+    await open.unmount();
+    const reading = await renderCard({ completion: 'completed' });
+    expect(reading.container.textContent).not.toContain('Passed');          // readings are completed, never "passed"
+    expect(reading.container.querySelector('[role="img"]')?.getAttribute('aria-label')).toMatch(/: completed$/);
+    await reading.unmount();
+  });
 });

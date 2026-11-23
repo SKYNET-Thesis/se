@@ -91,6 +91,7 @@ test('Journey: System Admin -> School Admin -> Instructor -> Student -> grade ->
   const quizDelivery = await (await quizDelivered).json() as { id: string; assignment_id: string };
   const quizPublished = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/classrooms/${classroomId}/assignments/${quizDelivery.assignment_id}/publish`));
   await page.getByRole('button', { name: 'Publish to learners' }).click();
+  await page.getByRole('dialog', { name: 'Publish this quiz to students?' }).getByRole('button', { name: 'Publish to students' }).click();
   expect((await quizPublished).ok()).toBeTruthy();
   const title = `Journey assignment ${run}`;
   const created = await call(page, teacherToken, 'POST', `/classrooms/${classroomId}/assignments`, { lessonId: lessons[0].id, title, instructions: 'Plan the safe motion.' });
