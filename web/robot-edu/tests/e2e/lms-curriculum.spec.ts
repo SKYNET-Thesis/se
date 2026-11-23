@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { createActiveOffering } from './helpers/academic';
 
 /** The seeded SO-101 curriculum (seed-so101-curriculum) delivered through the real School Admin UI and consumed by a student and an instructor. */
 const fixture = JSON.parse(await readFile(process.env.VISTA_E2E_FIXTURE_FILE!, 'utf8')) as { schoolId: string; users: Record<string, { authUserId: string }> };
@@ -19,6 +20,7 @@ const call = async (page: Page, token: string, path: string) => { const r = awai
 test('Seeded beginner course: School Admin delivers it; the student sees level, tags, lessons and learning path; the course needs no robot or AI', async ({ page }) => {
   test.setTimeout(180_000);
   const admin = await signIn(page, 'schoolAdmin');
+  const offering = await createActiveOffering(page, fixture, admin, COURSE, `OFF-SO101-${run}`);
   const pickable = await call(page, admin, `/education-admin/organizations/${fixture.schoolId}/published-courses`);
   expect((pickable.body as Array<{ title: string }>).map((c) => c.title)).toEqual(expect.arrayContaining([COURSE, 'SO-101 Motion and Coordinates', 'SO-101 Manipulation Project']));
 
@@ -28,8 +30,7 @@ test('Seeded beginner course: School Admin delivers it; the student sees level, 
   const create = page.getByRole('dialog', { name: 'Create classroom' });
   await create.getByLabel('Classroom name').fill(className);
   await create.getByLabel('Classroom code').fill(`SO101-${run}`);
-  await create.getByLabel('Published course').selectOption({ label: COURSE });
-  await create.getByLabel('School offering code').fill(`OFF-SO101-${run}`);
+  await create.getByLabel('Active course offering').selectOption({ label: `${offering.title} (${offering.code})` });
   await create.getByRole('button', { name: 'Create classroom' }).click();
   await expect(create).not.toBeVisible();
   await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);

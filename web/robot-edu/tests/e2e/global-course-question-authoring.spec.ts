@@ -12,6 +12,7 @@ if (!fixturePath?.startsWith('/tmp/')) throw new Error('An isolated /tmp fixture
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as Fixture;
 const apiBase = process.env.VISTA_E2E_API_BASE_URL!;
 const authPort = Number(process.env.VISTA_E2E_JWKS_PORT ?? 54321);
+const run = Date.now().toString(36).toUpperCase();
 
 async function signIn(page: Page, authUserId: string) {
   const response = await page.request.get(`http://127.0.0.1:${authPort}/token?sub=${authUserId}`);
@@ -52,7 +53,8 @@ test('System Admin authors and imports questions in a Global Course; school auth
 
   await workspace.getByRole('button', { name: 'New question' }).click();
   let dialog = page.getByRole('dialog', { name: 'New question' });
-  await dialog.getByLabel('Question text').fill('Can the System Admin author for a Global Course?');
+  const questionText = `Can the System Admin author globally ${run}?`;
+  await dialog.getByLabel('Question text').fill(questionText);
   await dialog.getByLabel('Option 1').fill('Yes, within the global course');
   await dialog.getByLabel('Option 2').fill('No, only a school can');
   await dialog.getByLabel('Correct answer 1').check();
@@ -60,13 +62,13 @@ test('System Admin authors and imports questions in a Global Course; school auth
   await dialog.getByLabel('New learning outcome', { exact: true }).fill('Manage globally reusable questions.');
   await dialog.getByRole('button', { name: 'Save and publish question' }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(workspace.getByText('Can the System Admin author for a Global Course?')).toBeVisible();
+  await expect(workspace.getByText(questionText, { exact: true })).toBeVisible();
 
   await workspace.getByRole('button', { name: 'Import questions' }).click();
   dialog = page.getByRole('dialog', { name: 'Import questions' });
   const csv = [
     'code,type,difficulty,cognitive_level,stem,option_a,option_b,option_c,correct,points,explanation',
-    'GLOBAL-UI-IMPORT,single_choice,easy,understand,Can imported questions be global?,Yes,No,,A,2,They inherit the course scope.',
+    `GLOBAL-UI-IMPORT-${run},single_choice,easy,understand,Can imported questions be global ${run}?,Yes,No,,A,2,They inherit the course scope.`,
   ].join('\n');
   await dialog.getByLabel('Question file').setInputFiles({ name: 'global.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(dialog.getByRole('status')).toContainText('1 valid');

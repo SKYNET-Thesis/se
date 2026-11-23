@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { createActiveOffering } from './helpers/academic';
 
 /**
  * Phase 1E: lesson text and Learning Media authored in the browser reach the student (real local S3-compatible storage).
@@ -148,15 +149,15 @@ test('Lesson text and attached media authored in the UI are what the enrolled st
   await expect(page.getByText('Published', { exact: true }).first()).toBeVisible();
 
   // deliver to the student
-  await signIn(page, fixture.users.schoolAdmin.authUserId);
+  const adminToken = await signIn(page, fixture.users.schoolAdmin.authUserId);
+  const offering = await createActiveOffering(page, fixture, adminToken, title, `OFF-LC-${run}`.toUpperCase());
   const className = `LC ${run}`;
   await page.goto('/school/classrooms');
   await page.getByRole('button', { name: 'Create classroom' }).click();
   const create = page.getByRole('dialog', { name: 'Create classroom' });
   await create.getByLabel('Classroom name').fill(className);
   await create.getByLabel('Classroom code').fill(`LC-${run}`.toUpperCase());
-  await create.getByLabel('Published course').selectOption({ label: title });
-  await create.getByLabel('School offering code').fill(`OFF-LC-${run}`.toUpperCase());
+  await create.getByLabel('Active course offering').selectOption({ label: `${offering.title} (${offering.code})` });
   await create.getByRole('button', { name: 'Create classroom' }).click();
   await expect(create).not.toBeVisible();
   await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);

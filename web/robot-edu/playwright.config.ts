@@ -13,7 +13,7 @@ if (!fixtureFile || !fixtureUrl?.pathname.startsWith('/tmp/')) {
 }
 
 const authPort = Number(process.env.VISTA_E2E_JWKS_PORT ?? 54321);
-if (![54321, 54323].includes(authPort)) throw new Error('E2E auth must use an isolated loopback port.');
+if (!Number.isInteger(authPort) || authPort < 1024 || authPort > 65535) throw new Error('E2E auth must use an isolated loopback port.');
 const webPort = Number(process.env.VISTA_E2E_WEB_PORT ?? 4173);
 if (!Number.isInteger(webPort) || webPort < 1024 || webPort > 65535) throw new Error('E2E web server must use a valid isolated loopback port.');
 const supabaseUrl = `http://127.0.0.1:${authPort}`;

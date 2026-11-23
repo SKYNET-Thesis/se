@@ -67,8 +67,7 @@ test('School Admin creates a classroom and enrolls an existing student', async (
     const dialog = page.getByRole('dialog', { name: 'Create classroom' });
     await dialog.getByLabel('Classroom name').fill(name);
     await dialog.getByLabel('Classroom code').fill('E2E-243-UI-CLASS');
-    await dialog.getByLabel('Published course').selectOption({ label: 'VISTA Phase 2.4.3 canonical course' });
-    await dialog.getByLabel('School offering code').fill(`E2E-243-UI-OFFERING`);
+    await dialog.getByLabel('Active course offering').selectOption({ label: 'Phase 2.4.3 Test Offering (E2E-243-OFFERING)' });
     await dialog.getByRole('button', { name: 'Create classroom' }).click();
     await expect(dialog).not.toBeVisible();
     await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);

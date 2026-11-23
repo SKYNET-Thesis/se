@@ -68,7 +68,7 @@ export function AppShell() {
           </div>
         </header>
 
-        <main id="main" className={cn('min-h-0 flex-1', isStudio ? 'overflow-hidden' : 'overflow-y-auto')}>
+        <main id="main" tabIndex={isStudio ? undefined : 0} className={cn('min-h-0 flex-1 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent', isStudio ? 'overflow-hidden' : 'overflow-y-auto')}>
           <Outlet />
         </main>
       </div>

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { execFile } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -11,6 +12,8 @@ const fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as {
   courseId: string; l5LessonId: string; attemptId: string; submissionId: string; classroomId: string;
   users: Record<string, { authUserId: string; userId: string }>;
 };
+const twinDir = path.resolve(process.cwd(), '../../services/digital-twin');
+let twin: ChildProcess | undefined;
 const s3Endpoint = new URL(process.env.LEARNING_MEDIA_S3_ENDPOINT ?? '');
 if (s3Endpoint.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(s3Endpoint.hostname) || !s3Endpoint.port) {
   throw new Error('WF-03 E2E artifact deletion requires the disposable loopback S3-compatible store.');
@@ -35,6 +38,24 @@ async function request(page: Page, accessToken: string, method: string, path: st
     ...(body ? { data: body } : {}),
   });
 }
+
+test.beforeAll(async () => {
+  const secret = process.env.DIGITAL_TWIN_SCOPE_SECRET;
+  if (!secret) throw new Error('WF-03 acceptance requires the local Education API and Twin to share a test-only scope secret.');
+  twin = spawn('uv', ['run', '--frozen', 'uvicorn', 'vista_digital_twin.app:app', '--host', '127.0.0.1', '--port', '8767'], {
+    cwd: twinDir, detached: true, stdio: 'ignore', env: { ...process.env, VISTA_TWIN_AUTH_SECRET: secret, PYTHONPATH: 'src' },
+  });
+  for (let i = 0; i < 60; i += 1) {
+    try { if ((await fetch('http://127.0.0.1:8767/health')).ok) return; } catch { /* Twin is starting. */ }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error('Local Digital Twin did not start for WF-03 evidence acceptance.');
+});
+
+test.afterAll(async () => {
+  if (twin?.pid) { try { process.kill(-twin.pid, 'SIGTERM'); } catch { /* already stopped */ } }
+  twin = undefined;
+});
 
 test('student browser runs the local R1 fake follower and retrieves scoped persisted evidence', async ({ page, browser }) => {
   const studentToken = await signIn(page, 'student');

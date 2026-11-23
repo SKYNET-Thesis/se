@@ -16,9 +16,10 @@ const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
 function assertLocalTargets() {
   const authValue = process.env.SUPABASE_URL;
   const auth = authValue ? new URL(authValue) : undefined;
+  const authPort = Number(auth?.port);
   const s3 = new URL(s3Endpoint);
   if (!matchesDisposableDatabaseTarget(databaseUrl) || authValue &&
-    !(auth?.protocol === "http:" && auth.hostname === "127.0.0.1" && ["54321", "54323"].includes(auth.port))) {
+    !(auth?.protocol === "http:" && auth.hostname === "127.0.0.1" && Number.isInteger(authPort) && authPort >= 1024 && authPort <= 65535 && auth.pathname === "/")) {
     throw new Error("WF-03 E2E fixture requires the exact disposable loopback database and local-only auth.");
   }
   if (s3.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(s3.hostname) || !s3.port) {

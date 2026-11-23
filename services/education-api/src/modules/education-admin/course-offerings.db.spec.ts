@@ -26,7 +26,7 @@ describeDb('course offerings (PostgreSQL)', () => {
     const [a, b] = [await school(`a${s}`), await school(`b${s}`)];
     const course = await db.learning_courses.create({ data: { title: `Global ${s}`, status: 'published' } });
     const lessonsBefore = await db.learning_lessons.count({ where: { course_id: course.id } });
-    const a1 = await service.createCourseOffering(manager(a.id), a.id, { courseId: course.id, code: 'FALL', title: 'Fall', academicTerm: 'Fall', academicYear: 2026 });
+    const a1 = await service.createCourseOffering(manager(a.id), a.id, { courseId: course.id, code: 'FALL', title: 'Fall', academicTerm: 'Fall', academicYear: 2026, startAt: '2026-09-01T00:00:00.000Z', endAt: '2026-12-20T00:00:00.000Z', enrollmentOpenAt: '2026-08-01T00:00:00.000Z', enrollmentCloseAt: '2026-08-25T00:00:00.000Z', maxStudents: 37 });
     const a2 = await service.createCourseOffering(manager(a.id), a.id, { courseId: course.id, code: 'SPRING' });
     const b1 = await service.createCourseOffering(manager(b.id), b.id, { courseId: course.id, code: 'FALL' });   // same code, other school: allowed
     expect([a1, a2, b1].map((o) => o.status)).toEqual(['draft', 'draft', 'draft']);
@@ -34,10 +34,11 @@ describeDb('course offerings (PostgreSQL)', () => {
     expect(await db.learning_lessons.count({ where: { course_id: course.id } })).toBe(lessonsBefore);            // nothing was duplicated
     expect(await db.learning_courses.count({ where: { title: { contains: `Global ${s}` } } })).toBe(1);
 
-    const listedA = await queries.offerings(manager(a.id), a.id) as Array<{ code: string; courseId: string; academicTerm: string | null; academicYear: number | null; classrooms: number }>;
+    const listedA = await queries.offerings(manager(a.id), a.id) as Array<{ code: string; courseId: string; academicTerm: string | null; academicYear: number | null; startAt: Date; endAt: Date; enrollmentOpenAt: Date; enrollmentCloseAt: Date; maxStudents: number; classrooms: number }>;
     expect(listedA.map((o) => o.code).sort()).toEqual(['FALL', 'SPRING']);                                         // only school A's, not B's
     expect(new Set(listedA.map((o) => o.courseId))).toEqual(new Set([course.id]));
     expect(listedA.find((o) => o.code === 'FALL')).toMatchObject({ academicTerm: 'Fall', academicYear: 2026, classrooms: 0 });
+    expect(listedA.find((o) => o.code === 'FALL')).toMatchObject({ startAt: new Date('2026-09-01T00:00:00.000Z'), endAt: new Date('2026-12-20T00:00:00.000Z'), enrollmentOpenAt: new Date('2026-08-01T00:00:00.000Z'), enrollmentCloseAt: new Date('2026-08-25T00:00:00.000Z'), maxStudents: 37 });
     const listedB = await queries.offerings(manager(b.id), b.id) as Array<{ code: string }>;
     expect(listedB.map((o) => o.code)).toEqual(['FALL']);
   });
