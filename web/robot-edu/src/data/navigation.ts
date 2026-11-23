@@ -9,7 +9,6 @@ import {
   LayoutDashboardIcon, RouteIcon,
   LayersIcon,
   LibraryIcon,
-  Monitor,
   PuzzleIcon,
   UsersIcon,
   type LucideIcon } from
@@ -44,8 +43,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     title: 'Build',
     items: [
     { to: '/studio', label: 'Programming Studio', icon: PuzzleIcon },
-    { to: '/lab', label: 'Robot Control & Practice', icon: Cpu },
-    { to: '/digital-twin', label: '3D Simulation & Monitoring', icon: Monitor }]
+    { to: '/lab', label: 'Robot Control & Practice', icon: Cpu }]
 
   }],
 
@@ -67,7 +65,6 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     items: [
     { to: '/studio', label: 'Programming Studio', icon: PuzzleIcon },
     { to: '/lab', label: 'Robot Control & Practice', icon: Cpu },
-    { to: '/digital-twin', label: '3D Simulation & Monitoring', icon: Monitor },
     { to: '/courses', label: 'Student catalogue', icon: BookOpenIcon }]
 
   }],
@@ -92,7 +89,6 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     title: 'Platform',
     items: [
     { to: '/lab', label: 'Robot Control & Practice', icon: Cpu },
-    { to: '/digital-twin', label: '3D Simulation & Monitoring', icon: Monitor },
     { to: '/admin/courses', label: 'Course catalogue', icon: BookOpenIcon }]
 
   }],

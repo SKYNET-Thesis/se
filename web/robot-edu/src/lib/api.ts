@@ -13,10 +13,19 @@ function applyAuthRestriction(status: number, code?: string) {
     window.dispatchEvent(new CustomEvent(AUTH_RESTRICTION_EVENT, { detail: { code } }));
   }
 }
+/** Readable fallback when the API returns no message of its own (never expose a bare status code to a user). */
+export function fallbackMessage(status: number): string {
+  if (status === 429) return "Too many requests. Please wait a minute and try again.";
+  if (status === 401) return "Your session has expired. Please sign in again.";
+  if (status === 403) return "You do not have permission to do that.";
+  if (status === 404) return "That item could not be found.";
+  if (status >= 500) return "The service is temporarily unavailable. Please try again shortly.";
+  return `The request could not be completed (${status}).`;
+}
 async function errorFromResponse(response: Response): Promise<ApiError> {
   const body = await response.json().catch(() => null) as { message?: string; code?: string } | null;
   applyAuthRestriction(response.status, body?.code);
-  return new ApiError(response.status, body?.message ?? `API request failed (${response.status}).`, body?.code);
+  return new ApiError(response.status, body?.message ?? fallbackMessage(response.status), body?.code);
 }
 
 const baseUrl = (((import.meta as any).env?.VITE_API_BASE_URL as string | undefined) ?? "/api/v1").replace(/\/$/, "");
@@ -274,7 +283,7 @@ export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> 
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { message?: string } | null;
-    throw new ApiError(response.status, payload?.message ?? `API request failed (${response.status}).`);
+    throw new ApiError(response.status, payload?.message ?? fallbackMessage(response.status));
   }
   return readJson<T>(response);
 }
@@ -502,7 +511,7 @@ export interface ApiStudentAuthCapabilities { temporaryPasswordEnabled: boolean;
 export interface ApiStudentPasswordRecoveryCode { recoveryCode: string; expiresAt: string; }
 export async function apiPublicGet<T>(path: string): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, { cache: "no-store", headers: { Accept: "application/json" } });
-  if (!response.ok) throw new ApiError(response.status, `API request failed (${response.status}).`);
+  if (!response.ok) throw new ApiError(response.status, fallbackMessage(response.status));
   return readJson<T>(response);
 }
 export const studentAuthApi = {
