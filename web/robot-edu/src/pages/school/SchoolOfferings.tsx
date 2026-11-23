@@ -359,10 +359,10 @@ function OfferingRow({ offering, activating, onEdit, onActivate }: { offering: A
               <span>{dateRange}</span>
             </p>
           )}
-          {offering.maxStudents && (
+          {(offering.maxStudents || (offering.enrolledStudents ?? 0) > 0) && (
             <p className="flex items-center gap-1">
               <UsersIcon className="h-3.5 w-3.5 text-ink-subtle" />
-              <span>Capacity: {offering.maxStudents} students</span>
+              <span>{offering.maxStudents ? `${offering.enrolledStudents ?? 0} of ${offering.maxStudents} places taken` : `${offering.enrolledStudents} students enrolled`}</span>
             </p>
           )}
           <span>{active ? '· Ready for classroom assignment' : '· Activate before assigning a classroom'}</span>

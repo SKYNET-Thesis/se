@@ -58,7 +58,7 @@ export async function apiGetOptional<T>(path: string, accessToken: string): Prom
 
 export interface ApiEnrollmentSync { classrooms: number; enrolled: number }
 export interface ApiAssignmentAcademic { assignmentId: string; difficulty: string | null; assignmentType: string | null; passScore: number | null; gradingMethod: string | null; learningObjectives: string[]; maxScore: number | null }
-export interface ApiCatalogCourse { classroomId: string; classroomName: string; schoolName: string; courseId: string; title: string; description: string | null; level: string | null; levelLabel: string | null; tags: string[]; prerequisites: Array<{ id: string; title: string; completed: boolean }>; capacity: number | null; seatsLeft: number | null; eligible: boolean; reasons: string[] }
+export interface ApiCatalogCourse { classroomId: string; classroomName: string; schoolName: string; courseId: string; title: string; description: string | null; level: string | null; levelLabel: string | null; tags: string[]; prerequisites: Array<{ id: string; title: string; completed: boolean }>; capacity: number | null; seatsLeft: number | null; enrollmentOpensAt?: string | null; enrollmentClosesAt?: string | null; offeringSeatsLeft?: number | null; eligible: boolean; reasons: string[]; reasonCodes?: string[] }
 export interface ApiLearningPath {
   courses: Array<{ id: string; title: string; description: string | null; level: string | null; levelLabel: string | null; tags: string[]; totalLessons: number; completedLessons: number; progressPercent: number;
     state: 'completed' | 'in_progress' | 'available' | 'locked'; unmetPrerequisites: Array<{ id: string; title: string; enrolled: boolean }>; lockedReason: string | null }>;
@@ -334,6 +334,8 @@ export interface ApiOffering {
   academicTerm?: string | null;
   academicYear?: number | null;
   classrooms?: number;
+  /** Distinct students in the offering's active classrooms (administrative placements included). */
+  enrolledStudents?: number;
   startAt?: string | null;
   endAt?: string | null;
   enrollmentOpenAt?: string | null;
@@ -796,3 +798,5 @@ export const robotExecutionApi = {
 };
 /** Read-only evaluation runs the signed-in user requested (AI model registry, SRS FR-08). */
 export const evaluationRunApi = { mine: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiRecord>>(`/me/evaluation-runs?page=${page}&pageSize=${pageSize}`, token), metrics: (id: string, token: string) => apiGet<ApiRecord>(`/me/evaluation-runs/${id}/metrics`, token) };
+/** Training-data lineage of a model version the caller may see (SRS FR-08): dataset name, version, source and frozen state only. */
+export const modelLineageApi = { trainingData: (checkpointId: string, token: string) => apiGet<ApiRecord>(`/model-checkpoints/${checkpointId}/training-data`, token) };

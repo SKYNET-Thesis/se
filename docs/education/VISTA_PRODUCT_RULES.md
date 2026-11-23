@@ -111,6 +111,35 @@ blindly in relational rows. Database state must truthfully reflect workers and
 providers; `not_configured`, `unavailable`, or `queued` is preferable to a
 fabricated result.
 
+## Offering enrollment rules (owner decision, 2026-11-23)
+
+An Offering may carry an enrollment window (`enrollment_open_at`, `enrollment_close_at`) and a student cap (`max_students`).
+
+- **Self-enrollment** (a student enrolling through the catalog) is allowed only while the window is open (`[open, close)`, database clock) and
+  while the offering has fewer students than its cap. The cap counts distinct students with an active student membership in an active
+  classroom of the offering, across all of its classrooms. The classroom's own capacity and `self_enrollment_open` flag still apply.
+- Self-enrollment locks the offering row, then the classroom row, so concurrent students cannot exceed the cap. A refused request is `409`
+  `ENROLLMENT_NOT_ELIGIBLE` with `reasons` (readable) and `reasonCodes` (`ENROLLMENT_NOT_OPEN`, `ENROLLMENT_CLOSED`, `OFFERING_FULL`,
+  `CLASSROOM_FULL`, `ALREADY_ENROLLED`, `PREREQUISITE_NOT_MET`).
+- **Authorized administrative enrollment** (a School Admin adds a member, imports students, or publishes a course) is an override: it is not
+  blocked by the window or the cap, as before. The school sees the effect: the offerings list reports `enrolledStudents`.
+- Offering dates must be orderable (end after start; enrollment closes after it opens and not after the offering ends).
+
+## AI model and dataset registry visibility (owner decision, 2026-11-23; SRS UC-08 / FR-08)
+
+The registry is read-only metadata. It never runs a model.
+
+- **System Administrators** and holders of `model.use` keep the existing full view (public models plus the private models they own or are
+  entitled to, with owner references).
+- **Students and Teachers (active `student` / `instructor` membership)** may read the metadata of **public** models without `model.use`:
+  model card, versions (stored metrics, Hugging Face source), and training-data lineage. Public visibility does not grant `model.use`, never
+  reveals private or entitled-private models, owner references, artifact locations, dataset provenance or unreleased datasets.
+- Lineage (`GET /model-checkpoints/:id/training-data`) returns a dataset's name, version, source and frozen state; a public-only reader sees it
+  only for **frozen** (released) dataset versions. Datasets have no visibility flag, so there is no separate public dataset list: a student's
+  own dataset versions, training runs and evaluation runs stay owner-scoped (`/me/...`).
+- School Admins, Teaching Assistants and people without an active membership get no registry access (the API answers 404).
+- No migration is needed: the access decision is made in the API (`modelAccess`), not in a database permission.
+
 ## Assessment rules
 
 Do not collapse machine evaluation, instructor assessment, feedback, student
