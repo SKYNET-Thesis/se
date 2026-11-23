@@ -3,6 +3,7 @@ import {
   BuildingIcon,
   ClipboardCheckIcon,
   ClipboardListIcon,
+  DatabaseIcon,
   FileQuestionIcon,
   Cpu,
   InboxIcon,
@@ -43,7 +44,8 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     title: 'Build',
     items: [
     { to: '/studio', label: 'Programming Studio', icon: PuzzleIcon },
-    { to: '/lab', label: 'Robot Control & Practice', icon: Cpu }]
+    { to: '/lab', label: 'Robot Control & Practice', icon: Cpu },
+    { to: '/ai-registry', label: 'AI models & data', icon: DatabaseIcon }]
 
   }],
 
@@ -65,6 +67,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     items: [
     { to: '/studio', label: 'Programming Studio', icon: PuzzleIcon },
     { to: '/lab', label: 'Robot Control & Practice', icon: Cpu },
+    { to: '/ai-registry', label: 'AI models & data', icon: DatabaseIcon },
     { to: '/courses', label: 'Student catalogue', icon: BookOpenIcon }]
 
   }],
@@ -89,6 +92,7 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     title: 'Platform',
     items: [
     { to: '/lab', label: 'Robot Control & Practice', icon: Cpu },
+    { to: '/ai-registry', label: 'AI models & data', icon: DatabaseIcon },
     { to: '/admin/courses', label: 'Course catalogue', icon: BookOpenIcon }]
 
   }],

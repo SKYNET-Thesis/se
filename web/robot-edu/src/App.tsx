@@ -8,6 +8,7 @@ import { ProgramsProvider } from './contexts/ProgramsContext';
 import { RoleProvider } from './contexts/RoleContext';
 import { Courses } from './pages/Courses';
 import { LearningPath } from './pages/LearningPath';
+import { AiRegistry } from './pages/AiRegistry';
 import { CourseCatalog } from './pages/CourseCatalog';
 import { CourseDetail } from './pages/CourseDetail';
 import { LessonViewer } from './pages/LessonViewer';
@@ -93,6 +94,7 @@ export function App() {
                   <Route path="practice/:attemptId" element={<Suspense fallback={<RouteFallback />}><Practice mode="physical-enabled" /></Suspense>} />
                   <Route path="practice/:attemptId/result/:evaluationId" element={<SimulationResult />} />
                   <Route path="digital-twin" element={<Navigate to="/lab" replace />} />
+                  <Route path="ai-registry" element={<RequireRole roles={['student', 'teacher', 'admin']}><AiRegistry /></RequireRole>} />
                   <Route path="lab" element={<Suspense fallback={<RouteFallback />}><RobotLab /></Suspense>} />
                   <Route path="teacher" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherOverview /></RequireRole>} />
                   <Route path="teacher/classes" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherClasses /></RequireRole>} />

@@ -83,6 +83,12 @@ test('Journey: instructor builds an assignment with rubric and schedule; student
   const version = await (await page.request.post(`${apiBase}/me/programs/${program.id}/versions`, { headers: student, data: { changeSummary: 'final' } })).json() as { id: string };
   const submission = await (await page.request.post(`${apiBase}/me/attempts/${attempt.id}/submission`, { headers: student, data: { programVersionId: version.id } })).json() as { id: string };
 
+  // SRS WF-04: a reflection on a submission nobody has assessed yet is refused (and writes nothing)
+  const early = await page.request.post(`${apiBase}/me/submissions/${submission.id}/reflections`, { headers: student, data: { promptKey: 'post_assessment', promptText: 'What would you change?', responseText: 'Too early.' } });
+  expect(early.status()).toBe(409);
+  expect(await early.json()).toMatchObject({ code: 'REFLECTION_NOT_UNLOCKED' });
+  expect(await (await page.request.get(`${apiBase}/me/submissions/${submission.id}/reflections`, { headers: student })).json()).toEqual([]);
+
   // 4. instructor scores (partial credit) in the UI; the student sees nothing until release
   await page.goto(`/teacher/classes/${fixture.classroomId}/submissions/${submission.id}`);
   await page.getByLabel('Points / 6').fill('4.5'); await page.getByLabel('Points / 4').fill('4');
@@ -138,4 +144,19 @@ test('Journey: instructor builds an assignment with rubric and schedule; student
   await page.goto(`/my-learning/${delivery.id}`);
   await page.getByRole('button', { name: 'View details' }).first().click();
   await expect(page.getByText('Corrected grade.')).toBeVisible();
+
+  // 9. WF-04: once feedback is released the student reflects in the same view; it is persisted against the submission and survives a reload
+  const reflection = page.getByRole('region', { name: 'Your reflection' });
+  await expect(reflection).toBeVisible();
+  await reflection.getByRole('textbox').fill('I would check the Sequence criterion before the Safety one.');
+  await reflection.getByRole('button', { name: 'Save reflection' }).click();
+  await expect(reflection.getByText('I would check the Sequence criterion before the Safety one.')).toBeVisible();
+  const saved = await (await page.request.get(`${apiBase}/me/submissions/${submission.id}/reflections`, { headers: student })).json() as Array<{ response_text: string }>;
+  expect(saved.map((row) => row.response_text)).toEqual(['I would check the Sequence criterion before the Safety one.']);
+  await page.reload();
+  await page.getByRole('button', { name: 'View details' }).first().click();
+  await expect(page.getByRole('region', { name: 'Your reflection' }).getByText('I would check the Sequence criterion before the Safety one.')).toBeVisible();
+  // another student cannot read or write it
+  const outsider = await bearer(page, 'otherStudent');
+  expect([403, 404]).toContain((await page.request.get(`${apiBase}/me/submissions/${submission.id}/reflections`, { headers: outsider })).status());
 });

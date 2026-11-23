@@ -239,6 +239,9 @@ export class AssessmentService {
 
   async createReflection(user:AuthenticatedUser,submissionId:string,dto:CreateReflectionDto) {
     await this.ownSubmission(user,submissionId,true);
+    // SRS WF-04 (3.5.2): a reflection is written about the instructor's assessment; one on an unassessed submission is rejected.
+    const assessed=await this.prisma.$queryRaw<{n:number}[]>`SELECT 1 AS n FROM public.learning_assessments WHERE submission_id=${submissionId}::uuid LIMIT 1`;
+    if(!assessed[0]) throw new ConflictException({code:"REFLECTION_NOT_UNLOCKED",message:"You can write a reflection once your instructor has assessed this submission."});
     const rows=await this.prisma.$queryRaw<{id:string;submission_id:string;learner_user_id:string;prompt_key:string;prompt_text:string;response_text:string|null;created_at:Date}[]>`INSERT INTO public.learning_reflections(submission_id,learner_user_id,prompt_key,prompt_text,response_text) VALUES(${submissionId}::uuid,${user.vistaUserId}::uuid,${dto.promptKey},${dto.promptText},${dto.responseText??null}) RETURNING id,submission_id,learner_user_id,prompt_key,prompt_text,response_text,created_at`;
     return rows[0];
   }

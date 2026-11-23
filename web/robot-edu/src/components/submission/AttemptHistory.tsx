@@ -3,6 +3,7 @@ import type { ApiAttemptHistoryItem } from '../../lib/api';
 import { Badge } from '../ui/Badge';
 import { AttachmentUploader } from './AttachmentUploader';
 import { GradingFeedbackPanel } from './GradingFeedbackPanel';
+import { ReflectionPanel } from './ReflectionPanel';
 import { attemptPresentation, type AssignmentKind } from './submissionState';
 
 /** Every attempt with ITS OWN status, submission time, attachments and released result; previous attempts are read-only. */
@@ -30,6 +31,7 @@ export function AttemptHistory({ attempts, kind, token, onOpen }: { attempts: Ap
         {open && <div className="mt-3">
           {kind !== 'quiz' && <AttachmentUploader attemptId={attempt.id} token={token} readOnly />}
           {kind !== 'quiz' && <GradingFeedbackPanel attemptId={attempt.id} token={token} submitted />}
+          {kind !== 'quiz' && attempt.submission_id && <ReflectionPanel submissionId={attempt.submission_id} token={token} unlocked={attempt.grading_released} />}
           {kind === 'quiz' && <button type="button" className="text-sm font-medium text-accent hover:text-accent-hover" onClick={() => onOpen(attempt.id)}>Open result</button>}
         </div>}
       </li>;

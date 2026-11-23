@@ -794,3 +794,5 @@ export const robotExecutionApi = {
   execution: (token: string, executionId: string) => apiGet<ApiRecord>(`/me/physical-executions/${executionId}`, token),
   stop: (token: string, executionId: string) => apiRequest<ApiRecord>(`/me/physical-executions/${executionId}/stop`, token, "POST"),
 };
+/** Read-only evaluation runs the signed-in user requested (AI model registry, SRS FR-08). */
+export const evaluationRunApi = { mine: (token: string, page = 1, pageSize = 20) => apiGet<ApiCollection<ApiRecord>>(`/me/evaluation-runs?page=${page}&pageSize=${pageSize}`, token), metrics: (id: string, token: string) => apiGet<ApiRecord>(`/me/evaluation-runs/${id}/metrics`, token) };
