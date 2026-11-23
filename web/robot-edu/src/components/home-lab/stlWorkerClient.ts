@@ -1,6 +1,6 @@
 export const STL_WORKER_TIMEOUT_MS = 30_000;
 
-interface MeshData { position: Float32Array; normal?: Float32Array }
+interface MeshData { position: Float32Array; normal?: Float32Array; /** Present for the compact web meshes (indexed geometry). */ index?: Uint16Array | Uint32Array }
 type MeshWorker = EventTarget & { postMessage(message: { id: number; url: string }): void; terminate(): void };
 interface PendingMesh {
   resolve: (data: MeshData) => void;
@@ -48,16 +48,23 @@ export class StlWorkerClient {
     if ('error' in data) {
       this.fail(new Error(typeof data.error === 'string' ? data.error : 'Mesh parse failed.')); return;
     }
-    if (!('position' in data) || !(data.position instanceof Float32Array) || !data.position.length || data.position.length % 9 !== 0) {
+    const index = 'index' in data && data.index != null ? data.index : undefined;
+    if (index !== undefined && ((!(index instanceof Uint16Array) && !(index instanceof Uint32Array)) || !index.length || index.length % 3 !== 0)) {
+      this.fail(new Error('Invalid mesh indices.')); return;
+    }
+    // Non-indexed (STL) meshes carry whole triangles; indexed ones carry whole vertices.
+    const unit = index ? 3 : 9;
+    if (!('position' in data) || !(data.position instanceof Float32Array) || !data.position.length || data.position.length % unit !== 0) {
       this.fail(new Error('Invalid STL mesh positions.')); return;
     }
+    if (index) { let max = 0; for (let i = 0; i < index.length; i += 1) if (index[i] > max) max = index[i]; if (max >= data.position.length / 3) { this.fail(new Error('Invalid mesh indices.')); return; } }
     const normal = 'normal' in data ? data.normal : undefined;
     if (normal !== undefined && (!(normal instanceof Float32Array) || normal.length !== data.position.length)) {
       this.fail(new Error('Invalid STL mesh normals.')); return;
     }
     clearTimeout(job.timer);
     this.pending.delete(data.id);
-    job.resolve({ position: data.position, normal });
+    job.resolve({ position: data.position, normal, index });
   };
 
   private onError = (event: Event) => {
