@@ -92,6 +92,7 @@ export function App() {
                   <Route path="studio/:programId" element={<Suspense fallback={<RouteFallback />}><Studio /></Suspense>} />
                   <Route path="practice/:attemptId" element={<Suspense fallback={<RouteFallback />}><Practice mode="physical-enabled" /></Suspense>} />
                   <Route path="practice/:attemptId/result/:evaluationId" element={<SimulationResult />} />
+                  <Route path="digital-twin" element={<Navigate to="/lab" replace />} />
                   <Route path="lab" element={<Suspense fallback={<RouteFallback />}><RobotLab /></Suspense>} />
                   <Route path="teacher" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherOverview /></RequireRole>} />
                   <Route path="teacher/classes" element={<RequireRole roles={['teacher', 'teaching_assistant']}><TeacherClasses /></RequireRole>} />
