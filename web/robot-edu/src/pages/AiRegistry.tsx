@@ -7,7 +7,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { PageHeader } from '../components/ui/PageHeader';
 import { Tabs } from '../components/ui/Tabs';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
-import { datasetApi, evaluationRunApi, modelApi, type ApiRecord } from '../lib/api';
+import { datasetApi, evaluationRunApi, modelApi, modelLineageApi, type ApiRecord } from '../lib/api';
 import { metricsSummary, registryState, sourceLabel, statusTone, successRate } from '../queries/aiRegistryModel';
 
 type TabId = 'models' | 'datasets' | 'runs';
@@ -32,7 +32,7 @@ export function AiRegistry() {
   const evaluations = useQuery({ queryKey: keys('evaluations', userId), queryFn: () => evaluationRunApi.mine(token), enabled: enabled && tab === 'runs', retry: false });
 
   return <div className="mx-auto max-w-6xl p-4 sm:p-6">
-    <PageHeader eyebrow="Read-only" title="AI models & data" description="Where each AI model, dataset and evaluation came from. This page shows stored metadata only; VISTA does not run model inference here." />
+    <PageHeader eyebrow="Read-only" title="AI models & data" description="Where each AI model, dataset and evaluation came from. You see public models and your own datasets and runs; private models stay private. This page shows stored metadata only; VISTA does not run model inference here." />
     <Tabs label="AI registry sections" className="mt-6" value={tab} onChange={setTab} items={[{ id: 'models', label: 'Models' }, { id: 'datasets', label: 'Datasets' }, { id: 'runs', label: 'Training & evaluation' }]} />
     <div id={`panel-${tab}`} role="tabpanel" className="mt-6">
       {tab === 'models' && <Models query={models} token={token} selected={selectedModel} onSelect={setSelectedModel} />}
@@ -86,16 +86,16 @@ function Checkpoints({ modelId, token }: { modelId: string; token: string }) {
       <p className="font-medium text-ink">Version {str(row.version) ?? '—'}{typeof row.step === 'number' ? ` · step ${row.step}` : ''}<span className="ml-2 text-xs font-normal text-ink-subtle">{when(row.created_at)}</span></p>
       <p className="mt-1 text-xs text-ink-muted">{source ? `Source ${source}` : 'No source recorded'}</p>
       <p className="mt-1 text-xs text-ink-muted">{metrics.length ? metrics.join(' · ') : 'No metrics recorded'}</p>
-      {run ? <><Button className="mt-2" size="sm" variant="ghost" aria-expanded={lineage === id} onClick={() => setLineage(lineage === id ? null : id)}>{lineage === id ? 'Hide training data' : 'Show training data'}</Button>{lineage === id && <Lineage runId={run} token={token} />}</>
+      {run ? <><Button className="mt-2" size="sm" variant="ghost" aria-expanded={lineage === id} onClick={() => setLineage(lineage === id ? null : id)}>{lineage === id ? 'Hide training data' : 'Show training data'}</Button>{lineage === id && <Lineage checkpointId={id} token={token} />}</>
         : <p className="mt-1 text-xs text-ink-subtle">No training run is linked to this version.</p>}
     </li>;
   })}</ul>;
 }
 
-function Lineage({ runId, token }: { runId: string; token: string }) {
-  const query = useQuery({ queryKey: ['ai-registry', 'lineage', runId], queryFn: () => modelApi.trainingDataset(runId, token), retry: false });
+function Lineage({ checkpointId, token }: { checkpointId: string; token: string }) {
+  const query = useQuery({ queryKey: ['ai-registry', 'lineage', checkpointId], queryFn: () => modelLineageApi.trainingData(checkpointId, token), retry: false });
   if (query.isLoading) return <p className="mt-2 text-xs text-ink-muted">Loading training data…</p>;
-  if (registryState(query.error) === 'unavailable') return <p className="mt-2 text-xs text-ink-muted">The training data of this version is not visible to your account.</p>;
+  if (registryState(query.error) === 'unavailable') return <p className="mt-2 text-xs text-ink-muted">The training data of this version is not published: only released (frozen) dataset versions are shown.</p>;
   if (query.error) return <div className="mt-2"><Retry onRetry={query.refetch} what="Training data" /></div>;
   const dataset = query.data ?? {}; const source = sourceLabel(str(dataset.huggingface_repo), str(dataset.huggingface_revision));
   return <p className="mt-2 rounded-md bg-sunken/50 p-2 text-xs text-ink-muted">Trained on dataset <span className="font-medium text-ink">{str(dataset.name) ?? 'unnamed'} {str(dataset.version) ?? ''}</span>{source ? ` · ${source}` : ''}{dataset.is_frozen === true ? ' · frozen' : ''}</p>;
