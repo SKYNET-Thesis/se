@@ -3,16 +3,45 @@ import { SO101_CURRICULUM } from '../../../../services/education-api/src/scripts
 import { blockBox, dragFromFlyout, workspaceBlocks, waitForBlocklyReady } from './helpers/blockly';
 import { call, deliverCourse, loadFixture, signIn } from './helpers/academic';
 
-/** Beginner Blockly lab bound to a seeded challenge: build, validate, save, run, AUTOMATIC grading, submit, review, release. No robot, no AI model, no Digital Twin. */
+/**
+ * Integrated WF-01 -> WF-04 journey on one new classroom, in the real browser against the real API and PostgreSQL:
+ *  Active Offering -> Classroom (UI) -> School Admin allocates an entitled robot (UI; a standing authorization, NOT execution) -> Instructor sees it
+ *  -> Instructor publishes a Blockly lab -> Student builds, validates, saves a version and runs the schematic SIMULATION (automatic grading)
+ *  -> submits -> Instructor reviews the persisted evidence, assesses, releases -> Student sees the result and writes a reflection -> the instructor's
+ *  class view lists the result. No robot is commanded, no AI model is run, no Digital Twin is needed (the runtime boundary is wf03-runtime-evidence).
+ */
 const COURSE = SO101_CURRICULUM[0]; const LAB = COURSE.labs[0];
 const run = Date.now().toString(36).toUpperCase();
 
-test('Beginner Blockly lab is graded automatically from the seeded challenge without any robot', async ({ page, browser }) => {
+test('Integrated WF-01 to WF-04: classroom, robot allocation, Blockly lab, automatic simulation grading, review, release and reflection', async ({ page, browser }) => {
   test.setTimeout(300_000);
   await page.setViewportSize({ width: 1600, height: 1300 });
   const fixture = await loadFixture();
   const classroomName = `Foundations lab ${run}`;
   const classroomId = await deliverCourse(page, fixture, COURSE.title, classroomName, ['Phase 2.4.3 Test Student', 'Phase 2.4.3 Test Instructor']);
+
+  // WF-01 (UI): the School Admin allocates an entitled robot to the new classroom; the Instructor sees it. Allocation authorizes, it does not execute.
+  const adminToken = await signIn(page, fixture, 'schoolAdmin');
+  await page.goto(`/school/classrooms/${classroomId}`);
+  await expect(page.getByText('No robot resource assigned')).toBeVisible();
+  await page.getByRole('button', { name: 'Allocate robot' }).click();
+  const allocate = page.getByRole('dialog', { name: 'Allocate robot resource' });
+  const robotOption = allocate.getByRole('option', { name: /WF-01 entitled robot/ });
+  await expect(robotOption).toHaveCount(1);
+  await allocate.getByLabel('Eligible robot').selectOption((await robotOption.getAttribute('value'))!);
+  await allocate.getByRole('button', { name: 'Allocate robot' }).click();
+  await expect(page.getByText('Allocated', { exact: true })).toBeVisible();
+  await expect(page.getByText('WF-01 entitled robot').first()).toBeVisible();
+  const allocationPath = `/education-admin/classrooms/${classroomId}/robot-allocation`;
+  const instructorToken = await signIn(page, fixture, 'instructor');
+  await page.goto(`/teacher/classes/${classroomId}`);
+  await expect(page.getByText(/Allocated:\s*WF-01 entitled robot/)).toBeVisible();
+  // WF-01 rejections (403/404, never a silent change): an instructor, another school's admin and a robot that is not entitled to this school
+  expect([403, 404]).toContain((await call(page, instructorToken, 'PUT', allocationPath, { robotId: fixture.allocatedRobotId })).status);
+  const otherAdmin = await signIn(page, fixture, 'otherSchoolAdmin');
+  expect([403, 404]).toContain((await call(page, otherAdmin, 'PUT', allocationPath, { robotId: fixture.allocatedRobotId })).status);
+  expect([403, 404, 409]).toContain((await call(page, adminToken, 'PUT', allocationPath, { robotId: fixture.foreignRobotId as string })).status);
+  expect(((await call(page, instructorToken, 'GET', `/classrooms/${classroomId}`)).body as { allocated_robot?: { name: string } }).allocated_robot?.name).toBe('WF-01 entitled robot');
 
   // instructor: the delivery option lists the seeded challenge; the new assignment inherits its allowed blocks (no Movement blocks for a beginner lab)
   const teacher = await signIn(page, fixture, 'instructor');
@@ -97,5 +126,17 @@ test('Beginner Blockly lab is graded automatically from the seeded challenge wit
   expect(grading.assessment.scores.map((s) => s.awardedPoints).sort((a, b) => a - b)).toEqual([safe, clean - 5].sort((a, b) => a - b));
   await page.goto(`/my-learning/${publish.body.id}`);
   await expect(page.getByText('Graded').first()).toBeVisible();
+
+  // WF-04: the student reflects on the released feedback (persisted against the submission); the instructor's class view lists the result
+  await page.getByRole('button', { name: 'View details' }).first().click();
+  const reflection = page.getByRole('region', { name: 'Your reflection' });
+  await reflection.getByRole('textbox').fill('Open, wait, close was the right order; next time I will add a safety check.');
+  await reflection.getByRole('button', { name: 'Save reflection' }).click();
+  await expect(reflection.getByText('Open, wait, close was the right order; next time I will add a safety check.')).toBeVisible();
+  const reflections = (await call(page, token, 'GET', `/me/submissions/${submission.id}/reflections`)).body as Array<{ response_text: string }>;
+  expect(reflections.map((r) => r.response_text)).toEqual(['Open, wait, close was the right order; next time I will add a safety check.']);
+  await reviewer.goto(`/teacher/classes/${classroomId}`);
+  await expect(reviewer.getByRole('heading', { name: 'Submitted results' })).toBeVisible();
+  await expect(reviewer.getByText('Phase 2.4.3 Test Student').first()).toBeVisible();
 });
 const apiBase = () => process.env.VISTA_E2E_API_BASE_URL!;

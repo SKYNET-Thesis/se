@@ -32,6 +32,7 @@ definition before deploying this build, or the new task will fail its start-up c
 | `SUPABASE_INVITE_REDIRECT_URL` | recommended | Where invited instructors / School Admins land after accepting. |
 | `SUPABASE_JWT_ISSUER`, `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWKS_URL` | optional | Override only for a custom domain. |
 | `HTTP_BODY_LIMIT_BYTES` | optional | Positive integer. |
+| `HTTP_KEEP_ALIVE_TIMEOUT_MS` | optional | 1000–600000. Unset keeps Node's 5 s idle-connection timeout (the current Production topology, nginx without upstream keep-alive, is unaffected). Set it above the idle timeout of any keep-alive proxy placed directly in front of the API, otherwise a request that lands as the API closes an idle socket fails with a connection reset. The local integration stack sets 65000. |
 | `DIGITAL_TWIN_TELEMETRY_URL` + `DIGITAL_TWIN_SCOPE_SECRET` | only with a Twin sidecar | URL must be loopback; secret ≥ 32 chars (new check). `DIGITAL_TWIN_REVOKE_RETRY_MS` (default `0,500,2000,5000`). |
 | `VISTA_ROBOT_RUNTIME_MAP`, `VISTA_RUNTIME_TOKEN`, `ROBOT_RUNTIME_BASE_URL`, `ROBOT_RUNTIME_TIMEOUT_MS`, `VISTA_PHYSICAL_RUNTIME_MODES` | robot features only | Not part of Web LMS acceptance. |
 | `MQTT_*`, `VISTA_IOT_*` | robot features only | Not part of Web LMS acceptance. |

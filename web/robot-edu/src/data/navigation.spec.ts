@@ -43,4 +43,11 @@ describe('navigation integrity', () => {
   it.each(['/school/quizzes', '/school/offerings', '/teacher/quizzes', '/admin/organizations', '/my-learning'])('%s is a declared route', (route) => {
     expect(matchesRoute(route)).toBe(true);
   });
+
+  it('offers the read-only AI models & data registry to exactly the roles the SRS names (Student, Teacher, System Admin)', () => {
+    const has = (role: keyof typeof navigationByRole) => navigationByRole[role].flatMap(section => section.items).some(item => item.to === '/ai-registry');
+    expect([has('student'), has('teacher'), has('admin')]).toEqual([true, true, true]);
+    expect([has('school_admin'), has('teaching_assistant')]).toEqual([false, false]);
+    expect(matchesRoute('/ai-registry')).toBe(true);
+  });
 });

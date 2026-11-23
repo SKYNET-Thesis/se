@@ -58,6 +58,8 @@ AWS_ACCESS_KEY_ID=vista_media_test
 AWS_SECRET_ACCESS_KEY=vista_media_test_only_password
 DIGITAL_TWIN_SCOPE_SECRET=twsecret_local
 DIGITAL_TWIN_TELEMETRY_URL=http://127.0.0.1:8767
+# The test runner talks to the API directly over reused connections; Node's 5 s idle timeout would reset a request that lands as the socket closes.
+HTTP_KEEP_ALIVE_TIMEOUT_MS=65000
 # Course prerequisites: enforced for enrolments created from this instant (fixture enrolments are created later, so they are enforced; E2E backdates enrolled_at to exercise grandfathering).
 COURSE_PREREQUISITES_ENFORCED_FROM=2026-01-01T00:00:00Z
 EOT
