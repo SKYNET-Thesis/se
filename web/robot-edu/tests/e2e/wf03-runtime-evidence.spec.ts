@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-const fixturePath = process.env.VISTA_E2E_FIXTURE_FILE!;
+const fixturePath = process.env.VISTA_E2E_WF03_FIXTURE_FILE ?? process.env.VISTA_E2E_FIXTURE_FILE!;
 const apiBase = process.env.VISTA_E2E_API_BASE_URL!;
 const fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as {
   courseId: string; l5LessonId: string; attemptId: string; submissionId: string; classroomId: string;

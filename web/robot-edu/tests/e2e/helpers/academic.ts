@@ -1,13 +1,15 @@
 import { expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
-export interface Fixture { schoolId: string; otherSchoolId: string; users: Record<string, { authUserId: string; userId: string }>; [key: string]: unknown }
+export interface Fixture { schoolId: string; otherSchoolId: string; users: Record<string, { authUserId: string; userId: string; email?: string }>; [key: string]: unknown }
 export const loadFixture = async () => JSON.parse(await readFile(process.env.VISTA_E2E_FIXTURE_FILE!, 'utf8')) as Fixture;
 export const apiBase = process.env.VISTA_E2E_API_BASE_URL!;
 const authPort = Number(process.env.VISTA_E2E_JWKS_PORT ?? 54321);
 
 export async function signIn(page: Page, fixture: Fixture, who: string) {
-  const s = await (await page.request.get(`http://127.0.0.1:${authPort}/token?sub=${fixture.users[who].authUserId}`)).json() as { access_token: string };
+  const identity = fixture.users[who];
+  const email = identity.email ? `&email=${encodeURIComponent(identity.email)}` : '';
+  const s = await (await page.request.get(`http://127.0.0.1:${authPort}/token?sub=${identity.authUserId}${email}`)).json() as { access_token: string };
   if (page.url() === 'about:blank') await page.goto('/');
   await page.evaluate((v) => localStorage.setItem('sb-127-auth-token', JSON.stringify(v)), s);
   return s.access_token;
