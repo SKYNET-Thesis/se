@@ -92,4 +92,29 @@ describe('AppShell focused learning navigation', () => {
     expect(container.querySelector('aside')?.className).toContain('w-[240px]');
     expect(container.textContent).toContain('Course path');
   });
+
+  it('A07: the account menu closes with Escape (focus back on the avatar), with an outside click and when focus leaves it', async () => {
+    await renderAt('/courses/course-1');
+    const avatar = () => container.querySelector('button[aria-label="Account menu"]') as HTMLButtonElement;
+    const menuOpen = () => container.textContent?.includes('Account Settings');
+    expect(avatar().getAttribute('aria-haspopup')).toBe('true');
+    expect(menuOpen()).toBe(false);
+
+    await act(async () => { avatar().click(); });
+    expect(avatar().getAttribute('aria-expanded')).toBe('true'); expect(menuOpen()).toBe(true);
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    expect(menuOpen()).toBe(false); expect(document.activeElement).toBe(avatar());
+
+    await act(async () => { avatar().click(); });
+    expect(menuOpen()).toBe(true);
+    await act(async () => { document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(menuOpen()).toBe(false);
+
+    await act(async () => { avatar().click(); });
+    await act(async () => { (container.querySelector('a[href="/account"]') as HTMLAnchorElement).focus(); });
+    expect(menuOpen()).toBe(true);                                   // moving inside the menu keeps it open
+    const outside = document.createElement('button'); document.body.appendChild(outside);
+    await act(async () => { outside.focus(); });
+    expect(menuOpen()).toBe(false); outside.remove();
+  });
 });

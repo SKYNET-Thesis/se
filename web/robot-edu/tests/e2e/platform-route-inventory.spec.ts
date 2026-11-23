@@ -74,9 +74,9 @@ test.describe('parametrised routes opened directly', () => {
     test.setTimeout(240_000);
     const f = await loadFixture() as Record<string, string> & Awaited<ReturnType<typeof loadFixture>>;
     for (const [role, routes] of [
-      ['instructor', [`/teacher/classes/${f.classroomId}`, '/teacher/challenges', '/lab', '/studio', `/courses/${f.courseId}/lessons/${f.lessonId}`]],
-      ['schoolAdmin', [`/school/classrooms/${f.classroomId}`, '/lab', '/studio']],
-      ['admin', ['/lab', '/studio', `/admin/courses/${f.courseId}`]],
+      ['instructor', [`/courses/${f.courseId}/info`, `/teacher/classes/${f.classroomId}`, '/teacher/challenges', '/lab', '/studio', `/courses/${f.courseId}/lessons/${f.lessonId}`]],
+      ['schoolAdmin', [`/courses/${f.courseId}/info`, `/school/classrooms/${f.classroomId}`, '/lab', '/studio']],
+      ['admin', [`/courses/${f.courseId}/info`, '/lab', '/studio', `/admin/courses/${f.courseId}`]],
     ] as const) {
       await signIn(page, f, role); const problems = watch(page);
       for (const route of routes) { await page.goto(route); await assertHealthy(page, route, 'desktop'); }

@@ -319,6 +319,7 @@ test('Journey 2: instructor authors a school question, builds and configures a q
   const delivery = await (await delivered).json() as { id: string; assignment_id: string };
   const publishedDelivery = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/classrooms/${classroomId}/assignments/${delivery.assignment_id}/publish`));
   await page.getByRole('button', { name: 'Publish to learners' }).click();
+  await page.getByRole('dialog', { name: 'Publish this quiz to students?' }).getByRole('button', { name: 'Publish to students' }).click();
   expect((await publishedDelivery).ok()).toBeTruthy();
 
   // Safe edit: a delivered quiz can no longer be changed in a way that would alter attempts' meaning.

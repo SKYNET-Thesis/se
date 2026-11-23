@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { createClassroom, createDb, describeDb, type Db } from '../learning/db-test-support';
 import { LearningScopeService } from '../learning/learning-scope.service';
 import { EducationAdminService } from './education-admin.service';
@@ -65,5 +65,22 @@ describeDb('course offerings (PostgreSQL)', () => {
     await expect(service.createCourseOffering(manager(a.id), a.id, { courseId: ownedByA.id, code: 'OWN' })).resolves.toMatchObject({ status: 'draft' });   // its own school's course is allowed
     await expect(service.createCourseOffering(manager(b.id), a.id, { courseId: published.id, code: 'Z' })).rejects.toBeInstanceOf(NotFoundException);       // not a manager of school A
     await expect(Promise.resolve().then(() => queries.offerings(manager(b.id), a.id))).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('stores offering metadata and refuses an inverted schedule on create and update (merged with the stored dates)', async () => {
+    const s = randomUUID().slice(0, 8); const a = await school(`m${s}`);
+    const course = await db.learning_courses.create({ data: { title: `M ${s}`, status: 'published' } });
+    const base = { courseId: course.id };
+    await expect(service.createCourseOffering(manager(a.id), a.id, { ...base, code: 'BAD1', startAt: '2026-09-01T00:00:00Z', endAt: '2026-08-01T00:00:00Z' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.createCourseOffering(manager(a.id), a.id, { ...base, code: 'BAD2', enrollmentOpenAt: '2026-09-02T00:00:00Z', enrollmentCloseAt: '2026-09-01T00:00:00Z' })).rejects.toBeInstanceOf(BadRequestException);
+    expect(await db.learning_course_offerings.count({ where: { organization_id: a.id, code: { in: ['BAD1', 'BAD2'] } } })).toBe(0);   // nothing was saved
+    const ok = await service.createCourseOffering(manager(a.id), a.id, { ...base, code: 'OK', startAt: '2026-09-01T00:00:00Z', endAt: '2027-01-01T00:00:00Z', enrollmentOpenAt: '2026-08-01T00:00:00Z', enrollmentCloseAt: '2026-09-15T00:00:00Z', maxStudents: 30 });
+    expect(ok).toMatchObject({ max_students: 30 });
+    const listed = await queries.offerings(manager(a.id), a.id) as unknown as Array<{ code: string }>;
+    expect(listed.find((row) => row.code === 'OK')).toMatchObject({ maxStudents: 30 });
+    // an update that sets only one date is checked against the stored other one
+    await expect(service.updateCourseOffering(manager(a.id), a.id, ok.id, { endAt: '2026-08-15T00:00:00Z' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.updateCourseOffering(manager(a.id), a.id, ok.id, { enrollmentCloseAt: '2026-07-01T00:00:00Z' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.updateCourseOffering(manager(a.id), a.id, ok.id, { endAt: '2027-03-01T00:00:00Z' })).resolves.toMatchObject({ id: ok.id });
   });
 });

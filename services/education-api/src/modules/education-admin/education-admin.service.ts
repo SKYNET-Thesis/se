@@ -9,6 +9,7 @@ import { AllocateClassroomRobotDto } from "./dto/allocate-classroom-robot.dto";
 import { UpsertClassroomMemberDto } from "./dto/upsert-classroom-member.dto";
 import { ImportSchoolUsersDto, ImportSchoolUserRowDto } from "./dto/import-school-users.dto";
 import { SupabaseAdminService } from "./supabase-admin.service";
+import { assertOfferingSchedule } from "./offering-schedule";
 import { classifyImportError, ImportProvisioningError, type ImportErrorCode } from "./import-errors";
 import { StudentProvisioningService } from "./student-provisioning.service";
 import { EnrollmentDeliveryService } from "../learning/enrollment-delivery.service";
@@ -173,6 +174,7 @@ export class EducationAdminService {
     await this.assertOrganizationPermission(user, organizationId, 'education.classroom.manage');
     const course = await this.prisma.learning_courses.findFirst({ where: { id: dto.courseId, status: 'published', OR: [{ organization_id: null }, { organization_id: organizationId }] }, select: { id: true, title: true } });
     if (!course) throw new NotFoundException('Published course was not found.');
+    assertOfferingSchedule({ startAt: dto.startAt, endAt: dto.endAt, enrollmentOpenAt: dto.enrollmentOpenAt, enrollmentCloseAt: dto.enrollmentCloseAt });
     try {
       return await this.prisma.learning_course_offerings.create({ data: {
         organization_id: organizationId, course_id: course.id, code: dto.code.trim(), title: dto.title?.trim() || course.title,
@@ -194,10 +196,15 @@ export class EducationAdminService {
     await this.assertOrganizationPermission(user, organizationId, "education.classroom.manage");
     const offering = await this.prisma.learning_course_offerings.findFirst({
       where: { id: offeringId, organization_id: organizationId, learning_courses: { is: { status: "published", OR: [{ organization_id: null }, { organization_id: organizationId }] } } },
-      select: { id: true, status: true },
+      select: { id: true, status: true, start_at: true, end_at: true, enrollment_open_at: true, enrollment_close_at: true },
     });
     if (!offering) throw new NotFoundException("Course offering was not found.");
     if (offering.status !== "draft") throw new ConflictException("Only draft course offerings can be updated.");
+    const pick = <T,>(next: string | undefined, current: T) => (next === undefined ? current : next || null);
+    assertOfferingSchedule({
+      startAt: pick(dto.startAt, offering.start_at), endAt: pick(dto.endAt, offering.end_at),
+      enrollmentOpenAt: pick(dto.enrollmentOpenAt, offering.enrollment_open_at), enrollmentCloseAt: pick(dto.enrollmentCloseAt, offering.enrollment_close_at),
+    });
     try {
       return await this.prisma.learning_course_offerings.update({
         where: { id: offering.id },

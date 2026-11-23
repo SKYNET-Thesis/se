@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scheduleBody, validateSchedule, type ScheduleInput } from './quizDeliveryModel';
+import { deliveryStatusLabel, describeSchedule, scheduleBody, validateSchedule, type ScheduleInput } from './quizDeliveryModel';
 
 const empty: ScheduleInput = { availableFrom: '', dueAt: '', closeAt: '', maxAttempts: '' };
 
@@ -30,5 +30,23 @@ describe('quiz delivery schedule', () => {
       dueAt: new Date('2026-11-25T12:00').toISOString(),
       maxAttempts: 3,
     });
+  });
+});
+
+describe('delivery description', () => {
+  it('explains a draft in words and never leaves an unknown status blank', () => {
+    expect(deliveryStatusLabel('draft')).toMatch(/not visible to students/);
+    expect(deliveryStatusLabel('published')).toBe('Published');
+    expect(deliveryStatusLabel('weird')).toBe('Weird');
+    expect(deliveryStatusLabel(undefined)).toBe('Unknown status');
+  });
+
+  it('describes the schedule and attempt rule', () => {
+    expect(describeSchedule({}, 'en-US')).toEqual(['Open as soon as it is published', 'Unlimited attempts']);
+    const parts = describeSchedule({ available_from: '2026-11-03T09:00:00Z', due_at: '2026-11-10T09:00:00Z', close_at: '2026-11-12T09:00:00Z', max_attempts: 3 }, 'en-US');
+    expect(parts).toHaveLength(4);
+    expect(parts[0]).toMatch(/^Opens /); expect(parts[1]).toMatch(/^Due /); expect(parts[2]).toMatch(/^Closes /);
+    expect(parts[3]).toBe('3 attempts');
+    expect(describeSchedule({ max_attempts: 1 }, 'en-US')).toContain('1 attempt');
   });
 });
