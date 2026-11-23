@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircleIcon, ArrowLeftIcon, CheckCircle2Icon, EyeIcon, EyeOffIcon, MailIcon } from 'lucide-react';
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { VistaMark } from '../components/layout/VistaMark';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
@@ -36,7 +36,7 @@ export function Login() {
 
   const restrictionReason = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('reason') : null;
   const [error, setError] = useState<string | null>(restrictionReason === 'TEMPORARY_PASSWORD_EXPIRED' ? 'Your temporary password has expired. Ask your school administrator to issue a new one.' : restrictionReason === 'SESSION_ROTATED' ? 'Your password changed, so you were signed out. Sign in again.' : null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(restrictionReason === 'PASSWORD_RESET' ? 'Your password was changed. Sign in with your new password.' : null);
   const [submitting, setSubmitting] = useState(false);
   const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
 
@@ -549,6 +549,12 @@ export function Login() {
                         ? 'Already have an active account? Sign in'
                         : 'Remember your password? Back to sign in'}
                     </button>
+                  )}
+
+                  {loginType === 'email' && (
+                    <Link to="/forgot-password" className="text-xs text-ink-muted transition-colors hover:text-ink">
+                      Forgot password?
+                    </Link>
                   )}
 
                   {loginType === 'email' && (

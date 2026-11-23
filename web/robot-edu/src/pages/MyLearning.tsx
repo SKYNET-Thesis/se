@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -10,6 +10,7 @@ import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { countLabel } from '../lib/terms';
 import { progressionApi, type ApiStudentQuiz, type CoursePathResponse } from '../lib/api';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
+import { describeLearningLoadFailure } from '../queries/learningLoadError';
 import { cn } from '../utils/cn';
 
 export type MyLearningTabKey = 'in-progress' | 'completed' | 'quizzes';
@@ -129,21 +130,27 @@ export function MyLearning() {
 
       {loading && <p className="mt-6 text-sm text-ink-muted">Restoring your learning…</p>}
 
-      {error && (
-        <div role="alert" className="mt-6 bg-danger-soft p-3 text-sm text-danger">
-          <p>{error instanceof Error ? error.message : 'Unable to load learning.'}</p>
-          <Button
-            className="mt-3"
-            variant="secondary"
-            onClick={() => {
-              void coursePathsQuery.refetch();
-              void quizzesQuery.refetch();
-            }}
-          >
-            Retry
-          </Button>
-        </div>
-      )}
+      {error && (() => {
+        const failure = describeLearningLoadFailure(error);
+        return (
+          <div role="alert" className="mt-6 bg-danger-soft p-3 text-sm text-danger">
+            <p>{failure.message}</p>
+            {failure.canRetry && (
+              <Button
+                className="mt-3"
+                variant="secondary"
+                onClick={() => {
+                  void coursePathsQuery.refetch();
+                  void quizzesQuery.refetch();
+                }}
+              >
+                Retry
+              </Button>
+            )}
+            {failure.kind === 'session' && <Link to="/login" className="mt-3 inline-block font-medium underline">Sign in again</Link>}
+          </div>
+        );
+      })()}
 
       {!loading && !error && !hasAnyLearning && (
         <div className="mt-8">

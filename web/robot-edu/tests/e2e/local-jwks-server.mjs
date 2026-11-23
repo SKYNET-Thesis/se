@@ -32,7 +32,8 @@ function mint(sub, ttl, refresh = 'local-e2e-no-refresh') {
   const payload = b64({ iss: issuer, aud: 'authenticated', role: 'authenticated', sub, iat: now, exp: now + ttl, ...(emailsBySub.has(sub) ? { email: emailsBySub.get(sub) } : {}) });
   const input = `${header}.${payload}`;
   const token = `${input}.${sign('RSA-SHA256', Buffer.from(input), privateKey).toString('base64url')}`;
-  return { access_token: token, token_type: 'bearer', expires_in: ttl, expires_at: now + ttl, refresh_token: refresh, user: { id: sub, aud: 'authenticated', role: 'authenticated' } };
+  const email = emailsBySub.get(sub);
+  return { access_token: token, token_type: 'bearer', expires_in: ttl, expires_at: now + ttl, refresh_token: refresh, user: { id: sub, aud: 'authenticated', role: 'authenticated', ...(email ? { email } : {}) } };
 }
 const server = createServer((req, res) => {
   const url = new URL(req.url ?? '/', issuer);
@@ -84,7 +85,7 @@ const server = createServer((req, res) => {
     }); return;
   }
   if (url.pathname === '/auth/v1/user' && req.method === 'GET') {
-    try { const sub = JSON.parse(Buffer.from(String(req.headers.authorization ?? '').split('.')[1] ?? '', 'base64url').toString()).sub; res.end(JSON.stringify({ id: sub, aud: 'authenticated', role: 'authenticated' })); }
+    try { const sub = JSON.parse(Buffer.from(String(req.headers.authorization ?? '').split('.')[1] ?? '', 'base64url').toString()).sub; const email = emailsBySub.get(sub); res.end(JSON.stringify({ id: sub, aud: 'authenticated', role: 'authenticated', ...(email ? { email } : {}) })); }
     catch { res.writeHead(401); res.end(JSON.stringify({ error: 'invalid token' })); }
     return;
   }

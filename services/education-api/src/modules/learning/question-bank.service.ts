@@ -91,20 +91,20 @@ export class QuestionBankService {
   }
 
   /**
-   * Creates, reviews and publishes a school-owned question for one lesson in a single call (RC policy: school
-   * authors publish their own school's questions). Each step reuses the canonical validators; a failure after the
+   * Creates, reviews and publishes a question for one lesson in a single call. System Administrators can author
+   * global lessons; school authors remain scoped to lessons in their own organization. Each step reuses the
+   * canonical validators; a failure after the
    * draft exists leaves a draft the author can edit or discard.
    */
   async authorLessonQuestion(user: AuthenticatedUser, lessonId: string, input: { code?: string; content: VersionContentDto; objectiveId?: string; newObjective?: string; publish?: boolean }) {
     const lesson = await this.lessonOrg(user, lessonId);
-    if (!lesson.learning_courses.organization_id) throw new NotFoundException('Lesson was not found.'); // global questions stay read-only here
     let objectiveId = input.objectiveId;
     if (!objectiveId) {
       if (!input.newObjective?.trim()) throw new BadRequestException('Choose or enter a Learning Outcome for this question.');
       objectiveId = (await this.createObjective(user, lessonId, input.newObjective)).id;
     }
     const code = input.code?.trim() || `Q-${Date.now().toString(36).toUpperCase()}`;
-    const question = await this.createQuestion(user, { code, courseId: lesson.course_id, lessonId, organizationId: lesson.learning_courses.organization_id! });
+    const question = await this.createQuestion(user, { code, courseId: lesson.course_id, lessonId, organizationId: lesson.learning_courses.organization_id ?? undefined });
     const version = await this.createVersion(user, question.id, input.content);
     await this.mapObjectives(user, version.id, { objectiveIds: [objectiveId] } as never);
     if (input.publish === false) return { questionId: question.id, versionId: version.id, status: 'draft' };
@@ -116,7 +116,6 @@ export class QuestionBankService {
   /** Parses an uploaded CSV/XLSX and reports per-row validity and duplicates; writes nothing. */
   async importPreview(user: AuthenticatedUser, lessonId: string, filename: string, file: Buffer) {
     const lesson = await this.lessonOrg(user, lessonId);
-    if (!lesson.learning_courses.organization_id) throw new NotFoundException('Lesson was not found.');
     let rows: ParsedRow[];
     try { rows = parseQuestionRows(readImportTable(filename, file)); } catch (error) {
       if (error instanceof ImportFileError) throw new BadRequestException(error.message);

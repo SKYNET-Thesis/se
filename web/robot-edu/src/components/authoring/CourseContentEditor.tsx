@@ -96,6 +96,8 @@ export function CourseContentEditor({
 
   // Activity Draft State
   const [activityDraft, setActivityDraft] = useState<ActivityDraft | null>(null);
+  /** The activity the current draft was loaded from. The draft reloads one effect after the selection changes; until then it still belongs to the previous activity and must never reach an editor. */
+  const [draftOwnerId, setDraftOwnerId] = useState<string | null>(null);
   const [isActivityDirty, setIsActivityDirty] = useState(false);
   const lastLoadedActivityIdRef = useRef<string | null>(null);
 
@@ -205,6 +207,7 @@ export function CourseContentEditor({
           contentRef: activeActivity.content_ref ?? { kind: 'none' },
           content: activeActivity.content ?? {},
         });
+        setDraftOwnerId(activeActivity.id);
         setIsActivityDirty(false);
         saveActivityMutation.reset(); // a failure of the previous activity must not follow the selection
         lastLoadedActivityIdRef.current = activeActivity.id;
@@ -221,6 +224,7 @@ export function CourseContentEditor({
       // If activeActivity.id matches and isActivityDirty is true, keep draft intact!
     } else {
       setActivityDraft(null);
+      setDraftOwnerId(null);
       setIsActivityDirty(false);
       lastLoadedActivityIdRef.current = null;
     }
@@ -579,7 +583,7 @@ export function CourseContentEditor({
 
         {/* Right Panel: Content Workspace */}
         <main className="min-w-0" aria-label="Content workspace">
-          {activeActivity && activityDraft ? (
+          {activeActivity && activityDraft && draftOwnerId !== activeActivity.id ? null : activeActivity && activityDraft ? (
             <div className="space-y-4">
               {/* Workspace Header Bar */}
               <div className="flex flex-wrap items-center justify-between gap-3 bg-surface p-4 rounded-xl border border-line shadow-hairline">
@@ -604,6 +608,7 @@ export function CourseContentEditor({
               {/* Dynamic Content Editor based on Activity Type */}
               {activityDraft.type === 'reading' && (
                 <ReadingDocumentEditor
+                  key={activeActivity.id}
                   activity={{
                     id: activeActivity.id,
                     title: activityDraft.title,
@@ -641,6 +646,7 @@ export function CourseContentEditor({
 
               {activityDraft.type === 'video' && (
                 <VideoLessonEditor
+                  key={activeActivity.id}
                   activity={{
                     id: activeActivity.id,
                     title: activityDraft.title,

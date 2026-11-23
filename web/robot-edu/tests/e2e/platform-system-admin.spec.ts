@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { call, loadFixture, signIn } from './helpers/academic';
+import { call, createLocalAuthIdentity, loadFixture, signIn } from './helpers/academic';
 
 const shots = path.resolve(process.cwd(), '../../docs/acceptance/screenshots');
 const psql = (sql: string) => execFileSync('psql', [process.env.VISTA_E2E_ADMIN_DATABASE_URL!, '-Atqc', sql], { encoding: 'utf8' }).trim();
@@ -11,6 +11,10 @@ const run = Date.now().toString(36);
 test.describe.serial('System Admin: organization lifecycle, administrator assignment, tenant boundaries', () => {
   const orgName = `E2E Academy ${run}`; const adminEmail = `e2e.head.${run}@example.test`; const adminAuthId = randomUUID();
   let orgId = '';
+
+  test.beforeAll(async ({ request }) => {
+    await createLocalAuthIdentity(request, { id: adminAuthId, email: adminEmail });
+  });
 
   test('System Admin lands on Organizations, creates an organization and assigns a School Administrator', async ({ page }) => {
     const fixture = await loadFixture();

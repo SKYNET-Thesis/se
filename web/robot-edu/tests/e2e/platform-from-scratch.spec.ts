@@ -11,7 +11,7 @@ import { call, deliverCourse, loadFixture, signIn, type Fixture } from './helper
  *  -> the Instructor builds a NEW course from nothing (module, lesson, reading + PDF/DOCX/PPTX/PNG, video, weighted quiz, Blockly challenge,
  *  assignment), publishes it and the School Admin delivers it -> the Student ACTIVATES the account, studies, passes the quiz, completes
  *  the Blockly lab and the assignment -> the Instructor grades and releases -> the Student sees results and completes the course.
- * The identity provider is the local GoTrue stub (tests/e2e/local-jwks-server.mjs). Authoring of the assignment record itself is API-assisted.
+ * For consolidated real-stack acceptance, point the loopback auth endpoint at `local-gotrue-proxy.mjs`; its `/token` helper returns real local GoTrue sessions. Authoring of the assignment record itself is API-assisted.
  */
 const shots = path.resolve(process.cwd(), '../../docs/acceptance/screenshots');
 const psql = (sql: string) => execFileSync('psql', [process.env.VISTA_E2E_ADMIN_DATABASE_URL!, '-Atqc', sql], { encoding: 'utf8' }).trim();
@@ -115,7 +115,7 @@ test('Journey: a brand-new school teaches a brand-new course from creation to co
   const [schoolCode, shownCode, tempPassword] = await sd.locator('p.font-mono').allTextContents();
   expect(shownCode).toBe(studentCode); expect(tempPassword.length).toBeGreaterThanOrEqual(12);
   await sd.getByRole('button', { name: 'Done' }).click();
-  tenant.users.instructor = { authUserId: psql(`select auth_user_id from users where email='${teacherEmail}'`), userId: psql(`select id from users where email='${teacherEmail}'`) };
+  tenant.users.instructor = { authUserId: psql(`select auth_user_id from users where email='${teacherEmail}'`), userId: psql(`select id from users where email='${teacherEmail}'`), email: teacherEmail };
   const studentUserId = psql(`select user_id from education_school_user_profiles where organization_id='${orgId}' and student_code='${studentCode}'`);
   tenant.users.student = { authUserId: psql(`select auth_user_id from users where id='${studentUserId}'`), userId: studentUserId };
 

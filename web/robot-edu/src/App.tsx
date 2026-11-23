@@ -40,7 +40,10 @@ import { SupabaseSessionProvider } from './contexts/SupabaseSessionContext';
 import { RequireSession } from './components/auth/RequireSession';
 import { RequireRole } from './components/auth/RequireRole';
 import { PublicEntry } from './components/auth/PublicEntry';
+import { RoutedErrorBoundary } from './components/ui/AppErrorBoundary';
 import { AccountSettings } from './pages/AccountSettings';
+import { ForgotPassword } from './pages/ForgotPassword';
+import { ResetPassword } from './pages/ResetPassword';
 import { WebSettings } from './pages/WebSettings';
 import { SchoolImportUsers } from './pages/school/SchoolImportUsers';
 import { SchoolQueryProvider } from './queries/SchoolQueryProvider';
@@ -61,8 +64,10 @@ export function App() {
         <AdminProvider>
           <LearningProvider>
             <ProgramsProvider>
-              <Routes>
+              <RoutedErrorBoundary><Routes>
                 <Route path="login" element={<Login />} />
+                <Route path="forgot-password" element={<ForgotPassword />} />
+                <Route path="reset-password" element={<ResetPassword />} />
                 <Route path="student/change-password" element={<StudentPasswordChange />} />
                 <Route index element={<PublicEntry />} />
                 <Route path="home-v2" element={<Navigate to="/" replace />} />
@@ -108,6 +113,7 @@ export function App() {
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />
                   <Route path="school/users" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="users" /></RequireRole>} />
                   <Route path="school/classrooms" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />
+                  <Route path="school/classrooms/:classroomId" element={<RequireRole roles={['school_admin']}><SchoolManagement initialTab="classrooms" /></RequireRole>} />
  <Route path="school/quizzes" element={<RequireRole roles={['school_admin']}><QuizDeliveries audience="school" /></RequireRole>} />
                   <Route path="school/courses" element={<RequireRole roles={['school_admin']}><SchoolCourses /></RequireRole>} />
                   <Route path="school/offerings" element={<RequireRole roles={['school_admin']}><SchoolOfferings /></RequireRole>} />
@@ -116,7 +122,7 @@ export function App() {
                   <Route path="school/import" element={<RequireRole roles={['school_admin']}><SchoolImportUsers /></RequireRole>} />
                   <Route path="*" element={<NotFound />} />
                 </Route>
-              </Routes>
+              </Routes></RoutedErrorBoundary>
               <Toaster position="bottom-right" toastOptions={{ style: { fontFamily: 'Inter, sans-serif', fontSize: 13 } }} />
             </ProgramsProvider>
           </LearningProvider>

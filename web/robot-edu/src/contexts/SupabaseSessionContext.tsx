@@ -3,7 +3,7 @@ import { createClient, type Session, type SupabaseClient } from "@supabase/supab
 import { nextSessionRevision } from "./sessionRevision";
 import { AUTH_RESTRICTION_EVENT } from "../lib/api";
 
-interface SessionContextValue { session: Session | null; client: SupabaseClient | null; loading: boolean; configurationError: string | null; sessionRevision: number; }
+interface SessionContextValue { session: Session | null; client: SupabaseClient | null; loading: boolean; configurationError: string | null; sessionRevision: number; /** True only after supabase-js validated an e-mailed recovery token in this page load (PASSWORD_RECOVERY event). */ passwordRecovery: boolean; }
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 function configuredClient(): { client: SupabaseClient | null; error: string | null } {
@@ -19,6 +19,7 @@ export function SupabaseSessionProvider({ children }: { children: React.ReactNod
   const [sessionRevision, setSessionRevision] = useState(0);
   const sessionToken = useRef<string | null>(null);
   const [loading, setLoading] = useState(Boolean(client));
+  const [passwordRecovery, setPasswordRecovery] = useState(false); // set ONLY by supabase-js's PASSWORD_RECOVERY event, i.e. after it validated a genuine recovery token; a URL fragment alone proves nothing
   const applySession = useCallback((next: Session | null) => {
     const previousToken = sessionToken.current;
     const nextToken = next?.access_token ?? null;
@@ -29,7 +30,7 @@ export function SupabaseSessionProvider({ children }: { children: React.ReactNod
   useEffect(() => {
     if (!client) return;
     void client.auth.getSession().then(({ data }) => applySession(data.session)).finally(() => setLoading(false));
-    const { data: subscription } = client.auth.onAuthStateChange((_event, next) => { applySession(next); setLoading(false); });
+    const { data: subscription } = client.auth.onAuthStateChange((event, next) => { if (event === "PASSWORD_RECOVERY") setPasswordRecovery(true); if (event === "SIGNED_OUT") setPasswordRecovery(false); applySession(next); setLoading(false); });
     return () => subscription.subscription.unsubscribe();
   }, [applySession, client]);
   useEffect(() => {
@@ -41,7 +42,7 @@ export function SupabaseSessionProvider({ children }: { children: React.ReactNod
     window.addEventListener(AUTH_RESTRICTION_EVENT, onRestriction);
     return () => window.removeEventListener(AUTH_RESTRICTION_EVENT, onRestriction);
   }, [client]);
-  const value = useMemo(() => ({ session, client, loading, configurationError: error, sessionRevision }), [session, client, loading, error, sessionRevision]);
+  const value = useMemo(() => ({ session, client, loading, configurationError: error, sessionRevision, passwordRecovery }), [session, client, loading, error, sessionRevision, passwordRecovery]);
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 

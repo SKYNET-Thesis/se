@@ -59,8 +59,16 @@ export class CourseDiscoveryService {
     const done = await this.completedCourses(db, user, prereqIds);
     const titles = prereqIds.length ? await db.$queryRaw<{ id: string; title: string }[]>`SELECT id,title FROM public.learning_courses WHERE id=ANY(${prereqIds}::uuid[])` : [];
     const titleOf = new Map(titles.map((row) => [row.id, row.title]));
+    // A prerequisite the learner could never satisfy (unpublished, no lessons, not offered by the school and not already enrolled) is ignored so it cannot block enrolment forever.
+    const reachable = prereqIds.length ? await db.$queryRaw<{ id: string; school_id: string | null; enrolled: boolean }[]>`
+      SELECT pre.id, o.organization_id AS school_id,
+        EXISTS (SELECT 1 FROM public.learning_enrollments pe WHERE pe.course_id=pre.id AND pe.learner_user_id=${user.vistaUserId}::uuid) AS enrolled
+      FROM public.learning_courses pre
+      LEFT JOIN public.learning_course_offerings o ON o.course_id=pre.id AND o.status='active'
+      WHERE pre.id=ANY(${prereqIds}::uuid[]) AND pre.status='published' AND EXISTS (SELECT 1 FROM public.learning_lessons l WHERE l.course_id=pre.id)` : [];
+    const isEffective = (id: string, schoolId: string) => (reachable ?? []).some((entry) => entry.id === id && (entry.enrolled || entry.school_id === schoolId));
     return rows.map((row) => {
-      const unmet = row.prerequisite_course_ids.filter((id) => !done.has(id)).map((id) => ({ id, title: titleOf.get(id) ?? "Another course" }));
+      const unmet = row.prerequisite_course_ids.filter((id) => !done.has(id) && isEffective(id, row.organization_id)).map((id) => ({ id, title: titleOf.get(id) ?? "Another course" }));
       const full = row.capacity !== null && Number(row.students) >= row.capacity;
       const reasons: string[] = [];
       if (row.enrolled_elsewhere) reasons.push("You are already enrolled in this course.");

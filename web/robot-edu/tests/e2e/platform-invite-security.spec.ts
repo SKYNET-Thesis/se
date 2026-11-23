@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
-import { call, loadFixture } from './helpers/academic';
+import { call, createLocalAuthIdentity, loadFixture } from './helpers/academic';
 
 /**
  * Security matrix for the invited -> active transition against the real API, runtime DB role and PostgreSQL.
@@ -12,9 +12,8 @@ const psql = (sql: string) => execFileSync('psql', [process.env.VISTA_E2E_ADMIN_
 const run = Date.now().toString(36);
 const authPort = process.env.VISTA_E2E_JWKS_PORT;
 
-async function token(page: Page, sub: string, email?: string) {
-  const query = email ? `&email=${encodeURIComponent(email)}` : '&noemail=1';
-  return ((await (await page.request.get(`http://127.0.0.1:${authPort}/token?sub=${sub}${query}`)).json()) as { access_token: string }).access_token;
+async function token(page: Page, sub: string) {
+  return ((await (await page.request.get(`http://127.0.0.1:${authPort}/token?sub=${sub}`)).json()) as { access_token: string }).access_token;
 }
 interface Case { name: string; signup?: string; membership?: { role: string; status?: string; org: 'active' | 'suspended' | 'none' }; claimEmail?: 'match' | 'other' | 'none'; userStatus?: string }
 const CASES: Array<Case & { activates: boolean }> = [
@@ -38,13 +37,17 @@ test.describe.serial('invited -> active cannot be used to escalate privileges', 
 
   for (const c of CASES) {
     test(`${c.activates ? 'ACTIVATES' : 'stays invited'}: ${c.name}`, async ({ page }) => {
+      test.skip(c.claimEmail === 'none', 'This isolated GoTrue image disables phone login and anonymous sign-in; missing-email rejection is covered by SupabaseAuthGuard unit tests.');
       const sub = randomUUID(); const email = `inv.${randomUUID().slice(0, 8)}@example.test`;
+      await createLocalAuthIdentity(page.request, c.claimEmail === 'none'
+        ? { id: sub, phone: `+1555${Math.floor(1_000_000 + Math.random() * 9_000_000)}` }
+        : { id: sub, email: c.claimEmail === 'other' ? `someone.else.${run}@example.test` : email });
       const userId = psql(`insert into users(auth_user_id,email,full_name,status,signup_method) values('${sub}','${email}','Invited ${run}','invited','${c.signup ?? 'admin_created'}') returning id`).split('\n')[0];
       if (c.membership) {
         const org = c.membership.org === 'suspended' ? suspendedOrg : schoolId;
         psql(`insert into memberships(user_id,organization_id,role_id,status) select '${userId}','${org}',id,'${c.membership.status ?? 'active'}' from roles where code='${c.membership.role}' and scope='organization'`);
       }
-      const t = await token(page, sub, c.claimEmail === 'match' ? email : c.claimEmail === 'other' ? 'someone.else@example.test' : undefined);
+      const t = await token(page, sub);
       await call(page, t, 'GET', '/me/memberships');                                       // any authenticated request triggers the check
       expect(psql(`select status from users where id='${userId}'`)).toBe(c.activates ? 'active' : 'invited');
       const create = await call(page, t, 'POST', '/admin/courses', { title: `Invite course ${run} ${userId.slice(0, 4)}` });
@@ -59,19 +62,21 @@ test.describe.serial('invited -> active cannot be used to escalate privileges', 
 
   test('a disabled account is refused outright and never reactivated by a valid token', async ({ page }) => {
     const sub = randomUUID(); const email = `dis.${randomUUID().slice(0, 8)}@example.test`;
+    await createLocalAuthIdentity(page.request, { id: sub, email });
     const userId = psql(`insert into users(auth_user_id,email,full_name,status,signup_method) values('${sub}','${email}','Disabled ${run}','disabled','admin_created') returning id`).split('\n')[0];
     psql(`insert into memberships(user_id,organization_id,role_id,status) select '${userId}','${schoolId}',id,'active' from roles where code='instructor' and scope='organization'`);
-    const r = await call(page, await token(page, sub, email), 'GET', '/me/memberships');
+    const r = await call(page, await token(page, sub), 'GET', '/me/memberships');
     expect(r.status).toBe(403);
     expect(psql(`select status from users where id='${userId}'`)).toBe('disabled');
   });
 
   test('suspending the organization after activation removes authoring rights again', async ({ page }) => {
     const sub = randomUUID(); const email = `late.${randomUUID().slice(0, 8)}@example.test`;
+    await createLocalAuthIdentity(page.request, { id: sub, email });
     const org = psql(`insert into organizations(name,type,segment,status,school_code) values('Late ${run}','institution','education','active','LAT-${run}') returning id`).split('\n')[0];
     const userId = psql(`insert into users(auth_user_id,email,full_name,status,signup_method) values('${sub}','${email}','Late ${run}','invited','admin_created') returning id`).split('\n')[0];
     psql(`insert into memberships(user_id,organization_id,role_id,status) select '${userId}','${org}',id,'active' from roles where code='instructor' and scope='organization'`);
-    const t = await token(page, sub, email);
+    const t = await token(page, sub);
     expect((await call(page, t, 'POST', '/admin/courses', { title: `Before ${run}` })).status).toBe(201);
     psql(`update organizations set status='suspended' where id='${org}'`);
     expect((await call(page, t, 'POST', '/admin/courses', { title: `After ${run}` })).status).toBe(404);

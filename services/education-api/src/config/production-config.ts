@@ -1,3 +1,5 @@
+import { parsePrerequisitePolicy } from "../modules/learning/course-prerequisites";
+
 type Configuration = Record<string, unknown>;
 
 function required(config: Configuration, name: string): string {
@@ -43,6 +45,9 @@ export function validateProductionConfig(config: Configuration): Configuration {
   const devices = String(config.DEVICE_PROVISIONING_ENABLED ?? "").trim().toLowerCase();
   if (devices && !["true", "false"].includes(devices)) throw new Error("DEVICE_PROVISIONING_ENABLED must be true or false.");
   if (devices === "true" && String(config.DEVICE_TOKEN_SECRET ?? "").trim().length < 32) throw new Error("DEVICE_TOKEN_SECRET must be at least 32 characters when device provisioning is enabled.");
+  // Course prerequisite enforcement is opt-in (absent = disabled). A malformed value must fail the deployment, not silently change who is locked out.
+  const prerequisitePolicy = parsePrerequisitePolicy(typeof config.COURSE_PREREQUISITES_ENFORCED_FROM === "string" ? config.COURSE_PREREQUISITES_ENFORCED_FROM : undefined);
+  if (prerequisitePolicy.mode === "disabled" && prerequisitePolicy.invalid) throw new Error(prerequisitePolicy.invalid);
   // Local-development placeholders must never reach production.
   for (const name of ["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY", "DIGITAL_TWIN_SCOPE_SECRET", "VISTA_RUNTIME_TOKEN", "DEVICE_TOKEN_SECRET"]) {
     const value = String(config[name] ?? "");
