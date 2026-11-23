@@ -7,7 +7,8 @@ import { ApiError } from '../lib/api';
 import { AiRegistry } from './AiRegistry';
 
 const api = vi.hoisted(() => ({
-  modelApi: { models: vi.fn(), checkpoints: vi.fn(), trainingDataset: vi.fn(), trainingRuns: vi.fn() },
+  modelApi: { models: vi.fn(), checkpoints: vi.fn(), trainingRuns: vi.fn() },
+  modelLineageApi: { trainingData: vi.fn() },
   datasetApi: { mine: vi.fn() },
   evaluationRunApi: { mine: vi.fn() },
 }));
@@ -33,7 +34,7 @@ describe('AiRegistry', () => {
   beforeEach(() => {
     api.modelApi.models.mockResolvedValue({ items: [model], page: 1, pageSize: 20 });
     api.modelApi.checkpoints.mockResolvedValue([checkpoint]);
-    api.modelApi.trainingDataset.mockResolvedValue({ name: 'tabletop-demos', version: 'v1', huggingface_repo: 'vista/demos', huggingface_revision: 'r9', is_frozen: true });
+    api.modelLineageApi.trainingData.mockResolvedValue({ name: 'tabletop-demos', version: 'v1', huggingface_repo: 'vista/demos', huggingface_revision: 'r9', is_frozen: true });
     api.modelApi.trainingRuns.mockResolvedValue({ items: [], page: 1, pageSize: 20 });
     api.datasetApi.mine.mockResolvedValue({ items: [], page: 1, pageSize: 20 });
     api.evaluationRunApi.mine.mockResolvedValue({ items: [], page: 1, pageSize: 20 });
@@ -95,6 +96,26 @@ describe('AiRegistry', () => {
     await click(byText(view.container, '[role="tab"]', /Training & evaluation/));
     expect(view.container.textContent).toContain('act'); expect(view.container.textContent).toContain('loss: 0.12');
     expect(view.container.textContent).toContain('24 of 30 trials succeeded');
+    await view.unmount();
+  });
+
+  it('asks for lineage by model version (not by training run) and says plainly when a version\u2019s dataset is not published', async () => {
+    api.modelLineageApi.trainingData.mockRejectedValueOnce(new ApiError(404, 'Training data is not available for this version.'));
+    const view = await mount();
+    await click(byText(view.container, 'button', /Show versions and lineage/));
+    await click(byText(view.container, 'button', /Show training data/));
+    expect(api.modelLineageApi.trainingData).toHaveBeenCalledWith('c-1', 't');
+    expect(view.container.textContent).toContain('only released (frozen) dataset versions are shown');
+    expect(view.container.querySelector('[role="alert"]')).toBeNull();
+    await view.unmount();
+  });
+
+  it('never shows owner references or artifact locations, even if a response carried them', async () => {
+    api.modelApi.models.mockResolvedValue({ items: [{ ...model, owner_user_id: 'user-secret', owner_organization_id: 'org-secret' }], page: 1, pageSize: 20 });
+    api.modelApi.checkpoints.mockResolvedValue([{ ...checkpoint, artifact_uri: 's3://private/weights.bin' }]);
+    const view = await mount();
+    await click(byText(view.container, 'button', /Show versions and lineage/));
+    expect(view.container.textContent).not.toMatch(/user-secret|org-secret|s3:\/\/private|weights\.bin/);
     await view.unmount();
   });
 });

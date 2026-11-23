@@ -27,7 +27,7 @@ export function CourseCatalog() {
     if (!token || busy) return;
     setBusy(course.classroomId); setNotice(null);
     try { await catalogApi.enrollInCourse(course.classroomId, token); setNotice({ tone: 'ok', text: `You are enrolled in ${course.title}.` }); load(); }
-    catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : 'Enrollment failed.' }); }
+    catch (e) { setNotice({ tone: 'error', text: e instanceof Error ? e.message : 'Enrollment failed.' }); load(); }   // refresh: the course may have just filled up or closed
     finally { setBusy(null); }
   };
 
@@ -50,7 +50,9 @@ export function CourseCatalog() {
       <p className="mt-1 text-sm text-ink-muted">{course.description ?? 'A guided VISTA course.'}</p>
       <div className="mt-2"><TagChips tags={course.tags} /></div>
       {course.prerequisites.length > 0 && <p className="mt-2 text-sm text-ink-muted">Prerequisites: {course.prerequisites.map((p) => `${p.title}${p.completed ? ' ✓' : ''}`).join(', ')}</p>}
-      {course.seatsLeft !== null && <p className="mt-1 text-xs text-ink-subtle">{course.seatsLeft} seat{course.seatsLeft === 1 ? '' : 's'} left</p>}
+      {(() => { const places = [course.seatsLeft, course.offeringSeatsLeft ?? null].filter((n): n is number => n !== null); const left = places.length ? Math.min(...places) : null;
+        return left !== null ? <p className="mt-1 text-xs text-ink-subtle">{left} seat{left === 1 ? '' : 's'} left</p> : null; })()}
+      {course.eligible && course.enrollmentClosesAt && <p className="mt-1 text-xs text-ink-subtle">Enrollment closes {new Date(course.enrollmentClosesAt).toLocaleString()}</p>}
       {!course.eligible && <p role="note" className="mt-2 text-sm text-ink-muted">{course.reasons.join(' ')}</p>}
       <button type="button" disabled={!course.eligible || busy === course.classroomId} onClick={() => void enroll(course)} className="mt-3 inline-flex h-9 items-center rounded-lg bg-accent px-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{busy === course.classroomId ? 'Enrolling…' : `Enroll in ${course.title}`}</button>
       <Link to="/learning-path" className="ml-3 text-sm font-medium text-accent-ink underline">Learning path</Link>
