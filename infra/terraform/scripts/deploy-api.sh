@@ -11,6 +11,19 @@ aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS 
 docker pull "$IMAGE" >/dev/null
 umask 077
 trap 'rm -f /opt/vista/env.json' EXIT
+# Configuration is part of a release: remember the exact environment each image last ran healthy with, so a rollback restores a
+# configuration the target image is known to accept (a newer secret may contain settings an older image rejects).
+SNAPSHOTS=/opt/vista/env-snapshots
+mkdir -p "$SNAPSHOTS"
+use_snapshot() { [ -f "$SNAPSHOTS/${1##*:}" ] && cp "$SNAPSHOTS/${1##*:}" /opt/vista/api.env; }
+save_snapshot() {
+  cp /opt/vista/api.env "$SNAPSHOTS/${1##*:}"
+  ls -1t "$SNAPSHOTS" | tail -n +6 | while read -r old; do rm -f "$SNAPSHOTS/$old"; done
+}
+RUNNING="$(docker inspect --format '{{.Config.Image}}' vista-education-api 2>/dev/null || true)"
+if [ -n "$RUNNING" ] && [ ! -f "$SNAPSHOTS/${RUNNING##*:}" ] && [ -f /opt/vista/api.env ] && curl --silent --fail --max-time 3 http://127.0.0.1:3000/api/v1/health >/dev/null 2>&1; then
+  cp /opt/vista/api.env "$SNAPSHOTS/${RUNNING##*:}"
+fi
 aws secretsmanager get-secret-value --secret-id "$SECRET_ID" --region "$AWS_REGION" --query SecretString --output text > /opt/vista/env.json
 python3 - <<'PY'
 import json
@@ -72,7 +85,7 @@ start_iot_worker() {
   docker run -d --name vista-iot-feedback-worker --restart unless-stopped --memory 384m \
     --env-file /opt/vista/api.env --log-driver awslogs \
     --log-opt "awslogs-region=$AWS_REGION" --log-opt "awslogs-group=$LOG_GROUP" --log-opt awslogs-stream=iot-feedback-worker \
-    "$1" node dist/scripts/iot-feedback-worker.js >/dev/null || return 1
+    --entrypoint node "$1" dist/scripts/iot-feedback-worker.js >/dev/null || return 1
   sleep 5
   [ "$(docker inspect --format '{{.State.Running}}' vista-iot-feedback-worker 2>/dev/null)" = true ]
 }
@@ -82,7 +95,7 @@ start_recordings_worker() {
   docker run -d --name vista-recordings-worker --restart unless-stopped --memory 384m \
     --env-file /opt/vista/api.env --log-driver awslogs \
     --log-opt "awslogs-region=$AWS_REGION" --log-opt "awslogs-group=$LOG_GROUP" --log-opt awslogs-stream=recordings-worker \
-    "$1" node dist/scripts/robot-recordings-worker.js >/dev/null || return 1
+    --entrypoint node "$1" dist/scripts/robot-recordings-worker.js >/dev/null || return 1
   sleep 5
   [ "$(docker inspect --format '{{.State.Running}}' vista-recordings-worker 2>/dev/null)" = true ]
 }
@@ -116,14 +129,16 @@ start_sidecars() {
   start_twin "$1" || echo 'Digital Twin did not start; the API deployment is unaffected' >&2
 }
 
+if [ "${VISTA_ROLLBACK:-}" = 1 ] && use_snapshot "$IMAGE"; then echo "Rollback restores the configuration $IMAGE last ran healthy with" >&2; fi
 if start_container "$IMAGE"; then
+  save_snapshot "$IMAGE"
   printf '%s\n' "$IMAGE" > /opt/vista/current-image
   if [ -n "$PREVIOUS" ] && [ "$PREVIOUS" != "$IMAGE" ]; then printf '%s\n' "$PREVIOUS" > /opt/vista/previous-image; fi
   start_sidecars "$IMAGE"
   echo "Deployment healthy: $IMAGE"
 else
   echo "Health check failed for $IMAGE" >&2
-  if [ -n "$PREVIOUS" ] && start_container "$PREVIOUS"; then
+  if [ -n "$PREVIOUS" ] && { if use_snapshot "$PREVIOUS"; then echo "Restored the configuration $PREVIOUS last ran healthy with" >&2; fi; true; } && start_container "$PREVIOUS"; then
     printf '%s\n' "$PREVIOUS" > /opt/vista/current-image
     start_sidecars "$PREVIOUS"
     echo "Rolled back to $PREVIOUS" >&2

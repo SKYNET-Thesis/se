@@ -43,8 +43,8 @@ grep -q 'docker run.*digital-twin' "$WORK/log" && fail "a missing twin image mus
 grep -q 'not available' "$WORK/err" || fail "a missing twin image must be reported"
 
 run 'VISTA_IOT_FEEDBACK_WORKER_ENABLED=true\n' "$IMG"
-grep -qE 'docker run .*--memory 384m .*node dist/scripts/iot-feedback-worker.js' "$WORK/log" || fail "worker command"
+grep -qE 'docker run .*--memory 384m .*--entrypoint node .*dist/scripts/iot-feedback-worker.js' "$WORK/log" || fail "worker command"
 run 'VISTA_RECORDINGS_WORKER_ENABLED=true\n' "$IMG"
-grep -qE 'docker run .*--memory 384m .*node dist/scripts/robot-recordings-worker.js' "$WORK/log" || fail "recordings worker command"
+grep -qE 'docker run .*--memory 384m .*--entrypoint node .*dist/scripts/robot-recordings-worker.js' "$WORK/log" || fail "recordings worker command"
 run 'X=1\n' "$IMG"; grep -q 'docker rm -f vista-recordings-worker' "$WORK/log" || fail "an old recordings worker must be removed when the flag is off"
 echo "sidecar tests passed"
