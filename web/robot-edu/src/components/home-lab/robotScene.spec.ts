@@ -2,14 +2,14 @@
 import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type URDFLoader from 'urdf-loader';
-import { RobotScene } from './robotScene';
+import { softwareRenderer, RobotScene } from './robotScene';
 
-const state = vi.hoisted(() => ({ stallUrdf: false, stallCompile: false, separateMeshes: false, signal: undefined as AbortSignal | undefined, geometries: [] as THREE.BufferGeometry[], frames: [] as FrameRequestCallback[], joint: vi.fn(), render: vi.fn(), dispose: vi.fn() }));
+const state = vi.hoisted(() => ({ gl: null as unknown, stallUrdf: false, stallCompile: false, separateMeshes: false, signal: undefined as AbortSignal | undefined, geometries: [] as THREE.BufferGeometry[], frames: [] as FrameRequestCallback[], joint: vi.fn(), render: vi.fn(), dispose: vi.fn() }));
 
 vi.mock('three', async (importOriginal) => {
   const actual = await importOriginal<typeof import('three')>();
   return { ...actual, WebGLRenderer: class {
-    shadowMap = {}; setPixelRatio = vi.fn(); setSize = vi.fn();
+    shadowMap = {}; setPixelRatio = vi.fn(); setSize = vi.fn(); getContext = () => state.gl;
     render = state.render; dispose = state.dispose;
     compileAsync() { return state.stallCompile ? new Promise<void>(() => undefined) : Promise.resolve(); }
   }, PMREMGenerator: class { fromScene() { return { texture: new actual.Texture() }; } dispose = vi.fn(); } };
@@ -225,5 +225,27 @@ describe('homepage scene stability (stutter, context loss, quality)', () => {
 
   it('starts one level lower on low-power devices', () => {
     make({ lowPower: true }); expect(scene.qualityLevel).toBe(1); expect(canvas.dataset.quality).toBe('1');
+  });
+
+  it('starts at the lowest quality, in force from the first frame, when WebGL is drawn by the CPU', () => {
+    state.gl = { RENDERER: 1, getExtension: () => ({ UNMASKED_RENDERER_WEBGL: 2 }), getParameter: () => 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)' };
+    make();
+    const renderer = (scene as unknown as { renderer: { setPixelRatio: ReturnType<typeof vi.fn> } }).renderer;
+    expect(scene.qualityLevel).toBe(3); expect(canvas.dataset.quality).toBe('3');
+    expect(Math.min(...renderer.setPixelRatio.mock.calls.map((c) => c[0] as number))).toBeLessThanOrEqual(0.75);
+    state.gl = null;
+  });
+
+  it('keeps full quality on a hardware renderer', () => {
+    state.gl = { RENDERER: 1, getExtension: () => ({ UNMASKED_RENDERER_WEBGL: 2 }), getParameter: () => 'ANGLE (AMD, AMD Radeon Graphics (radeonsi, renoir), OpenGL 4.6)' };
+    make(); expect(scene.qualityLevel).toBe(0); state.gl = null;
+  });
+
+  it('recognises the software rasterisers and never throws on a broken context', () => {
+    const gl = (name: string) => ({ RENDERER: 1, getExtension: () => null, getParameter: () => name }) as unknown as WebGLRenderingContext;
+    for (const name of ['SwiftShader', 'llvmpipe (LLVM 15.0.7, 256 bits)', 'Microsoft Basic Render Driver', 'Software Rasterizer']) expect(softwareRenderer(gl(name))).toBe(true);
+    expect(softwareRenderer(gl('NVIDIA GeForce RTX 3060'))).toBe(false);
+    expect(softwareRenderer(null)).toBe(false);
+    expect(softwareRenderer({ getExtension() { throw new Error('lost'); } } as unknown as WebGLRenderingContext)).toBe(false);
   });
 });
