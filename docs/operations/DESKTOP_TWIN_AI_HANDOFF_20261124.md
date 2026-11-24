@@ -92,7 +92,7 @@ Env (API and worker): `ROBOT_RECORDINGS_BUCKET`, `ROBOT_RECORDINGS_EVENTS_QUEUE_
 - Instructor and student recording routes exist (401 without a token).
 
 **Not verified / pending (do not assume these work):**
-- IoT feedback worker and recordings worker as real consumers: the first deployment started them with the wrong command (the image entrypoint ran the API). A corrected host script and worker restart are pending owner approval.
+- Worker consumers are running but only start-up is verified: after a host script refresh on 2026-11-24 the two workers were recreated with the correct command (they run `dist/scripts/<worker>.js`, not the API; no restarts, no DLQ messages). The recordings worker consumed the single S3 `TestEvent` (queue 1 to 0, DLQ 0). **No real feedback event or recording manifest has been processed in Production.** The workers still show Docker `health: starting`/`unhealthy` until the deploy script change (PR #209, `--no-healthcheck`) is deployed; that is cosmetic, they are not restarted by it.
 - Any end-to-end flow: a command from the API to a device and back, scoped telemetry from a real publisher, a recording upload and its registration, an instructor download.
 - No device certificate exists; no physical SO-101 is linked to the robot UUID; calibration stays `UNCALIBRATED`.
 
@@ -106,6 +106,7 @@ Frame (schema 1): `{schema_version:1, robot_id, source_mode:"SIMULATION"|"LIVE_P
 4. MQTT command dispatch stays off until the owner enables `VISTA_IOT_ENABLED` after a cloud-to-edge test with the isolated device.
 
 ## Desktop integration checklist
+- [ ] Do not report PASS from a Production message you create yourself: use the isolated Thing and the owner's approval.
 - [ ] Edge config: `robotId`, `thingName`, endpoint from "Deployed values"; `hardwareEnabled=false` and `fakeRobot=true` for the first connection.
 - [ ] Event contract: ack then `executing` then `completed` or `failed`, each with `eventId`, `sequence`, `occurredAtMs`.
 - [ ] Shadow reported state and last will; never report `PHYSICAL_ROBOT` from R1.
