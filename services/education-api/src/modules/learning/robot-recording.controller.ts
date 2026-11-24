@@ -15,4 +15,9 @@ export class RobotRecordingController {
   list(@CurrentUser() user: AuthenticatedUser, @Param("experimentId", ParseUUIDPipe) experimentId: string) { return this.recordings.list(user, experimentId); }
   @Get("me/experiments/:experimentId/recordings/:artifactId/download")
   download(@CurrentUser() user: AuthenticatedUser, @Param("experimentId", ParseUUIDPipe) experimentId: string, @Param("artifactId", ParseUUIDPipe) artifactId: string) { return this.recordings.download(user, experimentId, artifactId); }
+  /** Instructor (WF04): scoped to a reviewable classroom submission; see RobotRecordingService.instructorList. */
+  @Get("submissions/:submissionId/experiments/:experimentId/recordings")
+  instructorList(@CurrentUser() user: AuthenticatedUser, @Param("submissionId", ParseUUIDPipe) submissionId: string, @Param("experimentId", ParseUUIDPipe) experimentId: string) { return this.recordings.instructorList(user, submissionId, experimentId); }
+  @Get("submissions/:submissionId/experiments/:experimentId/recordings/:artifactId/download")
+  instructorDownload(@CurrentUser() user: AuthenticatedUser, @Param("submissionId", ParseUUIDPipe) submissionId: string, @Param("experimentId", ParseUUIDPipe) experimentId: string, @Param("artifactId", ParseUUIDPipe) artifactId: string) { return this.recordings.instructorDownload(user, submissionId, experimentId, artifactId); }
 }
