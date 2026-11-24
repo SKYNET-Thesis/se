@@ -24,12 +24,31 @@ class IotBridge:
         self.clock = clock or (lambda: round(time.time() * 1000))
         self.topic_prefix, self.thing_name = str(config["topicPrefix"]).rstrip("/"), str(config["thingName"])
         self.last_sequence, self.acks, self._publications, self._client, self.connected = -1, [], [], None, False
+        self._shadow_publications: list[tuple[str, dict[str, Any]]] = []
         self._seen_commands: dict[str, tuple[str, str | None]] = {}
         self._max_seen_commands = max(1, int(config.get("commandDedupLimit", 1024)))
         self._retry_seconds = 1
     def _publish(self, suffix: str, value: dict[str, Any]) -> None:
         topic = f"{self.topic_prefix}/{suffix}"; self._publications.append((topic, value))
         if self._client is not None and self.connected: self._client.publish(topic, json.dumps(value, separators=(",", ":")), qos=1)
+    def shadow_topic(self, operation: str = "update") -> str:
+        return f"$aws/things/{self.thing_name}/shadow/{operation}"
+    def _runtime_kind(self) -> str:
+        """What this edge runtime is. R1 only drives the checked fake follower today, so it can never report PHYSICAL_ROBOT."""
+        runtime_config = getattr(self.runtime, "config", None)
+        adapter = runtime_config.get("adapterMode") if isinstance(runtime_config, dict) else None
+        return "MOCK_RUNTIME" if self.config.get("fakeRobot") is True or adapter == "fake_follower" else "UNVERIFIED_RUNTIME"
+    def _report_shadow(self, status: dict[str, Any]) -> None:
+        """Device Shadow `reported` state: last-known edge state for the console and the API. No secrets, no joint data, no commands."""
+        reported = {"schemaVersion": 1, "connection": "connected" if self.connected else "disconnected", "runtimeKind": self._runtime_kind(),
+                    "hardwareEnabled": status.get("hardwareEnabled") is True, "stopped": status.get("stopped") is True,
+                    "activeRunId": status.get("activeRunId") if isinstance(status.get("activeRunId"), str) else None,
+                    "lastCommandSequence": max(0, self.last_sequence), "reportedAtMs": self.clock()}
+        topic, payload = self.shadow_topic(), {"state": {"reported": reported}}
+        self._shadow_publications.append((topic, payload))
+        if self._client is not None and self.connected: self._client.publish(topic, json.dumps(payload, separators=(",", ":")), qos=1)
+    def drain_shadow_publications(self) -> list[tuple[str, dict[str, Any]]]:
+        result, self._shadow_publications = self._shadow_publications, []; return result
     def drain_publications(self) -> list[tuple[str, dict[str, Any]]]:
         result, self._publications = self._publications, []; return result
     def _ack(self, command: dict[str, Any], status: str, code: str | None = None) -> None:
@@ -60,6 +79,7 @@ class IotBridge:
         self.publish_state()
     def publish_state(self) -> None:
         status = self.runtime.status()
+        if self.config.get("deviceShadow", True) is not False: self._report_shadow(status)
         self._publish("status", {"schemaVersion": 1, "kind": "status", "robotId": self.thing_name, "atMs": self.clock(), "connection": "connected" if self.connected else "disconnected", "hardwareEnabled": status.get("hardwareEnabled") is True, "stopped": status.get("stopped") is True})
         if self.config.get("fakeRobot") is True: self._publish("telemetry", {"schemaVersion": 1, "kind": "telemetry", "robotId": self.thing_name, "source": "fake_follower", "atMs": self.clock(), "sequence": max(0, self.last_sequence), "jointState": {"shoulder_pan": 0, "shoulder_lift": 0, "elbow_flex": 0, "wrist_flex": 0, "wrist_roll": 0, "gripper": 0}})
     def connect(self, tls: TlsSettings, mqtt_factory: Callable[..., Any] | None = None) -> None:
@@ -70,6 +90,9 @@ class IotBridge:
         context = ssl.create_default_context(cafile=tls.ca_path); context.minimum_version = ssl.TLSVersion.TLSv1_2; context.load_cert_chain(tls.certificate_path, tls.private_key_path)
         client = mqtt_factory(client_id=tls.thing_name); client.tls_set_context(context); client.tls_insecure_set(False)
         client.on_connect, client.on_disconnect, client.on_message = self._on_connect, self._on_disconnect, self._on_message
+        if self.config.get("deviceShadow", True) is not False and hasattr(client, "will_set"):
+            # Last will: if the edge vanishes without a clean disconnect, IoT Core marks the shadow disconnected for it.
+            client.will_set(self.shadow_topic(), json.dumps({"state": {"reported": {"connection": "disconnected", "runtimeKind": self._runtime_kind()}}}, separators=(",", ":")), qos=1)
         self._client = client; client.connect_async(tls.endpoint, 8883, keepalive=30); client.loop_start()
     def close(self) -> None:
         if self._client is not None: self._client.disconnect(); self._client.loop_stop(); self._client = None

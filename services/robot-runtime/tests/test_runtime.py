@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import json
 import unittest
 import time
 from unittest.mock import patch
@@ -186,6 +187,53 @@ class IotBridgeTests(unittest.TestCase):
         bridge.handle_command(command)
         self.assertEqual(len(bridge.runtime.submissions), 1)
         self.assertEqual([item["status"] for item in bridge.acks], ["accepted", "accepted"])
+
+    def test_reports_device_shadow_state_without_touching_the_existing_topics(self):
+        class FakeRuntime:
+            config = {"adapterMode": "fake_follower"}
+            def submit(self, _value): return {"state": "queued"}
+            def status(self): return {"hardwareEnabled": True, "stopped": False, "activeRunId": "run-1", "checkik": {"token": "must-not-leak"}}
+        bridge = IotBridge({"thingName": "vista-demo-so101-001", "topicPrefix": "vista/demo/robots/so101-001"}, FakeRuntime(), clock=lambda: 1000)
+        bridge.publish_state()
+        self.assertEqual({topic.rsplit("/", 1)[-1] for topic, _ in bridge.drain_publications()}, {"status"})      # the command/feedback topics are unchanged
+        (topic, payload), = bridge.drain_shadow_publications()
+        self.assertEqual(topic, "$aws/things/vista-demo-so101-001/shadow/update")
+        reported = payload["state"]["reported"]
+        self.assertEqual(reported["runtimeKind"], "MOCK_RUNTIME")                                                  # a fake follower is never labelled physical
+        self.assertEqual((reported["connection"], reported["hardwareEnabled"], reported["stopped"], reported["activeRunId"]), ("disconnected", True, False, "run-1"))
+        self.assertNotIn("must-not-leak", json.dumps(payload))
+
+    def test_unknown_runtime_is_never_reported_as_physical_and_the_shadow_can_be_turned_off(self):
+        class FakeRuntime:
+            def submit(self, _value): return {"state": "queued"}
+            def status(self): return {"hardwareEnabled": True, "stopped": True}
+        bridge = IotBridge({"thingName": "t", "topicPrefix": "p"}, FakeRuntime(), clock=lambda: 1)
+        bridge.publish_state()
+        self.assertEqual(bridge.drain_shadow_publications()[0][1]["state"]["reported"]["runtimeKind"], "UNVERIFIED_RUNTIME")
+        off = IotBridge({"thingName": "t", "topicPrefix": "p", "deviceShadow": False}, FakeRuntime(), clock=lambda: 1)
+        off.publish_state()
+        self.assertEqual(off.drain_shadow_publications(), [])
+
+    def test_connect_registers_a_last_will_that_marks_the_shadow_disconnected(self):
+        calls = {}
+        class Client:
+            def __init__(self, **kw): calls["client_id"] = kw["client_id"]
+            def tls_set_context(self, _c): pass
+            def tls_insecure_set(self, _v): pass
+            def will_set(self, topic, payload, qos): calls["will"] = (topic, json.loads(payload), qos)
+            def connect_async(self, *_a, **_k): pass
+            def loop_start(self): pass
+        class FakeRuntime:
+            def status(self): return {}
+        bridge = IotBridge({"thingName": "vista-demo-so101-001", "topicPrefix": "p", "fakeRobot": True}, FakeRuntime())
+        import ssl, unittest.mock
+        with unittest.mock.patch("ssl.create_default_context") as ctx:
+            ctx.return_value.load_cert_chain = lambda *_a, **_k: None
+            from iot import TlsSettings
+            bridge.connect(TlsSettings("e", "vista-demo-so101-001", "ca", "crt", "key"), mqtt_factory=Client)
+        topic, payload, qos = calls["will"]
+        self.assertEqual((topic, qos), ("$aws/things/vista-demo-so101-001/shadow/update", 1))
+        self.assertEqual(payload["state"]["reported"]["connection"], "disconnected")
 
 
 if __name__ == "__main__":

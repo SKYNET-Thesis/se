@@ -63,14 +63,55 @@ start_container() {
   done
   return 1
 }
+# Optional sidecars, selected by flags in the secret-derived /opt/vista/api.env. Both default to OFF, in which case any old sidecar
+# container is simply removed. A sidecar problem is reported but never fails or rolls back the API deployment.
+env_flag() { grep -qE "^$1=true\$" /opt/vista/api.env 2>/dev/null; }
+start_iot_worker() {
+  docker rm -f vista-iot-feedback-worker >/dev/null 2>&1 || true
+  env_flag VISTA_IOT_FEEDBACK_WORKER_ENABLED || return 0
+  docker run -d --name vista-iot-feedback-worker --restart unless-stopped --memory 384m \
+    --env-file /opt/vista/api.env --log-driver awslogs \
+    --log-opt "awslogs-region=$AWS_REGION" --log-opt "awslogs-group=$LOG_GROUP" --log-opt awslogs-stream=iot-feedback-worker \
+    "$1" node dist/scripts/iot-feedback-worker.js >/dev/null || return 1
+  sleep 5
+  [ "$(docker inspect --format '{{.State.Running}}' vista-iot-feedback-worker 2>/dev/null)" = true ]
+}
+# The Digital Twin image lives in the same ECR repository under the tag twin-<commit>; its host port is loopback only (nginx upgrades /ws/).
+start_twin() {
+  docker rm -f vista-digital-twin >/dev/null 2>&1 || true
+  env_flag VISTA_TWIN_ENABLED || return 0
+  local twin_image="${1%:*}:twin-${1##*:}" secret
+  docker pull "$twin_image" >/dev/null 2>&1 || { echo "Digital Twin image $twin_image is not available; Twin not started" >&2; return 1; }
+  secret="$(grep -m1 '^DIGITAL_TWIN_SCOPE_SECRET=' /opt/vista/api.env | cut -d= -f2-)"
+  [ -n "$secret" ] || { echo 'DIGITAL_TWIN_SCOPE_SECRET is missing; Twin not started' >&2; return 1; }
+  mkdir -p /opt/vista/twin-model
+  (umask 077; printf 'VISTA_TWIN_AUTH_SECRET=%s\n' "$secret" > /opt/vista/twin.env)
+  docker run -d --name vista-digital-twin --restart unless-stopped --read-only --tmpfs /tmp --cap-drop ALL \
+    --security-opt no-new-privileges --memory 768m --env-file /opt/vista/twin.env -v /opt/vista/twin-model:/model:ro \
+    --log-driver awslogs --log-opt "awslogs-region=$AWS_REGION" --log-opt "awslogs-group=$LOG_GROUP" --log-opt awslogs-stream=digital-twin \
+    -p 127.0.0.1:8767:8767 "$twin_image" >/dev/null
+  rm -f /opt/vista/twin.env
+  for attempt in $(seq 1 20); do
+    if curl --silent --fail --max-time 3 http://127.0.0.1:8767/health >/dev/null 2>&1; then return 0; fi
+    sleep 2
+  done
+  return 1
+}
+start_sidecars() {
+  start_iot_worker "$1" || echo 'IoT feedback worker did not start; the API deployment is unaffected' >&2
+  start_twin "$1" || echo 'Digital Twin did not start; the API deployment is unaffected' >&2
+}
+
 if start_container "$IMAGE"; then
   printf '%s\n' "$IMAGE" > /opt/vista/current-image
   if [ -n "$PREVIOUS" ] && [ "$PREVIOUS" != "$IMAGE" ]; then printf '%s\n' "$PREVIOUS" > /opt/vista/previous-image; fi
+  start_sidecars "$IMAGE"
   echo "Deployment healthy: $IMAGE"
 else
   echo "Health check failed for $IMAGE" >&2
   if [ -n "$PREVIOUS" ] && start_container "$PREVIOUS"; then
     printf '%s\n' "$PREVIOUS" > /opt/vista/current-image
+    start_sidecars "$PREVIOUS"
     echo "Rolled back to $PREVIOUS" >&2
   fi
   exit 1
