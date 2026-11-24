@@ -10,8 +10,8 @@ locals {
 resource "aws_iot_thing" "robot" {
   name = local.thing_name
 
+  # AWS allows 3 attributes on a Thing without a thing type.
   attributes = {
-    project     = var.project
     environment = var.environment
     robot_id    = var.robot_id
     robot_model = "SO-101"
@@ -76,7 +76,7 @@ data "aws_iam_policy_document" "robot" {
     effect  = "Allow"
     actions = ["iot:Subscribe"]
     resources = [
-      for op in ["update/accepted", "update/rejected", "update/delta", "get/accepted", "get/rejected"] :
+      for op in ["update/*", "get/*"] :
       "arn:aws:iot:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:topicfilter/$aws/things/${local.thing_name}/shadow/${op}"
     ]
   }
@@ -86,7 +86,7 @@ data "aws_iam_policy_document" "robot" {
     effect  = "Allow"
     actions = ["iot:Receive"]
     resources = [
-      for op in ["update/accepted", "update/rejected", "update/delta", "get/accepted", "get/rejected"] :
+      for op in ["update/*", "get/*"] :
       "arn:aws:iot:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:topic/$aws/things/${local.thing_name}/shadow/${op}"
     ]
   }
@@ -137,7 +137,7 @@ resource "aws_iot_topic_rule" "feedback" {
   enabled     = true
   sql_version = "2016-03-23"
   # Only command-correlated events reach the feedback worker; the edge's periodic device state (no commandId) lives in the Device Shadow.
-  sql = "SELECT *, topic() as iotTopic FROM '${local.topic_prefix}/+' WHERE topic(5) IN ('ack','status') AND isUndefined(commandId) = false"
+  sql = "SELECT *, topic() as iotTopic FROM '${local.topic_prefix}/+' WHERE (topic(5) = 'ack' OR topic(5) = 'status') AND isUndefined(commandId) = false"
   sqs {
     queue_url  = aws_sqs_queue.feedback.id
     role_arn   = aws_iam_role.iot_feedback.arn
