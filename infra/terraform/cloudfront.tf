@@ -49,6 +49,8 @@ resource "aws_cloudfront_distribution" "web" {
     cached_methods         = ["GET", "HEAD"]
     cache_policy_id        = data.aws_cloudfront_cache_policy.optimized.id
     compress               = true
+
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.web.id
     function_association {
 
       event_type   = "viewer-request"
@@ -68,6 +70,23 @@ resource "aws_cloudfront_distribution" "web" {
     cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
     compress                 = true
+
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.api.id
+
+  }
+
+  ordered_cache_behavior {
+
+    path_pattern           = "/assets/*"
+    target_origin_id       = "web-s3"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+    cache_policy_id        = data.aws_cloudfront_cache_policy.optimized.id
+    compress               = true
+
+    # Vite writes content-hashed file names under /assets: a changed file always has a new name, so browsers may keep them for a year.
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.web_assets.id
 
   }
 

@@ -142,6 +142,25 @@ data "aws_iam_policy_document" "web_read" {
 
   }
 
+  # Without s3:ListBucket, S3 answers a missing key with 403 (it will not reveal whether the key exists). With it the distribution
+  # gets a real 404 for an unknown /assets/x.js, so a missing file is not reported as an access error. Only this distribution may ask;
+  # CloudFront exposes no listing API.
+  statement {
+    sid       = "CloudFrontListForNotFound"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.web.arn]
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.web.arn]
+    }
+  }
+
   statement {
     sid       = "DenyPlaintextTransport"
     effect    = "Deny"
