@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ApiDraftAnswer, KnowledgeCheckSubmissionResult } from '../../lib/api';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
+import { QuestionMap } from './QuestionMap';
 
 export interface PublicQuizSnapshot {
   kind: 'question_bank_quiz';
@@ -176,7 +177,9 @@ export function KnowledgeCheckAttempt({
     <h1 className="mt-2 text-3xl font-semibold text-ink">{title}</h1>
     <p className="mt-2 text-sm text-ink-muted">Answer each question. Your responses are graded by the server.</p>
     {snapshot.questions.every((question) => typeof question.points === 'number') && <p className="mt-1 text-sm text-ink-muted" data-testid="quiz-total-points">Total: {pointsLabel(snapshot.questions.reduce((sum, question) => sum + (question.points ?? 0), 0))} · Pass at {snapshot.passPercent}%</p>}
-    <div className="mt-8 space-y-6">{snapshot.questions.map((question, index) => <fieldset key={question.questionVersionId} disabled={Boolean(submitted) || Boolean(readOnly) || busy || navigationPending} className="rounded-xl border border-line p-5">
+    {snapshot.questions.length > 1 && <QuestionMap questions={snapshot.questions.map((question) => ({ id: question.questionVersionId }))} answered={(id) => (answers[id]?.length ?? 0) > 0} disabled={navigationPending}
+      onSelect={(index) => { const target = document.getElementById(`question-${snapshot.questions[index].questionVersionId}`); target?.scrollIntoView({ block: 'center', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); target?.querySelector<HTMLElement>('input')?.focus({ preventScroll: true }); }} />}
+    <div className="mt-8 space-y-6">{snapshot.questions.map((question, index) => <fieldset id={`question-${question.questionVersionId}`} key={question.questionVersionId} disabled={Boolean(submitted) || Boolean(readOnly) || busy || navigationPending} className="rounded-xl border border-line p-5">
       <legend className="px-2 font-medium">Question {index + 1}{typeof question.points === 'number' && <span className="ml-2 text-sm font-normal text-ink-muted" data-testid="question-points">· {pointsLabel(question.points)}</span>}</legend>
       <p className="mb-4">{question.stem}</p>
       <div className="space-y-2">{question.options.map((option) => <label key={option.id} className="flex cursor-pointer items-center gap-3 rounded-md border border-line p-3 hover:bg-sunken focus-within:ring-2 focus-within:ring-accent">
