@@ -14,8 +14,9 @@ variable "environment" {
 }
 
 variable "robot_id" {
-  type    = string
-  default = "so101-001"
+  description = "The robot id the Education API uses: the robots.id UUID of the robot in the target database. It is the MQTT topic segment (<prefix>/<robot_id>/commands) and the envelope robotId, and the Thing is named <project>-<environment>-<robot_id>. The default is a development placeholder only; never apply it for Production."
+  type        = string
+  default     = "so101-001"
 }
 
 variable "recordings_bucket_name" {

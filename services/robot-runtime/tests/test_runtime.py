@@ -235,6 +235,100 @@ class IotBridgeTests(unittest.TestCase):
         self.assertEqual((topic, qos), ("$aws/things/vista-demo-so101-001/shadow/update", 1))
         self.assertEqual(payload["state"]["reported"]["connection"], "disconnected")
 
+    def test_commands_are_addressed_by_the_api_robot_id_not_the_thing_name(self):
+        """The Education API addresses a robot by its database UUID (command robotId and topic segment); acks must carry the same id."""
+        uuid = "3f1c2a9e-6d41-4a1b-9c53-0d7e5b2a8f10"
+        class FakeRuntime:
+            def __init__(self): self.submissions = []
+            def submit(self, value): self.submissions.append(value); return {"state": "queued"}
+            def status(self): return {"hardwareEnabled": False, "stopped": False}
+        bridge = IotBridge({"thingName": f"vista-demo-{uuid}", "robotId": uuid, "topicPrefix": f"vista/demo/robots/{uuid}"}, FakeRuntime(), clock=lambda: 1000)
+        command = {"schemaVersion": 1, "commandId": "c-1", "robotId": uuid, "sequence": 1, "expiresAtMs": 2000, "kind": "run", "payload": {}}
+        bridge.handle_command(command)
+        self.assertEqual(len(bridge.runtime.submissions), 1)
+        self.assertEqual(bridge.acks[0]["robotId"], uuid)                      # the feedback service matches this against the lifecycle row
+        other = command | {"commandId": "c-2", "sequence": 2, "robotId": f"vista-demo-{uuid}"}
+        bridge.handle_command(other)                                           # the Thing name is not the robot id
+        self.assertEqual(bridge.acks[-1]["status"], "rejected")
+        self.assertEqual(len(bridge.runtime.submissions), 1)
+        topics = {value["robotId"] for _topic, value in bridge.drain_publications()}
+        self.assertEqual(topics, {uuid})
+
+    # ---- the feedback contract of the Education worker (iot-feedback.repository.ts `parse` and iot-feedback.service.ts) ----
+    @staticmethod
+    def _worker_accepts(event: dict) -> bool:
+        """Mirror of the worker's `parse`: eventId, kind ack|status, robotId, optional string commandId, integer sequence and occurredAtMs."""
+        return (isinstance(event.get("eventId"), str) and bool(event["eventId"]) and event.get("kind") in ("ack", "status") and isinstance(event.get("robotId"), str)
+                and bool(event["robotId"]) and isinstance(event.get("commandId", ""), str) and all(isinstance(event.get(k), int) and not isinstance(event.get(k), bool) for k in ("sequence", "occurredAtMs")))
+
+    def _bridge(self, snapshots, robot_id="3f1c2a9e-6d41-4a1b-9c53-0d7e5b2a8f10"):
+        class FakeRuntime:
+            def __init__(self): self.queue = list(snapshots)
+            def submit(self, _value): return self.queue.pop(0)
+            def get(self, _run_id): return self.queue.pop(0) if len(self.queue) > 1 else self.queue[0]
+            def status(self): return {"hardwareEnabled": False, "stopped": False}
+        return IotBridge({"thingName": f"vista-demo-{robot_id}", "robotId": robot_id, "topicPrefix": f"vista/demo/robots/{robot_id}", "watchProgress": False}, FakeRuntime(), clock=lambda: 5000), robot_id
+
+    def test_ack_and_status_events_have_the_shape_the_feedback_worker_requires(self):
+        bridge, uuid = self._bridge([{"state": "queued", "runId": "run-1"}])
+        bridge.handle_command({"schemaVersion": 1, "commandId": "cmd-1", "robotId": uuid, "sequence": 1700000000000, "expiresAtMs": 6000, "kind": "run", "payload": {}})
+        bridge.report_progress("cmd-1", 1700000000000, {"state": "running"})
+        bridge.report_progress("cmd-1", 1700000000000, {"state": "succeeded"})
+        events = [value for topic, value in bridge.drain_publications() if value.get("commandId")]
+        self.assertEqual([(e["kind"], e["status"]) for e in events], [("ack", "accepted"), ("status", "executing"), ("status", "completed")])
+        self.assertTrue(all(self._worker_accepts(e) for e in events))
+        self.assertEqual([e["sequence"] for e in events], [1700000000000, 1700000000001, 1700000000002])   # strictly increasing, so no event is stale
+        self.assertEqual(len({e["eventId"] for e in events}), 3)
+        self.assertTrue(all(e["robotId"] == uuid for e in events))
+
+    def test_a_failed_run_is_reported_failed_with_its_code_and_each_event_is_published_once(self):
+        bridge, uuid = self._bridge([{"state": "queued", "runId": "run-1"}])
+        bridge.report_progress("cmd-2", 10, {"state": "failed", "errorCode": "runtime_execution_timeout"})
+        bridge.report_progress("cmd-2", 10, {"state": "failed", "errorCode": "runtime_execution_timeout"})   # a second poll must not publish again
+        (event,) = [v for _t, v in bridge.drain_publications()]
+        self.assertEqual((event["status"], event["code"], event["sequence"]), ("failed", "runtime_execution_timeout", 12))
+        self.assertTrue(self._worker_accepts(event))
+        for state in ("stopped", "cancelled", "timeout", "preflight_failed"):
+            fresh, _ = self._bridge([{"state": "queued", "runId": "r"}]); fresh.report_progress("c", 1, {"state": state})
+            self.assertEqual([v["status"] for _t, v in fresh.drain_publications()], ["failed"])
+
+    def test_redelivered_commands_reuse_the_same_event_ids_so_the_worker_can_deduplicate(self):
+        bridge, uuid = self._bridge([{"state": "queued", "runId": "run-1"}])
+        command = {"schemaVersion": 1, "commandId": "cmd-3", "robotId": uuid, "sequence": 5, "expiresAtMs": 6000, "kind": "run", "payload": {}}
+        bridge.handle_command(command); bridge.handle_command(command)
+        self.assertEqual(len({a["eventId"] for a in bridge.acks}), 1)
+
+    def test_a_rejected_command_publishes_an_ack_but_no_execution_status(self):
+        bridge, uuid = self._bridge([{"state": "preflight_failed", "runId": "run-1", "errorCode": "hardware_not_commissioned"}])
+        bridge.handle_command({"schemaVersion": 1, "commandId": "cmd-4", "robotId": uuid, "sequence": 7, "expiresAtMs": 6000, "kind": "run", "payload": {}})
+        events = [v for _t, v in bridge.drain_publications() if v.get("commandId")]
+        self.assertEqual([(e["kind"], e["status"]) for e in events], [("ack", "rejected")])
+        self.assertTrue(all(self._worker_accepts(e) for e in events))
+
+    def test_a_watcher_reports_executing_then_completed_from_the_runtime(self):
+        bridge, uuid = self._bridge([{"state": "queued", "runId": "run-9"}, {"state": "running"}, {"state": "succeeded"}])
+        bridge.config["watchProgress"] = True
+        bridge.handle_command({"schemaVersion": 1, "commandId": "cmd-9", "robotId": uuid, "sequence": 3, "expiresAtMs": 6000, "kind": "run", "payload": {}})
+        for thread in bridge._watchers: thread.join(timeout=5)
+        statuses = [v["status"] for _t, v in bridge.drain_publications() if v.get("kind") == "status" and v.get("commandId")]
+        self.assertEqual(statuses, ["executing", "completed"])
+        bridge.close()
+
+    def test_the_committed_fixture_used_by_the_api_contract_test_matches_what_the_bridge_emits(self):
+        """services/education-api reads tests/fixtures/edge-feedback-events.json (iot-edge-contract.spec.ts); if the bridge changes, this fails first."""
+        import pathlib
+        fixture = json.loads((pathlib.Path(__file__).parent / "fixtures" / "edge-feedback-events.json").read_text())
+        uuid, command = fixture["robotId"], fixture["commandId"]
+        class FakeRuntime:
+            def submit(self, _v): return {"state": "queued", "runId": "run-1"}
+            def get(self, _r): return {"state": "succeeded"}
+            def status(self): return {"hardwareEnabled": False, "stopped": False}
+        bridge = IotBridge({"thingName": f"vista-demo-{uuid}", "robotId": uuid, "topicPrefix": f"vista/demo/robots/{uuid}", "watchProgress": False}, FakeRuntime(), clock=lambda: 1700000005000)
+        bridge.handle_command({"schemaVersion": 1, "kind": "run", "commandId": command, "robotId": uuid, "sequence": fixture["commandSequence"], "issuedAtMs": 1700000000000, "expiresAtMs": 1700000010000, "payload": {}})
+        bridge.report_progress(command, fixture["commandSequence"], {"state": "running"}); bridge.report_progress(command, fixture["commandSequence"], {"state": "succeeded"})
+        emitted = [v for _t, v in bridge.drain_publications() if v.get("commandId")]
+        self.assertEqual(json.loads(json.dumps(emitted, sort_keys=True)), json.loads(json.dumps(fixture["events"], sort_keys=True)))
+
 
 if __name__ == "__main__":
     unittest.main()

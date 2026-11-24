@@ -136,7 +136,8 @@ resource "aws_iot_topic_rule" "feedback" {
   name        = replace("${local.thing_name}_feedback", "-", "_")
   enabled     = true
   sql_version = "2016-03-23"
-  sql         = "SELECT *, topic() as iotTopic FROM '${local.topic_prefix}/+' WHERE topic(5) IN ('ack','status')"
+  # Only command-correlated events reach the feedback worker; the edge's periodic device state (no commandId) lives in the Device Shadow.
+  sql = "SELECT *, topic() as iotTopic FROM '${local.topic_prefix}/+' WHERE topic(5) IN ('ack','status') AND isUndefined(commandId) = false"
   sqs {
     queue_url  = aws_sqs_queue.feedback.id
     role_arn   = aws_iam_role.iot_feedback.arn
