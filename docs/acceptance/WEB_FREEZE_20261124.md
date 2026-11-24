@@ -35,3 +35,9 @@ The four first-pass failures: two specs need the GoTrue proxy credentials (`VIST
 
 Production Supabase configuration and real email delivery; Production environment variables; Desktop installers (none built or published); physical SO-101 hardware.
 Observed read-only on the public Production URL: the CloudFront distribution answers without HSTS, CSP, X-Content-Type-Options or X-Frame-Options headers and without `Cache-Control`, and an unknown asset path returns a 403 XML error rather than the application. Production serves an older build (object last modified 2026-11-21).
+
+## Final freeze (2026-11-24)
+
+**VISTA WEB: FINAL CODE FREEZE ACCEPTED** on develop `830dd9666c1b27a9039c007dea6100bccad7043c` (merge of PR #198). Its application source is byte-identical to the tested PR head `ee6afcfc` (no difference in `web`, `services`, `apps`, `database`, `infra`, `.github`); PRs #189 to #194, #197 and #198 are merged.
+Post-merge smoke on that commit: `tsc`, production build, Vitest 802 of 802, and 21 real-stack browser tests (module quiz, evidence upload, course authoring, My Learning navigation, the integrated WF-01 to WF-04 lab, Homepage SO-101 3D). Earlier accepted evidence is reused for everything else (backend Jest 1361, Playwright 185, GoTrue 11/13/15, R1 16, adapter 19, Twin 59). No P0/P1 Web defect is known.
+The decision is independent of Production configuration, Desktop installers, the physical robot and AI inference, which remain open (see `docs/ai/CURRENT_STATUS.md`).
