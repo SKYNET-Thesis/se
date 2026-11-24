@@ -1,3 +1,4 @@
+import { isTwinInternalEndpoint } from "../modules/learning/digital-twin-endpoint";
 import { parsePrerequisitePolicy } from "../modules/learning/course-prerequisites";
 
 type Configuration = Record<string, unknown>;
@@ -38,7 +39,7 @@ export function validateProductionConfig(config: Configuration): Configuration {
   if (!/^\d+$/.test(String(config.TRUST_PROXY ?? "").trim()) || Number(config.TRUST_PROXY) < 1) throw new Error("TRUST_PROXY must be the number of trusted proxy hops (1 behind the ALB).");
   const twinUrl = typeof config.DIGITAL_TWIN_TELEMETRY_URL === "string" ? config.DIGITAL_TWIN_TELEMETRY_URL.trim() : "";
   if (twinUrl) {
-    if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(twinUrl)) throw new Error("DIGITAL_TWIN_TELEMETRY_URL must be a loopback address (the Twin runs beside the API).");
+    if (!isTwinInternalEndpoint(twinUrl)) throw new Error("DIGITAL_TWIN_TELEMETRY_URL must be a loopback address or the Twin container on the private Docker network (http://vista-digital-twin:<port>).");
     if (required(config, "DIGITAL_TWIN_SCOPE_SECRET").length < 32) throw new Error("DIGITAL_TWIN_SCOPE_SECRET must be at least 32 characters.");
   }
   // Device provisioning is opt-in; when enabled it needs its own signing secret (device API tokens are signed with it).
