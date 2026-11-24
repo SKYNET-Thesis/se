@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KnowledgeCheckAttempt, type PublicQuizSnapshot } from './KnowledgeCheckAttempt';
@@ -81,6 +81,100 @@ describe('KnowledgeCheckAttempt', () => {
       expect(onSubmit).toHaveBeenCalledWith([{ questionId: 'question-v1', optionId: 'stop' }]);
     });
   });
+
+  describe('autosave and submission reliability (A06)', () => {
+    afterEach(() => { vi.useRealTimers(); });
+    const ok = { attemptId: 'attempt-1', passed: true, score: 100, passPercent: 80, completedLessonId: null, newlyUnlockedLessonIds: [] };
+    const clickOption = async (value: string) => {
+      const option = [...container.querySelectorAll('input')].find((input) => input.value === value)!;
+      await act(async () => { option.click(); });
+    };
+    const deferred = <T,>() => {
+      let resolve!: (value: T) => void;
+      let reject!: (reason?: unknown) => void;
+      const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+      return { promise, resolve, reject };
+    };
+
+    it('serializes overlapping autosaves and writes the newest answers last', async () => {
+      vi.useFakeTimers();
+      const first = deferred<void>(); const second = deferred<void>();
+      const saves: Array<{ answers: unknown; pending: ReturnType<typeof deferred<void>> }> = [];
+      const onSaveDraft = vi.fn((answers) => {
+        const pending = saves.length === 0 ? first : second;
+        saves.push({ answers, pending });
+        return pending.promise;
+      });
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Robot Safety" snapshot={snapshot} onSubmit={vi.fn()} onSaveDraft={onSaveDraft} />); });
+
+      await clickOption('stop');
+      await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+      expect(onSaveDraft).toHaveBeenCalledTimes(1);
+      await clickOption('home');
+      await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+      expect(onSaveDraft).toHaveBeenCalledTimes(1);
+
+      await act(async () => { first.resolve(); await first.promise; });
+      expect(onSaveDraft).toHaveBeenCalledTimes(2);
+      expect(onSaveDraft.mock.calls[1][0]).toEqual([{ questionId: 'question-v1', optionId: 'home' }]);
+      await act(async () => { second.resolve(); await second.promise; });
+    });
+
+    it('flushes the latest draft before final submission and freezes answers while submitting', async () => {
+      vi.useFakeTimers();
+      const first = deferred<void>(); const latest = deferred<void>(); const submission = deferred<typeof ok>();
+      const onSaveDraft = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(latest.promise);
+      const onSubmit = vi.fn(() => submission.promise);
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Robot Safety" snapshot={snapshot} onSubmit={onSubmit} onSaveDraft={onSaveDraft} />); });
+
+      await clickOption('stop');
+      await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+      await clickOption('home');
+      await act(async () => { [...container.querySelectorAll('button')].find((button) => button.textContent === 'Submit quiz')!.click(); });
+
+      expect(container.querySelector('fieldset')!.disabled).toBe(true);
+      expect(onSubmit).not.toHaveBeenCalled();
+      await act(async () => { first.resolve(); await first.promise; });
+      expect(onSaveDraft).toHaveBeenCalledTimes(2);
+      expect(onSaveDraft.mock.calls[1][0]).toEqual([{ questionId: 'question-v1', optionId: 'home' }]);
+      await act(async () => { latest.resolve(); await latest.promise; });
+      expect(onSubmit).toHaveBeenCalledWith([{ questionId: 'question-v1', optionId: 'home' }]);
+      await act(async () => { submission.resolve(ok); await submission.promise; });
+    });
+
+    it('flushes the latest answer before same-tab navigation, even before the debounce fires', async () => {
+      const save = deferred<void>();
+      const onSaveDraft = vi.fn(() => save.promise);
+      await act(async () => { root.render(<MemoryRouter initialEntries={['/quiz']}><Routes>
+        <Route path="/quiz" element={<><KnowledgeCheckAttempt title="Robot Safety" snapshot={snapshot} onSubmit={vi.fn()} onSaveDraft={onSaveDraft} /><Link to="/next">Leave quiz</Link></>} />
+        <Route path="/next" element={<p>Next page</p>} />
+      </Routes></MemoryRouter>); });
+
+      await clickOption('home');
+      await act(async () => { (container.querySelector('a[href="/next"]') as HTMLAnchorElement).click(); });
+      expect(onSaveDraft).toHaveBeenCalledTimes(1);
+      expect(onSaveDraft).toHaveBeenCalledWith([{ questionId: 'question-v1', optionId: 'home' }]);
+      expect(container.textContent).not.toContain('Next page');
+
+      await act(async () => { save.resolve(); await save.promise; });
+      expect(container.textContent).toContain('Next page');
+    });
+
+    it('offers an explicit retry after autosave fails and keeps the latest answer', async () => {
+      vi.useFakeTimers();
+      const onSaveDraft = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(undefined);
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Robot Safety" snapshot={snapshot} onSubmit={vi.fn()} onSaveDraft={onSaveDraft} />); });
+      await clickOption('stop');
+      await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+      expect(container.textContent).toContain('Draft could not be saved');
+      const retry = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Retry save');
+      expect(retry).toBeTruthy();
+      await act(async () => { retry!.click(); });
+      expect(onSaveDraft).toHaveBeenCalledTimes(2);
+      expect(onSaveDraft.mock.calls[1][0]).toEqual([{ questionId: 'question-v1', optionId: 'stop' }]);
+      expect(container.textContent).toContain('Draft saved');
+    });
+  });
   it('links back to the quiz page after a result so the learner can see remaining attempts and retake', async () => {
     const onSubmit = vi.fn().mockResolvedValue({ attemptId: 'attempt-1', passed: false, score: 0, passPercent: 80, completedLessonId: null, newlyUnlockedLessonIds: [] });
     await act(async () => { root.render(<MemoryRouter><KnowledgeCheckAttempt title="Robot Safety" snapshot={snapshot} onSubmit={onSubmit} backTo={{ to: '/my-learning/ca-1', label: 'Back to this quiz' }} /></MemoryRouter>); });
@@ -88,5 +182,62 @@ describe('KnowledgeCheckAttempt', () => {
     await act(async () => { container.querySelector('input')!.click(); });
     await act(async () => { [...container.querySelectorAll('button')].find((b) => b.textContent === 'Submit quiz')!.click(); });
     expect(container.querySelector('a[href="/my-learning/ca-1"]')?.textContent).toBe('Back to this quiz');
+  });
+
+  describe('question map', () => {
+    const three: PublicQuizSnapshot = { kind: 'question_bank_quiz', schemaVersion: 1, passPercent: 60, questions: [
+      { questionVersionId: 'q1', type: 'single_choice', stem: 'First?', options: [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }], points: 2 },
+      { questionVersionId: 'q2', type: 'multiple_choice', stem: 'Second?', options: [{ id: 'c', text: 'C' }, { id: 'd', text: 'D' }], points: 1 },
+      { questionVersionId: 'q3', type: 'single_choice', stem: 'Third?', options: [{ id: 'e', text: 'E' }, { id: 'f', text: 'F' }], points: 1 },
+    ] };
+    const map = () => container.querySelector('[data-testid="question-map"]');
+    const summary = () => container.querySelector('[data-testid="question-map-summary"]')?.textContent ?? '';
+    const submit = () => [...container.querySelectorAll('button')].find((button) => button.textContent === 'Submit quiz') as HTMLButtonElement;
+
+    it('is not shown for a single question (nothing to navigate)', async () => {
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="One" snapshot={snapshot} onSubmit={vi.fn()} />); });
+      expect(map()).toBeNull();
+    });
+
+    it('counts answered questions, follows the learner, and leaves submission gating exactly as it was', async () => {
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Three" snapshot={three} onSubmit={vi.fn()} />); });
+      expect(summary()).toContain('0 of 3 answered');
+      expect(map()?.querySelectorAll('button')).toHaveLength(3);
+      expect(map()?.querySelector('button')?.getAttribute('aria-label')).toBe('Question 1, not answered');
+      expect(submit().disabled).toBe(true);
+      await act(async () => { (container.querySelector('input[value="a"]') as HTMLInputElement).click(); });
+      expect(summary()).toContain('1 of 3 answered');
+      expect(map()?.querySelector('button')?.getAttribute('aria-label')).toBe('Question 1, answered');
+      expect(submit().disabled).toBe(true);                                       // still needs every question, as before
+      await act(async () => { (container.querySelector('input[value="c"]') as HTMLInputElement).click(); });
+      await act(async () => { (container.querySelector('input[value="e"]') as HTMLInputElement).click(); });
+      expect(summary()).toContain('3 of 3 answered');
+      expect(summary()).toContain('ready to submit');
+      expect(submit().disabled).toBe(false);
+    });
+
+    it('a multiple-choice question counts as answered only while an option is selected', async () => {
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Three" snapshot={three} onSubmit={vi.fn()} />); });
+      const c = container.querySelector('input[value="c"]') as HTMLInputElement;
+      await act(async () => { c.click(); });
+      expect(summary()).toContain('1 of 3 answered');
+      await act(async () => { c.click(); });
+      expect(summary()).toContain('0 of 3 answered');
+    });
+
+    it('jumps to and focuses the chosen question, and discloses nothing beyond the learner\'s own selections', async () => {
+      const scroll = vi.fn(); Element.prototype.scrollIntoView = scroll;
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Three" snapshot={three} onSubmit={vi.fn()} />); });
+      await act(async () => { (map()?.querySelectorAll('button')[2] as HTMLButtonElement).click(); });
+      expect(scroll).toHaveBeenCalled();
+      expect(document.activeElement).toBe(container.querySelector('#question-q3 input'));
+      expect(map()?.textContent).not.toMatch(/correct|answer key|score/i);
+    });
+
+    it('keeps restored draft answers counted and stays out of the way of a read-only attempt', async () => {
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Three" snapshot={three} readOnly initialDraft={[{ questionId: 'q1', optionId: 'a' }, { questionId: 'q2', optionIds: ['c', 'd'] }]} onSubmit={vi.fn()} />); });
+      expect(summary()).toContain('2 of 3 answered');
+      expect(submit().disabled).toBe(true);
+    });
   });
 });

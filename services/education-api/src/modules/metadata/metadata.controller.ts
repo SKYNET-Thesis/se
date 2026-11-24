@@ -56,6 +56,7 @@ export class MetadataController {
   @Get("ai-models/:modelId/checkpoints") modelCheckpoints(@CurrentUser() user: AuthenticatedUser, @Param("modelId") id: string) { return this.metadata.modelCheckpoints(user, id); }
   @Get("model-checkpoints/:checkpointId") checkpoint(@CurrentUser() user: AuthenticatedUser, @Param("checkpointId") id: string) { return this.metadata.checkpoint(user, id); }
   @Get("model-checkpoints/:checkpointId/model") checkpointModel(@CurrentUser() user: AuthenticatedUser, @Param("checkpointId") id: string) { return this.metadata.checkpointModel(user, id); }
+  @Get("model-checkpoints/:checkpointId/training-data") checkpointTrainingData(@CurrentUser() user: AuthenticatedUser, @Param("checkpointId") id: string) { return this.metadata.checkpointTrainingData(user, id); }
 
   @Get("me/evaluation-runs") evaluationRuns(@CurrentUser() user: AuthenticatedUser, @Query() page: PaginationDto) { return this.metadata.evaluationRuns(user, page); }
   @Get("me/evaluation-runs/:evaluationRunId") evaluationRun(@CurrentUser() user: AuthenticatedUser, @Param("evaluationRunId") id: string) { return this.metadata.evaluationRun(user, id); }

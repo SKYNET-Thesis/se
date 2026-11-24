@@ -31,7 +31,11 @@ function assertIsolatedTarget(): void {
   try { url = new URL(databaseUrl); } catch { throw new Error('VISTA_E2E_ADMIN_DATABASE_URL is required and must identify the isolated loopback PostgreSQL target.'); }
   const supabaseUrl = process.env.SUPABASE_URL;
   const localAuthOnly = !supabaseUrl || (() => {
-    try { const value = new URL(supabaseUrl); return value.protocol === 'http:' && value.hostname === '127.0.0.1' && ['54321', '54323'].includes(value.port) && value.pathname === '/'; }
+    try {
+      const value = new URL(supabaseUrl);
+      const port = Number(value.port);
+      return value.protocol === 'http:' && value.hostname === '127.0.0.1' && Number.isInteger(port) && port >= 1024 && port <= 65535 && value.pathname === '/';
+    }
     catch { return false; }
   })();
   if (!matchesDisposableDatabaseTarget(databaseUrl) || !localAuthOnly) {

@@ -85,4 +85,21 @@ describe("AssessmentService M2D authorization", () => {
     await expect(service.createReflection(student,"submission-a",{promptKey:"k",promptText:"p",responseText:"r"} as never)).rejects.toBeInstanceOf(NotFoundException);
     await expect(service.myReflections(student,"submission-a")).resolves.toBeDefined();
   });
+  describe("reflection unlock (SRS WF-04)",()=>{
+    const row={id:"submission-a",assignment_id:"assignment-a",learner_user_id:"student-1",program_id:"program-a",program_version_id:"version-a",classroom_id:"class-a"};
+    const dto={promptKey:"post_submission",promptText:"What would you change?",responseText:"I would test the gripper first."} as never;
+    it("rejects a reflection on a submission nobody has assessed yet, and writes nothing",async()=>{
+      assertStudentClassroomAccess.mockReset();
+      queryRaw.mockReset().mockResolvedValueOnce([row]).mockResolvedValueOnce([]);
+      const error=await service.createReflection(student,"submission-a",dto).catch((e:unknown)=>e);
+      expect(error).toBeInstanceOf(ConflictException);
+      expect((error as ConflictException).getResponse()).toMatchObject({code:"REFLECTION_NOT_UNLOCKED"});
+      expect(queryRaw.mock.calls.some((c)=>String((c[0] as string[]).join("?")).includes("INSERT INTO public.learning_reflections"))).toBe(false);
+    });
+    it("writes the reflection once the submission has been assessed",async()=>{
+      assertStudentClassroomAccess.mockReset();
+      queryRaw.mockReset().mockResolvedValueOnce([row]).mockResolvedValueOnce([{n:1}]).mockResolvedValueOnce([{id:"r1",submission_id:"submission-a",learner_user_id:"student-1",prompt_key:"post_submission",prompt_text:"What would you change?",response_text:"I would test the gripper first.",created_at:new Date()}]);
+      await expect(service.createReflection(student,"submission-a",dto)).resolves.toMatchObject({id:"r1",submission_id:"submission-a"});
+    });
+  });
 });

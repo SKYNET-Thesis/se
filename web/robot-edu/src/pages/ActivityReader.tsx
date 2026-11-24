@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowLeftIcon,
   ArrowRightIcon,
   CheckCircle2Icon,
   ClockIcon,
@@ -21,6 +20,8 @@ import {
 import { countLabel } from '../lib/terms';
 import { catalogApi, learnerApi, learningMediaApi, progressionApi, type LessonDetailResponse } from '../lib/api';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
+import { useOptionalRole } from '../contexts/RoleContext';
+import { LearningBreadcrumb } from '../components/learning/LearningBreadcrumb';
 import { studentLearningKeys } from '../queries/studentLearningQueries';
 import { Badge } from '../components/ui/Badge';
 import { ActivityContentPreview } from '../components/authoring/ActivityEditorPanel';
@@ -908,6 +909,7 @@ export function ActivityReader() {
   const { courseId = '', lessonId = '', activityId = '' } = useParams();
   const navigate = useNavigate();
   const { session, sessionRevision } = useSupabaseSession();
+  const role = useOptionalRole()?.role ?? null;
   const queryClient = useQueryClient();
   const progressQuery = useActivityProgress(courseId);
   const [savingCompletion, setSavingCompletion] = useState(false);
@@ -961,6 +963,7 @@ export function ActivityReader() {
 
   const activities = buildLessonActivities(lesson);
   const index = activities.findIndex((item) => item.id === activityId);
+  const studentHome = !role || role === 'student';
   const activity = activities[index] ?? activities[0];
   const completed = progressQuery.data?.activities?.some(
     (item) => item.activityId === activity.id && item.status === 'completed',
@@ -1043,22 +1046,20 @@ export function ActivityReader() {
       activityId={activity.id}
     >
       <main className="min-h-[70vh] px-1 py-4 md:px-6 md:py-8">
-        <Link
-          to={`/courses/${courseId}/lessons/${lessonId}`}
-          className="inline-flex items-center gap-2 text-sm text-ink-muted transition-colors duration-150 ease-out hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          <ArrowLeftIcon className="h-4 w-4" /> Module overview
-        </Link>
+        <LearningBreadcrumb items={[
+          studentHome ? { label: 'My learning', to: '/my-learning' } : { label: 'Courses', to: '/courses' },
+          { label: lesson.course_title, to: `/courses/${courseId}` },
+          { label: lesson.title, to: `/courses/${courseId}/lessons/${lessonId}` },
+          { label: activity.title },
+        ]} />
 
         <header className="mt-8 border-b border-line pb-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent-ink">
-            {lesson.course_title}
-          </p>
-          <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-ink md:text-4xl">
+          <h1 className="text-3xl font-extrabold tracking-tight text-ink md:text-4xl">
             {activity.title}
           </h1>
           <div className="mt-3 flex items-center gap-2">
             <Badge tone="accent">{activityTypeLabels[activity.type]}</Badge>
+            {activities.length > 1 && <span className="text-xs font-medium text-ink-muted" data-testid="activity-position">Activity {Math.max(index, 0) + 1} of {activities.length}</span>}
             {activity.durationMinutes && (
               <span className="text-xs font-medium text-ink-muted">
                 {activity.durationMinutes} min

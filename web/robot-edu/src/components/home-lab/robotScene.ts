@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import URDFLoader from 'urdf-loader';
+import { QualityGovernor } from './qualityGovernor';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { JAW } from './jaw';
@@ -44,6 +45,12 @@ export interface SceneOptions {
   envWorker?: boolean;
   /** Tone-mapping exposure (default 1.3, the H6.1 look). */
   exposure?: number;
+  /** The device could not keep up and quality dropped one level (0 = full). */
+  onQuality?: (level: number) => void;
+  /** Still too slow at the lowest quality: the page should fall back to its text/poster path. */
+  onTooSlow?: () => void;
+  /** The GPU context was lost or came back. */
+  onContext?: (state: 'lost' | 'restored') => void;
 }
 
 /** A point in the lesson-only learning frame, in millimetres: origin at the stage's front-left corner. */
@@ -96,12 +103,19 @@ export class RobotScene {
   private cancelEnvironment: (() => void) | null = null;
   private cancelLoad: (() => void) | null = null;
   private meshCache = new Map<string, Promise<THREE.BufferGeometry>>();
+  private governor: QualityGovernor;
+  /** The reader's own orbit around the arm (radians), added to the director's camera and eased like it. */
+  private orbit = { az: { current: 0, target: 0 } as Animated, el: { current: 0, target: 0 } as Animated };
+  private pendingWarm = false;
+  private contextLost = false;
+  private armMoved = true;
+  private contextHandlers: { lost: (e: Event) => void; restored: () => void } | null = null;
   /** Frame timing samples (ms), read by the browser QA script. */
   readonly frameTimes: number[] = [];
 
   constructor(canvas: HTMLCanvasElement, rig: CameraRig, options: SceneOptions = {}) {
     this.canvas = canvas;
-    this.opts = { transparent: false, background: 0x0b0e10, stage: false, reducedMotion: false, lowPower: false, worker: false, precompile: false, stageFade: false, envWorker: false, exposure: 1.3, ...options };
+    this.opts = { transparent: false, background: 0x0b0e10, stage: false, reducedMotion: false, lowPower: false, worker: false, precompile: false, stageFade: false, envWorker: false, exposure: 1.3, onQuality: () => undefined, onTooSlow: () => undefined, onContext: () => undefined, ...options };
     // Timings of each construction step (cheap; readable in the Performance panel and by the QA scripts).
     performance.mark('so101:construct');
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !this.opts.lowPower, alpha: this.opts.transparent, powerPreference: 'high-performance' });
@@ -111,7 +125,23 @@ export class RobotScene {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = this.opts.exposure;
     this.renderer.shadowMap.enabled = !this.opts.lowPower;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // The shadow map only changes when the arm moves; camera-only frames (every scroll) reuse it, halving their triangles.
+    this.renderer.shadowMap.autoUpdate = false;
+    this.renderer.shadowMap.needsUpdate = true;
+    this.governor = new QualityGovernor({
+      startLevel: this.opts.lowPower ? 1 : 0,
+      onLevel: (level) => { this.applyQuality(); this.opts.onQuality(level); },
+      onTooSlow: () => this.opts.onTooSlow(),
+    });
+    canvas.dataset.quality = String(this.governor.level);
+    this.contextHandlers = {
+      // three.js keeps its own state valid across a loss; the page's job is to stop drawing, then draw again when it is back.
+      lost: (event) => { event.preventDefault(); this.contextLost = true; cancelAnimationFrame(this.raf); this.raf = 0; canvas.dataset.context = 'lost'; this.opts.onContext('lost'); },
+      restored: () => { this.contextLost = false; delete canvas.dataset.context; this.armMoved = true; this.pendingWarm = true; this.governor.reset(); this.kick(); this.opts.onContext('restored'); },
+    };
+    canvas.addEventListener('webglcontextlost', this.contextHandlers.lost);
+    canvas.addEventListener('webglcontextrestored', this.contextHandlers.restored);
 
     if (!this.opts.transparent) {
       this.scene.background = new THREE.Color(this.opts.background);
@@ -206,7 +236,8 @@ export class RobotScene {
       const geometryFor = (file: string): Promise<THREE.BufferGeometry> => {
         let pending = this.meshCache.get(file);
         if (!pending) {
-          const url = `/assets/so101/meshes/${file}`;
+          // The worker path loads the compact web mesh (about 7% of the STL's size); the worker falls back to the STL itself.
+          const url = this.opts.worker ? `/assets/so101/meshes-web/${file.replace(/\.stl$/i, '.msh')}` : `/assets/so101/meshes/${file}`;
           pending = this.opts.worker ? this.parseInWorker(url) : new Promise((resolve, reject) => stl.load(url, (g) => { g.computeVertexNormals(); resolve(g); }, undefined, reject));
           this.meshCache.set(file, pending);
         }
@@ -253,7 +284,7 @@ export class RobotScene {
         this.meshWorker.dispose();
         if (this.opts.precompile) {
           // Wait for the reflections first, so the materials compile once, with their environment map.
-          this.envReady.then(() => { if (!settled) return this.renderer.compileAsync(this.scene, this.camera); }).catch(() => undefined).then(() => { if (!settled) { this.kick(); finish(); } });
+          this.envReady.then(() => { if (!settled) return this.renderer.compileAsync(this.scene, this.camera); }).catch(() => undefined).then(() => { if (!settled) { this.pendingWarm = true; this.kick(); finish(); } });
         } else {
           this.kick();
           finish();
@@ -357,9 +388,10 @@ export class RobotScene {
   }
 
   private parseInWorker(url: string): Promise<THREE.BufferGeometry> {
-    return this.meshWorker.parse(url).then(({ position, normal }) => {
+    return this.meshWorker.parse(url).then(({ position, normal, index }) => {
       const geometry = new THREE.BufferGeometry();
       geometry.setAttribute('position', new THREE.BufferAttribute(position, 3));
+      if (index) geometry.setIndex(new THREE.BufferAttribute(index, 1));
       if (normal) geometry.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
       else geometry.computeVertexNormals();
       return geometry;
@@ -430,6 +462,7 @@ export class RobotScene {
     group.add(sphere);
     this.overlay = group;
     this.overlayParts = { x, y, z, axes, target: marker };
+    this.pendingWarm = true; this.kick();   // upload and compile it now, not at its first visible frame
     this.scene.add(group);
   }
 
@@ -462,10 +495,47 @@ export class RobotScene {
     this.kick();
   };
 
+  /** The reader's orbit around the arm, in radians from the director's camera; clamped so the arm stays in view. */
+  setUserOrbit(azimuth: number, elevation: number, instant = false) {
+    this.orbit.az.target = Math.max(-1.2, Math.min(1.2, azimuth));
+    this.orbit.el.target = Math.max(-0.45, Math.min(0.7, elevation));
+    if (instant || this.opts.reducedMotion) { this.orbit.az.current = this.orbit.az.target; this.orbit.el.current = this.orbit.el.target; }
+    this.kick();
+  }
+  resetUserOrbit(instant = false) { this.setUserOrbit(0, 0, instant); }
+  get userOrbit() { return { azimuth: this.orbit.az.target, elevation: this.orbit.el.target }; }
+  get qualityLevel() { return this.governor.level; }
+
+  private applyQuality() {
+    const quality = this.governor.quality;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.opts.lowPower ? 1.25 : 2, quality.maxPixelRatio));
+    if (!quality.shadows && this.renderer.shadowMap.enabled) {
+      this.renderer.shadowMap.enabled = false; this.key.castShadow = false;
+      this.scene.traverse((node) => { const material = (node as THREE.Mesh).material; if (material) for (const m of Array.isArray(material) ? material : [material]) m.needsUpdate = true; });
+    }
+    this.canvas.dataset.quality = String(this.governor.level);
+    this.resize();
+  }
+
+  /**
+   * Objects that start hidden (the learning stage, the target overlay) are uploaded and compiled by their first visible frame, which
+   * would land in the middle of a scroll as a hitch. Draw them once here, inside a tick whose real render replaces this frame before
+   * anything is presented.
+   */
+  private warmRender() {
+    const restore: Array<() => void> = [];
+    const show = (object: { visible: boolean } | null) => { if (object && !object.visible) { object.visible = true; restore.push(() => { object.visible = false; }); } };
+    show(this.overlay);
+    for (const material of this.stageMaterials) show(material);
+    try { this.renderer.render(this.scene, this.camera); } catch { /* a failed warm-up only costs the hitch it was meant to remove */ }
+    for (const undo of restore) undo();
+    this.governor.reset();
+  }
+
   private applyJoints() { for (const name of JOINTS) this.robot?.setJointValue(name, this.joints[name].current); }
 
   private kick = () => {
-    if (this.disposed || this.raf || !this.visible || !this.active || document.hidden) return;
+    if (this.disposed || this.contextLost || this.raf || !this.visible || !this.active || document.hidden) return;
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.tick);
   };
@@ -473,6 +543,7 @@ export class RobotScene {
   private tick = (now: number) => {
     this.raf = 0;
     const dt = Math.min(0.05, (now - this.last) / 1000);
+    this.governor.sample(now - this.last);
     this.frameTimes.push(now - this.last);
     if (this.frameTimes.length > 600) this.frameTimes.shift();
     this.last = now;
@@ -483,7 +554,9 @@ export class RobotScene {
       a.current += d * (1 - Math.exp(-rate * dt)); moving = true;
     };
     for (const a of Object.values(this.rig)) ease(a, 3.2);
-    for (const a of Object.values(this.joints)) ease(a, 7);
+    for (const a of Object.values(this.joints)) { const before = a.current; ease(a, 7); if (a.current !== before) this.armMoved = true; }
+    ease(this.orbit.az, 7); ease(this.orbit.el, 7);
+    if (this.pendingWarm) { this.pendingWarm = false; this.warmRender(); }
     ease(this.light, 2.2); ease(this.glow, 6);
     ease(this.stageLevel, 3); ease(this.overlayLevel, 3.5);
     const p = this.pointer;
@@ -494,7 +567,7 @@ export class RobotScene {
     }
 
     const r = this.rig;
-    const az = r.azimuth.current + p.x * 0.12, el = r.elevation.current - p.y * 0.05;
+    const az = r.azimuth.current + p.x * 0.12 + this.orbit.az.current, el = Math.max(-0.2, Math.min(1.35, r.elevation.current - p.y * 0.05 + this.orbit.el.current));
     const target = new THREE.Vector3(r.targetX.current, r.targetY.current, r.targetZ.current);
     this.camera.position.set(
       target.x + r.distance.current * Math.cos(el) * Math.sin(az),
@@ -520,6 +593,7 @@ export class RobotScene {
       this.overlayParts.axes.opacity = o * 0.5;
       this.overlayParts.target.opacity = o;
     }
+    if (this.armMoved) { this.renderer.shadowMap.needsUpdate = true; this.armMoved = false; }
     this.renderer.render(this.scene, this.camera);
     for (const fn of this.onFrameCbs) fn();
     if (moving) this.kick();
@@ -534,6 +608,7 @@ export class RobotScene {
     this.observer?.disconnect();
     this.meshWorker.dispose();
     document.removeEventListener('visibilitychange', this.kick);
+    if (this.contextHandlers) { this.canvas.removeEventListener('webglcontextlost', this.contextHandlers.lost); this.canvas.removeEventListener('webglcontextrestored', this.contextHandlers.restored); }
     const geometries = new Set<THREE.BufferGeometry>();
     const disposeGeometry = (geometry: THREE.BufferGeometry) => { if (!geometries.has(geometry)) { geometries.add(geometry); geometry.dispose(); } };
     this.scene.traverse((node) => { if (node instanceof THREE.Mesh) disposeGeometry(node.geometry); });

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { createActiveOffering } from './helpers/academic';
 
 /**
  * Phase 1E: unlock rule authored in the UI; a failed quiz keeps the next module locked (UI and direct API), a later pass unlocks it.
@@ -175,17 +176,18 @@ test('Unlock rule: failing the weighted quiz keeps module two locked; a passing 
 
   // deliver
   const adminToken = await signIn(page, fixture.users.schoolAdmin.authUserId);
+  const offering = await createActiveOffering(page, fixture, adminToken, title, `OFF-UL-${run}`.toUpperCase());
   const className = `UL ${run}`;
   await page.goto('/school/classrooms');
   await page.getByRole('button', { name: 'Create classroom' }).click();
   const create = page.getByRole('dialog', { name: 'Create classroom' });
   await create.getByLabel('Classroom name').fill(className);
   await create.getByLabel('Classroom code').fill(`UL-${run}`.toUpperCase());
-  await create.getByLabel('Published course').selectOption({ label: title });
-  await create.getByLabel('School offering code').fill(`OFF-UL-${run}`.toUpperCase());
+  await create.getByLabel('Active course offering').selectOption({ label: `${offering.title} (${offering.code})` });
   await create.getByRole('button', { name: 'Create classroom' }).click();
   await expect(create).not.toBeVisible();
-  await page.getByRole('button', { name: className }).click();
+  await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { name: 'Classroom details' })).toBeVisible();
   for (const person of ['Phase 2.4.3 Test Student', 'Phase 2.4.3 Test Instructor']) {
     await page.getByRole('button', { name: 'Add member' }).click();
     const member = page.getByRole('dialog', { name: 'Add classroom member' });
@@ -206,6 +208,7 @@ test('Unlock rule: failing the weighted quiz keeps module two locked; a passing 
   const delivery = await (await delivered).json() as { id: string; assignment_id: string };
   const published = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/classrooms/${classroomId}/assignments/${delivery.assignment_id}/publish`));
   await page.getByRole('button', { name: 'Publish to learners' }).click();
+  await page.getByRole('dialog', { name: 'Publish this quiz to students?' }).getByRole('button', { name: 'Publish to students' }).click();
   expect((await published).ok()).toBeTruthy();
 
   // student: module two is locked in the UI and over the API

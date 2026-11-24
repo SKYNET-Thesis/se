@@ -73,7 +73,7 @@ export const ACTOR_ACCENT: Record<Actor, string> = { 'School administrator': '#a
 
 /** Required attribution. Approved third-party media credits are appended from the manifest. */
 export const CREDITS = [
-  'SO-101 robot arm design by TheRobotStudio and Hugging Face. Its hardware design licence is still being verified, so this 3D preview is a development build only.',
+  'SO-101 robot arm design by TheRobotStudio (SO-ARM100) and Hugging Face, licensed under the Apache License 2.0. The 3D preview uses its meshes unmodified, or simplified for the web as described in the licence notice.',
   'The 3D arm is loaded with urdf-loader (Apache-2.0) and rendered with three.js (MIT).',
   'Typefaces: Inter, Inter Tight and JetBrains Mono (SIL Open Font License 1.1).', // taste-skill-ignore: attribution
 ] as const;

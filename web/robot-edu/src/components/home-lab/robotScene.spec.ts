@@ -156,3 +156,74 @@ describe('homepage scene load boundary', () => {
     expect(state.joint).not.toHaveBeenCalledWith('Pitch', 0.6);
   });
 });
+
+describe('homepage scene stability (stutter, context loss, quality)', () => {
+  const rig = { azimuth: 0, elevation: 0.1, distance: 3, targetY: 0, fov: 30 };
+  let canvas: HTMLCanvasElement; let scene: RobotScene;
+  const make = (options: ConstructorParameters<typeof RobotScene>[2] = {}) => { canvas = document.createElement('canvas'); scene = new RobotScene(canvas, rig, { worker: true, ...options }); return scene; };
+  const tick = (now: number) => (scene as unknown as { tick: (now: number) => void }).tick(now);
+  beforeEach(() => {
+    vi.useFakeTimers(); vi.clearAllMocks(); state.frames.length = 0; state.signal = undefined;
+    vi.stubGlobal('Worker', FakeWorker);
+    vi.stubGlobal('IntersectionObserver', class { observe = vi.fn(); disconnect = vi.fn(); });
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { state.frames.push(callback); return state.frames.length; });
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+  });
+  afterEach(() => { scene.dispose(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+
+  it('stops drawing when the GPU context is lost and draws again when it is restored', () => {
+    const onContext = vi.fn(); make({ onContext });
+    const lost = new Event('webglcontextlost', { cancelable: true }); canvas.dispatchEvent(lost);
+    expect(lost.defaultPrevented).toBe(true);                          // the browser may restore the context
+    expect(canvas.dataset.context).toBe('lost');
+    state.frames.length = 0; scene.setPose({ Pitch: 0.3 });
+    expect(state.frames).toHaveLength(0);                              // nothing is scheduled while there is no context
+    canvas.dispatchEvent(new Event('webglcontextrestored'));
+    expect(canvas.dataset.context).toBeUndefined();
+    expect(state.frames.length).toBeGreaterThan(0);                    // a frame is requested, so the arm does not stay blank
+    expect(onContext.mock.calls.map((c) => c[0])).toEqual(['lost', 'restored']);
+  });
+
+  it('draws the hidden target overlay once, before its first visible frame, and leaves it hidden', () => {
+    make(); const visibleDuring: boolean[] = [];
+    state.render.mockImplementation(() => { visibleDuring.push((scene as unknown as { overlay: { visible: boolean } | null }).overlay?.visible ?? false); });
+    scene.setTargetOverlay({ x: 240, y: 220, z: 120 }, 0);
+    state.frames.pop()?.(5000);
+    expect(state.render).toHaveBeenCalledTimes(2);                     // the warm-up draw, then the real frame of the same tick
+    expect(visibleDuring[0]).toBe(true); expect(visibleDuring[1]).toBe(false);
+    state.render.mockClear(); scene.setPose({ Pitch: 0.2 }); state.frames.pop()?.(5016);
+    expect(state.render).toHaveBeenCalledTimes(1);                     // it is a one-time cost
+  });
+
+  it('updates the shadow map only when the arm moves, so camera-only frames are cheaper', () => {
+    make(); const shadowMap = (scene as unknown as { renderer: { shadowMap: { needsUpdate?: boolean; autoUpdate?: boolean } } }).renderer.shadowMap;
+    expect(shadowMap.autoUpdate).toBe(false);
+    tick(5000); shadowMap.needsUpdate = false;                         // the first frame draws the shadow
+    scene.setRig({ azimuth: 1 }); tick(5016);
+    expect(shadowMap.needsUpdate).toBe(false);                         // the camera moved, the arm did not
+    scene.setPose({ Elbow: 1.2 }); tick(5032);
+    expect(shadowMap.needsUpdate).toBe(true);                          // the arm moved: refresh the shadow
+  });
+
+  it('keeps the reader’s orbit inside a safe range and can reset it', () => {
+    make(); scene.setUserOrbit(9, -9, true);
+    expect(scene.userOrbit).toEqual({ azimuth: 1.2, elevation: -0.45 });
+    scene.setUserOrbit(0.5, 0.3, true); expect(scene.userOrbit).toEqual({ azimuth: 0.5, elevation: 0.3 });
+    scene.resetUserOrbit(true); expect(scene.userOrbit).toEqual({ azimuth: 0, elevation: 0 });
+  });
+
+  it('lowers quality (resolution first) when frames stay slow, tells the page, and finally reports a hopeless device', () => {
+    const onQuality = vi.fn(); const onTooSlow = vi.fn(); make({ onQuality, onTooSlow });
+    const renderer = (scene as unknown as { renderer: { setPixelRatio: ReturnType<typeof vi.fn> } }).renderer;
+    let now = 5000; tick(now);
+    for (let i = 0; i < 41; i += 1) { now += 40; tick(now); }           // 40 ms frames: about 25 fps
+    expect(onQuality).toHaveBeenCalledWith(1); expect(canvas.dataset.quality).toBe('1');
+    expect(renderer.setPixelRatio).toHaveBeenLastCalledWith(expect.any(Number)); expect(Math.max(...renderer.setPixelRatio.mock.calls.map((c) => c[0] as number))).toBeLessThanOrEqual(2);
+    for (let i = 0; i < 41 * 3; i += 1) { now += 400; tick(now); }       // then 400 ms frames: a software rasteriser
+    expect(scene.qualityLevel).toBe(3); expect(onTooSlow).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts one level lower on low-power devices', () => {
+    make({ lowPower: true }); expect(scene.qualityLevel).toBe(1); expect(canvas.dataset.quality).toBe('1');
+  });
+});

@@ -1,4 +1,4 @@
-import { IsInt, IsString, Matches, Max, MaxLength, Min, ValidateIf } from "class-validator";
+import { IsDateString, IsInt, IsString, Matches, Max, MaxLength, Min, ValidateIf } from "class-validator";
 
 const nonBlank = { message: "Value cannot be empty or whitespace." };
 
@@ -7,4 +7,9 @@ export class UpdateCourseOfferingDto {
   @ValidateIf((_object, value) => value !== undefined) @IsString() @MaxLength(200) title?: string;
   @ValidateIf((_object, value) => value !== undefined) @IsString() @MaxLength(80) academicTerm?: string;
   @ValidateIf((_object, value) => value !== undefined) @IsInt() @Min(2000) @Max(9999) academicYear?: number;
+  @ValidateIf((_object, value) => value !== undefined) @IsDateString() startAt?: string;
+  @ValidateIf((_object, value) => value !== undefined) @IsDateString() endAt?: string;
+  @ValidateIf((_object, value) => value !== undefined) @IsDateString() enrollmentOpenAt?: string;
+  @ValidateIf((_object, value) => value !== undefined) @IsDateString() enrollmentCloseAt?: string;
+  @ValidateIf((_object, value) => value !== undefined) @IsInt() @Min(1) @Max(10000) maxStudents?: number;
 }

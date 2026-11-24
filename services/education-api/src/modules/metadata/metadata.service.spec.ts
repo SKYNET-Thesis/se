@@ -12,9 +12,34 @@ describe("MetadataService safe provenance reads", () => {
   const service = new MetadataService({ $queryRaw: queryRaw } as never);
   beforeEach(() => queryRaw.mockReset());
 
-  it("does not disclose model metadata without the existing model.use capability", async () => {
-    await expect(service.models(student, { page: 1, pageSize: 20 })).rejects.toBeInstanceOf(NotFoundException);
+  it("does not disclose model metadata to callers outside the SRS actors (School Admin, Teaching Assistant, no active membership)", async () => {
+    for (const roleCode of ["school_admin", "teaching_assistant"]) {
+      const outsider = { ...student, memberships: [{ ...student.memberships[0], roleCode }] };
+      await expect(service.models(outsider, { page: 1, pageSize: 20 })).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.model(outsider, "m-1")).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.checkpoint(outsider, "c-1")).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.checkpointTrainingData(outsider, "c-1")).rejects.toBeInstanceOf(NotFoundException);
+    }
+    await expect(service.models({ ...student, memberships: [] }, { page: 1, pageSize: 20 })).rejects.toBeInstanceOf(NotFoundException);
     expect(queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("lets a Student read public model metadata only: the query is restricted to public models and owner references are removed", async () => {
+    queryRaw.mockResolvedValueOnce([{ id: "m-1", name: "Public model", description: null, owner_type: "organization", owner_organization_id: "org-x", owner_user_id: "user-x", visibility: "public", status: "active" }]);
+    const result = await service.models(student, { page: 1, pageSize: 20 });
+    expect(result.items).toEqual([{ id: "m-1", name: "Public model", description: null, owner_type: "organization", visibility: "public", status: "active" }]);
+    const values = (queryRaw.mock.calls[0] as unknown[]).slice(1);
+    expect(values[2]).toBe(true);                                      // the public-only flag (third bound value) is set
+    expect(JSON.stringify(result)).not.toMatch(/org-x|user-x|owner_user_id|owner_organization_id/);
+  });
+
+  it("keeps the full view (owner references, own private models) for System Administrators and model.use holders", async () => {
+    queryRaw.mockResolvedValue([{ id: "m-1", name: "Mine", owner_type: "developer", owner_organization_id: null, owner_user_id: "user-1", visibility: "private", status: "active" }]);
+    const admin = { ...student, systemPermissions: ["org.manage"] };
+    expect((await service.models(admin, { page: 1, pageSize: 20 })).items[0]).toMatchObject({ owner_user_id: "user-1" });
+    const holder = { ...student, memberships: [{ ...student.memberships[0], permissions: ["model.use"] }] };
+    expect((await service.models(holder, { page: 1, pageSize: 20 })).items[0]).toMatchObject({ owner_user_id: "user-1" });
+    expect((queryRaw.mock.calls[0] as unknown[])[3]).toBe(false);      // full access: the public-only flag (third bound value) is off
   });
 
   it("keeps VLA interaction reads inside the learner's own experiment and requires execute capability", async () => {

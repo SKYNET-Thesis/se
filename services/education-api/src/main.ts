@@ -6,6 +6,7 @@ import { ApiExceptionFilter } from "./common/filters/api-exception.filter";
 import { AppModule } from "./app.module";
 import { corsOrigins } from "./cors-origins";
 import { json, urlencoded } from "express";
+import { applyKeepAliveTimeout } from "./common/http/keep-alive";
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
@@ -44,6 +45,7 @@ async function bootstrap(): Promise<void> {
     SwaggerModule.setup("docs", app, SwaggerModule.createDocument(app, config));
   }
 
+  applyKeepAliveTimeout(app.getHttpServer(), process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS);
   await app.listen(Number(process.env.PORT ?? 3000), process.env.HOST ?? "0.0.0.0");
 }
 

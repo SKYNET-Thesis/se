@@ -68,10 +68,15 @@ describeDb('real PostgreSQL Question Bank CSV/XLSX import', () => {
     expect(await db.learning_questions.count({ where: { lesson_id: x.lesson.id } })).toBe(0);
   });
 
-  it('refuses global-course lessons and requires a learning outcome', async () => {
+  it('imports global-course lessons for a system administrator and requires a learning outcome', async () => {
     const g = await createWorld(db);
     const file = Buffer.from(toCsv(templateTable()));
-    await expect(bank.importPreview(admin, g.lesson.id, 't.csv', file)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(bank.importPreview(admin, g.lesson.id, 't.csv', file)).resolves.toMatchObject({ total: 2, valid: 2 });
+    const imported = await bank.importCommit(admin, g.lesson.id, 't.csv', file, { newObjective: 'Global question outcome.', publish: true });
+    expect(imported).toMatchObject({ created: 2, failed: 0 });
+    const globalQuestions = await db.learning_questions.findMany({ where: { lesson_id: g.lesson.id } });
+    expect(globalQuestions).toHaveLength(2);
+    expect(globalQuestions.every((question) => question.organization_id === null)).toBe(true);
     const x = await school();
     await expect(bank.importCommit(admin, x.lesson.id, 't.csv', file, { publish: true })).rejects.toThrow(/Learning Outcome/);
   });

@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { SO101_CURRICULUM } from '../../../../services/education-api/src/scripts/so101-curriculum.data';
+import { createActiveOffering } from './helpers/academic';
 
 /**
  * Course prerequisites are enforced by the server (policy COURSE_PREREQUISITES_ENFORCED_FROM=2026-01-01T00:00:00Z on the local stack).
@@ -33,17 +34,19 @@ const call = async (page: Page, token: string, method: string, path: string, dat
 const get = (page: Page, token: string, path: string) => call(page, token, 'GET', path);
 
 async function deliverCourse(page: Page, title: string, code: string, student?: string) {
+  const adminToken = await signIn(page, 'schoolAdmin');
+  const offering = await createActiveOffering(page, fixture, adminToken, title, `OFF-${code}-${run}`);
   await page.goto('/school/classrooms');
   await page.getByRole('button', { name: 'Create classroom' }).click();
   const create = page.getByRole('dialog', { name: 'Create classroom' });
   await create.getByLabel('Classroom name').fill(`${code} ${run}`);
   await create.getByLabel('Classroom code').fill(`${code}-${run}`);
-  await create.getByLabel('Published course').selectOption({ label: title });
-  await create.getByLabel('School offering code').fill(`OFF-${code}-${run}`);
+  await create.getByLabel('Active course offering').selectOption({ label: `${offering.title} (${offering.code})` });
   await create.getByRole('button', { name: 'Create classroom' }).click();
   await expect(create).not.toBeVisible();
+  await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { name: 'Classroom details' })).toBeVisible();
   if (!student) return;
-  await page.getByRole('button', { name: `${code} ${run}` }).click();
   await page.getByRole('button', { name: 'Add member' }).click();
   const member = page.getByRole('dialog', { name: 'Add classroom member' });
   await member.getByLabel('Search eligible members').fill(student);

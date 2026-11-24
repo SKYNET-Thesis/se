@@ -33,11 +33,11 @@ describe('SidebarNav role-based navigation', () => {
     container.remove();
   });
 
-  const renderNav = async (role: Role) => {
+  const renderNav = async (role: Role, path = '/') => {
     currentRole = role;
     await act(async () => {
       root.render(
-        <MemoryRouter>
+        <MemoryRouter initialEntries={[path]}>
           <SidebarNav />
         </MemoryRouter>,
       );
@@ -74,5 +74,21 @@ describe('SidebarNav role-based navigation', () => {
     const links = Array.from(container.querySelectorAll('a'));
     const courseLink = links.find((l) => l.textContent?.includes('Student catalogue'));
     expect(courseLink?.getAttribute('href')).toBe('/courses');
+  });
+
+  const current = () => Array.from(container.querySelectorAll('a[aria-current="page"]')).map((a) => a.textContent?.trim());
+
+  it('keeps My Learning selected while a student studies a course, a lesson or a practice attempt, and Courses only on the list', async () => {
+    await renderNav('student', '/courses/course-1/lessons/lesson-2');
+    expect(current()).toEqual(['My Learning']);
+    await act(async () => root.unmount()); root = createRoot(container);
+    await renderNav('student', '/practice/attempt-1');
+    expect(current()).toEqual(['My Learning']);
+    await act(async () => root.unmount()); root = createRoot(container);
+    await renderNav('student', '/courses');
+    expect(current()).toEqual(['Courses']);
+    await act(async () => root.unmount()); root = createRoot(container);
+    await renderNav('student', '/my-learning/assignment-1');
+    expect(current()).toEqual(['My Learning']);
   });
 });

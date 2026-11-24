@@ -17,14 +17,22 @@ Nothing in this document has been executed; every Production step below needs th
 
 ## Sequence
 
-1. **PR** (this change) merged by the owner. CI runs the manifest validator, workflow-safety check, the strict database test suite and the fresh bootstrap.
-2. **API/web deploy with the flag OFF** (`aws-demo` approval). Safe before the migration (verified on a schema copy without the columns). Smoke: existing login, Setup Code, Recovery Code.
-3. **Database release**: GitHub → *Production Database Release* → `scope=N`, `backup_mode=logical`, `expected_main_sha=<head of main>`.
-   * preflight (read-only): plan + snapshot (counts, ledger, row digest of the profile table).
+**The database release comes first.** `scripts/production_db_release.py compat` (the `schema-gate` job of every API/web deployment) requires the build's
+**entire** manifest to be applied in Production, regardless of any feature flag. Once migration N is registered in `database/migrations/manifest.json`
+(it is, since #171), every deployment of `main` is refused until N is applied: *"Schema is incompatible with this build: migrations not applied to the
+database: 20261118_n_student_password_change_required. Run the approved Production Database Release first; the running API was not touched."* This is the
+intended release ordering (a schema-incompatible image would crash-loop; the gate runs before any SSM command, so the running API is never touched).
+The application code is additionally flag-safe (it reads the new columns only while `STUDENT_TEMP_PASSWORD_ENABLED=true`), but that does not bypass the gate.
+
+1. **PR merged** by the owner (done for #170/#171). CI runs the manifest validator, workflow-safety check, the strict database suite and the fresh bootstrap.
+2. **Database release**: GitHub → *Production Database Release* → `scope=N`, `backup_mode=logical`, `expected_main_sha=<40-char head of main>`.
+   * preflight (read-only): plan + snapshot (counts, ledger, row digest of the profile table); the plan fails closed unless exactly D–L are applied, N is the only pending migration, M is absent and the catalog equals the pinned counts.
    * backup: fresh `pg_dump` + restore test into a throw-away PostgreSQL 17, SSE-KMS upload, evidence bound to project/scope/plan/manifest/commit.
    * **apply requires the `production-database-apply` reviewer approval** (reviewer: `leduc121`), after the backup evidence is visible.
    * postflight `verify_production_release_n`: ledger entry with the pinned checksum and `sourceCommit`; catalog unchanged; the five column definitions; **no row forced / no backfill**; digest of every existing profile row unchanged; row counts of all tracked tables unchanged.
-4. **Enable the flag**: add `STUDENT_TEMP_PASSWORD_ENABLED=true` to the Production secret (`vista/demo/education-api/env`) and restart through the approved deploy path. The secret is the only place the flag lives; its absence means OFF.
+   * the workflow's last job (`resume-deployment`) then dispatches the protected deployment (`backend-ci.yml`, `action=deploy`) for `main`.
+3. **API/web deploy with the flag OFF** (`aws-demo` approval; `schema-gate` now passes). Smoke: existing login, Setup Code, Recovery Code.
+4. **Enable the flag**: add `STUDENT_TEMP_PASSWORD_ENABLED=true` to the Production secret (`vista/demo/education-api/env`) and restart through the approved deploy path. The secret is the only place the flag lives; its absence means OFF. Keep `TRUST_PROXY=1`.
 5. **Production E2E** with new isolated test schools (needs approval to create test identities): create/import student → temporary password shown once → login → forced change → old password rejected → My Learning → reissue → expiry → duplicates → isolation → Setup Code and Recovery Code → cleanup by archive/disable.
 
 ## Rollback

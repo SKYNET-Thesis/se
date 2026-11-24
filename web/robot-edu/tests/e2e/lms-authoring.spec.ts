@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { createActiveOffering } from './helpers/academic';
 
 /**
  * Release-candidate acceptance for school-scoped authoring (journeys 1 and 2).
@@ -109,19 +110,17 @@ test('Journey 1: instructor authors, previews and publishes a school course; an 
 
   // School Admin delivers it: classroom on the new offering, student enrolled (real UI).
   const adminToken = await signIn(page, fixture.users.schoolAdmin.authUserId);
-  // The School Admin's course picker lists the school's own published course (not just global templates).
-  const pickable = await api(page, adminToken, 'GET', `/education-admin/organizations/${fixture.schoolId}/published-courses`);
-  expect((pickable.body as Array<{ title: string }>).some((row) => row.title === title)).toBe(true);
+  const offering = await createActiveOffering(page, fixture, adminToken, title, `OFF-J1-${run}`.toUpperCase());
   await page.goto('/school/classrooms');
   await page.getByRole('button', { name: 'Create classroom' }).click();
   const dialog = page.getByRole('dialog', { name: 'Create classroom' });
   await dialog.getByLabel('Classroom name').fill(`RC J1 ${run}`);
   await dialog.getByLabel('Classroom code').fill(`RC-J1-${run}`.toUpperCase());
-  await dialog.getByLabel('Published course').selectOption({ label: title });
-  await dialog.getByLabel('School offering code').fill(`OFF-J1-${run}`.toUpperCase());
+  await dialog.getByLabel('Active course offering').selectOption({ label: `${offering.title} (${offering.code})` });
   await dialog.getByRole('button', { name: 'Create classroom' }).click();
   await expect(dialog).not.toBeVisible();
-  await page.getByRole('button', { name: `RC J1 ${run}` }).click();
+  await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { name: 'Classroom details' })).toBeVisible();
   await page.getByRole('button', { name: 'Add member' }).click();
   const memberDialog = page.getByRole('dialog', { name: 'Add classroom member' });
   await memberDialog.getByLabel('Search eligible members').fill('Phase 2.4.3 Test Student');
@@ -282,17 +281,18 @@ test('Journey 2: instructor authors a school question, builds and configures a q
 
   // School Admin delivers the course: classroom on the new offering with the student and the instructor.
   const adminToken = await signIn(page, fixture.users.schoolAdmin.authUserId);
+  const offering = await createActiveOffering(page, fixture, adminToken, title, `OFF-J2-${run}`.toUpperCase());
   const className = `RC J2 ${run}`;
   await page.goto('/school/classrooms');
   await page.getByRole('button', { name: 'Create classroom' }).click();
   const create = page.getByRole('dialog', { name: 'Create classroom' });
   await create.getByLabel('Classroom name').fill(className);
   await create.getByLabel('Classroom code').fill(`RC-J2-${run}`.toUpperCase());
-  await create.getByLabel('Published course').selectOption({ label: title });
-  await create.getByLabel('School offering code').fill(`OFF-J2-${run}`.toUpperCase());
+  await create.getByLabel('Active course offering').selectOption({ label: `${offering.title} (${offering.code})` });
   await create.getByRole('button', { name: 'Create classroom' }).click();
   await expect(create).not.toBeVisible();
-  await page.getByRole('button', { name: className }).click();
+  await expect(page).toHaveURL(/\/school\/classrooms\/[0-9a-f-]+$/);
+  await expect(page.getByRole('heading', { name: 'Classroom details' })).toBeVisible();
   for (const person of ['Phase 2.4.3 Test Student', 'Phase 2.4.3 Test Instructor']) {
     await page.getByRole('button', { name: 'Add member' }).click();
     const member = page.getByRole('dialog', { name: 'Add classroom member' });
@@ -319,6 +319,7 @@ test('Journey 2: instructor authors a school question, builds and configures a q
   const delivery = await (await delivered).json() as { id: string; assignment_id: string };
   const publishedDelivery = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith(`/classrooms/${classroomId}/assignments/${delivery.assignment_id}/publish`));
   await page.getByRole('button', { name: 'Publish to learners' }).click();
+  await page.getByRole('dialog', { name: 'Publish this quiz to students?' }).getByRole('button', { name: 'Publish to students' }).click();
   expect((await publishedDelivery).ok()).toBeTruthy();
 
   // Safe edit: a delivered quiz can no longer be changed in a way that would alter attempts' meaning.

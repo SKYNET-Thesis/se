@@ -91,7 +91,15 @@ export class SchoolAdminQueryService {
 
   async offerings(user: AuthenticatedUser, organizationId: string) {
     this.assertOrganizationPermission(user, organizationId, "education.classroom.read");
-    return this.prisma.$queryRaw`SELECT o.id,o.code,COALESCE(o.title,c.title) AS title,o.status FROM public.learning_course_offerings o JOIN public.learning_courses c ON c.id=o.course_id WHERE o.organization_id=${organizationId}::uuid ORDER BY o.created_at DESC`;
+    return this.prisma.$queryRaw`SELECT o.id,o.code,COALESCE(o.title,c.title) AS title,o.status,
+      o.course_id AS "courseId",o.academic_term AS "academicTerm",o.academic_year AS "academicYear",
+      o.start_at AS "startAt",o.end_at AS "endAt",
+      o.enrollment_open_at AS "enrollmentOpenAt",o.enrollment_close_at AS "enrollmentCloseAt",
+      o.max_students AS "maxStudents",
+      (SELECT count(*)::int FROM public.learning_classrooms cl WHERE cl.offering_id=o.id) AS classrooms,
+      (SELECT count(DISTINCT m.user_id)::int FROM public.learning_classroom_members m JOIN public.learning_classrooms c2 ON c2.id=m.classroom_id
+        WHERE c2.offering_id=o.id AND c2.status='active' AND m.classroom_role='student' AND m.status='active') AS "enrolledStudents"
+      FROM public.learning_course_offerings o JOIN public.learning_courses c ON c.id=o.course_id WHERE o.organization_id=${organizationId}::uuid ORDER BY o.created_at DESC`;
   }
 
   async publishedGlobalCourses(user: AuthenticatedUser, organizationId: string) {

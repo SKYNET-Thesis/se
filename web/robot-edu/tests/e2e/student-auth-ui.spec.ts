@@ -135,3 +135,42 @@ test('School Admin reissues a temporary password from the user list; it is shown
   await studentLogin(page, schoolCode, codes[1], reissued!);
   await expect(page).toHaveURL(/\/student\/change-password$/);
 });
+
+test('School Admin imports students into a classroom from the classroom page: a bad file cannot be confirmed, a good file previews, confirms, shows credentials once and updates the roster', async ({ page }) => {
+  test.setTimeout(120_000);
+  await signInAdmin(page);
+  const fixture = JSON.parse(readFileSync(env('VISTA_E2E_FIXTURE_FILE'), 'utf8')) as { classroomId: string };
+  const roster = [`TP-CI-${run}-1`, `TP-CI-${run}-2`];
+  const requests: string[] = [];
+  page.on('request', (r) => { if (/student-imports/.test(r.url())) requests.push(`${r.method()} ${r.url()}`); });
+  await page.goto(`/school/classrooms/${fixture.classroomId}`);
+  await page.getByRole('button', { name: 'Import students' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Import students to classroom' });
+  await expect(dialog).toBeVisible();
+
+  // a file without the required columns is previewed as "Needs review" and cannot be confirmed: nothing is persisted
+  await dialog.locator('input[aria-label="Upload classroom student CSV"]').setInputFiles({ name: 'bad.csv', mimeType: 'text/csv', buffer: Buffer.from('first_name,last_name\nNo,Columns\n') });
+  await expect(dialog.getByText('Needs review').first()).toBeVisible();
+  await expect(dialog.getByText(/Student code is required/)).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Confirm import' })).toBeDisabled();
+  expect(requests.filter((r) => /student-imports$/.test(r.split(' ')[1].split('?')[0]))).toEqual([]);     // no confirm request (only previews) was sent
+
+  // back to the upload step, then a valid file: preview with the server, then confirm
+  await dialog.getByRole('button', { name: 'Choose another file' }).click();
+  const csv = ['first_name,last_name,student_code,grade_level,email,guardian_email', `Class,One,${roster[0]},7,,`, `Class,Two,${roster[1]},7,,`].join('\n') + '\n';
+  await dialog.locator('input[aria-label="Upload classroom student CSV"]').setInputFiles({ name: 'students.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await expect(dialog.getByText(roster[0]).first()).toBeVisible();
+  expect(requests.filter((r) => r.startsWith('POST') && /preview/.test(r)).length).toBeGreaterThan(0);   // the server previewed it; nothing was persisted yet
+  await dialog.getByRole('button', { name: 'Confirm import' }).click();
+  await expect(dialog.getByRole('heading', { name: 'One-time temporary credentials' })).toBeVisible();
+  for (const code of roster) {
+    const line = (await dialog.locator('p.font-mono', { hasText: code }).first().innerText()).split('·').map((part) => part.trim());
+    expect(line[2].length).toBeGreaterThanOrEqual(32); remember(`classroom-import:${code}`, line[2]);
+  }
+  expect(await page.locator('body').innerText()).not.toMatch(ALIAS);
+  await dialog.getByRole('button', { name: 'Done' }).click();
+
+  // the roster now lists both new students; the credentials are gone from the page
+  await expect(page.getByText('Class One').first()).toBeVisible(); await expect(page.getByText('Class Two').first()).toBeVisible();
+  await expect(page.getByText('One-time temporary credentials')).toHaveCount(0);
+});

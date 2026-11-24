@@ -7,7 +7,10 @@ import { dragFromFlyout, waitForBlocklyReady, workspaceBlocks } from './helpers/
  * real browser UI against the real Education API and PostgreSQL. Simulation here is the browser SO-101 preview plus the
  * server-side symbolic evaluator; it is NOT physical robot execution.
  */
-const fixture = JSON.parse(await readFile(process.env.VISTA_E2E_FIXTURE_FILE!, 'utf8')) as { classroomId: string; users: Record<string, { authUserId: string }> };
+const fixturePath = process.env.VISTA_E2E_WF03_FIXTURE_FILE ?? process.env.VISTA_E2E_FIXTURE_FILE;
+if (!fixturePath?.startsWith('/tmp/vista-wf03-e2e-fixture')) throw new Error('Blockly simulation requires the isolated WF-03 fixture under /tmp.');
+const fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as { kind: string; classroomId: string; users: Record<string, { authUserId: string }> };
+if (fixture.kind !== 'vista_wf03_local_e2e_v1') throw new Error('Blockly simulation requires a fresh WF-03 fixture containing Reach Target A.');
 const apiBase = process.env.VISTA_E2E_API_BASE_URL!; const authPort = Number(process.env.VISTA_E2E_JWKS_PORT ?? 54321);
 const session = async (page: Page, who: string) => (await page.request.get(`http://127.0.0.1:${authPort}/token?sub=${fixture.users[who].authUserId}`)).json();
 async function signIn(page: Page, who: string) {

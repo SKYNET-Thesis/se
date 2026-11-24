@@ -32,6 +32,7 @@ definition before deploying this build, or the new task will fail its start-up c
 | `SUPABASE_INVITE_REDIRECT_URL` | recommended | Where invited instructors / School Admins land after accepting. |
 | `SUPABASE_JWT_ISSUER`, `SUPABASE_JWT_AUDIENCE`, `SUPABASE_JWKS_URL` | optional | Override only for a custom domain. |
 | `HTTP_BODY_LIMIT_BYTES` | optional | Positive integer. |
+| `HTTP_KEEP_ALIVE_TIMEOUT_MS` | optional | 1000–600000. Unset keeps Node's 5 s idle-connection timeout (the current Production topology, nginx without upstream keep-alive, is unaffected). Set it above the idle timeout of any keep-alive proxy placed directly in front of the API, otherwise a request that lands as the API closes an idle socket fails with a connection reset. The local integration stack sets 65000. |
 | `DIGITAL_TWIN_TELEMETRY_URL` + `DIGITAL_TWIN_SCOPE_SECRET` | only with a Twin sidecar | URL must be loopback; secret ≥ 32 chars (new check). `DIGITAL_TWIN_REVOKE_RETRY_MS` (default `0,500,2000,5000`). |
 | `VISTA_ROBOT_RUNTIME_MAP`, `VISTA_RUNTIME_TOKEN`, `ROBOT_RUNTIME_BASE_URL`, `ROBOT_RUNTIME_TIMEOUT_MS`, `VISTA_PHYSICAL_RUNTIME_MODES` | robot features only | Not part of Web LMS acceptance. |
 | `MQTT_*`, `VISTA_IOT_*` | robot features only | Not part of Web LMS acceptance. |
@@ -45,7 +46,7 @@ IAM role), `LEARNING_MEDIA_S3_ACCESS_KEY/SECRET_KEY`, every `RUN_*`, `VISTA_TEST
 ### Web build (Vite, public values only)
 
 `VITE_API_BASE_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (public). Optional feature flags: `VITE_DIGITAL_TWIN_WS_URL`,
-`VITE_ROBOT_EXECUTION_CLIENT`, `VITE_ROBOT_HARDWARE_ADAPTER_URL`, `VITE_HOME_V2_PREVIEW`, `VITE_SO101_3D_CLEARED` (robot/marketing, outside Web LMS acceptance).
+`VITE_ROBOT_EXECUTION_CLIENT`, `VITE_ROBOT_HARDWARE_ADAPTER_URL`, `VITE_HOME_V2_PREVIEW`, `VITE_SO101_3D_DISABLED` (kill switch: `true` makes the homepage take its poster path; the real 3D arm is on by default since its Apache-2.0 meshes were verified; the former opt-in `VITE_SO101_3D_CLEARED` is no longer read) (robot/marketing, outside Web LMS acceptance).
 Never place a service-role key, token or secret behind a `VITE_` prefix.
 
 ## 2. Supabase readiness checklist (hosted project — operator steps, not performed)
