@@ -31,7 +31,8 @@ locals {
     # React/framer-motion write inline style attributes; fonts.googleapis.com serves the stylesheet imported by the homepage.
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
-    "img-src 'self' data: blob: ${local.media_origin}",
+    # Blockly draws its toolbox and zoom controls from static.blockly.com/media/sprites.svg (found by the authenticated CSP test).
+    "img-src 'self' data: blob: ${local.media_origin} https://static.blockly.com",
     # Blockly loads its click sounds from static.blockly.com unless a media path is set.
     "media-src 'self' blob: ${local.media_origin} https://static.blockly.com",
     # The API is same-origin (/api/v1). Media uploads are presigned POSTs straight to the Learning Media bucket.
