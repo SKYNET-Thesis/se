@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from .contracts import JointState, SO101_JOINTS, SourceMode
+
+
+@lru_cache(maxsize=2)
+def _load_model(path: str, mtime_ns: int):
+    """The parsed model is immutable here (only `MjData` is written), so one load serves every frame; a changed file reloads."""
+    import mujoco
+
+    return mujoco.MjModel.from_xml_path(path)
 
 
 def synchronize_simulation_state(state: JointState, model_path: str | Path) -> dict[str, Any]:
@@ -21,7 +30,8 @@ def synchronize_simulation_state(state: JointState, model_path: str | Path) -> d
     except ImportError as error:  # pragma: no cover - depends on optional extra
         raise RuntimeError("Install the digital-twin simulation extra to use MuJoCo") from error
 
-    model = mujoco.MjModel.from_xml_path(str(model_path))
+    resolved = Path(model_path)
+    model = _load_model(str(resolved), resolved.stat().st_mtime_ns)
     data = mujoco.MjData(model)
     applied: dict[str, float] = {}
     for reading in state.measured:

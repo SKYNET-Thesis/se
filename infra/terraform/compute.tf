@@ -96,6 +96,52 @@ data "aws_iam_policy_document" "ec2" {
     resources = ["${aws_s3_bucket.media.arn}/learning-media/submissions/*"]
   }
 
+  # AWS IoT (all optional and exact-ARN scoped; nothing is added while the variables are empty).
+  dynamic "statement" {
+    for_each = var.iot_command_topic_arn == "" ? [] : [1]
+    content {
+      sid       = "IotPublishRobotCommands"
+      actions   = ["iot:Publish"]
+      resources = [var.iot_command_topic_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.iot_feedback_queue_arn == "" ? [] : [1]
+    content {
+      sid       = "IotFeedbackQueueConsume"
+      actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"]
+      resources = [var.iot_feedback_queue_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.iot_thing_arn == "" ? [] : [1]
+    content {
+      sid       = "IotReadDeviceShadow"
+      actions   = ["iot:GetThingShadow"]
+      resources = [var.iot_thing_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.recordings_events_queue_arn == "" ? [] : [1]
+    content {
+      sid       = "RecordingsEventsQueueConsume"
+      actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"]
+      resources = [var.recordings_events_queue_arn]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.recordings_bucket_arn == "" ? [] : [1]
+    content {
+      sid       = "RobotRecordingsEpisodeObjects"
+      actions   = ["s3:PutObject", "s3:GetObject"]
+      resources = ["${var.recordings_bucket_arn}/episodes/*"]
+    }
+  }
+
   statement {
 
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams"]

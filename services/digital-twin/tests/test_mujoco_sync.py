@@ -37,3 +37,25 @@ def test_mujoco_sync_rejects_live_physical_state():
     pytest.importorskip("mujoco")
     with pytest.raises(ValueError, match="SIMULATION"):
         synchronize_simulation_state(state("LIVE_PHYSICAL"), MODEL)
+
+
+def test_model_is_parsed_once_for_many_frames():
+    """Every simulation frame reuses the parsed model; a changed file is parsed again."""
+    import os
+    from pathlib import Path
+
+    import pytest
+
+    from vista_digital_twin import mujoco_sync
+
+    directory = os.environ.get("VISTA_TWIN_TEST_MODEL")
+    if not directory:
+        pytest.skip("VISTA_TWIN_TEST_MODEL (the SO-101 MuJoCo model directory) is not set")
+    model = Path(directory) / "so101.xml"
+    mujoco_sync._load_model.cache_clear()
+    for _ in range(5):
+        mujoco_sync._load_model(str(model), model.stat().st_mtime_ns)
+    info = mujoco_sync._load_model.cache_info()
+    assert (info.misses, info.hits) == (1, 4)
+    mujoco_sync._load_model(str(model), model.stat().st_mtime_ns + 1)
+    assert mujoco_sync._load_model.cache_info().misses == 2

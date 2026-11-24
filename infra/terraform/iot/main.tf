@@ -59,6 +59,38 @@ data "aws_iam_policy_document" "robot" {
     ]
   }
 
+  # Classic Device Shadow of this Thing only: the edge reports last-known state (connection, stop latch, hardware mode, calibration) and
+  # may read it back. It cannot touch another Thing's shadow or any other topic.
+  statement {
+    sid     = "ShadowPublish"
+    effect  = "Allow"
+    actions = ["iot:Publish"]
+    resources = [
+      for op in ["update", "get"] :
+      "arn:aws:iot:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:topic/$aws/things/${local.thing_name}/shadow/${op}"
+    ]
+  }
+
+  statement {
+    sid     = "ShadowSubscribe"
+    effect  = "Allow"
+    actions = ["iot:Subscribe"]
+    resources = [
+      for op in ["update/accepted", "update/rejected", "update/delta", "get/accepted", "get/rejected"] :
+      "arn:aws:iot:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:topicfilter/$aws/things/${local.thing_name}/shadow/${op}"
+    ]
+  }
+
+  statement {
+    sid     = "ShadowReceive"
+    effect  = "Allow"
+    actions = ["iot:Receive"]
+    resources = [
+      for op in ["update/accepted", "update/rejected", "update/delta", "get/accepted", "get/rejected"] :
+      "arn:aws:iot:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:topic/$aws/things/${local.thing_name}/shadow/${op}"
+    ]
+  }
+
   statement {
     sid    = "ReceiveRobotCommands"
     effect = "Allow"
@@ -104,10 +136,143 @@ resource "aws_iot_topic_rule" "feedback" {
   name        = replace("${local.thing_name}_feedback", "-", "_")
   enabled     = true
   sql_version = "2016-03-23"
-  sql         = "SELECT *, topic() as iotTopic FROM '${local.topic_prefix}/+' WHERE topic(5) IN ('ack','status')"
+  # Only command-correlated events reach the feedback worker; the edge's periodic device state (no commandId) lives in the Device Shadow.
+  sql = "SELECT *, topic() as iotTopic FROM '${local.topic_prefix}/+' WHERE topic(5) IN ('ack','status') AND isUndefined(commandId) = false"
   sqs {
     queue_url  = aws_sqs_queue.feedback.id
     role_arn   = aws_iam_role.iot_feedback.arn
     use_base64 = false
   }
+}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Robot Recordings (episodes recorded by the Desktop Lab Station / edge runtime) and episode events.
+# One private bucket, uploaded with short-lived presigned URLs issued by the Education API under `episodes/<robot>/<episode>/`.
+# The last object of an episode is `manifest.json`; its creation is the "episode complete" event, sent to a queue with a DLQ so a
+# consumer can validate and register the episode without polling. No consumer runs yet (no table or API depends on it).
+# ---------------------------------------------------------------------------------------------------------------------
+locals {
+  recordings_bucket = coalesce(var.recordings_bucket_name, "${var.project}-${var.environment}-robot-recordings-${data.aws_caller_identity.current.account_id}-sg")
+}
+
+resource "aws_s3_bucket" "recordings" {
+  bucket = local.recordings_bucket
+}
+
+resource "aws_s3_bucket_public_access_block" "recordings" {
+  bucket                  = aws_s3_bucket.recordings.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_ownership_controls" "recordings" {
+  bucket = aws_s3_bucket.recordings.id
+  rule {
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "recordings" {
+  bucket = aws_s3_bucket.recordings.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "recordings" {
+  bucket = aws_s3_bucket.recordings.id
+
+  rule {
+    id     = "abort-incomplete-multipart"
+    status = "Enabled"
+    filter {}
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+
+  # Optional retention. 0 keeps episodes until the owner decides (storage of a few episodes costs cents).
+  dynamic "rule" {
+    for_each = var.recordings_retention_days > 0 ? [1] : []
+    content {
+      id     = "expire-episodes"
+      status = "Enabled"
+      filter {
+        prefix = "episodes/"
+      }
+      expiration {
+        days = var.recordings_retention_days
+      }
+    }
+  }
+}
+
+data "aws_iam_policy_document" "recordings" {
+  statement {
+    sid       = "DenyPlaintextTransport"
+    effect    = "Deny"
+    actions   = ["s3:*"]
+    resources = [aws_s3_bucket.recordings.arn, "${aws_s3_bucket.recordings.arn}/*"]
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+    condition {
+      test     = "Bool"
+      variable = "aws:SecureTransport"
+      values   = ["false"]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "recordings" {
+  bucket     = aws_s3_bucket.recordings.id
+  policy     = data.aws_iam_policy_document.recordings.json
+  depends_on = [aws_s3_bucket_public_access_block.recordings]
+}
+
+resource "aws_sqs_queue" "recordings_dlq" {
+  name                      = "${local.thing_name}-recordings-dlq"
+  message_retention_seconds = 1209600
+}
+
+resource "aws_sqs_queue" "recordings_events" {
+  name                       = "${local.thing_name}-recordings-events"
+  visibility_timeout_seconds = 120
+  receive_wait_time_seconds  = 20
+  redrive_policy             = jsonencode({ deadLetterTargetArn = aws_sqs_queue.recordings_dlq.arn, maxReceiveCount = 5 })
+}
+
+resource "aws_sqs_queue_policy" "recordings_events" {
+  queue_url = aws_sqs_queue.recordings_events.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "AllowRecordingsBucketToNotify"
+      Effect    = "Allow"
+      Principal = { Service = "s3.amazonaws.com" }
+      Action    = "sqs:SendMessage"
+      Resource  = aws_sqs_queue.recordings_events.arn
+      Condition = {
+        ArnEquals    = { "aws:SourceArn" = aws_s3_bucket.recordings.arn }
+        StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.current.account_id }
+      }
+    }]
+  })
+}
+
+resource "aws_s3_bucket_notification" "recordings" {
+  bucket = aws_s3_bucket.recordings.id
+  queue {
+    queue_arn     = aws_sqs_queue.recordings_events.arn
+    events        = ["s3:ObjectCreated:*"]
+    filter_prefix = "episodes/"
+    filter_suffix = "/manifest.json"
+  }
+  depends_on = [aws_sqs_queue_policy.recordings_events]
 }

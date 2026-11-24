@@ -94,3 +94,39 @@ variable "media_cors_allowed_origins" {
     error_message = "Each origin must be an exact https:// origin without a wildcard, path or port."
   }
 }
+
+# ---- AWS IoT integration (outputs of the independent infra/terraform/iot root). Empty by default: no IoT permission is added until set. ----
+variable "iot_command_topic_arn" {
+  description = "Exact ARN of the one robot command topic the Education API may publish to."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "iot_feedback_queue_arn" {
+  description = "Exact ARN of the one feedback queue the IoT feedback worker may read."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "iot_thing_arn" {
+  description = "Exact ARN of the one Thing whose Device Shadow the Education API may read."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "recordings_bucket_arn" {
+  description = "Exact ARN of the Robot Recordings bucket; the API may presign and verify objects under episodes/ only."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+variable "recordings_events_queue_arn" {
+  description = "Exact ARN of the Robot Recordings episode-events queue the recordings worker may read."
+  type        = string
+  default     = ""
+  nullable    = false
+}

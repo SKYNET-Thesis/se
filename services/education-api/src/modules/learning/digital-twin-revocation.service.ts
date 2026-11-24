@@ -2,6 +2,7 @@ import { Injectable, Logger, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { createHmac, randomUUID } from "node:crypto";
 import { PrismaService } from "../../common/database/prisma.service";
+import { isTwinInternalEndpoint } from "./digital-twin-endpoint";
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<{ ok: boolean; status?: number }>;
 export interface RevocationScope { attemptIds?: string[]; userId?: string; organizationId?: string; classroomId?: string; robotId?: string }
@@ -83,7 +84,7 @@ export class DigitalTwinRevocationService {
   private async send(row: { attempt_id: string; organization_id: string; robot_id: string }): Promise<"accepted" | "unavailable" | "rejected"> {
     const secret = this.environment.DIGITAL_TWIN_SCOPE_SECRET?.trim();
     const endpoint = this.environment.DIGITAL_TWIN_TELEMETRY_URL?.trim();
-    if (!secret || !endpoint || !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(endpoint)) return "unavailable";
+    if (!secret || !endpoint || !isTwinInternalEndpoint(endpoint)) return "unavailable";
     for (const delay of this.retryDelays()) {
       if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
       // A fresh token (unique jti, new expiry) for every delivery attempt.

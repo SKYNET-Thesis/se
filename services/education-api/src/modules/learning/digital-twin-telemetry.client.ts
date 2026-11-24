@@ -1,5 +1,6 @@
 import { Injectable, Optional } from "@nestjs/common";
 import { createHmac, randomUUID } from "node:crypto";
+import { isTwinInternalEndpoint } from "./digital-twin-endpoint";
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<{ ok: boolean; status?: number; json(): Promise<unknown> }>;
 
@@ -21,7 +22,7 @@ export class DigitalTwinTelemetryClient {
     }
     const secret = this.environment.DIGITAL_TWIN_SCOPE_SECRET?.trim();
     const endpoint = this.environment.DIGITAL_TWIN_TELEMETRY_URL?.trim();
-    if (!secret || !endpoint || !/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(endpoint)) {
+    if (!secret || !endpoint || !isTwinInternalEndpoint(endpoint)) {
       return { status: "unavailable" as const };
     }
     const exp = Math.floor(Date.now() / 1000) + 60;
