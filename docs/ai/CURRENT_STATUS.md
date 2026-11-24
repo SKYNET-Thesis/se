@@ -19,9 +19,9 @@ or operator evidence. Verify each claim before relying on it.
 
 ## Web closure, 2026-11-24 (added; sections below predate it)
 
-- **Web code freeze accepted** on develop `a14c36ab35173f6d95d05e77a19c56c2d7694f1b` (PRs #189 to #194 merged). Evidence: `docs/acceptance/WEB_FREEZE_20261124.md`, `docs/acceptance/WEB_CLOSURE_20261124.md`, `docs/operations/evidence/homepage-so101-20261124/`.
-- **Web simulation accepted** for WF-01 to WF-04. **Not accepted here:** physical SO-101, Desktop Lab Station, AI/VLA inference, curriculum content completeness, Production deployment (release PR #195 to main is a draft awaiting approval; CloudFront headers and Supabase/SMTP configuration are open, see `docs/operations/PRODUCTION_RELEASE_READINESS_20261124.md`).
-- Teammate contributions audited against develop: `docs/acceptance/WEB_CLOSURE_20261124.md`.
+- **Web code freeze accepted** on develop `830dd9666c1b27a9039c007dea6100bccad7043c` (PRs #189 to #194, #197, #198 merged). Evidence: `docs/acceptance/WEB_FREEZE_20261124.md`, `docs/acceptance/WEB_CLOSURE_20261124.md`, `docs/operations/evidence/`.
+- **Web simulation accepted** for WF-01 to WF-04. **Not accepted:** physical SO-101, Desktop Lab Station (separate repository), AI/VLA inference, curriculum content completeness, Production deployment (release PR #195 is a draft; CloudFront hardening is PR #196, not applied; Supabase and SMTP configuration are owner steps). Production serves main `5c5667b`.
+- **Digital Twin:** a small telemetry service (mock and simulation frames, scoped WebSocket, owner publisher bridge), local only; not deployed. Handoff and contracts: `docs/operations/DESKTOP_TWIN_AI_HANDOFF_20261124.md`.
 
 ## Repository snapshot
 
