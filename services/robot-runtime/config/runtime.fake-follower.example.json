@@ -6,6 +6,7 @@
   "iot": {
     "enabled": false,
     "thingName": "vista-demo-so101-001",
+    "robotId": "so101-001",
     "topicPrefix": "vista/demo/robots/so101-001",
     "fakeRobot": true
   },

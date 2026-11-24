@@ -1,0 +1,40 @@
+{
+ "commandId": "7b2f9c1e-0d34-4c6a-8e51-2a9b6d4c7f03",
+ "commandSequence": 1700000000000,
+ "events": [
+  {
+   "atMs": 1700000005000,
+   "commandId": "7b2f9c1e-0d34-4c6a-8e51-2a9b6d4c7f03",
+   "eventId": "7b2f9c1e-0d34-4c6a-8e51-2a9b6d4c7f03:ack:accepted",
+   "kind": "ack",
+   "occurredAtMs": 1700000005000,
+   "robotId": "3f1c2a9e-6d41-4a1b-9c53-0d7e5b2a8f10",
+   "schemaVersion": 1,
+   "sequence": 1700000000000,
+   "status": "accepted"
+  },
+  {
+   "atMs": 1700000005000,
+   "commandId": "7b2f9c1e-0d34-4c6a-8e51-2a9b6d4c7f03",
+   "eventId": "7b2f9c1e-0d34-4c6a-8e51-2a9b6d4c7f03:status:executing",
+   "kind": "status",
+   "occurredAtMs": 1700000005000,
+   "robotId": "3f1c2a9e-6d41-4a1b-9c53-0d7e5b2a8f10",
+   "schemaVersion": 1,
+   "sequence": 1700000000001,
+   "status": "executing"
+  },
+  {
+   "atMs": 1700000005000,
+   "commandId": "7b2f9c1e-0d34-4c6a-8e51-2a9b6d4c7f03",
+   "eventId": "7b2f9c1e-0d34-4c6a-8e51-2a9b6d4c7f03:status:completed",
+   "kind": "status",
+   "occurredAtMs": 1700000005000,
+   "robotId": "3f1c2a9e-6d41-4a1b-9c53-0d7e5b2a8f10",
+   "schemaVersion": 1,
+   "sequence": 1700000000002,
+   "status": "completed"
+  }
+ ],
+ "robotId": "3f1c2a9e-6d41-4a1b-9c53-0d7e5b2a8f10"
+}

@@ -25,8 +25,12 @@ export interface GovernorOptions {
   slowMs?: number;
   /** Median frame time at the lowest level above which the preview is reported as too slow (ms). */
   hopelessMs?: number;
-  /** Gaps longer than this are a throttled tab or an idle wake-up, not rendering cost (ms). */
+  /** Gaps longer than this are a throttled or occluded tab, not rendering cost (ms). Software WebGL really does take 1 to 3 s per frame. */
   ignoreAboveMs?: number;
+  /** A window also closes once this much frame time has accumulated (ms), so a device at 1 fps is judged in seconds, not minutes. */
+  windowMs?: number;
+  /** Fewest frames a time-closed window may hold. */
+  minFrames?: number;
   /** Quality level to begin at. */
   startLevel?: number;
   onLevel?: (level: number, quality: QualityLevel) => void;
@@ -37,12 +41,13 @@ const median = (values: number[]) => { const s = [...values].sort((a, b) => a - 
 
 export class QualityGovernor {
   private samples: number[] = [];
+  private elapsed = 0;
   private current: number;
   private reported = false;
   private readonly o: Required<Omit<GovernorOptions, 'onLevel' | 'onTooSlow'>> & Pick<GovernorOptions, 'onLevel' | 'onTooSlow'>;
 
   constructor(options: GovernorOptions = {}) {
-    this.o = { window: 40, slowMs: 24, hopelessMs: 120, ignoreAboveMs: 1000, startLevel: 0, ...options };
+    this.o = { window: 40, slowMs: 24, hopelessMs: 120, ignoreAboveMs: 5000, windowMs: 3000, minFrames: 3, startLevel: 0, ...options };
     this.current = Math.max(0, Math.min(QUALITY_LEVELS.length - 1, this.o.startLevel));
   }
 
@@ -50,15 +55,17 @@ export class QualityGovernor {
   get quality(): QualityLevel { return QUALITY_LEVELS[this.current]; }
 
   /** Forget the window (a chapter change, a resize or a warm-up frame makes the next samples unrepresentative). */
-  reset() { this.samples = []; }
+  reset() { this.samples = []; this.elapsed = 0; }
 
   /** Feed the time since the previous rendered frame. Returns the level when it changed, otherwise null. */
   sample(frameMs: number): number | null {
     if (!(frameMs > 0) || frameMs > this.o.ignoreAboveMs) return null;
     this.samples.push(frameMs);
-    if (this.samples.length < this.o.window) return null;
+    this.elapsed += frameMs;
+    const full = this.samples.length >= this.o.window;
+    if (!full && !(this.elapsed >= this.o.windowMs && this.samples.length >= this.o.minFrames)) return null;
     const m = median(this.samples);
-    this.samples = [];
+    this.samples = []; this.elapsed = 0;
     if (m <= this.o.slowMs) return null;
     if (this.current < QUALITY_LEVELS.length - 1) {
       this.current += 1;

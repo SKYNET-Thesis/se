@@ -66,6 +66,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build production image
         run: docker build --build-arg GIT_SHA=${{ github.sha }} -t vista-education-api:${{ github.sha }} services/education-api
+      - name: Build Digital Twin image
+        run: docker build -t vista-digital-twin:${{ github.sha }} services/digital-twin
   database-safety:
     runs-on: ubuntu-latest
     steps:
@@ -118,7 +120,7 @@ jobs:
           web=false
           while IFS= read -r path; do
             case "$path" in
-              services/education-api/*|packages/contracts/*) api=true ;;
+              services/education-api/*|services/digital-twin/*|infra/terraform/scripts/deploy-api.sh|packages/contracts/*) api=true ;;
             esac
             case "$path" in
               web/robot-edu/*|packages/contracts/*) web=true ;;
@@ -209,6 +211,25 @@ jobs:
           fi
           rm -f ecr-error.log
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Build and push Digital Twin image (same repository, tag twin-<commit>)
+        if: inputs.action != 'rollback'
+        env:
+          ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+        run: |
+          set -euo pipefail
+          TWIN_IMAGE="$ECR_REPOSITORY_URL:twin-${GITHUB_SHA}"
+          REPOSITORY_NAME="${ECR_REPOSITORY_URL#*/}"
+          if aws ecr describe-images --repository-name "$REPOSITORY_NAME" --image-ids "imageTag=twin-${GITHUB_SHA}" >/dev/null 2>ecr-error.log; then
+            echo "Using existing immutable Digital Twin image for $GITHUB_SHA"
+          elif grep -q 'ImageNotFoundException' ecr-error.log; then
+            docker build -t "$TWIN_IMAGE" services/digital-twin
+            docker push "$TWIN_IMAGE"
+          else
+            echo 'Could not check ECR image; deployment stopped.' >&2
+            cat ecr-error.log >&2
+            exit 1
+          fi
+          rm -f ecr-error.log
       - name: Re-check that this commit is still the head of main before touching the instance
         if: inputs.action != 'rollback'
         working-directory: ${{ github.workspace }}
@@ -291,6 +312,8 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
           VITE_API_BASE_URL: /api/v1
           VITE_SO101_3D_CLEARED: 'true'
+          # Empty keeps the Digital Twin viewer off (the build then never contacts a Twin). Set the repository variable to wss://api.skynex.best/ws/twin to enable it.
+          VITE_DIGITAL_TWIN_WS_URL: ${{ vars.PUBLIC_DIGITAL_TWIN_WS_URL }}
         run: |
           set -euo pipefail
           : "${VITE_SUPABASE_URL:?Missing PUBLIC_SUPABASE_URL}"
