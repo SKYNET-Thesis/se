@@ -125,6 +125,15 @@ data "aws_iam_policy_document" "ec2" {
   }
 
   dynamic "statement" {
+    for_each = var.recordings_events_queue_arn == "" ? [] : [1]
+    content {
+      sid       = "RecordingsEventsQueueConsume"
+      actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"]
+      resources = [var.recordings_events_queue_arn]
+    }
+  }
+
+  dynamic "statement" {
     for_each = var.recordings_bucket_arn == "" ? [] : [1]
     content {
       sid       = "RobotRecordingsEpisodeObjects"

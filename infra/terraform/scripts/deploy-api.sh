@@ -76,6 +76,16 @@ start_iot_worker() {
   sleep 5
   [ "$(docker inspect --format '{{.State.Running}}' vista-iot-feedback-worker 2>/dev/null)" = true ]
 }
+start_recordings_worker() {
+  docker rm -f vista-recordings-worker >/dev/null 2>&1 || true
+  env_flag VISTA_RECORDINGS_WORKER_ENABLED || return 0
+  docker run -d --name vista-recordings-worker --restart unless-stopped --memory 384m \
+    --env-file /opt/vista/api.env --log-driver awslogs \
+    --log-opt "awslogs-region=$AWS_REGION" --log-opt "awslogs-group=$LOG_GROUP" --log-opt awslogs-stream=recordings-worker \
+    "$1" node dist/scripts/robot-recordings-worker.js >/dev/null || return 1
+  sleep 5
+  [ "$(docker inspect --format '{{.State.Running}}' vista-recordings-worker 2>/dev/null)" = true ]
+}
 # The Digital Twin image lives in the same ECR repository under the tag twin-<commit>; its host port is loopback only (nginx upgrades /ws/).
 start_twin() {
   docker rm -f vista-digital-twin >/dev/null 2>&1 || true
@@ -102,6 +112,7 @@ start_twin() {
 }
 start_sidecars() {
   start_iot_worker "$1" || echo 'IoT feedback worker did not start; the API deployment is unaffected' >&2
+  start_recordings_worker "$1" || echo 'Recordings worker did not start; the API deployment is unaffected' >&2
   start_twin "$1" || echo 'Digital Twin did not start; the API deployment is unaffected' >&2
 }
 

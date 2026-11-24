@@ -25,7 +25,7 @@ fail() { echo "FAIL: $1" >&2; cat "$WORK/log" >&2; exit 1; }
 
 run 'X=1\n' "$IMG"
 grep -q 'docker run' "$WORK/log" && fail "default (flags off) must start nothing"
-[ "$(grep -c 'docker rm -f' "$WORK/log")" = 2 ] || fail "old sidecars must be removed when the flags are off"
+[ "$(grep -c 'docker rm -f' "$WORK/log")" = 3 ] || fail "old sidecars must be removed when the flags are off"
 
 run 'VISTA_TWIN_ENABLED=true\nDIGITAL_TWIN_SCOPE_SECRET=s3cret-value\n' "$IMG"
 grep -q "docker pull ${IMG%:*}:twin-abc123" "$WORK/log" || fail "twin image tag must be twin-<commit> in the same repository"
@@ -44,4 +44,7 @@ grep -q 'not available' "$WORK/err" || fail "a missing twin image must be report
 
 run 'VISTA_IOT_FEEDBACK_WORKER_ENABLED=true\n' "$IMG"
 grep -qE 'docker run .*--memory 384m .*node dist/scripts/iot-feedback-worker.js' "$WORK/log" || fail "worker command"
+run 'VISTA_RECORDINGS_WORKER_ENABLED=true\n' "$IMG"
+grep -qE 'docker run .*--memory 384m .*node dist/scripts/robot-recordings-worker.js' "$WORK/log" || fail "recordings worker command"
+run 'X=1\n' "$IMG"; grep -q 'docker rm -f vista-recordings-worker' "$WORK/log" || fail "an old recordings worker must be removed when the flag is off"
 echo "sidecar tests passed"

@@ -123,3 +123,10 @@ variable "recordings_bucket_arn" {
   default     = ""
   nullable    = false
 }
+
+variable "recordings_events_queue_arn" {
+  description = "Exact ARN of the Robot Recordings episode-events queue the recordings worker may read."
+  type        = string
+  default     = ""
+  nullable    = false
+}
