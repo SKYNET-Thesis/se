@@ -85,7 +85,7 @@ start_iot_worker() {
   docker run -d --name vista-iot-feedback-worker --restart unless-stopped --memory 384m \
     --env-file /opt/vista/api.env --log-driver awslogs \
     --log-opt "awslogs-region=$AWS_REGION" --log-opt "awslogs-group=$LOG_GROUP" --log-opt awslogs-stream=iot-feedback-worker \
-    --entrypoint node "$1" dist/scripts/iot-feedback-worker.js >/dev/null || return 1
+    --no-healthcheck --entrypoint node "$1" dist/scripts/iot-feedback-worker.js >/dev/null || return 1
   sleep 5
   [ "$(docker inspect --format '{{.State.Running}}' vista-iot-feedback-worker 2>/dev/null)" = true ]
 }
@@ -95,7 +95,7 @@ start_recordings_worker() {
   docker run -d --name vista-recordings-worker --restart unless-stopped --memory 384m \
     --env-file /opt/vista/api.env --log-driver awslogs \
     --log-opt "awslogs-region=$AWS_REGION" --log-opt "awslogs-group=$LOG_GROUP" --log-opt awslogs-stream=recordings-worker \
-    --entrypoint node "$1" dist/scripts/robot-recordings-worker.js >/dev/null || return 1
+    --no-healthcheck --entrypoint node "$1" dist/scripts/robot-recordings-worker.js >/dev/null || return 1
   sleep 5
   [ "$(docker inspect --format '{{.State.Running}}' vista-recordings-worker 2>/dev/null)" = true ]
 }

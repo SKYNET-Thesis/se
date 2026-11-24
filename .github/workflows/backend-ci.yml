@@ -64,6 +64,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Deploy script offline tests (sidecars, rollback configuration, host script drift check)
+        run: |
+          infra/terraform/scripts/test-deploy-sidecars.sh
+          infra/terraform/scripts/test-deploy-rollback.sh
+          infra/terraform/scripts/test-check-host-deploy-script.sh
       - name: Build production image
         run: docker build --build-arg GIT_SHA=${{ github.sha }} -t vista-education-api:${{ github.sha }} services/education-api
       - name: Build Digital Twin image
@@ -236,6 +241,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 scripts/ci_required_checks.py is-head --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --branch main || { echo "main has moved past $GITHUB_SHA; nothing was deployed" >&2; exit 1; }
+      - name: Verify the host deploy script is the repository version (nothing is replaced if it is stale)
+        if: inputs.action != 'rollback'
+        working-directory: ${{ github.workspace }}
+        env:
+          INSTANCE_ID: ${{ vars.API_INSTANCE_ID }}
+        run: infra/terraform/scripts/check-host-deploy-script.sh "$INSTANCE_ID"
       - name: Deploy through SSM and check result
         env:
           INSTANCE_ID: ${{ vars.API_INSTANCE_ID }}
