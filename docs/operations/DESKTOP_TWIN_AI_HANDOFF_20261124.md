@@ -2,6 +2,23 @@
 
 Web is frozen. This is the integration boundary for the next phase. Statuses are NOT VERIFIED unless a verification is named.
 
+## Deployed values (AWS, 2026-11-24; ap-southeast-1)
+Verified in AWS on 2026-11-24 (IoT root 17 of 17 resources, no drift). Public identifiers only; no private key or secret exists in this repository, and no device certificate has been created yet.
+
+| Item | Value |
+| --- | --- |
+| Robot (logical, `robots.id`) | `f1c066c4-b5f2-45c4-b933-f034f3824dd9` (VISTA Classroom Demo Robot Resource, `VISTA-WF01-DEMO-ROBOT-01`). Linking it to a physical SO-101 is confirmed separately when the device is provisioned. |
+| Thing / MQTT client id | `vista-demo-f1c066c4-b5f2-45c4-b933-f034f3824dd9` |
+| IoT data endpoint (ATS, 8883, mTLS) | `am09ew70geib4-ats.iot.ap-southeast-1.amazonaws.com` |
+| Topic prefix | `vista/demo/robots/f1c066c4-b5f2-45c4-b933-f034f3824dd9` (`/commands`, `/ack`, `/status`, `/telemetry`) |
+| Thing policy | `vista-demo-f1c066c4-b5f2-45c4-b933-f034f3824dd9-policy`: connect as that Thing, publish ack/status/telemetry, subscribe/receive commands, its own classic Shadow only. Attached to no certificate. |
+| Cloud rule | forwards `ack`/`status` events that carry `commandId` to the API feedback queue (tested). Telemetry and device state are not forwarded. |
+| Digital Twin viewer socket | `wss://api.skynex.best/ws/twin` (scoped HMAC token from the Education API; the unauthenticated socket is rejected) |
+| Robot Recordings | upload through `POST /me/experiments/:experimentId/recordings/uploads` (student JWT); instructor read through `GET /submissions/:submissionId/experiments/:experimentId/recordings` |
+| Production MQTT command dispatch | **OFF** (`VISTA_IOT_ENABLED=false`). A test device must be an isolated Thing/certificate and a separate approval. |
+
+Edge configuration: `iot.robotId` = the robot UUID above, `thingName` = the Thing name above, `endpoint` = the data endpoint above. Event contract: `eventId`, `sequence`, `occurredAtMs` on every event; execution lifecycle `executing` then `completed` or `failed`.
+
 ## Where each component runs
 | Component | Role (from the code) | Runs |
 | --- | --- | --- |

@@ -4,6 +4,7 @@ import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { MANIFEST_NAME, RECORDING_SCHEMA, checkFiles, isUuid, objectKey, parseKey, parseManifest } from "./robot-recording.contract";
 import { RobotRecordingStorage } from "./robot-recording.storage";
+import { LearningScopeService } from "./learning-scope.service";
 
 /** A permanent input or correlation failure: the queue message is acknowledged and never retried. */
 export class RecordingRejectedError extends Error {}
@@ -12,11 +13,12 @@ export class RecordingRetryError extends Error {}
 
 export type RegisterResult = "registered" | "duplicate";
 type ExperimentRow = { id: string; robot_id: string };
+type RecordingRow = { id: string; artifact_type: string; storage_path: string; mime_type: string | null; metadata: Record<string, unknown> };
 
 @Injectable()
 export class RobotRecordingService {
   private readonly now: () => number;
-  constructor(private readonly prisma: PrismaService, private readonly storage: RobotRecordingStorage, @Optional() @Inject("ROBOT_RECORDING_NOW") now?: () => number) { this.now = now ?? (() => Date.now()); }
+  constructor(private readonly prisma: PrismaService, private readonly storage: RobotRecordingStorage, @Optional() @Inject("ROBOT_RECORDING_NOW") now?: () => number, @Optional() private readonly scope?: LearningScopeService) { this.now = now ?? (() => Date.now()); }
 
   /** The student's own real-robot experiment, still inside its upload window (24 h), together with the robot it ran on. */
   private async ownedExperiment(user: AuthenticatedUser, experimentId: string): Promise<ExperimentRow> {
@@ -103,18 +105,12 @@ export class RobotRecordingService {
   /** The student's registered recordings of one run. A file is "available" only while its object still verifies. */
   async list(user: AuthenticatedUser, experimentId: string) {
     if (!isUuid(experimentId)) throw new BadRequestException("Experiment id is invalid.");
-    const rows = await this.prisma.$queryRaw<Array<{ id: string; artifact_type: string; storage_path: string; mime_type: string | null; metadata: Record<string, unknown> }>>`
+    const rows = await this.prisma.$queryRaw<RecordingRow[]>`
       SELECT a.id,a.artifact_type,a.storage_path,a.mime_type,a.metadata
       FROM public.learning_experiment_artifacts a JOIN public.learning_experiments e ON e.id=a.experiment_id
       WHERE e.id=${experimentId}::uuid AND e.learner_user_id=${user.vistaUserId}::uuid AND a.metadata->>'schema'=${RECORDING_SCHEMA}
       ORDER BY a.created_at,a.id`;
-    return Promise.all(rows.map(async (row) => {
-      const head = this.storage.enabled() && parseKey(row.storage_path) ? await this.storage.head(row.storage_path).catch(() => undefined) : null;
-      const availability = head === undefined ? "access_unverified" : head && head.contentLength === row.metadata.sizeBytes ? "available" : "unavailable";
-      return { id: row.id, type: row.artifact_type, name: row.metadata.name, mimeType: row.mime_type, sizeBytes: row.metadata.sizeBytes, episodeId: row.metadata.episodeId,
-        declaredRuntimeKind: row.metadata.declaredRuntimeKind, runtimeVerified: false, availability,
-        downloadPath: availability === "available" ? `/me/experiments/${experimentId}/recordings/${row.id}/download` : null };
-    }));
+    return this.present(rows, `/me/experiments/${experimentId}/recordings`);
   }
 
   async download(user: AuthenticatedUser, experimentId: string, artifactId: string) {
@@ -122,7 +118,58 @@ export class RobotRecordingService {
     const rows = await this.prisma.$queryRaw<Array<{ storage_path: string; metadata: Record<string, unknown> }>>`
       SELECT a.storage_path,a.metadata FROM public.learning_experiment_artifacts a JOIN public.learning_experiments e ON e.id=a.experiment_id
       WHERE a.id=${artifactId}::uuid AND e.id=${experimentId}::uuid AND e.learner_user_id=${user.vistaUserId}::uuid AND a.metadata->>'schema'=${RECORDING_SCHEMA}`;
-    const row = rows[0];
+    return this.signed(rows[0]);
+  }
+
+  /**
+   * Instructor access (WF04): only through a submission of a classroom the caller may review (`learning.work.review`, the same permission as the
+   * existing experiment-evidence download), and only for an experiment that belongs to that submission and that classroom. No school-wide or
+   * cross-organisation listing exists.
+   */
+  private async assertInstructorScope(user: AuthenticatedUser, submissionId: string, experimentId: string) {
+    if (!isUuid(submissionId) || !isUuid(experimentId)) throw new BadRequestException("Identity is invalid.");
+    const rows = await this.prisma.$queryRaw<Array<{ classroom_id: string }>>`
+      SELECT ca.classroom_id
+      FROM public.learning_experiments e
+      JOIN public.learning_submissions s ON s.id=e.submission_id AND s.learner_user_id=e.learner_user_id
+      JOIN public.learning_assignment_attempts at ON at.id=s.attempt_id
+      JOIN public.learning_classroom_assignments ca ON ca.id=at.classroom_assignment_id AND ca.assignment_id=s.assignment_id
+        AND ca.classroom_id=(e.input_snapshot->>'classroomId')::uuid
+      WHERE e.id=${experimentId}::uuid AND s.id=${submissionId}::uuid AND s.status<>'draft'`;
+    if (!rows[0] || !this.scope) throw new NotFoundException("The recording was not found.");
+    await this.scope.assertTeacherClassroomPermission(user, rows[0].classroom_id, ["learning.work.review"]);
+  }
+
+  async instructorList(user: AuthenticatedUser, submissionId: string, experimentId: string) {
+    await this.assertInstructorScope(user, submissionId, experimentId);
+    const rows = await this.prisma.$queryRaw<RecordingRow[]>`
+      SELECT a.id,a.artifact_type,a.storage_path,a.mime_type,a.metadata
+      FROM public.learning_experiment_artifacts a
+      WHERE a.experiment_id=${experimentId}::uuid AND a.metadata->>'schema'=${RECORDING_SCHEMA}
+      ORDER BY a.created_at,a.id`;
+    return this.present(rows, `/submissions/${submissionId}/experiments/${experimentId}/recordings`);
+  }
+
+  async instructorDownload(user: AuthenticatedUser, submissionId: string, experimentId: string, artifactId: string) {
+    await this.assertInstructorScope(user, submissionId, experimentId);
+    if (!isUuid(artifactId)) throw new BadRequestException("Identity is invalid.");
+    const rows = await this.prisma.$queryRaw<Array<{ storage_path: string; metadata: Record<string, unknown> }>>`
+      SELECT a.storage_path,a.metadata FROM public.learning_experiment_artifacts a
+      WHERE a.id=${artifactId}::uuid AND a.experiment_id=${experimentId}::uuid AND a.metadata->>'schema'=${RECORDING_SCHEMA}`;
+    return this.signed(rows[0]);
+  }
+
+  private async present(rows: RecordingRow[], pathPrefix: string) {
+    return Promise.all(rows.map(async (row) => {
+      const head = this.storage.enabled() && parseKey(row.storage_path) ? await this.storage.head(row.storage_path).catch(() => undefined) : null;
+      const availability = head === undefined ? "access_unverified" : head && head.contentLength === row.metadata.sizeBytes ? "available" : "unavailable";
+      return { id: row.id, type: row.artifact_type, name: row.metadata.name, mimeType: row.mime_type, sizeBytes: row.metadata.sizeBytes, episodeId: row.metadata.episodeId,
+        declaredRuntimeKind: row.metadata.declaredRuntimeKind, runtimeVerified: false, availability,
+        downloadPath: availability === "available" ? `${pathPrefix}/${row.id}/download` : null };
+    }));
+  }
+
+  private async signed(row: { storage_path: string; metadata: Record<string, unknown> } | undefined) {
     if (!row || !parseKey(row.storage_path)) throw new NotFoundException("The recording was not found.");
     return { url: await this.storage.download(row.storage_path, String(row.metadata.name ?? "recording")), expiresInSeconds: 300 };
   }
