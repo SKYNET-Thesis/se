@@ -84,9 +84,12 @@ start_twin() {
   docker pull "$twin_image" >/dev/null 2>&1 || { echo "Digital Twin image $twin_image is not available; Twin not started" >&2; return 1; }
   secret="$(grep -m1 '^DIGITAL_TWIN_SCOPE_SECRET=' /opt/vista/api.env | cut -d= -f2-)"
   [ -n "$secret" ] || { echo 'DIGITAL_TWIN_SCOPE_SECRET is missing; Twin not started' >&2; return 1; }
+  # The API only sends telemetry to `http://vista-digital-twin:8767` (see digital-twin-endpoint.ts): both containers join one private network.
+  docker network inspect vista-net >/dev/null 2>&1 || docker network create vista-net >/dev/null
+  docker network connect vista-net vista-education-api >/dev/null 2>&1 || true
   mkdir -p /opt/vista/twin-model
   (umask 077; printf 'VISTA_TWIN_AUTH_SECRET=%s\n' "$secret" > /opt/vista/twin.env)
-  docker run -d --name vista-digital-twin --restart unless-stopped --read-only --tmpfs /tmp --cap-drop ALL \
+  docker run -d --name vista-digital-twin --network vista-net --restart unless-stopped --read-only --tmpfs /tmp --cap-drop ALL \
     --security-opt no-new-privileges --memory 768m --env-file /opt/vista/twin.env -v /opt/vista/twin-model:/model:ro \
     --log-driver awslogs --log-opt "awslogs-region=$AWS_REGION" --log-opt "awslogs-group=$LOG_GROUP" --log-opt awslogs-stream=digital-twin \
     -p 127.0.0.1:8767:8767 "$twin_image" >/dev/null
