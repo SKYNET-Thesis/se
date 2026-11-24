@@ -183,4 +183,61 @@ describe('KnowledgeCheckAttempt', () => {
     await act(async () => { [...container.querySelectorAll('button')].find((b) => b.textContent === 'Submit quiz')!.click(); });
     expect(container.querySelector('a[href="/my-learning/ca-1"]')?.textContent).toBe('Back to this quiz');
   });
+
+  describe('question map', () => {
+    const three: PublicQuizSnapshot = { kind: 'question_bank_quiz', schemaVersion: 1, passPercent: 60, questions: [
+      { questionVersionId: 'q1', type: 'single_choice', stem: 'First?', options: [{ id: 'a', text: 'A' }, { id: 'b', text: 'B' }], points: 2 },
+      { questionVersionId: 'q2', type: 'multiple_choice', stem: 'Second?', options: [{ id: 'c', text: 'C' }, { id: 'd', text: 'D' }], points: 1 },
+      { questionVersionId: 'q3', type: 'single_choice', stem: 'Third?', options: [{ id: 'e', text: 'E' }, { id: 'f', text: 'F' }], points: 1 },
+    ] };
+    const map = () => container.querySelector('[data-testid="question-map"]');
+    const summary = () => container.querySelector('[data-testid="question-map-summary"]')?.textContent ?? '';
+    const submit = () => [...container.querySelectorAll('button')].find((button) => button.textContent === 'Submit quiz') as HTMLButtonElement;
+
+    it('is not shown for a single question (nothing to navigate)', async () => {
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="One" snapshot={snapshot} onSubmit={vi.fn()} />); });
+      expect(map()).toBeNull();
+    });
+
+    it('counts answered questions, follows the learner, and leaves submission gating exactly as it was', async () => {
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Three" snapshot={three} onSubmit={vi.fn()} />); });
+      expect(summary()).toContain('0 of 3 answered');
+      expect(map()?.querySelectorAll('button')).toHaveLength(3);
+      expect(map()?.querySelector('button')?.getAttribute('aria-label')).toBe('Question 1, not answered');
+      expect(submit().disabled).toBe(true);
+      await act(async () => { (container.querySelector('input[value="a"]') as HTMLInputElement).click(); });
+      expect(summary()).toContain('1 of 3 answered');
+      expect(map()?.querySelector('button')?.getAttribute('aria-label')).toBe('Question 1, answered');
+      expect(submit().disabled).toBe(true);                                       // still needs every question, as before
+      await act(async () => { (container.querySelector('input[value="c"]') as HTMLInputElement).click(); });
+      await act(async () => { (container.querySelector('input[value="e"]') as HTMLInputElement).click(); });
+      expect(summary()).toContain('3 of 3 answered');
+      expect(summary()).toContain('ready to submit');
+      expect(submit().disabled).toBe(false);
+    });
+
+    it('a multiple-choice question counts as answered only while an option is selected', async () => {
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Three" snapshot={three} onSubmit={vi.fn()} />); });
+      const c = container.querySelector('input[value="c"]') as HTMLInputElement;
+      await act(async () => { c.click(); });
+      expect(summary()).toContain('1 of 3 answered');
+      await act(async () => { c.click(); });
+      expect(summary()).toContain('0 of 3 answered');
+    });
+
+    it('jumps to and focuses the chosen question, and discloses nothing beyond the learner\'s own selections', async () => {
+      const scroll = vi.fn(); Element.prototype.scrollIntoView = scroll;
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Three" snapshot={three} onSubmit={vi.fn()} />); });
+      await act(async () => { (map()?.querySelectorAll('button')[2] as HTMLButtonElement).click(); });
+      expect(scroll).toHaveBeenCalled();
+      expect(document.activeElement).toBe(container.querySelector('#question-q3 input'));
+      expect(map()?.textContent).not.toMatch(/correct|answer key|score/i);
+    });
+
+    it('keeps restored draft answers counted and stays out of the way of a read-only attempt', async () => {
+      await act(async () => { root.render(<KnowledgeCheckAttempt title="Three" snapshot={three} readOnly initialDraft={[{ questionId: 'q1', optionId: 'a' }, { questionId: 'q2', optionIds: ['c', 'd'] }]} onSubmit={vi.fn()} />); });
+      expect(summary()).toContain('2 of 3 answered');
+      expect(submit().disabled).toBe(true);
+    });
+  });
 });

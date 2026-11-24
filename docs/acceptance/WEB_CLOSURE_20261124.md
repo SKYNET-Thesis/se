@@ -19,3 +19,26 @@ Totals: 14 PRs and 2 branches inspected; exactly integrated 11 PRs; functionally
 **Were teammate UI improvements accidentally omitted?** Two small ones were, and are restored in this PR (selection highlight, drawer focus trap). The larger #162 student-learning UI (question map, quiz overview, breadcrumb, reading layout) and the palette were not integrated on purpose when TypeScript was brought to zero errors ("without importing the unrelated UI sweep", `cf61a76`). They change the quiz-attempt flow and the visual identity, so they need an owner decision and a visual comparison, not a silent merge.
 
 Open PRs that can be closed after the owner agrees (no merge needed, nothing is lost): #180 to #188 (contained in develop; they target main and will be contained there once #195 merges), #172, #183 (functionality present). #153 and #162 should stay open until the owner decides on the items above.
+
+## Final UI decisions (owner-approved 2026-11-24) and what was done
+
+Compared with isolated previews of the old #162 build and develop, against the same fixture data (`docs/operations/evidence/ui-restore-20261124/`).
+
+| Item from #153 / #162 | Decision | Result |
+| --- | --- | --- |
+| Navy palette | not restored, teal identity kept | unchanged |
+| Student Dashboard | kept | unchanged |
+| My Learning selection, drawer focus trap | kept (PR #197) | merged |
+| `QuestionMap` | integrated, rebuilt on current tokens | `QuestionMap.tsx`, shown for quizzes with two or more questions: "n of N answered", jump-to-question buttons, answered state. It only reads the learner's own selections; drafts, autosave, scoring, point weights, single and multiple choice, attempt and time limits, submit validation and authorization are untouched (17 attempt tests, 5 new) |
+| `QuizOverview` | **not integrated: redundant** | the current assignment page already shows module, availability window, due date, attempts used against the limit, pass score, rubric, one primary action (start or continue) and the history of every attempt with its released result; the old page showed less (pass mark, attempts). In the old build an open attempt also rendered "Not passed yet %" |
+| `LearningBreadcrumb` | integrated in the activity page | My learning (Courses for other roles), course, module, activity; the module crumb is the way back to the module overview, so the old "Module overview" link and the repeated course title above the heading were removed to avoid duplicate UI. Adds "Activity n of N" |
+| Lesson reading layout | current layout kept, best parts combined | current typography, sidebar and teal system retained; breadcrumb and activity position added; the old "Finished? Mark this reading complete" prose not copied (the button is self-explanatory) |
+| `InstructionalContent`, `lessonTeaching` | not integrated | they re-lay-out legacy Course 1 reading content; the current structured activity content renders the same material |
+
+Test infrastructure: `CourseContentEditor.spec.tsx` timed out (5 s) in about half of full Vitest runs although it takes about 0.2 s alone. Cause: one worker per core (12) saturates CPU and memory on a 14 GB machine. The Vitest pool is now capped at 6 forks (`vite.config.ts`); no timeout or assertion changed. 8 of 8 full runs afterwards passed (802 tests).
+
+## Suggested closing comments (not posted; closing needs the owner)
+- **#180, #181, #182, #184, #185, #186, #187, #188:** "Contained in develop through #189 (commit `ee05ba8` and the consolidation merge); the branch head is an ancestor of develop. Closing as integrated. Thank you."
+- **#172:** "Both files are identical on develop (#189). Closing as integrated."
+- **#183:** "Organization create and update, classroom creation from an active offering and the offering fields are on develop (`bbd955c`, `ee05ba8`) in the consolidated service and `SchoolManagement` / `SchoolOfferings`. Credit: VuAnhTuan1805. Closing as functionally integrated."
+- **#153 and #162 (ttjendatgit):** "Reviewed against develop on 2026-11-24. Merged with credit: navigation selection and drawer focus trap (#197), `QuestionMap` and `LearningBreadcrumb` (final UI PR). Not merged by decision: the navy palette, `QuizOverview` (the current assignment page covers it) and the legacy reading layout. Thank you for the A01 to A07 work; closing as integrated and superseded."

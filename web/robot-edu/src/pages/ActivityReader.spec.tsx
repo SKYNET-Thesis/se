@@ -132,6 +132,29 @@ describe('ActivityReader loading isolation', () => {
       expect(container.textContent).toContain('Confirm the target coordinates are within the safe reachable envelope.');
     });
 
+    it('shows where the learner is: course, module and activity breadcrumb, and the position in the module', async () => {
+      mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/courses/course-1/lessons/lesson-2/activities/lesson-2-reading-1']}>
+            <Routes>
+              <Route path="courses/:courseId/lessons/:lessonId/activities/:activityId" element={<ActivityReader />} />
+            </Routes>
+          </MemoryRouter>,
+        );
+        await Promise.resolve();
+      });
+      const crumbs = container.querySelector('nav[aria-label="Breadcrumb"]');
+      expect(crumbs?.textContent).toContain('My learning');
+      expect(crumbs?.textContent).toContain('Robotics Fundamentals');
+      expect(crumbs?.textContent).toContain('Move the Robot');
+      expect(crumbs?.querySelector('[aria-current="page"]')?.textContent).toContain('Understanding Robot Movement');
+      expect(crumbs?.querySelector('a[href="/my-learning"]')).not.toBeNull();
+      expect(crumbs?.querySelector('a[href="/courses/course-1"]')).not.toBeNull();
+      expect(crumbs?.querySelector('a[href="/courses/course-1/lessons/lesson-2"]')).not.toBeNull();   // the module crumb is the way back to the module overview
+      expect(container.querySelector('[data-testid="activity-position"]')?.textContent).toMatch(/^Activity 1 of \d+$/);
+    });
+
     it('marks Reading only after a server-confirmed completion response', async () => {
       mocks.query.mockReturnValue({ isLoading: false, data: l2Data });
       mocks.complete.mockResolvedValue({ activityId: 'lesson-2-reading-1', status: 'completed', completedAt: '2026-11-03T10:00:00Z' });
