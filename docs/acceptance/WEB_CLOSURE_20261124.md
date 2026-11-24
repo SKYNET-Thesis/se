@@ -14,7 +14,7 @@ Baseline: develop `a14c36ab35173f6d95d05e77a19c56c2d7694f1b`. Method: merge ance
 | branch `integrate-main-synced` | ttjendatgit | October SkyNex mobile polish (top bar, tab dock) | OUT OF WEB SCOPE (mobile) | `apps/mobile`, not Web |
 | branch `dat` | ttjendatgit | July .NET backend scaffold | OBSOLETE | the platform backend is NestJS |
 
-Totals: 14 PRs and 2 branches inspected; exactly integrated 12 PRs; functionally integrated 2 (#153 and #183); partially integrated 1 (#162); missing 0; conflicting 1 area (the navy palette against the accepted VISTA teal identity); obsolete or out of scope 2 branches.
+Totals: 14 PRs and 2 branches inspected; exactly integrated 11 PRs; functionally integrated 2 (#153 and #183); partially integrated 1 (#162); missing 0; conflicting 1 area (the navy palette against the accepted VISTA teal identity); obsolete or out of scope 2 branches.
 
 **Were teammate UI improvements accidentally omitted?** Two small ones were, and are restored in this PR (selection highlight, drawer focus trap). The larger #162 student-learning UI (question map, quiz overview, breadcrumb, reading layout) and the palette were not integrated on purpose when TypeScript was brought to zero errors ("without importing the unrelated UI sweep", `cf61a76`). They change the quiz-attempt flow and the visual identity, so they need an owner decision and a visual comparison, not a silent merge.
 
