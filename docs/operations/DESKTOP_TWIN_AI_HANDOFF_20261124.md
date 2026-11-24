@@ -92,7 +92,7 @@ Env (API and worker): `ROBOT_RECORDINGS_BUCKET`, `ROBOT_RECORDINGS_EVENTS_QUEUE_
 - Instructor and student recording routes exist (401 without a token).
 
 **Not verified / pending (do not assume these work):**
-- Worker consumers are running but only start-up is verified: after a host script refresh on 2026-11-24 the two workers were recreated with the correct command (they run `dist/scripts/<worker>.js`, not the API; no restarts, no DLQ messages). The recordings worker consumed the single S3 `TestEvent` (queue 1 to 0, DLQ 0). **No real feedback event or recording manifest has been processed in Production.** The workers still show Docker `health: starting`/`unhealthy` until the deploy script change (PR #209, `--no-healthcheck`) is deployed; that is cosmetic, they are not restarted by it.
+- Worker consumers: both workers run the correct process (`dist/scripts/<worker>.js`, no API routes) since the 2026-11-24 host script refresh (host script sha256 `ef5a33bf805e52bbc39c614ec980c5a912562ba01d81a3c8e3e35877c89704bd`). They run without the API healthcheck (`--no-healthcheck`), so a running container is **not** proof of function. Evidence: no restarts, both DLQs empty, feedback queue empty, the recordings queue's single S3 `TestEvent` was consumed (1 to 0). **No real feedback event or recording manifest has been processed in Production.**
 - Any end-to-end flow: a command from the API to a device and back, scoped telemetry from a real publisher, a recording upload and its registration, an instructor download.
 - No device certificate exists; no physical SO-101 is linked to the robot UUID; calibration stays `UNCALIBRATED`.
 
@@ -113,3 +113,14 @@ Frame (schema 1): `{schema_version:1, robot_id, source_mode:"SIMULATION"|"LIVE_P
 - [ ] Twin publisher with the publisher audience; frames follow the schema above.
 - [ ] Recording upload: request, upload files, upload `manifest.json` last; check the registered evidence in the list route.
 - [ ] Calibration profile stays `UNCALIBRATED` until reviewed; emergency stop path tested before any hardware command.
+
+## Cloud closure (2026-11-24)
+**Cloud Infrastructure and Runtime Deployment: DONE.**
+- Production API and web both report `gitSha` `ef95cddb540ef6f7059a9422bfe1c381ee425a89`; `/health` and `/health/ready` return 200.
+- Terraform: IoT root (17 resources) and main root applied; no drift at the last check.
+- EC2 host deploy script equals `infra/terraform/scripts/deploy-api.sh` on main (sha256 `ef5a33bf805e52bbc39c614ec980c5a912562ba01d81a3c8e3e35877c89704bd`). **Drift gate verified:** a wrong hash is blocked before any container is replaced, the correct hash passes; rollback is not gated.
+- **Rollback protection installed:** each healthy image's configuration is recorded and a rollback restores the image together with the configuration it last ran with (offline-tested; no real rollback was run).
+- Four containers run on the single instance with 0 restarts: API, Digital Twin (`vista-net`, WSS `wss://api.skynex.best/ws/twin` streams labelled mock frames), IoT feedback worker, recordings worker. Queues and DLQs are empty.
+- **Production MQTT command dispatch is OFF** (`VISTA_IOT_ENABLED=false`, `VISTA_IOT_PUBLISH_RECOVERY_ENABLED=false`). No device certificate exists.
+
+**Functional End-to-End Acceptance: NOT DONE (Desktop integration phase).** Command to a device and its acknowledgement; execution lifecycle back to the API; scoped telemetry from a real publisher; recording upload to evidence to instructor download; WF03 through IoT; a viewer with a valid scope. These need the owner's isolated test Thing and certificate (a separate approval), then `VISTA_IOT_ENABLED` for that test only. Known gap: `wss://api.skynex.best` is not yet in the CSP `connect-src` (report-only).
