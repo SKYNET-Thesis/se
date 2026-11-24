@@ -23,6 +23,8 @@ An earlier draft of this PR used a distribution-wide custom error response (403 
 
 ## CSP compatibility
 Directives: `default-src 'self'`; scripts `'self'`; styles `'self' 'unsafe-inline'` plus `fonts.googleapis.com`; fonts `fonts.gstatic.com`; images from `'self'`, `blob:`, `data:`, the Learning Media bucket and `static.blockly.com` (Blockly toolbox sprites); media from the same plus Blockly sounds; `connect-src` the Supabase https and wss origin and the media bucket (presigned POST uploads); `frame-src` the media bucket (PDF preview iframe); `worker-src 'self' blob:`; `object-src 'none'`; `base-uri 'self'`; `form-action` self and the media bucket.
+Digital Twin: set `digital_twin_ws_origin` (a `wss://` origin, validated) to add it to `connect-src` when the Twin is deployed; the web build must also receive `VITE_DIGITAL_TWIN_WS_URL` (the deploy workflow does not set it today, so the viewer stays off in Production). The full plan stays at 3 add, 3 change, 0 destroy with or without it.
+IAM: the `github_web` role policy shown as changing is textually identical to the live policy (S3 ListBucket on the web bucket, Get/Put/Delete on its objects, CloudFront invalidation on this distribution only); the distribution ARN does not change because the distribution is updated in place.
 Known limits: report-only has no collector (no `report-to` endpoint exists), so violations are visible only in a browser console; the Digital Twin WebSocket is not allowed (it is not deployed in Production; add its `wss:` origin if it ever is); inline styles need `'unsafe-inline'` because React and framer-motion write style attributes.
 
 ## Tested under the enforced policy (local stack, production web build, same-origin `/api/v1` like CloudFront)

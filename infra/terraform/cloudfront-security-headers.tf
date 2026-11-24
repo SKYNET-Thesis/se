@@ -22,6 +22,16 @@ variable "supabase_project_origin" {
   default     = "https://ovijutkvaaxohauvuxbj.supabase.co"
 }
 
+variable "digital_twin_ws_origin" {
+  description = "Secure WebSocket origin of the Digital Twin service (for example wss://twin.example.com). Empty while the Twin is not deployed; set it together with the web build variable VITE_DIGITAL_TWIN_WS_URL."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.digital_twin_ws_origin == "" || can(regex("^wss://[a-zA-Z0-9.-]+(:[0-9]+)?$", var.digital_twin_ws_origin))
+    error_message = "digital_twin_ws_origin must be empty or a wss:// origin without a path."
+  }
+}
+
 locals {
   supabase_ws_origin = replace(var.supabase_project_origin, "https://", "wss://")
   media_origin       = "https://${aws_s3_bucket.media.bucket_regional_domain_name}"
@@ -36,7 +46,7 @@ locals {
     # Blockly loads its click sounds from static.blockly.com unless a media path is set.
     "media-src 'self' blob: ${local.media_origin} https://static.blockly.com",
     # The API is same-origin (/api/v1). Media uploads are presigned POSTs straight to the Learning Media bucket.
-    "connect-src 'self' ${var.supabase_project_origin} ${local.supabase_ws_origin} ${local.media_origin}",
+    "connect-src ${join(" ", concat(["'self'", var.supabase_project_origin, local.supabase_ws_origin, local.media_origin], var.digital_twin_ws_origin == "" ? [] : [var.digital_twin_ws_origin]))}",
     # The Learning Media preview shows a PDF in an iframe whose source is a presigned URL on the Learning Media bucket.
     "frame-src 'self' ${local.media_origin}",
     # The SO-101 3D scene decodes meshes and the environment map in module workers.
