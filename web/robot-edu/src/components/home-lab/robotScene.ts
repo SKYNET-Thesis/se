@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import URDFLoader from 'urdf-loader';
-import { QualityGovernor } from './qualityGovernor';
+import { QUALITY_LEVELS, QualityGovernor } from './qualityGovernor';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { JAW } from './jaw';
@@ -64,6 +64,19 @@ export const REST_POSE: Pose = { Rotation: 0.4, Pitch: -0.6, Elbow: 1.0, Wrist_P
 const JOINTS: JointName[] = ['Rotation', 'Pitch', 'Elbow', 'Wrist_Pitch', 'Wrist_Roll', 'Jaw'];
 
 interface Animated { current: number; target: number }
+
+/**
+ * True when WebGL is drawn by the CPU (SwiftShader, llvmpipe, a "software" or basic-render adapter): the preview then starts at the
+ * lowest quality instead of discovering it one 2 s frame at a time.
+ */
+export function softwareRenderer(gl: WebGLRenderingContext | WebGL2RenderingContext | null): boolean {
+  if (!gl) return false;
+  try {
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+    return /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name);
+  } catch { return false; }
+}
 
 export class RobotScene {
   readonly canvas: HTMLCanvasElement;
@@ -130,7 +143,7 @@ export class RobotScene {
     this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.needsUpdate = true;
     this.governor = new QualityGovernor({
-      startLevel: this.opts.lowPower ? 1 : 0,
+      startLevel: softwareRenderer(typeof this.renderer.getContext === 'function' ? this.renderer.getContext() : null) ? QUALITY_LEVELS.length - 1 : this.opts.lowPower ? 1 : 0,
       onLevel: (level) => { this.applyQuality(); this.opts.onQuality(level); },
       onTooSlow: () => this.opts.onTooSlow(),
     });
@@ -180,6 +193,8 @@ export class RobotScene {
     this.observer.observe(canvas);
     document.addEventListener('visibilitychange', this.kick);
     this.resize();
+    // A level other than 0 at the start (a software renderer, low power) must be in force from the first frame, not only after a step down.
+    if (this.governor.level > 0) this.applyQuality();
     performance.measure('so101:construct-total', 'so101:construct');
   }
 

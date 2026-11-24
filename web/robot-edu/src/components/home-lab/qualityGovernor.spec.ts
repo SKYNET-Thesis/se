@@ -42,7 +42,7 @@ describe('QualityGovernor', () => {
 
   it('ignores gaps that are not rendering cost (a throttled tab, an idle wake-up) and invalid values', () => {
     const g = new QualityGovernor();
-    expect(feed(g, 5000, 100)).toEqual([]); expect(g.sample(0)).toBeNull(); expect(g.sample(-4)).toBeNull(); expect(g.sample(Number.NaN)).toBeNull();
+    expect(feed(g, 8000, 100)).toEqual([]); expect(g.sample(0)).toBeNull(); expect(g.sample(-4)).toBeNull(); expect(g.sample(Number.NaN)).toBeNull();
     expect(g.level).toBe(0);
   });
 
@@ -50,5 +50,24 @@ describe('QualityGovernor', () => {
     const g = new QualityGovernor(); feed(g, 40, 39); g.reset(); expect(feed(g, 40, 39)).toEqual([]);
     expect(new QualityGovernor({ startLevel: 99 }).level).toBe(QUALITY_LEVELS.length - 1);
     expect(new QualityGovernor({ startLevel: -3 }).level).toBe(0);
+  });
+
+  it('judges a device that renders about one frame per second within seconds, not after 40 frames', () => {
+    const g = new QualityGovernor();
+    expect(feed(g, 1500, 2)).toEqual([]);            // fewer than three frames: not enough to judge yet
+    expect(g.sample(1500)).toBe(1);                  // 4.5 s of frame time: step down once
+    expect(g.sample(1500)).toBeNull(); expect(g.sample(1500)).toBeNull(); expect(g.sample(1500)).toBe(2);
+  });
+
+  it('still ignores gaps that are a throttled or occluded tab', () => {
+    const g = new QualityGovernor();
+    expect(feed(g, 20000, 20)).toEqual([]); expect(g.level).toBe(0);
+  });
+
+  it('starts at the lowest level when asked to (a software renderer), and resets its time window with the sample window', () => {
+    const g = new QualityGovernor({ startLevel: QUALITY_LEVELS.length - 1 });
+    expect(g.level).toBe(QUALITY_LEVELS.length - 1);
+    g.sample(2000); g.sample(2000); g.reset(); g.sample(10);
+    expect(g.sample(10)).toBeNull();
   });
 });
