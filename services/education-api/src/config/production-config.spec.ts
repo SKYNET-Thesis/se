@@ -25,6 +25,8 @@ describe("production configuration", () => {
     ["a local S3 endpoint override", { LEARNING_MEDIA_S3_ENDPOINT: "http://127.0.0.1:59000" }, /LEARNING_MEDIA_S3_ENDPOINT/],
     ["a malformed temporary-password flag", { STUDENT_TEMP_PASSWORD_ENABLED: "yes" }, /STUDENT_TEMP_PASSWORD_ENABLED/],
     ["a non-loopback Twin address", { DIGITAL_TWIN_TELEMETRY_URL: "https://twin.example.com", DIGITAL_TWIN_SCOPE_SECRET: "x".repeat(40) }, /loopback/],
+    ["a Twin host that only starts with the container name", { DIGITAL_TWIN_TELEMETRY_URL: "http://vista-digital-twin.evil.example:8767", DIGITAL_TWIN_SCOPE_SECRET: "x".repeat(40) }, /loopback/],
+    ["a Twin address with userinfo", { DIGITAL_TWIN_TELEMETRY_URL: "http://vista-digital-twin@evil.example:8767", DIGITAL_TWIN_SCOPE_SECRET: "x".repeat(40) }, /loopback/],
     ["a short Twin scope secret", { DIGITAL_TWIN_TELEMETRY_URL: "http://127.0.0.1:8767", DIGITAL_TWIN_SCOPE_SECRET: "short" }, /at least 32/],
     ["a local placeholder secret", { SUPABASE_ANON_KEY: "local-int-anon-key-not-a-secret" }, /placeholder/],
     ["a malformed prerequisite enforcement cutoff", { COURSE_PREREQUISITES_ENFORCED_FROM: "2026-12-01" }, /COURSE_PREREQUISITES_ENFORCED_FROM/],
@@ -38,5 +40,6 @@ describe("production configuration", () => {
     expect(() => validateProductionConfig({ ...valid, DEVICE_PROVISIONING_ENABLED: "true", DEVICE_TOKEN_SECRET: "d".repeat(48) })).not.toThrow();
     expect(() => validateProductionConfig({ ...valid, DEVICE_PROVISIONING_ENABLED: "false" })).not.toThrow();
   });
+  it("accepts the Twin container on the private Docker network, exactly as the production secret sets it", () => expect(() => validateProductionConfig({ ...valid, DIGITAL_TWIN_TELEMETRY_URL: "http://vista-digital-twin:8767", DIGITAL_TWIN_SCOPE_SECRET: "x".repeat(64) })).not.toThrow());
   it("accepts temporary passwords on, and a loopback Twin with a strong secret", () => expect(() => validateProductionConfig({ ...valid, STUDENT_TEMP_PASSWORD_ENABLED: "true", DIGITAL_TWIN_TELEMETRY_URL: "http://127.0.0.1:8767", DIGITAL_TWIN_SCOPE_SECRET: "a".repeat(48) })).not.toThrow());
 });
