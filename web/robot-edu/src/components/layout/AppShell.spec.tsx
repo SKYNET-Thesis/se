@@ -77,6 +77,31 @@ describe('AppShell focused learning navigation', () => {
     expect(container.querySelector('button[aria-label="Open navigation"]')?.getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('keeps Tab inside the open navigation drawer (focus wraps from last to first and back)', async () => {
+    await renderAt('/courses/course-1/lessons/lesson-2/activities/reading-1');
+    await act(async () => { (container.querySelector('button[aria-label="Open navigation"]') as HTMLButtonElement).click(); });
+    // jsdom does no layout, so every element reports offsetParent null; the trap only considers rendered controls.
+    const visible = vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockReturnValue(document.body);
+    const dialog = container.querySelector('[role="dialog"]') as HTMLElement;
+    const items = [...dialog.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')];
+    expect(items.length).toBeGreaterThan(2);
+    const first = items[0]; const last = items[items.length - 1];
+    last.focus();
+    const forward = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });
+    await act(async () => { window.dispatchEvent(forward); });
+    expect(forward.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(first);
+    const backward = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, cancelable: true });
+    await act(async () => { window.dispatchEvent(backward); });
+    expect(backward.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(last);
+    const middle = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true });
+    items[1].focus();
+    await act(async () => { window.dispatchEvent(middle); });
+    expect(middle.defaultPrevented).toBe(false);                       // inside the drawer the browser moves focus as usual
+    visible.mockRestore();
+  });
+
   it('places the notification bell before Settings and the account avatar in the global header', async () => {
     await renderAt('/courses/course-1');
     const header = container.querySelector('header') as HTMLElement;

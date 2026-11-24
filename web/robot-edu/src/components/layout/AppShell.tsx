@@ -10,6 +10,17 @@ import { cn } from '../../utils/cn';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { useRole } from '../../contexts/RoleContext';
 
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+/** Keeps Tab and Shift+Tab inside `container` (the modal navigation drawer). Ported from the A07 work of ttjendatgit (PR #162). */
+export function trapTab(event: KeyboardEvent, container: HTMLElement | null) {
+  if (event.key !== 'Tab' || !container) return;
+  const items = [...container.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null || el === document.activeElement);
+  if (!items.length) return;
+  const first = items[0]; const last = items[items.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+}
+
 export function AppShell() {
   const location = useLocation();
   const isStudio = location.pathname.startsWith('/studio');
@@ -32,11 +43,12 @@ export function AppShell() {
   // Mobile navigation drawer: focus moves into it when it opens and returns to the menu button when it is dismissed (Escape, close, backdrop).
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
   const dismissDrawer = () => { setDrawerOpen(false); window.setTimeout(() => menuButtonRef.current?.focus(), 0); };
   useEffect(() => { if (drawerOpen) window.setTimeout(() => closeButtonRef.current?.focus(), 0); }, [drawerOpen]);
 
   useEffect(() => setDrawerOpen(false), [location.pathname]);
-  useEffect(() => { if (!drawerOpen) return; const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') dismissDrawer(); }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown); }, [drawerOpen]);
+  useEffect(() => { if (!drawerOpen) return; const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') dismissDrawer(); else trapTab(event, drawerRef.current); }; window.addEventListener('keydown', onKeyDown); return () => window.removeEventListener('keydown', onKeyDown); }, [drawerOpen]);
 
   return (
     <div className="flex h-full w-full bg-canvas">
@@ -97,6 +109,7 @@ export function AppShell() {
             aria-hidden />
           
             <motion.aside
+            ref={drawerRef}
             role="dialog"
             aria-modal="true"
             aria-label="Navigation"
