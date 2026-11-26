@@ -178,7 +178,7 @@ export function Login() {
         {/* Left Visual Brand Panel */}
         <aside className="relative hidden min-h-[680px] overflow-hidden bg-[#15251f] p-8 text-[#f4f6ef] lg:flex lg:flex-col xl:p-11">
           <div className="relative z-10 flex items-center justify-between">
-            <VistaMark />
+            <VistaMark onDark />
             <span className="text-sm font-medium tracking-wide text-[#c9d5ca]">Learning workspace</span>
           </div>
 
@@ -186,7 +186,7 @@ export function Login() {
             <p className="text-[clamp(3.3rem,6.2vw,6.6rem)] font-semibold leading-[0.86] tracking-[-0.07em] text-white">
               Make next move.
             </p>
-            <p className="mt-7 max-w-[30ch] text-base leading-relaxed text-[#c9d5ca]">
+            <p className="mt-7 max-w-[30ch] text-base leading-relaxed text-[#eef3ec]">
               Write programs, test them safely, and turn every attempt into evidence of learning.
             </p>
           </div>
@@ -260,7 +260,7 @@ export function Login() {
                       type="button"
                       role="tab"
                       aria-selected={loginType === 'email'}
-                      aria-controls="panel-email"
+                      aria-controls={loginType === 'email' ? 'panel-email' : undefined}
                       onClick={() => handleTabChange('email')}
                       className={`pb-3 text-sm transition-colors text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                         loginType === 'email'
@@ -275,7 +275,7 @@ export function Login() {
                       type="button"
                       role="tab"
                       aria-selected={loginType === 'student'}
-                      aria-controls="panel-student"
+                      aria-controls={loginType === 'student' ? 'panel-student' : undefined}
                       onClick={() => handleTabChange('student')}
                       className={`pb-3 text-sm transition-colors text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
                         loginType === 'student'
@@ -309,7 +309,7 @@ export function Login() {
                 )}
 
                 {/* Form */}
-                <form onSubmit={submit} className="mt-5 space-y-4">
+                <form onSubmit={submit} id={`panel-${loginType}`} role="tabpanel" aria-labelledby={`tab-${loginType}`} className="mt-5 space-y-4">
                   {loginType === 'email' ? (
                     <div>
                       <label htmlFor="login-email" className="block text-sm font-medium text-ink">
