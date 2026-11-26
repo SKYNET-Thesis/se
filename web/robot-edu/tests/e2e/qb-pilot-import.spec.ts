@@ -55,7 +55,7 @@ test('pilot: 3 courses / 18 lessons / 180 Vietnamese questions and the 60-questi
   const lessons = new Map<string, string>(); // `${courseTitle}#${n}` -> lessonId
   const courseIds = new Map<string, string>();
   for (const f of files) {
-    const rows = (await readFile(`${pilotDir}/${f}`, 'utf8')).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean);
+    const rows = (await readFile(`${pilotDir}/${f}`, 'utf8')).replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
     const header = rows[0].split(',');
     expect(header.slice(-5)).toEqual(['course', 'lesson', 'learning_section', 'topic', 'learning_objective']);
   }
@@ -66,7 +66,7 @@ test('pilot: 3 courses / 18 lessons / 180 Vietnamese questions and the 60-questi
   function parseCsvLine(line: string): string[] { const out: string[] = []; let cur = ''; let q = false; for (let i = 0; i < line.length; i++) { const c = line[i]; if (q) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; } else if (c === '"') q = true; else if (c === ',') { out.push(cur); cur = ''; } else cur += c; } out.push(cur); return out; }
   const meta = new Map<string, { course: string; topic: string; lesson: number }>();
   for (const f of files) {
-    const lines = (await readFile(`${pilotDir}/${f}`, 'utf8')).replace(/^﻿/, '').split(/\r?\n/).filter(Boolean);
+    const lines = (await readFile(`${pilotDir}/${f}`, 'utf8')).replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
     const first = parse(lines[1]);
     meta.set(f, { course: first[15], lesson: Number(first[16]), topic: first[18] });
   }
