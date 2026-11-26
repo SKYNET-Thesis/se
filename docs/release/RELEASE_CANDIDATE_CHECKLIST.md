@@ -31,6 +31,9 @@ Nothing below is executed without explicit owner approval. This is a plan, not a
 |---|---|
 | Required CI | #212–#218 green at merge; #219 green (9 pass; 4 main-only skipped) |
 | Integrated acceptance (local, merged tree) | DONE 2026-11-26 — see report §3; Desktop E2E, AWS E2E, physical NOT RUN/BLOCKED |
+| Final develop revision / release PR | `6d49566` / #222 (draft) |
+| EC2 host deploy script gate | PASS (host = main = develop = `ef5a33bf…04bd`) |
+| Production config (read-only) | health/ready OK; MQTT off, 0 IoT certificates; `STUDENT_TEMP_PASSWORD_ENABLED=true` effective — owner decision pending |
 | Production deploy / migrations / MQTT / AWS / certificates | NOT APPROVED, NOT DONE |
 | Real GoTrue auth (local) | PASS: API 13/13, UI 11/11 (Report 5 §4) |
 | Desktop Release | PUBLISHED 2026-11-26 (pre-release flag set); verified: HTTP 200, 131,395,882 bytes, SHA-256 `a5dbca4d…a8e4` = SHA256SUMS = BUILD_PROVENANCE, amd64 0.1.0. Homepage enablement: PR #221 (pending owner merge) |
