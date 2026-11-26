@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
 import { SO101_CURRICULUM } from '../../../../services/education-api/src/scripts/so101-curriculum.data';
 import { call, deliverCourse, loadFixture, signIn } from './helpers/academic';
 
@@ -59,6 +60,12 @@ test('Module-end quiz: weights are shown before submission, scoring and pass thr
   const total = MODULE.quiz.questions.reduce((sum, q) => sum + q.weight, 0);
   const submit = async () => { await page.getByRole('button', { name: 'Submit quiz' }).click(); await page.getByRole('dialog', { name: 'Submit this quiz?' }).getByRole('button', { name: 'Submit quiz' }).click(); };
 
+  const typeLabel: Record<string, string> = { single_choice: 'Single Choice', multiple_choice: 'Multiple Choice', true_false: 'True/False' };
+  const count = (pick: (q: typeof MODULE.quiz.questions[number]) => string) => MODULE.quiz.questions.reduce<Record<string, number>>((m, q) => ({ ...m, [pick(q)]: (m[pick(q)] ?? 0) + 1 }), {});
+  const shotDir = process.env.VISTA_E2E_SCREENSHOT_DIR;
+  if (shotDir) await mkdir(shotDir, { recursive: true });
+  const attemptIdOf = () => page.url().match(/practice\/([0-9a-f-]{36})/)![1];
+
   // attempt 1: every answer wrong => not passed
   await page.goto(`/my-learning/${delivery.id}`);
   await page.getByRole('button', { name: /^(Start|Continue) attempt$/ }).click();
@@ -68,6 +75,40 @@ test('Module-end quiz: weights are shown before submission, scoring and pass thr
   await submit();
   await expect(page.getByRole('heading', { name: 'Not passed yet' })).toBeVisible();
   await expect(page.getByText(/Required: 70%/)).toBeVisible();
+  const attempt1 = attemptIdOf();
+  const dash1 = page.getByRole('region', { name: 'Quiz performance' });
+  await expect(dash1).toBeVisible();
+  await expect(dash1.getByTestId('quiz-pass-fail')).toHaveText('FAIL');
+  await expect(dash1.getByTestId('quiz-weighted-score')).toHaveText('0%');
+  await expect(dash1.getByTestId('quiz-rating')).toHaveText('Needs Review');
+  await expect(dash1.getByTestId('quiz-points-summary')).toContainText(`0 of ${total} points earned`);
+  await expect(dash1.getByTestId('quiz-counts')).toContainText(`0 correct · ${MODULE.quiz.questions.length} incorrect · 0 unanswered`);
+  for (const [type, n] of Object.entries(count((q) => q.type))) await expect(dash1.getByTestId('quiz-type-analytics')).toContainText(`${typeLabel[type]}0/${n} correct · accuracy 0%`);
+  for (const absent of Object.keys(typeLabel).filter((t) => !(t in count((q) => q.type)))) await expect(dash1.getByTestId('quiz-type-analytics')).not.toContainText(typeLabel[absent]);
+  for (const [difficulty, n] of Object.entries(count((q) => q.difficulty))) await expect(dash1.getByTestId('quiz-difficulty-analytics')).toContainText(`${difficulty[0].toUpperCase()}${difficulty.slice(1)}0/${n} correct · 0%`);
+  await expect(dash1.getByTestId('quiz-objective-analytics')).toBeVisible();
+  const recs = dash1.getByTestId('quiz-recommendation');
+  expect(await recs.count()).toBeGreaterThan(0); expect(await recs.count()).toBeLessThanOrEqual(5);
+  await expect(recs.first()).toContainText('priority');
+  const reviewHref = await recs.first().getByRole('link', { name: /^Review Lesson/ }).getAttribute('href');
+  expect(reviewHref).toMatch(/^\/courses\/[0-9a-f-]{36}\/lessons\/[0-9a-f-]{36}/);
+  if (shotDir) { await page.setViewportSize({ width: 1100, height: 2800 }); await dash1.scrollIntoViewIfNeeded(); await dash1.screenshot({ path: `${shotDir}/quiz-result-fail.png` }); await page.setViewportSize({ width: 1280, height: 720 }); }
+  // the API is owner-scoped, discloses no answer key and the result is the one recorded at grading
+  const apiResult = await call(page, student, 'GET', `/me/attempts/${attempt1}/quiz-result`);
+  expect(apiResult.status).toBe(200);
+  expect(JSON.stringify(apiResult.body)).not.toMatch(/answerKey|answer_key/);
+  expect(apiResult.body).toMatchObject({ passed: false, passPercent: 70, earnedPoints: 0, possiblePoints: total });
+  const otherStudent = await signIn(page, fixture, 'otherStudent');
+  expect([403, 404]).toContain((await call(page, otherStudent, 'GET', `/me/attempts/${attempt1}/quiz-result`)).status);
+  const instructorToken = await signIn(page, fixture, 'instructor');
+  expect([403, 404]).toContain((await call(page, instructorToken, 'GET', `/me/attempts/${attempt1}/quiz-result`)).status);
+  await signIn(page, fixture, 'student');
+  await page.goto(`/practice/${attempt1}`);
+  await expect(dash1).toBeVisible(); // a past attempt shows the same analysis when reopened (history preserved)
+  // Review Lesson navigates to real, accessible learning content
+  await recs.first().getByRole('link', { name: /^Review Lesson/ }).click();
+  await expect(page).toHaveURL(new RegExp(reviewHref!.replace(/[/]/g, '\\/')));
+  await expect(page.getByText(/not found|unavailable/i)).toHaveCount(0);
   if (fresh) expect((await pathOf()).lessons[1].status).toBe('locked');
 
   // attempt 2: every answer right => passed, module 1 completed, module 2 unlocked
@@ -77,6 +118,14 @@ test('Module-end quiz: weights are shown before submission, scoring and pass thr
   await submit();
   await expect(page.getByRole('heading', { name: 'Passed' })).toBeVisible();
   await expect(page.getByTestId('quiz-earned-points')).toContainText(`${total}`);
+  const dash2 = page.getByRole('region', { name: 'Quiz performance' });
+  await expect(dash2.getByTestId('quiz-pass-fail')).toHaveText('PASS');
+  await expect(dash2.getByTestId('quiz-weighted-score')).toHaveText('100%');
+  await expect(dash2.getByTestId('quiz-rating')).toHaveText('Excellent');
+  await expect(dash2.getByTestId('quiz-counts')).toContainText(`${MODULE.quiz.questions.length} correct · 0 incorrect · 0 unanswered`);
+  await expect(dash2.getByTestId('quiz-recommendations')).toContainText('no review is suggested');
+  await expect(dash2.getByTestId('quiz-recommendation')).toHaveCount(0);
+  if (shotDir) { await page.setViewportSize({ width: 1100, height: 2800 }); await dash2.screenshot({ path: `${shotDir}/quiz-result-pass.png` }); await page.setViewportSize({ width: 1280, height: 720 }); }
   const after = await pathOf();
   expect(after.lessons[0].status).toBe('completed'); expect(after.lessons[1].status).not.toBe('locked');
   expect((await call(page, student, 'GET', `/lessons/${lessons[1].id}`)).status).toBe(200);

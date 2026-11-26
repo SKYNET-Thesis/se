@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import type { ApiDraftAnswer, KnowledgeCheckSubmissionResult } from '../../lib/api';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -16,11 +16,13 @@ const toSelection = (draft?: ApiDraftAnswer[]): Record<string, string[]> =>
   Object.fromEntries((draft ?? []).map((answer) => [answer.questionId, answer.optionIds ?? (answer.optionId ? [answer.optionId] : [])]));
 
 export function KnowledgeCheckAttempt({
-  title, snapshot, result, onSubmit, initialDraft, draftSavedAt, readOnly, onSaveDraft, confirmSubmit, backTo,
+  title, snapshot, result, analytics, onSubmit, initialDraft, draftSavedAt, readOnly, onSaveDraft, confirmSubmit, backTo,
 }: {
   title: string;
   snapshot: PublicQuizSnapshot;
   result?: KnowledgeCheckSubmissionResult | null;
+  /** Rendered inside the result section once the attempt is graded (e.g. the performance dashboard). */
+  analytics?: ReactNode;
   onSubmit: (answers: Array<{ questionId: string; optionId?: string; optionIds?: string[] }>) => Promise<KnowledgeCheckSubmissionResult>;
   /** Previously saved learner selections; this never contains grading keys. */
   initialDraft?: ApiDraftAnswer[];
@@ -202,6 +204,7 @@ export function KnowledgeCheckAttempt({
       <h2 className="font-semibold">{submitted.passed ? 'Passed' : 'Not passed yet'}</h2><p className="mt-1">Score: {submitted.score}% · Required: {snapshot.passPercent}%</p>
       {typeof submitted.earnedPoints === 'number' && typeof submitted.possiblePoints === 'number' && <p className="mt-1 text-sm" data-testid="quiz-earned-points">{submitted.earnedPoints} of {pointsLabel(submitted.possiblePoints)} earned</p>}
       {submitted.feedback && <ul className="mt-3 space-y-1 text-sm" aria-label="Points per question">{submitted.feedback.map((item, index) => <li key={item.questionVersionId} data-testid="question-result">Question {index + 1}: {item.correct ? 'correct' : 'not correct'} · {item.earnedPoints} / {item.possiblePoints}{item.explanation ? <span className="block text-ink-muted">{item.explanation}</span> : null}</li>)}</ul>}
+      {analytics}
     </section>}
     {(submitted || readOnly) && backTo && <p className="mt-4 text-sm"><Link to={backTo.to} className="font-medium text-accent-ink underline">{backTo.label}</Link></p>}
     <div className="mt-6 flex flex-wrap items-center gap-4">

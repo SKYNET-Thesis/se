@@ -7,13 +7,20 @@ import { SaveQuizDraftDto } from "./dto/save-quiz-draft.dto";
 import { SubmitKnowledgeCheckDto } from "./dto/submit-knowledge-check.dto";
 import { ProgressionService } from "./progression.service";
 import { ActivityProgressService } from './activity-progress.service';
+import { QuizResultService } from './quiz-result.service';
 
 @ApiTags("Learning progression")
 @ApiBearerAuth()
 @UseGuards(SupabaseAuthGuard)
 @Controller()
 export class ProgressionController {
-  constructor(private readonly progression: ProgressionService, private readonly activityProgress: ActivityProgressService) {}
+  constructor(private readonly progression: ProgressionService, private readonly activityProgress: ActivityProgressService, private readonly quizResults: QuizResultService) {}
+
+  /** Learner's own released quiz result with analytics and deterministic review recommendations (read-only). */
+  @Get('me/attempts/:attemptId/quiz-result')
+  quizResult(@CurrentUser() user: AuthenticatedUser, @Param('attemptId', ParseUUIDPipe) attemptId: string) {
+    return this.quizResults.result(user, attemptId);
+  }
 
   @Get('me/courses/:courseId/activity-progress')
   courseActivityProgress(@CurrentUser() user: AuthenticatedUser, @Param('courseId', ParseUUIDPipe) courseId: string) {

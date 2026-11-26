@@ -457,7 +457,28 @@ export interface ApiStudentQuiz {
   status: 'not_started' | 'in_progress' | 'passed' | 'failed';
 }
 
+
+export type QuizPerformanceRating = 'Excellent' | 'Good' | 'Satisfactory' | 'Needs Improvement' | 'Needs Review';
+export interface QuizResultBucket { key: string; label: string; total: number; correct: number; accuracy: number | null; earnedPoints: number; possiblePoints: number; weightedScore: number | null }
+export interface QuizResultRecommendation {
+  topic: string; objectiveId: string; objectiveCode: string; priority: 'High' | 'Medium' | 'Low'; reason: string;
+  evidence: { incorrectQuestions: number; totalQuestions: number; lostPoints: number; possiblePoints: number; hardOrMediumMissed: number };
+  target: { courseId: string; lessonId: string; lessonTitle: string; sectionId: string | null; sectionTitle: string | null; activityId: string | null; activityTitle: string | null };
+  targetKind: 'section' | 'lesson';
+}
+export interface QuizResultAnalytics {
+  attemptId: string; submittedAt: string | null; passed: boolean; passPercent: number | null; weightedScore: number; earnedPoints: number; possiblePoints: number; gradingPolicy: string;
+  analytics: {
+    overall: { earnedPoints: number; possiblePoints: number; weightedScore: number | null; accuracy: number | null; correct: number; incorrect: number; unanswered: number; total: number; rating: QuizPerformanceRating | null };
+    byType: QuizResultBucket[]; byDifficulty: QuizResultBucket[]; byTopic: QuizResultBucket[];
+    byObjective: Array<QuizResultBucket & { objectiveId: string; code: string; description: string }>;
+    metadata: { questionsWithoutDifficulty: number; questionsWithoutTopic: number; questionsWithoutObjective: number };
+  };
+  recommendations: { status: 'ok' | 'none_needed' | 'insufficient_evidence'; items: QuizResultRecommendation[]; note: string };
+}
+
 export const progressionApi = {
+  quizResult: (attemptId: string, token: string) => apiGet<QuizResultAnalytics>(`/me/attempts/${attemptId}/quiz-result`, token),
   coursePath: (courseId: string, token: string) => apiGet<CoursePathResponse>(`/me/courses/${courseId}/path`, token),
   activityProgress: (courseId: string, token: string) => apiGet<ApiCourseActivityProgress>(`/me/courses/${courseId}/activity-progress`, token),
   completeActivity: (activityId: string, token: string) => apiRequest<ApiActivityProgress>(`/me/activities/${activityId}/complete`, token, 'POST'),
