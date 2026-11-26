@@ -693,8 +693,8 @@ export type AuthorQuestionBody = {
   content: { type: string; difficulty: string; cognitiveLevel: string; stem: string; options: Array<{ id: string; text: string }>; answerKey: string[]; explanation?: string };
   objectiveId?: string; newObjective?: string; code?: string;
 };
-export type QuestionImportItem = { rowNumber: number; status: 'valid' | 'invalid' | 'duplicate'; errors: string[]; duplicateOf?: { row?: number; existingCode?: string }; points?: number; stem?: string; type?: string };
-export type QuestionImportPreview = { total: number; valid: number; invalid: number; duplicates: number; items: QuestionImportItem[] };
+export type QuestionImportItem = { rowNumber: number; status: 'valid' | 'invalid' | 'duplicate'; errors: string[]; duplicateOf?: { row?: number; existingCode?: string }; points?: number; pointsSource?: 'file' | 'default'; stem?: string; type?: string; difficulty?: string; topic?: string; learningSection?: string; learningObjectiveCode?: string; objectiveResolved?: boolean };
+export type QuestionImportPreview = { fileSha256: string; total: number; valid: number; invalid: number; duplicates: number; items: QuestionImportItem[] };
 export type QuestionImportResult = QuestionImportPreview & { created: number; failed: number; results: Array<{ rowNumber: number; status: 'created' | 'failed'; message?: string; versionId?: string; points?: number }> };
 async function postQuestionFile<T>(path: string, token: string, file: File, fields: Record<string, string> = {}): Promise<T> {
   const form = new FormData();
@@ -706,7 +706,7 @@ async function postQuestionFile<T>(path: string, token: string, file: File, fiel
 }
 export const quizAuthoringApi = {
   importPreview: (lessonId: string, token: string, file: File) => postQuestionFile<QuestionImportPreview>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/import/preview`, token, file),
-  importCommit: (lessonId: string, token: string, file: File, fields: { objectiveId?: string; newObjective?: string }) => postQuestionFile<QuestionImportResult>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/import`, token, file, fields as Record<string, string>),
+  importCommit: (lessonId: string, token: string, file: File, fields: { objectiveId?: string; newObjective?: string; expectedSha256?: string; confirm?: string; publish?: string }) => postQuestionFile<QuestionImportResult>(`/author/question-bank/quiz-authoring/lessons/${lessonId}/import`, token, file, fields as Record<string, string>),
   downloadTemplate: async (token: string, format: 'csv' | 'xlsx') => {
     const response = await fetch(`${baseUrl}/author/question-bank/quiz-authoring/import-template?format=${format}`, { headers: { Authorization: `Bearer ${token}` } });
     if (!response.ok) throw new ApiError(response.status, 'Could not download the template.');

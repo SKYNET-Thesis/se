@@ -15,7 +15,34 @@ describe('question import parsing', () => {
     const rows = parseQuestionRows(readImportTable('t.xlsx', buildXlsx(t)));
     expect(rows.every((r) => r.errors.length === 0)).toBe(true);
     expect(rows[1].content?.answerKey).toEqual(['a', 'b', 'd']);
-    expect(rows[1].points).toBe(3);
+    expect(rows[0]).toMatchObject({ points: 1, pointsSource: 'default' });
+    expect(rows[1]).toMatchObject({ points: 2, pointsSource: 'default' });
+    expect(rows[2]).toMatchObject({ points: 5, pointsSource: 'file' });
+    expect(rows[2].content).toMatchObject({ type: 'true_false', answerKey: ['false'], options: [{ id: 'true', text: 'True' }, { id: 'false', text: 'False' }] });
+    expect(rows[0].mapping).toEqual({ topic: 'Robot safety' });
+    const mapped = parseQuestionRows([['course', 'lesson', 'learning_section', 'topic', 'learning_objective', 'type', 'stem', 'option_a', 'option_b', 'correct', 'explanation'], ['Robotics 101', '1', 'Safety', 'Topic', 'LO-1', 'single_choice', 's', 'x', 'y', 'a', 'e']]);
+    expect(mapped[0].mapping).toEqual({ course: 'Robotics 101', lesson: '1', learningSection: 'Safety', topic: 'Topic', learningObjective: 'LO-1' });
+  });
+  it('applies difficulty defaults 1/2/3 and preserves explicit points', () => {
+    const head = ['type', 'difficulty', 'stem', 'option_a', 'option_b', 'correct', 'points', 'explanation'];
+    const mk = (difficulty: string, points = '') => ['single_choice', difficulty, `Stem ${difficulty}${points}`, 'x', 'y', 'a', points, 'because'];
+    const rows = parseQuestionRows([head, mk('easy'), mk('medium'), mk('hard'), mk('easy', '4.5'), mk('hard', '0')]);
+    expect(rows.slice(0, 3).map((r) => [r.points, r.pointsSource])).toEqual([[1, 'default'], [2, 'default'], [3, 'default']]);
+    expect(rows[3]).toMatchObject({ points: 4.5, pointsSource: 'file' });
+    expect(rows[4].errors.join(' ')).toMatch(/points must be a positive number/);
+  });
+  it('validates true_false rows without option columns and accepts T/F aliases', () => {
+    const head = ['type', 'stem', 'correct', 'explanation'];
+    const rows = parseQuestionRows([head, ['true_false', 'Robots can move', 'T', 'e'], ['true_false', 'Robots cannot move', 'no', 'e'], ['true_false', 'Bad', 'maybe', 'e'], ['true_false', 'Two', 'true;false', 'e']]);
+    expect(rows[0].errors).toEqual([]); expect(rows[0].content?.answerKey).toEqual(['true']);
+    expect(rows[1].content?.answerKey).toEqual(['false']);
+    expect(rows[2].errors.join(' ')).toMatch(/does not exist/);
+    expect(rows[3].errors.join(' ')).toMatch(/exactly one/);
+    expect(() => parseQuestionRows([['type', 'stem', 'correct'], ['single_choice', 's', 'a']])).toThrow(/option_a/);
+  });
+  it('rejects options on a true_false row', () => {
+    const rows = parseQuestionRows([['type', 'stem', 'option_a', 'option_b', 'correct', 'explanation'], ['true_false', 's', 'x', 'y', 'true', 'e']]);
+    expect(rows[0].errors.join(' ')).toMatch(/must not list options/);
   });
   it('preserves XML special characters and sparse cells in XLSX', () => {
     const t = [['a', 'b', 'c'], ['<&>"', '', 'z']];

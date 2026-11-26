@@ -8,13 +8,16 @@ import { deflateRawSync, inflateRawSync } from 'node:zlib';
 export const IMPORT_MAX_BYTES = 1024 * 1024;
 export const IMPORT_MAX_ROWS = 500;
 export const OPTION_LETTERS = ['a', 'b', 'c', 'd', 'e', 'f'] as const;
-export const TEMPLATE_HEADERS = ['code', 'type', 'difficulty', 'cognitive_level', 'stem', ...OPTION_LETTERS.map((l) => `option_${l}`), 'correct', 'points', 'explanation', 'source_reference'];
+/** Default points when the file gives none (owner decision 2026-11-26). An explicit points value is always preserved. */
+export const DEFAULT_POINTS_BY_DIFFICULTY: Record<string, number> = { easy: 1, medium: 2, hard: 3 };
+export const TEMPLATE_HEADERS = ['code', 'type', 'difficulty', 'cognitive_level', 'stem', ...OPTION_LETTERS.map((l) => `option_${l}`), 'correct', 'points', 'explanation', 'source_reference', 'course', 'lesson', 'learning_section', 'topic', 'learning_objective'];
 
 export type ImportedContent = {
-  type: 'single_choice' | 'multiple_choice'; difficulty: string; cognitiveLevel: string; stem: string;
+  type: 'single_choice' | 'multiple_choice' | 'true_false'; difficulty: string; cognitiveLevel: string; stem: string;
   options: Array<{ id: string; text: string }>; answerKey: string[]; explanation: string; sourceReference?: string;
 };
-export type ParsedRow = { rowNumber: number; code?: string; points?: number; content?: ImportedContent; errors: string[]; duplicateOfRow?: number };
+export type RowMapping = { course?: string; lesson?: string; learningSection?: string; topic?: string; learningObjective?: string };
+export type ParsedRow = { rowNumber: number; code?: string; points?: number; pointsSource?: 'file' | 'default'; mapping: RowMapping; content?: ImportedContent; errors: string[]; duplicateOfRow?: number };
 export class ImportFileError extends Error {}
 
 const DIFFICULTY = ['easy', 'medium', 'hard'];
@@ -149,38 +152,45 @@ export function parseQuestionRows(table: string[][]): ParsedRow[] {
   if (table.length < 2) throw new ImportFileError('The file needs a header row and at least one question.');
   if (table.length - 1 > IMPORT_MAX_ROWS) throw new ImportFileError(`At most ${IMPORT_MAX_ROWS} questions can be imported at once.`);
   const header = table[0].map(norm);
-  for (const required of ['type', 'stem', 'correct', 'option_a', 'option_b']) if (!header.includes(required)) throw new ImportFileError(`Missing required column "${required}".`);
+  for (const required of ['type', 'stem', 'correct']) if (!header.includes(required)) throw new ImportFileError(`Missing required column "${required}".`);
+  if (!header.includes('option_a') || !header.includes('option_b')) { if (!table.slice(1).every((cells) => norm(cells[header.indexOf('type')] ?? '') === 'true_false')) throw new ImportFileError('Missing required column "option_a" / "option_b".'); }
   const idx = (name: string) => header.indexOf(name);
   const seen = new Map<string, number>();
   return table.slice(1).map((cells, i): ParsedRow => {
     const rowNumber = i + 2; const get = (n: string) => (idx(n) >= 0 ? (cells[idx(n)] ?? '').trim() : '');
     const errors: string[] = [];
     const type = norm(get('type'));
-    if (type !== 'single_choice' && type !== 'multiple_choice') errors.push('type must be single_choice or multiple_choice.');
+    if (type !== 'single_choice' && type !== 'multiple_choice' && type !== 'true_false') errors.push('type must be single_choice, multiple_choice or true_false.');
     const difficulty = norm(get('difficulty')) || 'medium';
     if (!DIFFICULTY.includes(difficulty)) errors.push('difficulty must be easy, medium or hard.');
     const cognitiveLevel = norm(get('cognitive_level')) || 'understand';
     if (!COGNITIVE.includes(cognitiveLevel)) errors.push(`cognitive_level must be one of ${COGNITIVE.join(', ')}.`);
     const stem = get('stem');
     if (!stem) errors.push('stem is required.'); else if (stem.length > 10000) errors.push('stem is too long.');
-    const options = OPTION_LETTERS.map((l) => ({ id: l, text: get(`option_${l}`) })).filter((o) => o.text !== '');
+    const isTrueFalse = type === 'true_false';
+    const options = isTrueFalse ? [{ id: 'true', text: 'True' }, { id: 'false', text: 'False' }] : OPTION_LETTERS.map((l) => ({ id: l, text: get(`option_${l}`) })).filter((o) => o.text !== '');
+    if (isTrueFalse && OPTION_LETTERS.some((l) => get(`option_${l}`) !== '')) errors.push('true_false must not list options; leave option columns empty.');
     if (options.length < 2) errors.push('At least two options are required.');
     if (options.some((o) => o.text.length > 2000)) errors.push('An option is too long.');
     if (new Set(options.map((o) => o.text.toLowerCase())).size !== options.length) errors.push('Options must be distinct.');
-    for (let k = 0; k < OPTION_LETTERS.length; k++) if (options.some((o) => o.id === OPTION_LETTERS[k]) && k > 0 && !options.some((o) => o.id === OPTION_LETTERS[k - 1])) { errors.push('Options must be filled in order without gaps.'); break; }
-    const answerKey = get('correct').split(/[;,|\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (!isTrueFalse) for (let k = 0; k < OPTION_LETTERS.length; k++) if (options.some((o) => o.id === OPTION_LETTERS[k]) && k > 0 && !options.some((o) => o.id === OPTION_LETTERS[k - 1])) { errors.push('Options must be filled in order without gaps.'); break; }
+    const TF_ALIASES: Record<string, string> = { true: 'true', t: 'true', yes: 'true', false: 'false', f: 'false', no: 'false' };
+    const answerKey = get('correct').split(/[;,|\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean).map((a) => (isTrueFalse ? (TF_ALIASES[a] ?? a) : a));
     if (!answerKey.length) errors.push('correct is required.');
     else if (answerKey.some((a) => !options.some((o) => o.id === a))) errors.push('correct refers to an option that is empty or does not exist.');
     else if (new Set(answerKey).size !== answerKey.length) errors.push('correct lists an option twice.');
-    else if (type === 'single_choice' && answerKey.length !== 1) errors.push('single_choice needs exactly one correct option.');
+    else if ((type === 'single_choice' || isTrueFalse) && answerKey.length !== 1) errors.push(`${type} needs exactly one correct option.`);
     else if (type === 'multiple_choice' && answerKey.length < 2) errors.push('multiple_choice needs at least two correct options.');
     const explanation = get('explanation');
     if (!explanation) errors.push('explanation is required.');
-    let points: number | undefined;
-    if (get('points')) { const n = Number(get('points')); if (!Number.isFinite(n) || n <= 0 || n > 1000 || Math.abs(n * 100 - Math.round(n * 100)) > 1e-9) errors.push('points must be a positive number with at most 2 decimals.'); else points = n; }
+    let points: number | undefined; let pointsSource: ParsedRow['pointsSource'];
+    if (get('points')) { const n = Number(get('points')); if (!Number.isFinite(n) || n <= 0 || n > 1000 || Math.abs(n * 100 - Math.round(n * 100)) > 1e-9) errors.push('points must be a positive number with at most 2 decimals.'); else { points = n; pointsSource = 'file'; } }
+    else if (DIFFICULTY.includes(difficulty)) { points = DEFAULT_POINTS_BY_DIFFICULTY[difficulty]; pointsSource = 'default'; }
     const code = get('code') || undefined;
     if (code && code.length > 80) errors.push('code is too long.');
-    const row: ParsedRow = { rowNumber, code, points, errors };
+    const mapping: RowMapping = { course: get('course') || undefined, lesson: get('lesson') || undefined, learningSection: get('learning_section') || undefined, topic: get('topic') || undefined, learningObjective: get('learning_objective') || undefined };
+    if (mapping.topic && mapping.topic.length > 200) errors.push('topic is too long.');
+    const row: ParsedRow = { rowNumber, code, points, pointsSource, mapping, errors };
     if (stem) { const key = normalizeStem(stem); const first = seen.get(key); if (first !== undefined) row.duplicateOfRow = first; else seen.set(key, rowNumber); }
     if (!errors.length) row.content = { type: type as ImportedContent['type'], difficulty, cognitiveLevel, stem, options, answerKey, explanation, sourceReference: get('source_reference') || undefined };
     return row;
@@ -188,8 +198,13 @@ export function parseQuestionRows(table: string[][]): ParsedRow[] {
 }
 
 export function templateTable(): string[][] {
+  const blank = (n: number) => Array(n).fill('');
+  // Columns: code,type,difficulty,cognitive_level,stem,option_a..f,correct,points,explanation,source_reference,course,lesson,learning_section,topic,learning_objective.
+  // course/lesson/learning_section/learning_objective are optional cross-checks and are left blank in the samples so the template imports into any lesson.
+  const tail = (topic: string) => ['', '', '', topic, ''];
   return [TEMPLATE_HEADERS,
-    ['', 'single_choice', 'easy', 'remember', 'Which component stores the robot program?', 'Controller', 'Gripper', 'Camera', '', '', '', 'A', '1', 'The controller runs and stores the program.', ''],
-    ['', 'multiple_choice', 'medium', 'understand', 'Which are robot sensors?', 'Camera', 'Encoder', 'Battery case', 'Force sensor', '', '', 'A;B;D', '3', 'Cameras, encoders and force sensors sense the environment.', 'Unit 1'],
+    ['', 'single_choice', 'easy', 'remember', 'Which component stores the robot program?', 'Controller', 'Gripper', 'Camera', ...blank(3), 'A', '', 'The controller runs and stores the program.', '', ...tail('Robot safety')],
+    ['', 'multiple_choice', 'medium', 'understand', 'Which are robot sensors?', 'Camera', 'Encoder', 'Battery case', 'Force sensor', '', '', 'A;B;D', '', 'Cameras, encoders and force sensors sense the environment.', 'Unit 1', ...tail('Sensing')],
+    ['', 'true_false', 'hard', 'apply', 'The emergency stop may be released before the cause is fixed.', ...blank(6), 'false', '5', 'Never release a stop before the cause is cleared.', '', ...tail('Robot safety')],
   ];
 }

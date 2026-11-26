@@ -1,0 +1,121 @@
+{
+  "source_counts": {
+    "courses": 3,
+    "lessons": 18,
+    "questions": 180
+  },
+  "vi_files": [
+    {
+      "file": "vi_beginner_lesson1.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_beginner_lesson2.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_beginner_lesson3.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_beginner_lesson4.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_beginner_lesson5.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_beginner_lesson6.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_intermediate_lesson1.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_intermediate_lesson2.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_intermediate_lesson3.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_intermediate_lesson4.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_intermediate_lesson5.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_intermediate_lesson6.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_advanced_lesson1.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_advanced_lesson2.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_advanced_lesson3.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_advanced_lesson4.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_advanced_lesson5.csv",
+      "rows": 10
+    },
+    {
+      "file": "vi_advanced_lesson6.csv",
+      "rows": 10
+    }
+  ],
+  "en_files": [
+    {
+      "file": "en_beginner_lesson1.csv",
+      "rows": 10
+    },
+    {
+      "file": "en_beginner_lesson2.csv",
+      "rows": 10
+    },
+    {
+      "file": "en_beginner_lesson3.csv",
+      "rows": 10
+    },
+    {
+      "file": "en_beginner_lesson4.csv",
+      "rows": 10
+    },
+    {
+      "file": "en_beginner_lesson5.csv",
+      "rows": 10
+    },
+    {
+      "file": "en_beginner_lesson6.csv",
+      "rows": 10
+    }
+  ],
+  "excluded": [],
+  "issues": [],
+  "totals": {
+    "vi_rows": 180,
+    "en_rows": 60,
+    "excluded": 0
+  },
+  "open_issues": [
+    "Vietnamese explanations are the source text (echo of the correct option); not improved.",
+    "No learning_section values exist in the source; the column is empty. Recommendations resolve sections through learning objectives.",
+    "points left blank: importer default easy 1 / medium 2 / hard 3 applies.",
+    "Each lesson has one learning outcome; the importer auto-codes outcomes LO-<ordinal> per lesson, so every row references LO-1 and the source code (LO-01..LO-18) is kept in source_reference.",
+    "Source Bloom level \"Thông hiểu / ứng dụng\" is mapped to \"understand\"."
+  ]
+}

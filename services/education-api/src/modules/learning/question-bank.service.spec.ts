@@ -28,6 +28,7 @@ describe('QuestionBankService', () => {
       learning_questions: { findUnique: jest.fn().mockResolvedValue(q), create: jest.fn().mockResolvedValue(q), findMany: jest.fn().mockResolvedValue([q]), count: jest.fn().mockResolvedValue(1) },
       learning_question_versions: { findUnique: jest.fn().mockResolvedValue(v), findUniqueOrThrow: jest.fn().mockResolvedValue(v), findFirst: jest.fn().mockResolvedValue(null), create: jest.fn().mockImplementation(async ({ data }) => data), findMany: jest.fn().mockResolvedValue([v]), count: jest.fn().mockResolvedValue(1), updateMany: jest.fn().mockResolvedValue({ count: 1 }), update: jest.fn().mockImplementation(async ({ data }) => data) },
       learning_objectives: { findMany: jest.fn().mockResolvedValue([{ id: objective }]) },
+      learning_sections: { findMany: jest.fn().mockResolvedValue([]) },
       learning_question_version_objectives: { count: jest.fn().mockResolvedValue(1), deleteMany: jest.fn(), createMany: jest.fn(), findMany: jest.fn().mockResolvedValue([{ objective_id: objective }]) },
       learning_assignments: { findUnique: jest.fn().mockResolvedValue({ id: assignment, lesson_id: lesson, learning_lessons: { course_id: course, learning_courses: { organization_id: org } } }) },
       learning_classroom_assignments: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -67,6 +68,8 @@ describe('QuestionBankService', () => {
     db.learning_lessons.findUnique.mockResolvedValue({ id: lesson, course_id: course, learning_courses: { organization_id: null } });
     db.learning_question_versions.findMany.mockResolvedValue([]);
     db.learning_questions.findMany.mockResolvedValue([]);
+    db.learning_sections.findMany.mockResolvedValue([]);
+    db.learning_objectives.findMany.mockResolvedValue([]);
     const csv = Buffer.from(toCsv([
       ['code', 'type', 'difficulty', 'cognitive_level', 'stem', 'option_a', 'option_b', 'option_c', 'correct', 'points', 'explanation'],
       ['GQ-IMPORT', 'single_choice', 'easy', 'understand', 'Which is safe?', 'Stop', 'Go', '', 'A', '1', 'Stop first.'],

@@ -5,7 +5,8 @@ import { assertCourseNotArchived } from './course-lifecycle';
 import { AuthenticatedUser } from '../identity/auth/authenticated-user.interface';
 import { AddAssignmentQuestionDto, CreateQuestionDto, ObjectiveMappingDto, QuestionSearchDto, ReorderAssignmentQuestionsDto, UpdateVersionDto, VersionContentDto } from './dto/question-bank.dto';
 
-import { ImportFileError, ParsedRow, normalizeStem, parseQuestionRows, readImportTable } from './question-import';
+import { createHash } from 'node:crypto';
+import { DEFAULT_POINTS_BY_DIFFICULTY, ImportFileError, ParsedRow, normalizeStem, parseQuestionRows, readImportTable } from './question-import';
 
 const cognitiveLevels = ['remember', 'understand', 'apply', 'analyze', 'evaluate', 'create'];
 type Content = VersionContentDto;
@@ -96,7 +97,7 @@ export class QuestionBankService {
    * canonical validators; a failure after the
    * draft exists leaves a draft the author can edit or discard.
    */
-  async authorLessonQuestion(user: AuthenticatedUser, lessonId: string, input: { code?: string; content: VersionContentDto; objectiveId?: string; newObjective?: string; publish?: boolean }) {
+  async authorLessonQuestion(user: AuthenticatedUser, lessonId: string, input: { code?: string; content: VersionContentDto; objectiveId?: string; newObjective?: string; publish?: boolean; domain?: string }) {
     const lesson = await this.lessonOrg(user, lessonId);
     let objectiveId = input.objectiveId;
     if (!objectiveId) {
@@ -104,7 +105,7 @@ export class QuestionBankService {
       objectiveId = (await this.createObjective(user, lessonId, input.newObjective)).id;
     }
     const code = input.code?.trim() || `Q-${Date.now().toString(36).toUpperCase()}`;
-    const question = await this.createQuestion(user, { code, courseId: lesson.course_id, lessonId, organizationId: lesson.learning_courses.organization_id ?? undefined });
+    const question = await this.createQuestion(user, { code, courseId: lesson.course_id, lessonId, organizationId: lesson.learning_courses.organization_id ?? undefined, ...(input.domain ? { domain: input.domain } : {}) });
     const version = await this.createVersion(user, question.id, input.content);
     await this.mapObjectives(user, version.id, { objectiveIds: [objectiveId] } as never);
     if (input.publish === false) return { questionId: question.id, versionId: version.id, status: 'draft' };
@@ -113,7 +114,11 @@ export class QuestionBankService {
     return { questionId: question.id, versionId: version.id, status: 'published' };
   }
 
-  /** Parses an uploaded CSV/XLSX and reports per-row validity and duplicates; writes nothing. */
+  /**
+   * Parses an uploaded CSV/XLSX and reports per-row validity, duplicates and mapping resolution; writes nothing.
+   * Row-level mapping (course / lesson / learning_section / learning_objective columns) must resolve against the selected lesson;
+   * a row that names something else is excluded with a reason, never silently re-targeted. `fileSha256` binds a later commit to this file.
+   */
   async importPreview(user: AuthenticatedUser, lessonId: string, filename: string, file: Buffer) {
     const lesson = await this.lessonOrg(user, lessonId);
     let rows: ParsedRow[];
@@ -121,38 +126,69 @@ export class QuestionBankService {
       if (error instanceof ImportFileError) throw new BadRequestException(error.message);
       throw error;
     }
-    const existing = await this.prisma.learning_question_versions.findMany({ where: { status: { not: 'archived' }, question: { is: { lesson_id: lessonId } } }, select: { stem: true, question: { select: { code: true } } } });
+    const [existing, sections, objectives] = await Promise.all([
+      this.prisma.learning_question_versions.findMany({ where: { status: { not: 'archived' }, question: { is: { lesson_id: lessonId } } }, select: { stem: true, question: { select: { code: true } } } }),
+      this.prisma.learning_sections.findMany({ where: { lesson_id: lessonId }, select: { title: true } }),
+      this.prisma.learning_objectives.findMany({ where: { lesson_id: lessonId }, select: { id: true, code: true } }),
+    ]);
     const byStem = new Map(existing.map((v) => [normalizeStem(v.stem), v.question.code]));
     const codes = new Set((await this.prisma.learning_questions.findMany({ where: { organization_id: lesson.learning_courses.organization_id, code: { in: rows.flatMap((r) => (r.code ? [r.code] : [])) } }, select: { code: true } })).map((q) => q.code));
+    const sha = createHash('sha256').update(file).digest('hex');
+    const same = (a: string | undefined, b: string) => a !== undefined && a.normalize('NFKC').trim().toLowerCase() === b.normalize('NFKC').trim().toLowerCase();
+    const sectionTitles = new Set(sections.map((x) => x.title.normalize('NFKC').trim().toLowerCase()));
+    const objectiveByCode = new Map(objectives.map((o) => [o.code.normalize('NFKC').trim().toLowerCase(), o.id]));
     const fileCodes = new Set<string>();
     const items = rows.map((r) => {
       const errors = [...r.errors];
-      if (r.code) { if (codes.has(r.code)) errors.push('code already exists in this organization.'); else if (fileCodes.has(r.code)) errors.push('code is repeated in the file.'); fileCodes.add(r.code); }
-      const duplicateOf = r.duplicateOfRow !== undefined ? { row: r.duplicateOfRow } : r.content && byStem.has(normalizeStem(r.content.stem)) ? { existingCode: byStem.get(normalizeStem(r.content.stem)) } : undefined;
+      const m = r.mapping;
+      if (m.course && !same(m.course, lesson.learning_courses.title)) errors.push(`course "${m.course}" does not match this course ("${lesson.learning_courses.title}").`);
+      if (m.lesson && !same(m.lesson, String(lesson.ordinal)) && !same(m.lesson, lesson.title)) errors.push(`lesson "${m.lesson}" does not match this lesson (#${lesson.ordinal} "${lesson.title}").`);
+      if (m.learningSection && !sectionTitles.has(m.learningSection.normalize('NFKC').trim().toLowerCase())) errors.push(`learning_section "${m.learningSection}" does not exist in this lesson.`);
+      const objectiveId = m.learningObjective ? objectiveByCode.get(m.learningObjective.normalize('NFKC').trim().toLowerCase()) : undefined;
+      if (m.learningObjective && !objectiveId) errors.push(`learning_objective "${m.learningObjective}" is not a Learning Outcome code of this lesson (a default outcome can be chosen at import).`);
+      if (m.topic && m.topic.length > 120) errors.push('topic must be at most 120 characters.');
+      const existingCode = r.content ? byStem.get(normalizeStem(r.content.stem)) : undefined;
+      // The same code carrying the same question already in this lesson means "already imported" (a duplicate to skip), not an error.
+      const alreadyImported = !!r.code && existingCode === r.code;
+      if (r.code) { if (codes.has(r.code) && !alreadyImported) errors.push('code already exists in this organization.'); else if (fileCodes.has(r.code)) errors.push('code is repeated in the file.'); fileCodes.add(r.code); }
+      const duplicateOf = r.duplicateOfRow !== undefined ? { row: r.duplicateOfRow } : existingCode !== undefined ? { existingCode } : undefined;
       const status = errors.length ? 'invalid' : duplicateOf ? 'duplicate' : 'valid';
-      return { rowNumber: r.rowNumber, status, errors, duplicateOf, points: r.points, stem: r.content?.stem, type: r.content?.type };
+      return { rowNumber: r.rowNumber, status, errors, duplicateOf, points: r.points, pointsSource: r.pointsSource, stem: r.content?.stem, type: r.content?.type, difficulty: r.content?.difficulty, topic: m.topic, learningSection: m.learningSection, learningObjectiveCode: m.learningObjective, objectiveResolved: m.learningObjective ? Boolean(objectiveId) : undefined };
     });
     const count = (st: string) => items.filter((i) => i.status === st).length;
-    return { total: items.length, valid: count('valid'), invalid: count('invalid'), duplicates: count('duplicate'), items };
+    return { fileSha256: sha, total: items.length, valid: count('valid'), invalid: count('invalid'), duplicates: count('duplicate'), items };
   }
 
-  /** Imports every valid, non-duplicate row as a published question of the lesson. Rows succeed or fail independently. */
-  async importCommit(user: AuthenticatedUser, lessonId: string, filename: string, file: Buffer, opts: { objectiveId?: string; newObjective?: string; publish: boolean }) {
+  /**
+   * Imports every valid, non-duplicate row as a DRAFT question of the lesson (publish only on request). The commit is bound to the previewed
+   * file by `expectedSha256`, re-validates the file at commit time, and is idempotent: auto-generated codes derive from the file hash and row,
+   * so repeating the same file reports its rows as duplicates instead of creating copies. Rows succeed or fail independently.
+   */
+  async importCommit(user: AuthenticatedUser, lessonId: string, filename: string, file: Buffer, opts: { objectiveId?: string; newObjective?: string; publish: boolean; expectedSha256?: string; confirm?: boolean }) {
+    if (!opts.confirm) throw new BadRequestException('Import must be explicitly confirmed.');
     const preview = await this.importPreview(user, lessonId, filename, file);
+    if (!opts.expectedSha256 || opts.expectedSha256.toLowerCase() !== preview.fileSha256) throw new ConflictException('The uploaded file differs from the file that was previewed. Preview it again before importing.');
     const importable = preview.items.filter((i) => i.status === 'valid');
     if (!importable.length) return { ...preview, created: 0, failed: 0, results: [] as ImportRowResult[] };
-    let objectiveId = opts.objectiveId;
-    if (!objectiveId) {
-      if (!opts.newObjective?.trim()) throw new BadRequestException('Choose or enter a Learning Outcome for the imported questions.');
-      objectiveId = (await this.createObjective(user, lessonId, opts.newObjective)).id;
-    } else if (!(await this.prisma.learning_objectives.count({ where: { id: objectiveId, lesson_id: lessonId } }))) throw new BadRequestException('Learning Outcome must belong to the lesson.');
     const parsed = new Map(parseQuestionRows(readImportTable(filename, file)).map((r) => [r.rowNumber, r]));
-    const batch = Date.now().toString(36).toUpperCase();
+    const rowObjectives = new Map((await this.prisma.learning_objectives.findMany({ where: { lesson_id: lessonId }, select: { id: true, code: true } })).map((o) => [o.code.normalize('NFKC').trim().toLowerCase(), o.id]));
+    let defaultObjectiveId = opts.objectiveId;
+    const needsDefault = importable.some((i) => !parsed.get(i.rowNumber)!.mapping.learningObjective);
+    if (needsDefault) {
+      if (!defaultObjectiveId) {
+        if (!opts.newObjective?.trim()) throw new BadRequestException('Choose or enter a Learning Outcome for the imported questions.');
+        defaultObjectiveId = (await this.createObjective(user, lessonId, opts.newObjective)).id;
+      } else if (!(await this.prisma.learning_objectives.count({ where: { id: defaultObjectiveId, lesson_id: lessonId } }))) throw new BadRequestException('Learning Outcome must belong to the lesson.');
+    }
+    const batch = preview.fileSha256.slice(0, 8).toUpperCase();
     const results: ImportRowResult[] = [];
     for (const item of importable) {
       const row = parsed.get(item.rowNumber)!;
+      const objectiveId = row.mapping.learningObjective ? rowObjectives.get(row.mapping.learningObjective.normalize('NFKC').trim().toLowerCase()) : defaultObjectiveId;
       try {
-        const out = await this.authorLessonQuestion(user, lessonId, { code: row.code ?? `IMP-${batch}-${item.rowNumber}`, content: row.content as VersionContentDto, objectiveId, publish: opts.publish });
+        const audit = `import:${batch}:row${item.rowNumber}`;
+        const content = { ...(row.content as VersionContentDto), sourceReference: [row.content?.sourceReference, audit].filter(Boolean).join(' | ').slice(0, 500) };
+        const out = await this.authorLessonQuestion(user, lessonId, { code: row.code ?? `IMP-${batch}-${item.rowNumber}`, content, objectiveId, publish: opts.publish, domain: row.mapping.topic });
         results.push({ rowNumber: item.rowNumber, status: 'created', versionId: out.versionId, points: row.points });
       } catch (error) {
         results.push({ rowNumber: item.rowNumber, status: 'failed', message: error instanceof Error ? error.message : 'Unknown error' });
@@ -388,7 +424,7 @@ export class QuestionBankService {
     const mapped = await this.prisma.learning_question_version_objectives.count({ where: { question_version_id: v.id } });
     if (!mapped) throw new BadRequestException('Question must cover a Learning Outcome.');
     try {
-      return await this.prisma.learning_assignment_question_versions.create({ data: { assignment_id: assignmentId, question_id: v.question_id, question_version_id: v.id, ordinal: input.ordinal, points: input.points } });
+      return await this.prisma.learning_assignment_question_versions.create({ data: { assignment_id: assignmentId, question_id: v.question_id, question_version_id: v.id, ordinal: input.ordinal, points: input.points ?? DEFAULT_POINTS_BY_DIFFICULTY[v.difficulty] ?? 1 } });
     } catch (error) {
       if (this.unique(error)) throw new ConflictException('Question or ordinal already exists in this assignment.');
       throw error;
