@@ -5,7 +5,7 @@ Contents: PRs #212–#219 and the closure documentation. See `docs/release/RELEA
 
 - Database migration: **none**. Schema gate expected to pass without a database release.
 - Production MQTT / IoT / Terraform / secrets: **unchanged**.
-- Desktop download: stays *unavailable* until the Desktop release is published and verified.
+- Desktop download: v0.1.0 published and verified (HTTP 200, 131,395,882 bytes, SHA-256 `a5dbca4d54a28de1aae2f254b08484460efb3db6a3eeee7828d8dc24ea3ba8e4`); enabled by PR #221, which must be merged into `develop` first.
 - Acceptance: local integrated pass (PASS), real-GoTrue local suites (PASS), CI green on PR #219; AWS, Desktop E2E, physical: not run/blocked.
 
 ## Required before merge (owner)
@@ -16,5 +16,5 @@ Contents: PRs #212–#219 and the closure documentation. See `docs/release/RELEA
 ## After merge (read-only smoke first)
 - [ ] `/api/v1/health` and `/health/ready` OK; web `version.json` matches the commit.
 - [ ] `GET /api/v1/me/attempts/<uuid>/quiz-result` without a token → 401.
-- [ ] Public site and sign-in load; Homepage Desktop section shows *Download unavailable* (or the verified link if the release was published and verified first).
+- [ ] Public site and sign-in load; Homepage Desktop section shows an active **Download DEB** link (v0.1.0, 125.3 MiB).
 - [ ] One test student in a **test** classroom: quiz result dashboard renders.

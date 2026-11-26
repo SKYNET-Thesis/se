@@ -68,7 +68,7 @@ Full unit/typecheck/lint/build/DB regression was deliberately not run locally (e
 | Mini-quiz, auto grading, points before submission, pass threshold, retake | PASS | existing engine, unchanged |
 | Dashboard: weighted score, PASS/FAIL, rating, type donut, difficulty, objective analytics, recommendations, Review Lesson | PASS (desktop viewport) | |
 | Dashboard on mobile viewport; dark mode | **NOT RUN / N/A** | mobile dashboard not exercised; app has light tokens only |
-| Homepage Desktop download | PASS as **unavailable state** | release is Draft; no public artifact |
+| Homepage Desktop download | **PASS** (state-dependent): #217 verified the unavailable state; PR #221 (open until merged) enables the verified download | Desktop v0.1.0 published 2026-11-26; anonymous download, size 131,395,882, SHA-256 `a5dbca4d54a28de1aae2f254b08484460efb3db6a3eeee7828d8dc24ea3ba8e4`, package metadata verified. Browser checks for the active state: Desktop section, 390/768/1440 px, chapters |
 | Real GoTrue authentication (API + UI) | **PASS** on `7ac0d58`, local disposable real GoTrue v2.197.0: API 13/13, UI 11/11 (one order-dependent rate-limit false failure, see Report 5 §4) | not the hosted Production Supabase project |
 | Blockly, Twin viewer, axe | **PASS** on the merged tree (§3) | |
 
@@ -77,7 +77,7 @@ Full unit/typecheck/lint/build/DB regression was deliberately not run locally (e
 | Level | Status |
 |---|---|
 | Local isolated E2E (this report) | PASS as above |
-| Desktop full E2E (Lab Station ↔ Web) | **NOT RUN** (needs ≥3 GiB free; Desktop v0.1.0 unpublished) |
+| Desktop full E2E (Lab Station ↔ Web) | **NOT RUN** (needs ≥3 GiB free RAM; not run) |
 | AWS Simulation E2E | **NOT RUN / BLOCKED** — approval request in `docs/operations/AWS_SIMULATION_E2E_REPORT.md` |
 | Physical SO-101 | **BLOCKED** — no hardware availability / commissioning approval |
 
@@ -94,7 +94,7 @@ Full unit/typecheck/lint/build/DB regression was deliberately not run locally (e
 | D-07 | P3 | Dark mode absent from the design system | Open — out of scope |
 | D-09 | P1 | #215 regression: `importCommit` returned 400 (confirm validation) to an unauthorized student before authorizing the lesson | **Fixed in #219**, DB regression test added; found by lms-security-matrix (not part of CI) |
 | D-10 | P3 | `website-public-smoke` asserted the pre-#217 three-platform section | Fixed in #219 (honesty assertions kept and tightened) |
-| D-08 | P1 (release) | Desktop v0.1.0 still Draft; download cannot be enabled | Open — owner action |
+| D-08 | P1 (release) | Desktop v0.1.0 was Draft; download could not be enabled | **Resolved**: published 2026-11-26 and verified; enabled by PR #221 (merge pending) |
 
 No open P0. No open P1 in the web/API product code.
 
@@ -105,7 +105,7 @@ Fake follower is not hardware; local mock evidence is not AWS or physical accept
 ## 8. Remaining blockers (owner)
 
 1. Merge the closure documentation PR (Report 5/6, release notes). Release-candidate code revision is already `7ac0d58`.
-2. Publish Desktop v0.1.0 (still Draft; DEB and SHA256SUMS return 404 anonymously, checked 2026-11-26), then verification and `DESKTOP_RELEASE.verification`.
+2. Merge PR #221 (Homepage enables the verified Desktop download). Note GitHub marks the release as pre-release; the anonymous download works, but publish it as a normal release if that is intended.
 3. Approve or revise the AWS E2E plan (`docs/operations/AWS_SIMULATION_E2E_REPORT.md`); physical commissioning approval for hardware.
 4. Production deployment, if desired, needs explicit approval (`RELEASE_CANDIDATE_CHECKLIST.md`). Production runs a pre-RC revision and has not received these changes.
 

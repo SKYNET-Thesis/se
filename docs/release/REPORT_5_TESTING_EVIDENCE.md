@@ -29,7 +29,7 @@ Environment: PostgreSQL 17 (tmpfs), RustFS, Education API built from the merged 
 | Mini-quiz, weights, threshold, dashboard, recommendations | lms-module-quiz | PASS |
 | Blockly | blockly-simulation | PASS |
 | Digital Twin viewer | digital-twin-browser-viewer | PASS |
-| Homepage Desktop section (+390/768/1440 px) | website-public-smoke | FAIL (stale test) → fixed (D-10) → PASS |
+| Homepage Desktop section (+390/768/1440 px) | website-public-smoke | FAIL (stale test) → fixed (D-10) → PASS; re-run for the verified-download state on PR #221: Desktop case, 390/768/1440 px and chapters PASS (one case at a time) |
 | Accessibility (axe A/AA) | platform-axe | PASS |
 
 ## 3. Earlier PR-branch evidence (not re-run; still valid because the code is unchanged)

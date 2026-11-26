@@ -28,13 +28,13 @@ Local test identities are issued by the local JWKS signer, one per role: **Syste
 | 8 (≈0.5 min) | Evidence | Student/Instructor | JSON telemetry evidence with `sourceMode: SIMULATION`, identifiers consistent with the run |
 | 9 (≈1.5 min) | Teacher → Submission review → Download evidence → score + comments → Release | Instructor | WF-04; model metadata shows empty because no model is attached |
 | 10 (≈0.5 min) | Student sees released feedback | Student | |
-| 11 (optional) | Desktop Simulation Lab | — | demonstrate from the installed/dev Lab Station build **only if** the owner supplies it; otherwise show the Homepage Desktop section (download unavailable — release is a Draft) |
+| 11 (optional) | Desktop Simulation Lab | — | demonstrate from the installed/dev Lab Station build **only if** the owner supplies it; otherwise show the Homepage Desktop section (Ubuntu amd64 **Download DEB** with terminal commands; Windows/macOS Coming Soon; needs PR #221 merged or run from that branch) |
 
-Rehearsal verified 2026-11-26 on `develop` `18f2dfa`: every step above has a passing automated equivalent (acceptance report §3). The Homepage Desktop section currently shows *Download unavailable* (release is Draft).
+Rehearsal verified 2026-11-26 on `develop` `18f2dfa`: every step above has a passing automated equivalent (acceptance report §3). The Homepage Desktop section shows the active Ubuntu download once PR #221 is merged (Desktop v0.1.0 verified 2026-11-26).
 
 ## Known limitations to state
 
-Fake follower ≠ hardware; AWS E2E not run; physical robot blocked; Desktop v0.1.0 unpublished so the Homepage download is disabled; Vietnamese pilot explanations are source echo; English demo content is a generated draft pending instructor review; the app has no dark mode.
+Fake follower ≠ hardware; AWS E2E not run; physical robot blocked; the Desktop↔Web end-to-end test was not run (the Desktop package itself is published and checksum-verified); Vietnamese pilot explanations are source echo; English demo content is a generated draft pending instructor review; the app has no dark mode.
 
 ## Recovery
 

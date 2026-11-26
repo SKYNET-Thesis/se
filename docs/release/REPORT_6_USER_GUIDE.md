@@ -99,14 +99,20 @@ Assignments → open → **Submit assignment**; the status is shown; after gradi
 
 Scope: **Ubuntu amd64 only** (tested on Ubuntu 26.04.1; other releases are not claimed). Windows and macOS are **Coming Soon**; there is no AppImage.
 
-**Availability.** The Homepage **Download VISTA Desktop** section enables the download only after the public release file and its SHA-256 checksum are verified. As of 2026-11-26 the v0.1.0 release is still a **Draft** (anonymous download returns 404), so the button reads **Download unavailable** and the install commands cannot be copied. Ask your administrator for the package if you need it before then.
+**Availability.** v0.1.0 is published and was verified on 2026-11-26 (anonymous download works; size 131,395,882 bytes ≈ 125.3 MiB; SHA-256 `a5dbca4d54a28de1aae2f254b08484460efb3db6a3eeee7828d8dc24ea3ba8e4`; package `vista-lab-station` 0.1.0, amd64). The Homepage **Download VISTA Desktop** section shows an active **Download DEB** button once the web release containing this change is deployed; until then Production still shows *Download unavailable*.
 
-Once available:
-1. Download the `.deb` and `SHA256SUMS` from the Homepage; verify with `sha256sum -c SHA256SUMS` (Command Line tab).
+Install (Homepage → Command Line tab has Copy buttons):
+```bash
+curl -fL "https://github.com/leduc121/vista_lab/releases/download/v0.1.0/VISTA.Lab.Station-0.1.0-amd64.deb" -o /tmp/vista-lab-station.deb
+echo "a5dbca4d54a28de1aae2f254b08484460efb3db6a3eeee7828d8dc24ea3ba8e4  /tmp/vista-lab-station.deb" | sha256sum -c -   # must print: OK
+sudo apt install /tmp/vista-lab-station.deb
+gtk-launch vista-lab-station
+```
+1. Download and verify the checksum (the second command must print `OK`; you may also compare with the published `SHA256SUMS`).
 2. `sudo apt install /tmp/vista-lab-station.deb` (APT installs dependencies).
 3. Launch **VISTA Lab Station** from the application menu or `gtk-launch vista-lab-station`.
 4. Sign in with your student account. Assignments and evidence stay in the VISTA web app.
-Simulation Profile: no GPU needed. Robotics Profile (advanced): needs an operator-managed Python 3.12.14 environment and an authorized VISTA Edge checkout selected in Settings; it is not bundled. **Physical robot operation is not certified by this release.** Full Desktop↔Web end-to-end acceptance has **not been run** (the release is unpublished).
+Simulation Profile: no GPU needed. Robotics Profile (advanced): needs an operator-managed Python 3.12.14 environment and an authorized VISTA Edge checkout selected in Settings; it is not bundled. **Physical robot operation is not certified by this release.** Full Desktop↔Web end-to-end acceptance has **not been run**.
 
 ## 6. Troubleshooting
 
@@ -119,7 +125,8 @@ Simulation Profile: no GPU needed. Robotics Profile (advanced): needs an operato
 | Import rejected | Read the row errors; fix the file; check the 1 MB / 500-row limits and the template header |
 | "Import must be explicitly confirmed" | Tick the review confirmation after previewing |
 | Session expired / signed out | Sign in again; use Forgot password for staff accounts |
-| Download button unavailable on the Homepage | The Desktop release is not published/verified yet (see section 5) |
+| Download button unavailable on the Homepage | The deployed web version predates the verified-download change (see section 5) |
+| `sha256sum` does not print OK | Delete the file and download again; do not install a package that fails the check |
 
 ## 7. Known limitations
 
