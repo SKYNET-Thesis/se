@@ -62,4 +62,22 @@ describe('lesson activity model', () => {
     }));
     expect(unlinked[0]).toMatchObject({ actionable: false, status: 'unavailable' });
   });
+
+  describe('Module 5 authored in the Course Builder', () => {
+    const authored = [{ id: 'section-1', title: 'Briefing', ordinal: 1, activities: [{ id: 'reading-1', title: 'Briefing reading', type: 'reading', ordinal: 1, required: true }] }];
+    const qualified = { qualifiedProgramVersionId: 'pv-1' } as unknown as LessonDetailResponse['qualification'];
+    it('keeps the authored activities and adds the physical-lab steps once the learner is qualified', () => {
+      const items = buildLessonActivities(lesson({ ordinal: 5, databaseSections: authored, qualification: qualified }));
+      expect(items.map((item) => item.title)).toEqual(['Briefing reading', 'Robot Readiness / Safety Check', 'Physical Experiment', 'Result / Evidence', 'Reflection']);
+      expect(items.find((item) => item.id === 'lesson-1-physical')).toMatchObject({ type: 'physical_lab', actionable: true, authoritative: true });
+    });
+    it('shows only the authored activities before qualification (nothing is offered that the server would refuse)', () => {
+      const items = buildLessonActivities(lesson({ ordinal: 5, databaseSections: authored, qualification: null }));
+      expect(items.map((item) => item.title)).toEqual(['Briefing reading']);
+    });
+    it('never adds physical-lab steps to other modules', () => {
+      const items = buildLessonActivities(lesson({ ordinal: 4, databaseSections: authored, qualification: qualified }));
+      expect(items.some((item) => item.type === 'physical_lab')).toBe(false);
+    });
+  });
 });
