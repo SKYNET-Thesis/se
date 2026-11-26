@@ -33,19 +33,56 @@ describe('DesktopDownloadChapter', () => {
   afterEach(() => { act(() => root.unmount()); container.remove(); vi.unstubAllGlobals(); });
   const render = async () => act(async () => { root.render(<DesktopDownloadChapter />); await Promise.resolve(); });
 
-  it('keeps all platforms visible, recommends detected OS, and allows manual selection', async () => {
+  it('shows Ubuntu amd64 plus Windows and macOS as Coming Soon, with no AppImage', async () => {
     await render();
     expect(container.querySelectorAll('article')).toHaveLength(3);
-    expect(container.textContent).toContain('Recommended');
-    const linux = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Linux')!;
-    act(() => linux.click()); expect(linux.getAttribute('aria-pressed')).toBe('true');
+    expect(container.textContent).toContain('Ubuntu'); expect(container.textContent).toContain('amd64');
+    expect(container.textContent).toContain('Windows'); expect(container.textContent).toContain('macOS');
+    expect(container.textContent?.match(/Coming Soon/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(container.textContent).not.toMatch(/AppImage(?! )/); // only the guide's "There is no AppImage." statement may mention it
+    expect(container.textContent).not.toMatch(/\.exe|\.dmg/);
   });
 
-  it('shows unavailable artifact states with no download links', async () => {
+  it('does not recommend Ubuntu on Windows but does on Linux', async () => {
     await render();
-    expect(container.querySelectorAll('button[disabled]')).toHaveLength(3);
-    expect(container.textContent).toContain('No verified Windows release artifact');
-    expect(container.querySelectorAll('a[href*="download"]')).toHaveLength(0);
+    expect(container.textContent).not.toContain('Recommended');
+    vi.stubGlobal('navigator', { userAgent: 'Mozilla X11 Linux x86_64', platform: 'Linux x86_64' });
+    act(() => root.unmount()); root = createRoot(container);
+    await render();
+    expect(container.textContent).toContain('Recommended');
+  });
+
+  it('keeps the download unavailable while the release is unverified: disabled controls, no download link', async () => {
+    await render();
+    expect(container.querySelectorAll('a[href*="github.com"]')).toHaveLength(0);
+    expect([...container.querySelectorAll('button[disabled]')].map((b) => b.textContent)).toEqual(['Download unavailable', 'Coming Soon', 'Coming Soon']);
+    expect(container.textContent).toContain('not yet publicly available');
+    const commandTab = [...container.querySelectorAll('[role="tab"]')].find((button) => button.textContent === 'Command Line')!;
+    act(() => commandTab.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(container.textContent).toContain('curl -fL "https://github.com/leduc121/vista_lab/releases/download/v0.1.0/VISTA.Lab.Station-0.1.0-amd64.deb" -o /tmp/vista-lab-station.deb');
+    expect(container.textContent).toContain('sudo apt install /tmp/vista-lab-station.deb');
+    expect(container.textContent).toContain('gtk-launch vista-lab-station');
+    expect(container.textContent).toContain('sha256sum -c');
+    const copies = [...container.querySelectorAll('button')].filter((button) => button.textContent === 'Copy');
+    expect(copies).toHaveLength(4); expect(copies.every((button) => button.disabled)).toBe(true);
+    expect(container.textContent).not.toMatch(/[0-9a-f]{64}/); // no checksum is hard-coded
+  });
+
+  it('enables Download DEB and Copy only when verified release metadata exists', async () => {
+    vi.resetModules();
+    vi.doMock('./desktopRelease', async (importOriginal) => {
+      const real = await importOriginal<typeof import('./desktopRelease')>();
+      return { ...real, DESKTOP_RELEASE: { ...real.DESKTOP_RELEASE, verification: { verifiedAt: '2026-12-01T00:00:00Z', sizeBytes: 1, sha256: 'a'.repeat(64) } } };
+    });
+    const { DesktopDownloadChapter: Verified } = await import('./DesktopDownloadChapter');
+    await act(async () => { root.render(<Verified />); await Promise.resolve(); });
+    const link = container.querySelector('a[href$="VISTA.Lab.Station-0.1.0-amd64.deb"]');
+    expect(link?.textContent).toBe('Download DEB');
+    const commandTab = [...container.querySelectorAll('[role="tab"]')].find((button) => button.textContent === 'Command Line')!;
+    act(() => commandTab.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    const copies = [...container.querySelectorAll('button')].filter((button) => button.textContent === 'Copy');
+    expect(copies.every((button) => !button.disabled)).toBe(true);
+    vi.doUnmock('./desktopRelease');
   });
 
   it('switches installation tabs and provides the navigation anchor', async () => {
@@ -55,7 +92,8 @@ describe('DesktopDownloadChapter', () => {
     expect(container.textContent).toContain('Command-line installation');
     const guideTab = [...container.querySelectorAll('[role="tab"]')].find((button) => button.textContent === 'Installation Guide')!;
     act(() => guideTab.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(container.textContent).toContain('Desktop installation instructions');
+    expect(container.textContent).toContain('System requirements');
+    expect(container.textContent).toContain('Installation guide');
     expect(container.querySelector('#v2-download')).toBeTruthy();
   });
 
