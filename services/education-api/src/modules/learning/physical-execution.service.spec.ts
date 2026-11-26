@@ -234,7 +234,7 @@ describe("PhysicalExecutionService Gate 1", () => {
   });
 
   it("refuses an enabled IoT dispatch before sending anything outside the local fake runtime", async () => {
-    const iot = { enabled: jest.fn().mockReturnValue(true) };
+    const iot = { enabled: jest.fn().mockReturnValue(true), simulationStartEnabled: jest.fn().mockReturnValue(false) }; // default: the simulation start mode is not selected
     const guarded = new PhysicalExecutionService(
       { $queryRaw: queryRaw, $executeRaw: executeRaw, $transaction: transaction } as never,
       runtime as never,
@@ -251,6 +251,55 @@ describe("PhysicalExecutionService Gate 1", () => {
     await expect(guarded.start(user as never, scope().attempt_id as string, { safetyConfirmed: true })).rejects.toMatchObject({ response: { code: "LOCAL_FAKE_RUNTIME_REQUIRED" } });
     expect(runtime.createRun).not.toHaveBeenCalled();
     expect(iot.enabled).toHaveBeenCalled();
+  });
+
+  describe("simulation-only IoT start mode (Device Shadow preflight)", () => {
+    const freshShadow = (over: Record<string, unknown> = {}) => ({ connection: "connected", runtimeKind: "MOCK_RUNTIME", hardwareEnabled: false, stopped: false, reportedAtMs: Date.now(), ...over });
+    const build = (shadow: unknown, createRunCommand = jest.fn()) => {
+      const iot = { enabled: jest.fn().mockReturnValue(true), simulationStartEnabled: jest.fn().mockReturnValue(true), readShadow: jest.fn().mockResolvedValue(shadow), shadowMaxAgeMs: jest.fn().mockReturnValue(30000), createRunCommand };
+      const svc = new PhysicalExecutionService(
+        { $queryRaw: queryRaw, $executeRaw: executeRaw, $transaction: transaction } as never, runtime as never, progression as never, iot as never);
+      queryRaw
+        .mockResolvedValueOnce([scope()]).mockResolvedValueOnce([scope()]).mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: "18181818-1818-4181-8181-181818181818", state: "created", created_at: new Date() }])
+        .mockResolvedValueOnce([{ id: "19191919-1919-4191-8191-191919191919", status: "pending", execution_mode: "real_robot", created_at: new Date() }])
+        .mockResolvedValueOnce([scope()]);
+      return { svc, iot };
+    };
+    const start = (svc: PhysicalExecutionService) => svc.start(user as never, scope().attempt_id as string, { safetyConfirmed: true });
+
+    it.each([
+      ["a Thing that never reported", null, "ROBOT_RUNTIME_UNAVAILABLE"],
+      ["a disconnected edge", freshShadow({ connection: "disconnected" }), "ROBOT_RUNTIME_UNAVAILABLE"],
+      ["a stale shadow", freshShadow({ reportedAtMs: Date.now() - 120000 }), "ROBOT_RUNTIME_UNAVAILABLE"],
+      ["a stopped runtime", freshShadow({ stopped: true }), "ROBOT_RUNTIME_STOPPED"],
+      ["a runtime with the hardware driver enabled", freshShadow({ hardwareEnabled: true }), "LOCAL_FAKE_RUNTIME_REQUIRED"],
+      ["an unverified runtime kind", freshShadow({ runtimeKind: "UNVERIFIED_RUNTIME" }), "LOCAL_FAKE_RUNTIME_REQUIRED"],
+      ["a runtime that claims to be physical", freshShadow({ runtimeKind: "PHYSICAL_ROBOT", hardwareEnabled: true }), "LOCAL_FAKE_RUNTIME_REQUIRED"],
+    ])("refuses %s and never dispatches", async (_label, shadow, code) => {
+      const { svc, iot } = build(shadow);
+      await expect(start(svc)).rejects.toMatchObject({ response: expect.objectContaining({ code }) });
+      expect(iot.createRunCommand).not.toHaveBeenCalled();
+      expect(runtime.createRun).not.toHaveBeenCalled();
+      expect(runtime.status).not.toHaveBeenCalled();
+    });
+
+    it("treats a Device Shadow read failure as the runtime being unavailable", async () => {
+      const { svc, iot } = build(null);
+      iot.readShadow.mockRejectedValueOnce(new Error("network"));
+      await expect(start(svc)).rejects.toMatchObject({ response: expect.objectContaining({ code: "ROBOT_RUNTIME_UNAVAILABLE" }) });
+      expect(iot.createRunCommand).not.toHaveBeenCalled();
+    });
+
+    it("accepts a fresh connected MOCK_RUNTIME with hardware disabled: reaches the IoT dispatch without consulting the loopback runtime", async () => {
+      const sentinel = new Error("reached IoT dispatch");
+      const { svc, iot } = build(freshShadow(), jest.fn(() => { throw sentinel; }));
+      await expect(start(svc)).rejects.toBe(sentinel);
+      expect(iot.readShadow).toHaveBeenCalledWith(scope().robot_id);
+      expect(iot.createRunCommand).toHaveBeenCalledTimes(1);
+      expect(runtime.status).not.toHaveBeenCalled();
+      expect(runtime.createRun).not.toHaveBeenCalled();
+    });
   });
 
   it("refuses to dispatch unless the configured runtime declares fake_follower mode", async () => {

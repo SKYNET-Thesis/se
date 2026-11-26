@@ -47,4 +47,28 @@ describe("IotCommandService", () => {
     expect(command).toEqual(expect.objectContaining({ commandId: "command-1", sequence: 7, expiresAtMs: 6_000, robotId: "so101-001", kind: "run" }));
     expect(publish).toHaveBeenCalledWith("vista/demo/robots/so101-001/commands", expect.objectContaining({ payload: { runId: "run-1" } }));
   });
+
+  describe("simulation start mode and Device Shadow reads", () => {
+    const base = { VISTA_IOT_ENABLED: "true", VISTA_IOT_TOPIC_PREFIX: "vista/demo/robots", VISTA_IOT_THING_PREFIX: "vista-demo" } as NodeJS.ProcessEnv;
+    const publisher = { publish: jest.fn() } as never;
+    it("is off unless VISTA_IOT_START_MODE=simulation and a shadow reader exists", () => {
+      const reader = { read: jest.fn() };
+      expect(new IotCommandService(base, publisher, undefined, undefined, reader).simulationStartEnabled()).toBe(false);
+      expect(new IotCommandService({ ...base, VISTA_IOT_START_MODE: "physical" } as NodeJS.ProcessEnv, publisher, undefined, undefined, reader).simulationStartEnabled()).toBe(false);
+      expect(new IotCommandService({ ...base, VISTA_IOT_START_MODE: "simulation" } as NodeJS.ProcessEnv, publisher, undefined, undefined, reader).simulationStartEnabled()).toBe(true);
+    });
+    it("reads only the named robot's Thing shadow", async () => {
+      const reader = { read: jest.fn().mockResolvedValue({ connection: "connected" }) };
+      const service = new IotCommandService({ ...base, VISTA_IOT_START_MODE: "simulation" } as NodeJS.ProcessEnv, publisher, undefined, undefined, reader);
+      await expect(service.readShadow("11111111-1111-4111-8111-111111111111")).resolves.toEqual({ connection: "connected" });
+      expect(reader.read).toHaveBeenCalledWith("vista-demo-11111111-1111-4111-8111-111111111111");
+    });
+    it("requires the Thing prefix and bounds the shadow age", async () => {
+      const reader = { read: jest.fn() };
+      const noPrefix = new IotCommandService({ VISTA_IOT_ENABLED: "true", VISTA_IOT_START_MODE: "simulation" } as NodeJS.ProcessEnv, publisher, undefined, undefined, reader);
+      await expect(noPrefix.readShadow("r")).rejects.toThrow(/VISTA_IOT_THING_PREFIX/);
+      expect(() => new IotCommandService({ ...base, VISTA_IOT_SHADOW_MAX_AGE_MS: "10" } as NodeJS.ProcessEnv, publisher, undefined, undefined, reader).shadowMaxAgeMs()).toThrow(/5000..300000/);
+      expect(new IotCommandService(base, publisher, undefined, undefined, reader).shadowMaxAgeMs()).toBe(30000);
+    });
+  });
 });

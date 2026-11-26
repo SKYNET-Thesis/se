@@ -244,7 +244,7 @@ export class PhysicalExecutionService {
       preflight = await (async () => {
       const scope = await this.resolveScope(this.prisma, user, attemptId);
       this.assertEligible(scope);
-      if (this.iot?.enabled()) {
+      if (this.iot?.enabled() && !this.iot.simulationStartEnabled()) {
         throw this.businessConflict("LOCAL_FAKE_RUNTIME_REQUIRED", "WF-03 execution is available only through the configured local fake-follower runtime.");
       }
       if (!prepared.id || !scope.robot_id || !scope.program_version_id) {
@@ -258,6 +258,19 @@ export class PhysicalExecutionService {
         }
       }
 
+      // Simulation-only IoT mode: the preflight is the Edge's Device Shadow, never a loopback runtime. Anything that is not a fresh, connected,
+      // non-stopped MOCK_RUNTIME with the hardware driver disabled is refused, so this path cannot start a physical robot.
+      let shadowRuntimeMode: string | null = null;
+      if (this.iot?.enabled()) {
+        let shadow: Awaited<ReturnType<IotCommandService["readShadow"]>>;
+        try { shadow = await this.iot.readShadow(scope.robot_id!); } catch { throw this.businessConflict("ROBOT_RUNTIME_UNAVAILABLE", "Robot execution service is unavailable."); }
+        if (!shadow || shadow.connection !== "connected") throw this.businessConflict("ROBOT_RUNTIME_UNAVAILABLE", "Robot execution service is unavailable.");
+        const age = Date.now() - Number(shadow.reportedAtMs ?? 0);
+        if (!Number.isFinite(age) || age < -5000 || age > this.iot.shadowMaxAgeMs()) throw this.businessConflict("ROBOT_RUNTIME_UNAVAILABLE", "Robot runtime state is stale.");
+        if (shadow.stopped === true) throw this.businessConflict("ROBOT_RUNTIME_STOPPED", "Robot runtime is stopped.");
+        if (shadow.hardwareEnabled !== false || shadow.runtimeKind !== "MOCK_RUNTIME") throw this.businessConflict("LOCAL_FAKE_RUNTIME_REQUIRED", "WF-03 execution is available only through a simulation runtime with hardware disabled.");
+        shadowRuntimeMode = "fake_follower";
+      }
       let runtimeSnap: RuntimeSnapshot | null = null;
       if (!this.iot?.enabled()) try {
         runtimeSnap = await this.runtime.status(scope.robot_id);
@@ -288,7 +301,7 @@ export class PhysicalExecutionService {
       }
 
       // Provenance: record what the runtime SAYS it is driving. A fake-follower deployment must never be mistaken for a physical robot in evidence.
-      const runtimeMode = typeof checkikSnap.mode === "string" ? checkikSnap.mode : null;
+      const runtimeMode = shadowRuntimeMode ?? (typeof checkikSnap.mode === "string" ? checkikSnap.mode : null);
       if (runtimeMode !== "fake_follower") {
         throw this.businessConflict("LOCAL_FAKE_RUNTIME_REQUIRED", "WF-03 execution is available only through the configured local fake-follower runtime.");
       }
