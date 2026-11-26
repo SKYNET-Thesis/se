@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useReveal } from '../home/useReveal';
-import { DESKTOP_RELEASE, checksumCommand, downloadCommand, installCommand, launchCommand, releaseAvailable } from './desktopRelease';
+import { DESKTOP_RELEASE, checksumCommand, downloadCommand, formatSize, installCommand, launchCommand, releaseAvailable, verifiedChecksumCommand } from './desktopRelease';
 
 export type DesktopPlatform = 'windows' | 'macos' | 'linux';
 export type InstallTab = 'apps' | 'command-line' | 'guide';
@@ -87,6 +87,7 @@ export function DesktopDownloadChapter() {
                   {detected === 'linux' && <span className="v2-mono border border-[var(--v2-teal)]/40 px-2 py-1 text-[10px] uppercase tracking-wider text-[var(--v2-teal)]">Recommended</span>}
                 </div>
                 <p className="v2-mono mt-4 text-xs text-[var(--v2-soft)]">{DESKTOP_RELEASE.platformLabel} · .deb · v{DESKTOP_RELEASE.version}</p>
+                {DESKTOP_RELEASE.verification && <p className="v2-mono mt-1 text-xs text-[var(--v2-soft)]">{formatSize(DESKTOP_RELEASE.verification.sizeBytes)}</p>}
                 <p className="mt-2 text-sm leading-5 text-[var(--v2-muted)]">VISTA Lab Station: the student Simulation Lab for Ubuntu. The Simulation Profile runs on its own; the Robotics Profile needs an external Python environment (see Requirements).</p>
                 <div className="mt-auto pt-6">
                   {available
@@ -107,7 +108,9 @@ export function DesktopDownloadChapter() {
             <h3 className="text-base font-medium">Command-line installation (Ubuntu amd64)</h3>
             {!available && <p className="mt-3 text-sm text-[var(--v2-muted)]" role="status">These commands are shown for reference. They will only work once the Ubuntu release is publicly available; copying is disabled until then.</p>}
             <CommandBlock label="1. Download" command={downloadCommand(DESKTOP_RELEASE)} enabled={available} />
-            <CommandBlock label="2. Verify the checksum (expect “OK”)" command={checksumCommand(DESKTOP_RELEASE)} enabled={available} />
+            {DESKTOP_RELEASE.verification && <p className="mt-4 text-xs text-[var(--v2-muted)]">Verified SHA-256: <code className="v2-mono break-all text-[var(--v2-text)]">{DESKTOP_RELEASE.verification.sha256}</code></p>}
+            <CommandBlock label="2. Verify the checksum (expect “OK”)" command={available ? verifiedChecksumCommand(DESKTOP_RELEASE) : checksumCommand(DESKTOP_RELEASE)} enabled={available} />
+            {available && <CommandBlock label="2b. Or compare with the published SHA256SUMS (expect “OK”)" command={checksumCommand(DESKTOP_RELEASE)} enabled />}
             <CommandBlock label="3. Install" command={installCommand} enabled={available} />
             <CommandBlock label="4. Launch" command={launchCommand} enabled={available} />
           </div>}
