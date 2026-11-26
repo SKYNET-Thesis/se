@@ -31,8 +31,16 @@ export function validateProductionConfig(config: Configuration): Configuration {
   if (flag && !["true", "false"].includes(flag)) throw new Error("STUDENT_TEMP_PASSWORD_ENABLED must be true or false.");
   // Student starts over AWS IoT stay refused unless the simulation-only mode is selected explicitly; it needs the Thing prefix to read the Device Shadow.
   const startMode = String(config.VISTA_IOT_START_MODE ?? "").trim();
-  if (startMode && startMode !== "simulation") throw new Error("VISTA_IOT_START_MODE must be empty or simulation.");
-  if (startMode === "simulation" && !String(config.VISTA_IOT_THING_PREFIX ?? "").trim()) throw new Error("VISTA_IOT_THING_PREFIX is required when VISTA_IOT_START_MODE=simulation.");
+  if (startMode && startMode !== "simulation" && startMode !== "physical_commissioning") throw new Error("VISTA_IOT_START_MODE must be empty, simulation or physical_commissioning.");
+  if (startMode && !String(config.VISTA_IOT_THING_PREFIX ?? "").trim()) throw new Error("VISTA_IOT_THING_PREFIX is required when VISTA_IOT_START_MODE is set.");
+  if (startMode === "physical_commissioning") {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const users = String(config.VISTA_PHYSICAL_COMMISSIONING_USER_IDS ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+    if (!uuid.test(String(config.VISTA_PHYSICAL_COMMISSIONING_ROBOT_ID ?? "").trim())) throw new Error("VISTA_PHYSICAL_COMMISSIONING_ROBOT_ID must be the approved robot UUID.");
+    if (users.length === 0 || users.length > 10 || users.some((u) => !uuid.test(u))) throw new Error("VISTA_PHYSICAL_COMMISSIONING_USER_IDS must list 1-10 user UUIDs.");
+    if (!Number.isFinite(Date.parse(String(config.VISTA_PHYSICAL_COMMISSIONING_UNTIL ?? "")))) throw new Error("VISTA_PHYSICAL_COMMISSIONING_UNTIL must be an ISO timestamp.");
+    if (!String(config.VISTA_PHYSICAL_RUNTIME_MODES ?? "").trim()) throw new Error("VISTA_PHYSICAL_RUNTIME_MODES must declare the physical adapter mode.");
+  }
   required(config, "SUPABASE_ANON_KEY");
   // Learning Media lives in ONE bucket; the S3 endpoint override exists only for local loopback storage.
   required(config, "LEARNING_MEDIA_BUCKET");

@@ -11,7 +11,13 @@ const valid = {
 describe("production configuration", () => {
   it.each([undefined, "", "disabled", "always", "2026-12-01T00:00:00Z"])("accepts prerequisite enforcement setting %p", (value) => expect(() => validateProductionConfig({ ...valid, ...(value === undefined ? {} : { COURSE_PREREQUISITES_ENFORCED_FROM: value }) })).not.toThrow());
   it.each([undefined, "", "simulation"])("accepts IoT start mode %p when its prerequisites are present", (mode) => expect(() => validateProductionConfig({ ...valid, VISTA_IOT_START_MODE: mode, VISTA_IOT_THING_PREFIX: "vista-demo" })).not.toThrow());
-  it("rejects any IoT start mode other than simulation (no physical student start through IoT)", () => expect(() => validateProductionConfig({ ...valid, VISTA_IOT_START_MODE: "physical" })).toThrow(/VISTA_IOT_START_MODE/));
+  it("rejects any IoT start mode other than simulation or physical_commissioning", () => expect(() => validateProductionConfig({ ...valid, VISTA_IOT_START_MODE: "physical" })).toThrow(/VISTA_IOT_START_MODE/));
+  describe("physical commissioning start mode", () => {
+    const U = "11111111-1111-4111-8111-111111111111", R = "22222222-2222-4222-8222-222222222222";
+    const phys = { ...valid, VISTA_IOT_START_MODE: "physical_commissioning", VISTA_IOT_THING_PREFIX: "vista-demo", VISTA_PHYSICAL_COMMISSIONING_ROBOT_ID: R, VISTA_PHYSICAL_COMMISSIONING_USER_IDS: U, VISTA_PHYSICAL_COMMISSIONING_UNTIL: "2026-11-27T12:00:00Z", VISTA_PHYSICAL_RUNTIME_MODES: "so101_follower" };
+    it("accepts a complete explicit authorization", () => expect(() => validateProductionConfig(phys)).not.toThrow());
+    it.each([["robot", { VISTA_PHYSICAL_COMMISSIONING_ROBOT_ID: "" }, /ROBOT_ID/], ["users", { VISTA_PHYSICAL_COMMISSIONING_USER_IDS: "" }, /USER_IDS/], ["users not uuid", { VISTA_PHYSICAL_COMMISSIONING_USER_IDS: "abc" }, /USER_IDS/], ["window", { VISTA_PHYSICAL_COMMISSIONING_UNTIL: "tomorrow" }, /UNTIL/], ["declared mode", { VISTA_PHYSICAL_RUNTIME_MODES: "" }, /RUNTIME_MODES/], ["thing prefix", { VISTA_IOT_THING_PREFIX: "" }, /THING_PREFIX/]])("requires %s", (_l, over, re) => expect(() => validateProductionConfig({ ...phys, ...over })).toThrow(re));
+  });
   it("requires the Thing prefix for the simulation start mode", () => expect(() => validateProductionConfig({ ...valid, VISTA_IOT_START_MODE: "simulation" })).toThrow(/VISTA_IOT_THING_PREFIX/));
   it("accepts a complete TLS configuration", () => expect(() => validateProductionConfig(valid)).not.toThrow());
   it("rejects missing service role credentials", () => expect(() => validateProductionConfig({ ...valid, SUPABASE_SERVICE_ROLE_KEY: "" })).toThrow(/SUPABASE_SERVICE_ROLE_KEY/));

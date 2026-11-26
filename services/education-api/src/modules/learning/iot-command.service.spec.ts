@@ -71,4 +71,23 @@ describe("IotCommandService", () => {
       expect(new IotCommandService(base, publisher, undefined, undefined, reader).shadowMaxAgeMs()).toBe(30000);
     });
   });
+
+  describe("physical commissioning policy", () => {
+    const base = { VISTA_IOT_ENABLED: "true", VISTA_IOT_START_MODE: "physical_commissioning", VISTA_IOT_THING_PREFIX: "vista-demo" } as NodeJS.ProcessEnv;
+    const publisher = { publish: jest.fn() } as never; const reader = { read: jest.fn() };
+    const full = { ...base, VISTA_PHYSICAL_COMMISSIONING_ROBOT_ID: "ABC", VISTA_PHYSICAL_COMMISSIONING_USER_IDS: "u1, u2", VISTA_PHYSICAL_COMMISSIONING_UNTIL: "2030-01-01T00:00:00Z", VISTA_PHYSICAL_RUNTIME_MODES: "so101_follower" } as NodeJS.ProcessEnv;
+    it("is selected only by VISTA_IOT_START_MODE=physical_commissioning and is never the simulation mode", () => {
+      const svc = new IotCommandService(full, publisher, undefined, undefined, reader);
+      expect(svc.physicalStartEnabled()).toBe(true); expect(svc.simulationStartEnabled()).toBe(false);
+      expect(new IotCommandService({ ...full, VISTA_IOT_START_MODE: "simulation" } as NodeJS.ProcessEnv, publisher, undefined, undefined, reader).physicalStartEnabled()).toBe(false);
+      expect(new IotCommandService({ ...full, VISTA_IOT_ENABLED: "false", VISTA_IOT_START_MODE: "physical_commissioning" } as NodeJS.ProcessEnv, undefined, undefined, undefined, reader).physicalStartEnabled()).toBe(false);
+    });
+    it("normalizes the explicit authorization and requires every part of it", () => {
+      const policy = new IotCommandService(full, publisher, undefined, undefined, reader).physicalCommissioningPolicy();
+      expect(policy.robotId).toBe("abc"); expect([...policy.userIds]).toEqual(["u1", "u2"]); expect(policy.untilMs).toBe(Date.parse("2030-01-01T00:00:00Z")); expect([...policy.runtimeModes]).toEqual(["so101_follower"]);
+      for (const key of ["VISTA_PHYSICAL_COMMISSIONING_ROBOT_ID", "VISTA_PHYSICAL_COMMISSIONING_USER_IDS", "VISTA_PHYSICAL_COMMISSIONING_UNTIL", "VISTA_PHYSICAL_RUNTIME_MODES"]) {
+        expect(() => new IotCommandService({ ...full, [key]: "" } as NodeJS.ProcessEnv, publisher, undefined, undefined, reader).physicalCommissioningPolicy()).toThrow(/not fully configured/);
+      }
+    });
+  });
 });

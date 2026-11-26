@@ -11,6 +11,9 @@ const store = (over: Partial<ProvisioningStore> = {}): ProvisioningStore & Recor
   createEntitlement: jest.fn().mockResolvedValue(undefined),
   activeEntitlementsOfOthers: jest.fn().mockResolvedValue([{ id: "33333333-3333-4333-8333-333333333333", organization_id: "44444444-4444-4444-8444-444444444444" }]),
   setEntitlementEnd: jest.fn().mockResolvedValue(undefined),
+  studentMembership: jest.fn().mockResolvedValue({ id: "55555555-5555-4555-8555-555555555555", safety_profile_id: null }),
+  blocklyProfileId: jest.fn().mockResolvedValue("66666666-6666-4666-8666-666666666666"),
+  setMembershipProfile: jest.fn().mockResolvedValue(undefined),
   entitlementById: jest.fn().mockResolvedValue({ id: "33333333-3333-4333-8333-333333333333", organization_id: "44444444-4444-4444-8444-444444444444", valid_to: new Date() }),
   ...over,
 }) as never;
@@ -77,6 +80,26 @@ describe("provision-robot-entitlement", () => {
     });
     it("refuses to restore an unknown entitlement", async () => {
       await expect(provision(store({ entitlementById: jest.fn().mockResolvedValue(null) }), parseArgs(["--restore", OTHER, "--confirm"]))).rejects.toThrow(/not found/);
+    });
+  });
+  describe("student Blockly authorization", () => {
+    const STUDENT = "77777777-7777-4777-8777-777777777777";
+    it("dry run shows the membership and previous profile and changes nothing", async () => {
+      const s = store(); const { plan, applied } = await provision(s, parseArgs(["--organization", ORG, "--blockly-student", STUDENT]));
+      expect(applied).toBe(false); expect(plan.blocklyStudent).toEqual({ userId: STUDENT, membershipId: "55555555-5555-4555-8555-555555555555", previousProfileId: null });
+      expect(s.setMembershipProfile).not.toHaveBeenCalled();
+    });
+    it("sets the existing blockly profile on that one membership with --confirm and clears it again", async () => {
+      const s = store();
+      await provision(s, parseArgs(["--organization", ORG, "--blockly-student", STUDENT, "--confirm"]));
+      expect(s.setMembershipProfile).toHaveBeenCalledWith("55555555-5555-4555-8555-555555555555", "66666666-6666-4666-8666-666666666666");
+      await provision(s, parseArgs(["--organization", ORG, "--clear-blockly-student", STUDENT, "--confirm"]));
+      expect(s.setMembershipProfile).toHaveBeenLastCalledWith("55555555-5555-4555-8555-555555555555", null);
+    });
+    it("refuses a non-student, a missing profile and mixing with robot provisioning", async () => {
+      await expect(provision(store({ studentMembership: jest.fn().mockResolvedValue(null) }), parseArgs(["--organization", ORG, "--blockly-student", STUDENT, "--confirm"]))).rejects.toThrow(/student member/);
+      await expect(provision(store({ blocklyProfileId: jest.fn().mockResolvedValue(null) }), parseArgs(["--organization", ORG, "--blockly-student", STUDENT, "--confirm"]))).rejects.toThrow(/does not exist/);
+      expect(() => parseArgs(["--organization", ORG, "--blockly-student", STUDENT, "--robot", ROBOT])).toThrow(/separate invocation/);
     });
   });
 });
