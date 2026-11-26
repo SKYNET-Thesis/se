@@ -47,7 +47,7 @@ Course builder → lesson → **Quizzes** tab → **Questions** → **Import que
 1. Download the template (**XLSX** or **CSV**) and fill it. Types: single choice, multiple choice, true/false. Difficulty `easy`/`medium`/`hard` gives default points **1 / 2 / 3**; an explicit `points` value is kept.
 2. Upload it. **Nothing is saved yet.** The preview marks each row valid, invalid or duplicate, shows points, topic and mapping, and explains each row error. **Download error report (CSV)** exports the problems.
 3. Choose a Learning Outcome for rows that have none, tick **I reviewed this preview…**, and import.
-4. Questions are imported as **drafts**. Tick *Publish immediately* only if you want them published at once.
+4. Questions are imported as **drafts** unless you tick *Publish immediately*. **Current limitation (Production E2E D05):** the web app has no screen to publish a draft question, and the quiz builder lists only published questions, so tick *Publish immediately* for questions you intend to use in a quiz right away.
 Limits: 1 MB, 500 rows, `.csv`/`.xlsx` only; formulas are never evaluated; re-importing the same file reports duplicates instead of creating copies; rows succeed or fail independently; other schools' instructors and students are refused.
 The English demonstration course files are in `docs/education/pilot/en-demo-course/`; their explanations are **generated drafts awaiting instructor review** (`PENDING_REVIEW`) — review them before publishing.
 
