@@ -10,7 +10,10 @@ export class IotPublishUnknownOutcomeError extends Error {}
 export type IotShadowReported = {
   connection?: string; runtimeKind?: string; hardwareEnabled?: boolean; stopped?: boolean;
   activeRunId?: string | null; lastCommandSequence?: number; reportedAtMs?: number; schemaVersion?: number;
+  /** Additive fields required only by the physical commissioning start. `armed` may be true only after a LOCAL operator action on the Edge. */
+  adapterMode?: string; armed?: boolean; calibrationReady?: boolean; fault?: string | null;
 };
+export type PhysicalCommissioningPolicy = { robotId: string; userIds: ReadonlySet<string>; untilMs: number; runtimeModes: ReadonlySet<string> };
 export interface IotShadowReader { read(thingName: string): Promise<IotShadowReported | null>; }
 
 class AwsIotShadowReader implements IotShadowReader {
@@ -74,6 +77,21 @@ export class IotCommandService {
    * whose Device Shadow says it is a mock runtime with the hardware driver disabled; a physical robot can never be started through it.
    */
   simulationStartEnabled(): boolean { return this.publisher !== null && this.environment.VISTA_IOT_START_MODE === "simulation" && this.shadowReader !== null; }
+  /**
+   * Supervised physical commissioning. Off unless VISTA_IOT_START_MODE=physical_commissioning. It never replaces local safety: the Device Shadow is only
+   * ONE of the conditions (the API also requires the approved robot, an explicit user allowlist, an unexpired window and the student's safety
+   * confirmation), and the Edge Safety Controller, local arming, calibration and emergency stop remain authoritative.
+   */
+  physicalStartEnabled(): boolean { return this.publisher !== null && this.environment.VISTA_IOT_START_MODE === "physical_commissioning" && this.shadowReader !== null; }
+  physicalCommissioningPolicy(): PhysicalCommissioningPolicy {
+    const list = (value?: string) => new Set((value ?? "").split(",").map((v) => v.trim()).filter(Boolean));
+    const robotId = (this.environment.VISTA_PHYSICAL_COMMISSIONING_ROBOT_ID ?? "").trim().toLowerCase();
+    const userIds = list(this.environment.VISTA_PHYSICAL_COMMISSIONING_USER_IDS);
+    const untilMs = Date.parse(this.environment.VISTA_PHYSICAL_COMMISSIONING_UNTIL ?? "");
+    const runtimeModes = list(this.environment.VISTA_PHYSICAL_RUNTIME_MODES);
+    if (!robotId || userIds.size === 0 || !Number.isFinite(untilMs) || runtimeModes.size === 0) throw new Error("Physical commissioning is not fully configured.");
+    return { robotId, userIds, untilMs, runtimeModes };
+  }
   /** Observed state of one robot's Edge Runtime from its Device Shadow; null when the Thing has never reported. */
   async readShadow(robotId: string): Promise<IotShadowReported | null> {
     if (!this.shadowReader) throw new Error("Device Shadow reader is disabled");
