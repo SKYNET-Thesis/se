@@ -48,6 +48,11 @@ grep -qE 'docker run .*--memory 384m .*--no-healthcheck --entrypoint node .*dist
 run 'VISTA_RECORDINGS_WORKER_ENABLED=true\n' "$IMG"
 grep -qE 'docker run .*--memory 384m .*--no-healthcheck --entrypoint node .*dist/scripts/robot-recordings-worker.js' "$WORK/log" || fail "recordings worker command"
 run 'X=1\n' "$IMG"; grep -q 'docker rm -f vista-recordings-worker' "$WORK/log" || fail "an old recordings worker must be removed when the flag is off"
+# The telemetry relay (feedback worker) must be on the private twin network.
+run 'VISTA_TWIN_ENABLED=true\nDIGITAL_TWIN_SCOPE_SECRET=x\nVISTA_IOT_FEEDBACK_WORKER_ENABLED=true\n' "$IMG"
+grep -q 'docker network connect vista-net vista-iot-feedback-worker' "$WORK/log" || fail "the feedback worker (telemetry relay) must join the private twin network"
+run 'VISTA_TWIN_ENABLED=true\nDIGITAL_TWIN_SCOPE_SECRET=x\n' "$IMG"
+grep -q 'docker run.*iot-feedback' "$WORK/log" && fail "no worker may start when its flag is off"
 # Twin settings pass-through: only the whitelisted VISTA_TWIN_* keys with plain values reach twin.env, never anything else from api.env.
 run 'VISTA_TWIN_ENABLED=true\nDIGITAL_TWIN_SCOPE_SECRET=s3cret-value\nDATABASE_URL=postgres://u:p@h/db\nVISTA_TWIN_PHYSICAL_OWNER_ID=owner-1\nVISTA_TWIN_PHYSICAL_ORGANIZATION_ID=597cd591-ba63-4a27-af5d-12fede921fad\nVISTA_TWIN_PHYSICAL_ROBOT_ID=f1c066c4-b5f2-45c4-b933-f034f3824dd9\nVISTA_TWIN_RELAY_STALE_AFTER_SECONDS=3.0\nVISTA_TWIN_MAX_MEASUREMENT_AGE_SECONDS=5.0\nVISTA_TWIN_PHYSICAL_FOLLOWER_ID=bad value;rm -rf\n' "$IMG"
 CAP="$WORK/log.env.twin.env"; [ -f "$CAP" ] || fail "the twin env file must have been passed to docker run"

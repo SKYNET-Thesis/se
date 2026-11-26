@@ -110,6 +110,9 @@ start_twin() {
   # The API only sends telemetry to `http://vista-digital-twin:8767` (see digital-twin-endpoint.ts): both containers join one private network.
   docker network inspect vista-net >/dev/null 2>&1 || docker network create vista-net >/dev/null
   docker network connect vista-net vista-education-api >/dev/null 2>&1 || true
+  # The feedback worker is the process that relays Edge telemetry to the Twin (http://vista-digital-twin:8767): it must join the private network too
+  # (it is started before the Twin, so it exists when the flag is on; if it is not running this is a harmless no-op).
+  docker network connect vista-net vista-iot-feedback-worker >/dev/null 2>&1 || true
   mkdir -p /opt/vista/twin-model
   (umask 077; printf 'VISTA_TWIN_AUTH_SECRET=%s\n' "$secret" > /opt/vista/twin.env)
   # Only these Twin settings are passed through from the secret-derived api.env (never the rest of it): the hardware-owner identity that enables the
