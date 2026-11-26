@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 import { CanActivate, ExecutionContext, INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -51,11 +53,11 @@ describeDb('Question Bank import over real HTTP multipart + real PostgreSQL', ()
     expect(px.body).toMatchObject({ total: 2, valid: 2 });
     expect(await count(x.lesson.id)).toBe(0);
 
-    const c = await request(app.getHttpServer()).post(`${base(x.lesson.id)}/import`).set('Authorization', 'Bearer admin').field('newObjective', 'Outcome').attach('file', file, 'q.csv').expect(201);
+    const c = await request(app.getHttpServer()).post(`${base(x.lesson.id)}/import`).set('Authorization', 'Bearer admin').field('newObjective', 'Outcome').field('confirm', 'true').field('publish', 'true').field('expectedSha256', sha(file)).attach('file', file, 'q.csv').expect(201);
     expect(c.body).toMatchObject({ created: 2, failed: 0, invalid: 1, duplicates: 1 });
-    expect(c.body.results.map((r: { rowNumber: number; points?: number }) => [r.rowNumber, r.points])).toEqual([[2, undefined], [3, 2]]);
+    expect(c.body.results.map((r: { rowNumber: number; points?: number }) => [r.rowNumber, r.points])).toEqual([[2, 1], [3, 2]]);
     expect(await count(x.lesson.id)).toBe(2);
-    const cx = await request(app.getHttpServer()).post(`${base(x.lesson.id)}/import`).set('Authorization', 'Bearer admin').field('newObjective', 'Second').attach('file', buildXlsx([H, row('X1'), row('X2')]), 'q.xlsx').expect(201);
+    const cx = await request(app.getHttpServer()).post(`${base(x.lesson.id)}/import`).set('Authorization', 'Bearer admin').field('newObjective', 'Second').field('confirm', 'true').field('publish', 'true').field('expectedSha256', sha(buildXlsx([H, row('X1'), row('X2')]))).attach('file', buildXlsx([H, row('X1'), row('X2')]), 'q.xlsx').expect(201);
     expect(cx.body.created).toBe(2);
     expect(await count(x.lesson.id)).toBe(4);
   });
@@ -80,7 +82,7 @@ describeDb('Question Bank import over real HTTP multipart + real PostgreSQL', ()
     const x = await school();
     const file = csv([row('Q')]);
     await request(app.getHttpServer()).post(`${base(x.lesson.id)}/import/preview`).set('Authorization', 'Bearer outsider').attach('file', file, 'q.csv').expect(404);
-    await request(app.getHttpServer()).post(`${base(x.lesson.id)}/import`).set('Authorization', 'Bearer outsider').field('newObjective', 'o').attach('file', file, 'q.csv').expect(404);
+    await request(app.getHttpServer()).post(`${base(x.lesson.id)}/import`).set('Authorization', 'Bearer outsider').field('newObjective', 'o').field('confirm', 'true').field('expectedSha256', sha(file)).attach('file', file, 'q.csv').expect(404);
     expect(await count(x.lesson.id)).toBe(0);
   });
 
@@ -91,14 +93,14 @@ describeDb('Question Bank import over real HTTP multipart + real PostgreSQL', ()
     const xlsx = await request(app.getHttpServer()).get('/api/v1/author/question-bank/quiz-authoring/import-template?format=xlsx').set('Authorization', 'Bearer admin').buffer().parse((res, cb) => { const c: Buffer[] = []; res.on('data', (d: Buffer) => c.push(d)); res.on('end', () => cb(null, Buffer.concat(c))); }).expect(200);
     for (const [body, name] of [[csvRes.body, 'q.csv'], [xlsx.body, 'q.xlsx']] as const) {
       const r = await request(app.getHttpServer()).post(`${base(x.lesson.id)}/import/preview`).set('Authorization', 'Bearer admin').attach('file', body, name).expect(201);
-      expect(r.body).toMatchObject({ total: 2, valid: 2 });
+      expect(r.body).toMatchObject({ total: 3, valid: 3 });
     }
     await request(app.getHttpServer()).get('/api/v1/author/question-bank/quiz-authoring/import-template?format=pdf').set('Authorization', 'Bearer admin').expect(400);
   });
 
   it('weighted quiz: A=3 pts wrong, B=1 pt right → 1/4 = 25%, and the issued snapshot is immune to later bank/quiz edits', async () => {
     const x = await school();
-    const c = await request(app.getHttpServer()).post(`${base(x.lesson.id)}/import`).set('Authorization', 'Bearer admin').field('newObjective', 'Outcome')
+    const c = await request(app.getHttpServer()).post(`${base(x.lesson.id)}/import`).set('Authorization', 'Bearer admin').field('newObjective', 'Outcome').field('confirm', 'true').field('publish', 'true').field('expectedSha256', sha(csv([row('Question A', 'A', '3'), row('Question B', 'A', '1')])))
       .attach('file', csv([row('Question A', 'A', '3'), row('Question B', 'A', '1')]), 'q.csv').expect(201);
     const bank = new QuestionBankService(db as never);
     const quiz = await bank.createQuizAssignment(admin, x.lesson.id, 'Weighted', 'go', 50);

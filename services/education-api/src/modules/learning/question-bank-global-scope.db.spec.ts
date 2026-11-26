@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { QuestionBankService } from './question-bank.service';
 import { toCsv } from './question-import';
@@ -59,7 +61,7 @@ describeDb('real PostgreSQL Question Bank scope: global and school-scoped questi
     await expect(bank.submitReview(admin, draft.versionId)).resolves.toMatchObject({ status: 'in_review' });
     await expect(bank.publish(admin, draft.versionId)).resolves.toMatchObject({ status: 'published' });
 
-    const imported = await bank.importCommit(admin, x.lesson.id, 'global.csv', importFile(`GQ-IMPORT-${x.suffix}`), { objectiveId: x.objective.id, publish: true });
+    const imported = await bank.importCommit(admin, x.lesson.id, 'global.csv', importFile(`GQ-IMPORT-${x.suffix}`), { objectiveId: x.objective.id, publish: true, confirm: true, expectedSha256: sha(importFile(`GQ-IMPORT-${x.suffix}`)) });
     expect(imported).toMatchObject({ total: 1, valid: 1, created: 1, failed: 0 });
     expect(await db.learning_questions.findFirst({ where: { code: `GQ-IMPORT-${x.suffix}`, course_id: x.course.id } })).toMatchObject({ organization_id: null, lesson_id: x.lesson.id });
   });

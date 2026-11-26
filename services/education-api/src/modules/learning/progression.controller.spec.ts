@@ -5,6 +5,7 @@ import { SupabaseAuthGuard } from "../identity/auth/supabase-auth.guard";
 import { ProgressionController } from "./progression.controller";
 import { ProgressionService } from "./progression.service";
 import { ActivityProgressService } from './activity-progress.service';
+import { QuizResultService } from './quiz-result.service';
 
 const user = { authUserId: "auth-1", vistaUserId: "user-1", email: "learner@vista.test", status: "active", systemRoleCodes: [], systemPermissions: [], memberships: [] };
 class Guard implements CanActivate { canActivate(context: ExecutionContext) { const req = context.switchToHttp().getRequest<{ headers:{authorization?:string};user?:unknown }>(); if (req.headers.authorization !== "Bearer token") throw new UnauthorizedException(); req.user = user; return true; } }
@@ -19,8 +20,9 @@ describe("ProgressionController HTTP contract", () => {
     resolveQualifiedL4ProgramVersion: jest.fn(),
   };
   const activityProgress = { courseProgress: jest.fn(), completeSelfReport: jest.fn() };
+  const quizResults = { result: jest.fn() };
   beforeAll(async () => {
-    const module = await Test.createTestingModule({ controllers: [ProgressionController], providers: [{ provide: ProgressionService, useValue: progression }, { provide: ActivityProgressService, useValue: activityProgress }] }).overrideGuard(SupabaseAuthGuard).useClass(Guard).compile();
+    const module = await Test.createTestingModule({ controllers: [ProgressionController], providers: [{ provide: ProgressionService, useValue: progression }, { provide: ActivityProgressService, useValue: activityProgress }, { provide: QuizResultService, useValue: quizResults }] }).overrideGuard(SupabaseAuthGuard).useClass(Guard).compile();
     app = module.createNestApplication(); app.setGlobalPrefix("api/v1"); app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true })); await app.init();
   });
   afterAll(async () => app.close());
@@ -50,6 +52,15 @@ describe("ProgressionController HTTP contract", () => {
     expect(res.body).toMatchObject({ activityId, status: 'completed' });
     expect(activityProgress.completeSelfReport).toHaveBeenCalledTimes(1);
     expect(activityProgress.completeSelfReport).toHaveBeenCalledWith(user, activityId);
+  });
+
+  it("routes the learner's own quiz result analytics, requires authentication and a UUID", async () => {
+    quizResults.result.mockResolvedValue({ attemptId: uuid, passed: true });
+    const res = await request(app.getHttpServer()).get(`/api/v1/me/attempts/${uuid}/quiz-result`).set("Authorization", "Bearer token").expect(200);
+    expect(res.body).toEqual({ attemptId: uuid, passed: true });
+    expect(quizResults.result).toHaveBeenCalledWith(user, uuid);
+    await request(app.getHttpServer()).get(`/api/v1/me/attempts/${uuid}/quiz-result`).expect(401);
+    await request(app.getHttpServer()).get(`/api/v1/me/attempts/not-a-uuid/quiz-result`).set("Authorization", "Bearer token").expect(400);
   });
 
   it("routes authenticated quizzes read", async () => {

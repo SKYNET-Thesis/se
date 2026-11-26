@@ -12,7 +12,7 @@ vi.mock('../../lib/api', () => ({ quizAuthoringApi: api }));
 describe('ImportQuestionsDialog', () => {
   let root: Root | undefined;
   afterEach(() => { root?.unmount(); root = undefined; vi.clearAllMocks(); document.body.innerHTML = ''; });
-  const preview = { total: 3, valid: 1, invalid: 1, duplicates: 1, items: [
+  const preview = { fileSha256: 'abc123', total: 3, valid: 1, invalid: 1, duplicates: 1, items: [
     { rowNumber: 2, status: 'valid', errors: [], stem: 'Good?' },
     { rowNumber: 3, status: 'invalid', errors: ['correct is required.'], stem: 'Bad?' },
     { rowNumber: 4, status: 'duplicate', errors: [], duplicateOf: { existingCode: 'Q-1' }, stem: 'Dup?' }] };
@@ -42,10 +42,14 @@ describe('ImportQuestionsDialog', () => {
     expect(api.importCommit).not.toHaveBeenCalled();
     const input = document.querySelector('input[maxlength="500"]') as HTMLInputElement;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Outcome'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(button('Import 1 valid')!.disabled).toBe(true); // outcome given but the preview is not yet confirmed
+    const confirm = [...document.querySelectorAll('input[type="checkbox"]')].find((c) => c.parentElement?.textContent?.startsWith('I reviewed')) as HTMLInputElement;
+    await act(async () => { confirm.click(); });
+    expect(document.body.textContent).toContain('Download error report');
     await act(async () => { button('Import 1 valid')!.click(); await Promise.resolve(); });
-    expect(api.importCommit).toHaveBeenCalledWith('l1', 't', file, { newObjective: 'Outcome' });
+    expect(api.importCommit).toHaveBeenCalledWith('l1', 't', file, { newObjective: 'Outcome', expectedSha256: 'abc123', confirm: 'true' });
     expect(onImported).toHaveBeenCalled();
-    expect(document.body.textContent).toContain('Imported 1 question.');
+    expect(document.body.textContent).toContain('Imported 1 question as draft.');
   });
 
   it('surfaces a file-level rejection', async () => {

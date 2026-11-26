@@ -40,9 +40,9 @@ export class QuestionBankController {
     return this.bank.importPreview(user, lessonId, file.originalname, file.buffer);
   }
   @Post('quiz-authoring/lessons/:lessonId/import') @UseInterceptors(FileInterceptor('file', { limits: { fileSize: IMPORT_MAX_BYTES, files: 1 } }))
-  importCommit(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Body() body: { objectiveId?: string; newObjective?: string; publish?: string }, @UploadedFile() upload?: UploadedImport) {
+  importCommit(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string, @Body() body: { objectiveId?: string; newObjective?: string; publish?: string; expectedSha256?: string; confirm?: string }, @UploadedFile() upload?: UploadedImport) {
     const file = requireImportFile(upload);
-    return this.bank.importCommit(user, lessonId, file.originalname, file.buffer, { objectiveId: body?.objectiveId || undefined, newObjective: body?.newObjective, publish: body?.publish !== 'false' });
+    return this.bank.importCommit(user, lessonId, file.originalname, file.buffer, { objectiveId: body?.objectiveId || undefined, newObjective: body?.newObjective, publish: body?.publish === 'true', expectedSha256: body?.expectedSha256, confirm: body?.confirm === 'true' });
   }
   @Get('quiz-authoring/lessons/:lessonId/assignment') quizAssignment(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string) { return this.bank.quizAuthoringAssignment(user, lessonId); }
   @Get('quiz-authoring/lessons/:lessonId/preview') quizPreview(@CurrentUser() user: AuthenticatedUser, @Param('lessonId', ParseUUIDPipe) lessonId: string) { return this.bank.quizAuthoringAssignment(user, lessonId, true); /* authorOrg already limits this to authors of the owning school (or a System Administrator) */ }
