@@ -10,6 +10,9 @@ const valid = {
 
 describe("production configuration", () => {
   it.each([undefined, "", "disabled", "always", "2026-12-01T00:00:00Z"])("accepts prerequisite enforcement setting %p", (value) => expect(() => validateProductionConfig({ ...valid, ...(value === undefined ? {} : { COURSE_PREREQUISITES_ENFORCED_FROM: value }) })).not.toThrow());
+  it.each([undefined, "", "simulation"])("accepts IoT start mode %p when its prerequisites are present", (mode) => expect(() => validateProductionConfig({ ...valid, VISTA_IOT_START_MODE: mode, VISTA_IOT_THING_PREFIX: "vista-demo" })).not.toThrow());
+  it("rejects any IoT start mode other than simulation (no physical student start through IoT)", () => expect(() => validateProductionConfig({ ...valid, VISTA_IOT_START_MODE: "physical" })).toThrow(/VISTA_IOT_START_MODE/));
+  it("requires the Thing prefix for the simulation start mode", () => expect(() => validateProductionConfig({ ...valid, VISTA_IOT_START_MODE: "simulation" })).toThrow(/VISTA_IOT_THING_PREFIX/));
   it("accepts a complete TLS configuration", () => expect(() => validateProductionConfig(valid)).not.toThrow());
   it("rejects missing service role credentials", () => expect(() => validateProductionConfig({ ...valid, SUPABASE_SERVICE_ROLE_KEY: "" })).toThrow(/SUPABASE_SERVICE_ROLE_KEY/));
   it("rejects a plaintext browser origin", () => expect(() => validateProductionConfig({ ...valid, WEB_ORIGIN: "http://example.com" })).toThrow(/WEB_ORIGIN/));
