@@ -165,6 +165,7 @@ export class QuestionBankService {
    * so repeating the same file reports its rows as duplicates instead of creating copies. Rows succeed or fail independently.
    */
   async importCommit(user: AuthenticatedUser, lessonId: string, filename: string, file: Buffer, opts: { objectiveId?: string; newObjective?: string; publish: boolean; expectedSha256?: string; confirm?: boolean }) {
+    await this.lessonOrg(user, lessonId); // authorization first: an unauthorized caller must be refused before any request validation is revealed
     if (!opts.confirm) throw new BadRequestException('Import must be explicitly confirmed.');
     const preview = await this.importPreview(user, lessonId, filename, file);
     if (!opts.expectedSha256 || opts.expectedSha256.toLowerCase() !== preview.fileSha256) throw new ConflictException('The uploaded file differs from the file that was previewed. Preview it again before importing.');

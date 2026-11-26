@@ -70,6 +70,14 @@ describeDb('real PostgreSQL Question Bank CSV/XLSX import', () => {
     expect(await db.learning_questions.count({ where: { lesson_id: x.lesson.id } })).toBe(0);
   });
 
+  it('refuses an unauthorized caller before revealing request-validation errors (no confirm, no hash)', async () => {
+    const x = await school();
+    const outsider = schoolAdminUser((await createWorld(db)).org.id);
+    const file = csv([['', 'single_choice', 'easy', 'remember', 'Q', 'a', 'b', '', 'A', '', 'e']]);
+    await expect(bank.importCommit(outsider, x.lesson.id, 'q.csv', file, { newObjective: 'o', publish: false })).rejects.toBeInstanceOf(NotFoundException);
+    expect(await db.learning_questions.count({ where: { lesson_id: x.lesson.id } })).toBe(0);
+  });
+
   it('imports global-course lessons for a system administrator and requires a learning outcome', async () => {
     const g = await createWorld(db);
     const file = Buffer.from(toCsv(templateTable()));
