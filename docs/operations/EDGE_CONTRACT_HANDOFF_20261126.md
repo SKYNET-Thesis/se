@@ -2,6 +2,18 @@
 
 Claude owns Education API, Web, AWS integration and backend contracts; Codex owns Desktop Lab Station and the Edge Runtime. Every value below is the **implemented, deployed contract** (Production `ebf344f`) unless marked **TO IMPLEMENT**. Nothing was run against hardware.
 
+## 0. What already exists, what to reuse, and what Codex must implement (verified 2026-11-27)
+**Backend (DEPLOYED/READY, do not rebuild):** command lifecycle, feedback worker, simulation and physical telemetry bridges, Twin freshness, start gates, recordings API/worker, entitlement/allocation, evidence/review. All telemetry bridges and physical mode are **off** until the owner activates them.
+**Reuse, do not rebuild (Desktop `leduc121/vista_lab`, local `/home/quangduc/Code/vistadesktop/vista-lab-station`):** `checkIk/` (hardware safety controller, calibration/audit tools `audit_so101_hardware.py`, pose/observation readers, teleoperation backends), `edge-supervisor.js` + `robot-runtime.js` (process supervision), `recording-manager.js` (episodes/manifest), `device-provisioning.js`/`api.js` (student sign-in and API calls), the MuJoCo workspace and Twin viewer. **Reuse and extend, do not rewrite, the Edge R1 runtime in this repository** `services/robot-runtime` (`iot.py`: mTLS MQTT, command handling, ack/status, Shadow, last will; `runtime.py`: command preflight).
+**Confirmed gap that blocks the physical run:** R1's preflight (`runtime.py` `_preflight`) rejects every `adapterMode` except `fake_follower` (`adapter_mode_not_supported`), and `iot.py` can only report `MOCK_RUNTIME`/`UNVERIFIED_RUNTIME`. There is **no physical adapter yet**. The value `VISTA_PHYSICAL_RUNTIME_MODES=so101_follower` is therefore a **contract value Codex must implement**, not an existing one; the identifier may be changed only together with the secret.
+**Codex tasks (concrete, in order):**
+1. **Physical adapter in R1** (`adapterMode:"so101_follower"`): execute the canonical steps (`arm.select`, `home`, `gripper.open`, `gripper.close`, `wait`) on the single configured follower **through the existing CHECKIK safety controller** (never around it); refuse motion unless the local operator has armed, calibration is ready, no fault, no e-stop latch; keep velocity/joint limits and the watchdog in the Edge; no motion on reconnect.
+2. **`iot.py` Shadow**: heartbeat ≤10 s refreshing `reportedAtMs`; fields `adapterMode`, `armed` (true only after a LOCAL operator action; false after every connect/reconnect/restart), `calibrationReady`, `fault`; `runtimeKind` = `MOCK_RUNTIME` for `fake_follower`, otherwise `UNVERIFIED_RUNTIME` (the API, not the Edge, decides PHYSICAL_ROBOT from the declared adapter modes); `stopped=false` only when genuinely ready; keep the last will.
+3. **Telemetry publishers** (≤2 Hz, ≤120 frames/run, only while the command is executing): `status:"telemetry"` frames (SIMULATION, fake_follower only) and `status:"physical_telemetry"` messages built from the follower's **measured** `<joint>.pos` observation (the CHECKIK/LeLab reader already returns it), exactly as in §7/§7b.
+4. **Desktop supervisor** (`edge-supervisor.js`): pass the certificate paths, robot UUID, Thing name and endpoint (§1) to R1; hardware stays disabled unless the operator arms locally.
+5. **Recording** (physical phase): reuse `recording-manager.js` to upload through the student's authenticated session (§8).
+Do not implement any Backend, Twin or AWS change: they are done. Do not assign dual-arm cloud work: one follower only.
+
 ## 1. Fixed identifiers
 | Item | Value |
 |---|---|
