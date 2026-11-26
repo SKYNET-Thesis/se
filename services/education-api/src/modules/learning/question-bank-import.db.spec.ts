@@ -143,6 +143,19 @@ describeDb('real PostgreSQL Question Bank CSV/XLSX import', () => {
       expect(await db.learning_questions.count({ where: { lesson_id: x.lesson.id } })).toBe(2);
     });
 
+    it('treats the same explicit code with the same question as already imported (duplicate), but a reused code with a different question stays an error', async () => {
+      const x = await school();
+      const withCode = (code: string, stem: string) => { const r = mrow(stem); r[0] = code; return r; };
+      const f = file([withCode('EXT-1', 'Explicit code question one'), withCode('EXT-2', 'Explicit code question two')]);
+      const opts = { newObjective: 'Outcome', publish: false, confirm: true, expectedSha256: sha(f) };
+      expect(await bank.importCommit(admin, x.lesson.id, 'e.csv', f, opts)).toMatchObject({ created: 2 });
+      const again = await bank.importPreview(admin, x.lesson.id, 'e.csv', f);
+      expect(again).toMatchObject({ valid: 0, invalid: 0, duplicates: 2 });
+      const conflict = await bank.importPreview(admin, x.lesson.id, 'e2.csv', file([withCode('EXT-1', 'A different question reusing the code')]));
+      expect(conflict.items[0]).toMatchObject({ status: 'invalid' });
+      expect(conflict.items[0].errors[0]).toMatch(/code already exists/);
+    });
+
     it('imports true_false rows and adding a question to a quiz defaults points from difficulty', async () => {
       const x = await school();
       const tf = Buffer.from(toCsv([['type', 'difficulty', 'stem', 'correct', 'explanation'], ['true_false', 'hard', 'Stops must be cleared first', 'true', 'Safety.']]));

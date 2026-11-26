@@ -147,8 +147,11 @@ export class QuestionBankService {
       const objectiveId = m.learningObjective ? objectiveByCode.get(m.learningObjective.normalize('NFKC').trim().toLowerCase()) : undefined;
       if (m.learningObjective && !objectiveId) errors.push(`learning_objective "${m.learningObjective}" is not a Learning Outcome code of this lesson (a default outcome can be chosen at import).`);
       if (m.topic && m.topic.length > 120) errors.push('topic must be at most 120 characters.');
-      if (r.code) { if (codes.has(r.code)) errors.push('code already exists in this organization.'); else if (fileCodes.has(r.code)) errors.push('code is repeated in the file.'); fileCodes.add(r.code); }
-      const duplicateOf = r.duplicateOfRow !== undefined ? { row: r.duplicateOfRow } : r.content && byStem.has(normalizeStem(r.content.stem)) ? { existingCode: byStem.get(normalizeStem(r.content.stem)) } : undefined;
+      const existingCode = r.content ? byStem.get(normalizeStem(r.content.stem)) : undefined;
+      // The same code carrying the same question already in this lesson means "already imported" (a duplicate to skip), not an error.
+      const alreadyImported = !!r.code && existingCode === r.code;
+      if (r.code) { if (codes.has(r.code) && !alreadyImported) errors.push('code already exists in this organization.'); else if (fileCodes.has(r.code)) errors.push('code is repeated in the file.'); fileCodes.add(r.code); }
+      const duplicateOf = r.duplicateOfRow !== undefined ? { row: r.duplicateOfRow } : existingCode !== undefined ? { existingCode } : undefined;
       const status = errors.length ? 'invalid' : duplicateOf ? 'duplicate' : 'valid';
       return { rowNumber: r.rowNumber, status, errors, duplicateOf, points: r.points, pointsSource: r.pointsSource, stem: r.content?.stem, type: r.content?.type, difficulty: r.content?.difficulty, topic: m.topic, learningSection: m.learningSection, learningObjectiveCode: m.learningObjective, objectiveResolved: m.learningObjective ? Boolean(objectiveId) : undefined };
     });
