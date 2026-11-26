@@ -95,6 +95,20 @@ test('student browser runs the local R1 fake follower and retrieves scoped persi
   expect(state.runtime.mode).toBe('fake_follower');
   expect(state.digitalTwinTelemetry).toBe('accepted');
   expect(state.evidence).toBe('available');
+  const shots = process.env.VISTA_E2E_SCREENSHOT_DIR;
+  const shot = async (target: Page, name: string) => { if (shots) await target.screenshot({ path: `${shots}/${name}.png`, fullPage: true }); };
+  if (shots) await expect(page.getByText('RUNNING', { exact: true })).toBeHidden({ timeout: 20_000 });
+  await shot(page, 'wf03-student-run-result');
+
+  // Event stream (Desktop/Web consumers): must serialize (BigInt id -> decimal string), stay ordered and be owner-scoped.
+  const eventsResponse = await request(page, studentToken, 'GET', `/me/experiments/${run.id}/events`);
+  expect(eventsResponse.status()).toBe(200);
+  const events = await eventsResponse.json() as Array<{ id: string; event_index: number; event_type: string }>;
+  expect(events.length).toBeGreaterThan(0);
+  for (const event of events) expect(event.id).toMatch(/^\d+$/);
+  expect(events.map((event) => event.event_index)).toEqual([...events.map((event) => event.event_index)].sort((a, b) => a - b));
+  expect(new Set(events.map((event) => event.id)).size).toBe(events.length);
+  expect([403, 404]).toContain((await request(page, peerToken, 'GET', `/me/experiments/${run.id}/events`)).status());
 
   const artifactsResponse = await request(page, studentToken, 'GET', `/me/experiments/${run.id}/artifacts`);
   expect(artifactsResponse.status()).toBe(200);
@@ -126,6 +140,7 @@ test('student browser runs the local R1 fake follower and retrieves scoped persi
   const ownerSubmission = await request(teacherPage, teacherToken, 'GET', `/submissions/${fixture.submissionId}`);
   expect(ownerSubmission.status()).toBe(200);
   await expect(teacherPage.getByRole('button', { name: 'Download evidence' })).toBeVisible();
+  await shot(teacherPage, 'wf03-instructor-evidence-review');
   const teacherBrowserDownloadEvent = teacherPage.waitForEvent('download');
   await teacherPage.getByRole('button', { name: 'Download evidence' }).click();
   const teacherBrowserDownload = await teacherBrowserDownloadEvent;
