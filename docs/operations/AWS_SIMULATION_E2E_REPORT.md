@@ -54,6 +54,26 @@ Run the same journey against Production Twin `wss://api.skynex.best/ws/twin` and
 3. Provide short-lived scoped credentials per "Exact permissions" §2 (or run the local API on the owner's machine).
 4. Confirm the test robot UUID.
 
+## Owner approval request (copy-ready, 2026-11-26)
+
+**Request:** authorize a one-time, isolated AWS IoT simulation E2E using a second instance of the existing `infra/terraform/iot` root. It creates no compute and no fixed-cost resource, never touches the Production Thing, queues, bucket, EC2, database or secrets, and keeps Production MQTT off.
+
+| Item | Value |
+|---|---|
+| Existing resources (unchanged) | Production Thing, policy, rule, feedback queue + DLQ, recordings bucket, single EC2 API/workers, `VISTA_IOT_ENABLED=false` |
+| Proposed new (e2e) resources | 1 IoT Thing, 1 IoT policy, 1 topic rule + IAM role, 2 SQS queues + 2 DLQs as defined by the root, 1 S3 recordings bucket; all named `vista-e2e-<uuid>` |
+| Robot / Thing identity | owner-generated UUID `<uuid>`, Thing `vista-e2e-<uuid>`; the robot row exists only in a local disposable database |
+| MQTT topics | `vista/e2e/robots/<uuid>/commands`, `…/ack`, `…/status`, `…/telemetry`, classic shadow of the e2e Thing only |
+| Permissions | as listed above: owner runs `terraform apply` on the e2e root only; short-lived scoped STS credentials for the workstation API/workers; the Thing policy already in the repo for the edge |
+| Certificate | one certificate created by the owner on the owner's workstation; the private key never enters Git, Terraform state, CI or any API secret; I do not handle it |
+| Expected cost | pay-per-use only: a handful of MQTT messages and SQS requests and a few MB of S3 for one session; well below US$1 for the whole test, **zero** while idle (no instance, NAT or reserved capacity); the e2e bucket and queues are deleted at cleanup. Verify against current AWS pricing before approval |
+| Test sequence | steps 1–7 of "Test procedure" above, one run, on the workstation, loopback only |
+| Cleanup | `terraform destroy` of the e2e root, deactivate and delete the certificate, empty and delete the e2e bucket, revoke the STS session, delete the local database |
+| Rollback | stop the local processes and run the cleanup; nothing in Production changed, so there is nothing to roll back there |
+| Safety boundaries | fake follower only (`hardwareEnabled:false`), `MOCK_RUNTIME` classification, no physical robot, no Production MQTT, no secret changes, no migrations, no `main` merge, no deploy |
+
+**To approve, reply with:** (1) apply the e2e instance (you run it, or I may run `terraform apply` for that root only); (2) you create and attach the test certificate; (3) you provide short-lived scoped credentials or run the API locally; (4) the test robot UUID.
+
 ## Status
 
 AWS E2E: **NOT RUN / BLOCKED** (approval). Physical robot: **BLOCKED** (commissioning). Desktop-originated recording: depends on Desktop v0.1.0 being published and on the Desktop signing in as the owning student.
