@@ -63,7 +63,7 @@ export function TeacherClassDetail() {
       <section className="mt-8 grid gap-8 lg:grid-cols-2">
         <div>
           <h2 className="text-xl font-semibold text-ink">Students</h2>
-          <ul className="mt-4 divide-y divide-line">{(roster.data ?? []).map((student) => <li key={String(student.id)} className="py-3"><p className="font-medium text-ink">{String(student.full_name)}</p><p className="text-sm text-ink-muted">{student.email ? String(student.email) : 'Account setup pending'}</p></li>)}</ul>
+          <ul className="mt-4 divide-y divide-line">{(roster.data ?? []).map((student) => <li key={String(student.id)} className="py-3"><p className="font-medium text-ink">{String(student.full_name)}</p><p className="text-sm text-ink-muted">{student.email ? String(student.email) : 'No email on file'}</p></li>)}</ul>
           {!roster.isLoading && !roster.data?.length && <p className="mt-3 text-sm text-ink-muted">No students in this classroom.</p>}
         </div>
         <div>

@@ -1,10 +1,36 @@
 import { Injectable, Optional, Inject } from "@nestjs/common";
-import { IoTDataPlaneClient, PublishCommand } from "@aws-sdk/client-iot-data-plane";
+import { GetThingShadowCommand, IoTDataPlaneClient, PublishCommand } from "@aws-sdk/client-iot-data-plane";
 
 export interface IotPublisher { publish(topic: string, value: Record<string, unknown>): Promise<void>; }
 /** A publisher can use these to preserve the safety distinction in lifecycle persistence. */
 export class IotPublishDefiniteFailureError extends Error {}
 export class IotPublishUnknownOutcomeError extends Error {}
+
+/** Device Shadow `reported` state written by the Edge Runtime (observed state only; never a control channel). */
+export type IotShadowReported = {
+  connection?: string; runtimeKind?: string; hardwareEnabled?: boolean; stopped?: boolean;
+  activeRunId?: string | null; lastCommandSequence?: number; reportedAtMs?: number; schemaVersion?: number;
+};
+export interface IotShadowReader { read(thingName: string): Promise<IotShadowReported | null>; }
+
+class AwsIotShadowReader implements IotShadowReader {
+  private readonly client: IoTDataPlaneClient;
+  constructor(environment: NodeJS.ProcessEnv) {
+    const endpoint = environment.VISTA_IOT_DATA_ENDPOINT;
+    if (!endpoint) throw new Error("VISTA_IOT_DATA_ENDPOINT is required when AWS IoT is enabled");
+    this.client = new IoTDataPlaneClient({ endpoint: endpoint.startsWith("https://") ? endpoint : `https://${endpoint}`, region: environment.AWS_REGION });
+  }
+  async read(thingName: string): Promise<IotShadowReported | null> {
+    try {
+      const out = await this.client.send(new GetThingShadowCommand({ thingName }));
+      const doc = JSON.parse(Buffer.from(out.payload ?? []).toString("utf8")) as { state?: { reported?: IotShadowReported } };
+      return doc.state?.reported ?? null;
+    } catch (error) {
+      if ((error as { name?: string }).name === "ResourceNotFoundException") return null;
+      throw error;
+    }
+  }
+}
 export type IotRunCommand = {
   schemaVersion: number; kind: "run"; commandId: string; robotId: string; sequence: number;
   issuedAtMs: number; expiresAtMs: number; payload: Record<string, unknown>;
@@ -28,18 +54,38 @@ export class IotCommandService {
   private readonly publisher: IotPublisher | null;
   private readonly now: () => number;
   private readonly uuid: () => string;
+  private readonly shadowReader: IotShadowReader | null;
   constructor(
     @Optional() @Inject("IOT_COMMAND_ENV") environment?: NodeJS.ProcessEnv,
     @Optional() @Inject("IOT_COMMAND_PUBLISHER") publisher?: IotPublisher,
     @Optional() @Inject("IOT_COMMAND_NOW") now?: () => number,
     @Optional() @Inject("IOT_COMMAND_UUID") uuid?: () => string,
+    @Optional() @Inject("IOT_SHADOW_READER") shadowReader?: IotShadowReader,
   ) {
     this.environment = environment ?? process.env;
     this.publisher = publisher ?? (this.environment.VISTA_IOT_ENABLED === "true" ? new AwsIotPublisher(this.environment) : null);
     this.now = now ?? (() => Date.now());
     this.uuid = uuid ?? (() => crypto.randomUUID());
+    this.shadowReader = shadowReader ?? (this.environment.VISTA_IOT_ENABLED === "true" && this.environment.VISTA_IOT_START_MODE === "simulation" ? new AwsIotShadowReader(this.environment) : null);
   }
   enabled(): boolean { return this.publisher !== null; }
+  /**
+   * Student starts over AWS IoT are refused unless the deployment explicitly selects the simulation-only mode. That mode only ever accepts an Edge
+   * whose Device Shadow says it is a mock runtime with the hardware driver disabled; a physical robot can never be started through it.
+   */
+  simulationStartEnabled(): boolean { return this.publisher !== null && this.environment.VISTA_IOT_START_MODE === "simulation" && this.shadowReader !== null; }
+  /** Observed state of one robot's Edge Runtime from its Device Shadow; null when the Thing has never reported. */
+  async readShadow(robotId: string): Promise<IotShadowReported | null> {
+    if (!this.shadowReader) throw new Error("Device Shadow reader is disabled");
+    const prefix = (this.environment.VISTA_IOT_THING_PREFIX ?? "").replace(/-$/, "");
+    if (!prefix) throw new Error("VISTA_IOT_THING_PREFIX is required for the simulation start mode");
+    return this.shadowReader.read(`${prefix}-${robotId}`);
+  }
+  shadowMaxAgeMs(): number {
+    const value = Number(this.environment.VISTA_IOT_SHADOW_MAX_AGE_MS ?? "30000");
+    if (!Number.isSafeInteger(value) || value < 5000 || value > 300000) throw new Error("VISTA_IOT_SHADOW_MAX_AGE_MS must be 5000..300000");
+    return value;
+  }
   createRunCommand(robotId: string, sequence: number, payload: Record<string, unknown>): IotRunCommand {
     if (!this.publisher) throw new Error("AWS IoT command publisher is disabled");
     const ttl = Number(this.environment.VISTA_IOT_COMMAND_TTL_MS ?? "10000");

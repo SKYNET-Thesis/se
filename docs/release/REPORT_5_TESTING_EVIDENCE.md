@@ -65,6 +65,10 @@ Harness: `scripts/local_student_auth_harness.sh` (pinned `gotrue:v2.197.0`, real
 
 Scope of the claim: the API verifies real GoTrue-issued JWTs and the login/recovery UI works against a real GoTrue. It does **not** verify the hosted Production Supabase project. The student temporary-password feature stays disabled by default and unreleased (needs an owner-approved migration).
 
+## 4b. Production end-to-end acceptance (run R1126-1901, deployed `0b77ad2`, 2026-11-26)
+
+Real browser against `https://skynex.best`, hosted Supabase authentication, no local stack. 94 cases listed, 93 applicable: **74 PASS, 6 FAIL, 5 BLOCKED, 8 NOT RUN** (coverage 86.0%, pass rate among executed 92.5%). Defects: P1 1 (hosted e-mail rate limit blocks staff invitations), P2 3 (True/False authoring, imported drafts cannot be published in the UI, login/submission accessibility), P3 6. Fix PRs #225 #226 #227 (not deployed). WF02 and WF04 PASS; WF01 allocation and WF03 runtime/Twin/evidence BLOCKED (no entitlement UI or connected runtime; Production MQTT intentionally off). Details: `docs/acceptance/PRODUCTION_FULL_E2E_ACCEPTANCE_REPORT.md`, matrix, defect register, manifest.
+
 ## 5. Not run / blocked (do not overstate)
 
 | Item | Status | Reason |
@@ -73,7 +77,7 @@ Scope of the claim: the API verifies real GoTrue-issued JWTs and the login/recov
 | AWS IoT simulation E2E | BLOCKED | owner approval pending (`docs/operations/AWS_SIMULATION_E2E_REPORT.md`) |
 | Physical SO-101 | BLOCKED | no hardware commissioning approval |
 | Hosted Production Supabase project auth | NOT RUN | only a local real GoTrue was used |
-| Production behaviour of this revision | NOT RUN | Production runs a pre-RC revision; no deployment authorized |
+| Production behaviour of this revision | **Partly RUN**: see §4b (Production now runs `0b77ad2`); AWS IoT, Desktop-to-Web, physical, Supabase e-mail/redirect settings remain NOT RUN/BLOCKED | |
 | Quiz dashboard on a phone viewport | NOT RUN | single-column layout, no dedicated check |
 | Dark mode | N/A | the design system has no dark theme |
 | Full 57-spec browser suite | NOT RUN | memory safety (two earlier OOM freezes) |

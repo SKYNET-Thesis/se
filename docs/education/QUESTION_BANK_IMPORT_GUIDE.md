@@ -25,7 +25,7 @@ Where: Course Builder → lesson → Quiz Builder → Questions → **Import que
 1. Upload the file. Nothing is saved yet: the preview lists each row as valid, invalid or duplicate, with points (and whether they are the default), topic and mapping, and row-level errors.
 2. Fix problems in your file and upload again, or use **Download error report (CSV)**.
 3. Choose a Learning Outcome for rows without `learning_objective`, tick *I reviewed this preview*, and import.
-4. Questions are imported as **drafts** unless you tick *Publish immediately*. Review and publish them before adding them to a quiz.
+4. Questions are imported as **drafts** unless you tick *Publish immediately*. Review and publish them before adding them to a quiz. **Known limitation (Production E2E D05):** the web app currently has no screen that publishes a draft question and the quiz builder lists published questions only; tick *Publish immediately* for questions you will use in a quiz.
 
 ## Safety and limits
 

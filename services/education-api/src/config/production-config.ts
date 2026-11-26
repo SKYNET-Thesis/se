@@ -29,6 +29,10 @@ export function validateProductionConfig(config: Configuration): Configuration {
   // Student sign-in, password change and session revocation call Supabase with the public key; without it students cannot log in.
   const flag = String(config.STUDENT_TEMP_PASSWORD_ENABLED ?? "").trim().toLowerCase();
   if (flag && !["true", "false"].includes(flag)) throw new Error("STUDENT_TEMP_PASSWORD_ENABLED must be true or false.");
+  // Student starts over AWS IoT stay refused unless the simulation-only mode is selected explicitly; it needs the Thing prefix to read the Device Shadow.
+  const startMode = String(config.VISTA_IOT_START_MODE ?? "").trim();
+  if (startMode && startMode !== "simulation") throw new Error("VISTA_IOT_START_MODE must be empty or simulation.");
+  if (startMode === "simulation" && !String(config.VISTA_IOT_THING_PREFIX ?? "").trim()) throw new Error("VISTA_IOT_THING_PREFIX is required when VISTA_IOT_START_MODE=simulation.");
   required(config, "SUPABASE_ANON_KEY");
   // Learning Media lives in ONE bucket; the S3 endpoint override exists only for local loopback storage.
   required(config, "LEARNING_MEDIA_BUCKET");

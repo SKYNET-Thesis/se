@@ -143,6 +143,17 @@ describe('Login Component', () => {
     expect(authMocks.roles).toHaveBeenCalledWith('email-token');
   });
 
+  it('keeps the sign-in tabs accessible: the selected tab controls an existing tabpanel (axe aria-valid-attr-value)', () => {
+    const selected = container.querySelector('[role="tab"][aria-selected="true"]') as HTMLElement;
+    const target = selected.getAttribute('aria-controls');
+    expect(target).toBeTruthy();
+    const panel = container.querySelector(`#${target}`);
+    expect(panel?.getAttribute('role')).toBe('tabpanel');
+    expect(panel?.getAttribute('aria-labelledby')).toBe(selected.id);
+    const other = container.querySelector('[role="tab"][aria-selected="false"]') as HTMLElement;
+    expect(other.getAttribute('aria-controls')).toBeNull();
+  });
+
   it('switches to Student Code tab and signs in with school and student codes', async () => {
     await clickButton('Student Code');
 
