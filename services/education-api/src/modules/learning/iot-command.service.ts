@@ -69,7 +69,7 @@ export class IotCommandService {
     this.publisher = publisher ?? (this.environment.VISTA_IOT_ENABLED === "true" ? new AwsIotPublisher(this.environment) : null);
     this.now = now ?? (() => Date.now());
     this.uuid = uuid ?? (() => crypto.randomUUID());
-    this.shadowReader = shadowReader ?? (this.environment.VISTA_IOT_ENABLED === "true" && this.environment.VISTA_IOT_START_MODE === "simulation" ? new AwsIotShadowReader(this.environment) : null);
+    this.shadowReader = shadowReader ?? (this.environment.VISTA_IOT_ENABLED === "true" && ["simulation", "physical_commissioning"].includes(String(this.environment.VISTA_IOT_START_MODE)) ? new AwsIotShadowReader(this.environment) : null);
   }
   enabled(): boolean { return this.publisher !== null; }
   /**

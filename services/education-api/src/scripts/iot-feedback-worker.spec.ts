@@ -38,4 +38,22 @@ describe("IotFeedbackWorker", () => {
       expect(repository.process).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("physical telemetry frames", () => {
+    const body = JSON.stringify({ schemaVersion: 1, kind: "status", status: "physical_telemetry", eventId: "e", robotId: "r", commandId: "c", sequence: 5, occurredAtMs: 1 });
+    it("go only to the physical bridge, never to the simulation bridge or the lifecycle repository, and are deleted", async () => {
+      const send = jest.fn().mockResolvedValueOnce({ Messages: [{ Body: body, ReceiptHandle: "r" }] }).mockResolvedValue(undefined);
+      const repository = { process: jest.fn() }; const sim = { handle: jest.fn() }; const phys = { handle: jest.fn().mockResolvedValue("forwarded") };
+      await new IotFeedbackWorker("queue", repository, { send } as never, { info: jest.fn(), warn: jest.fn() }, 5, 90, sim, phys).once();
+      expect(phys.handle).toHaveBeenCalledTimes(1); expect(sim.handle).not.toHaveBeenCalled(); expect(repository.process).not.toHaveBeenCalled(); expect(send).toHaveBeenCalledTimes(2);
+    });
+    it("are acknowledged and dropped when the physical bridge is disabled, and a bridge failure cannot retain the message", async () => {
+      for (const phys of [null, { handle: jest.fn().mockRejectedValue(new Error("x")) }]) {
+        const send = jest.fn().mockResolvedValueOnce({ Messages: [{ Body: body, ReceiptHandle: "r" }] }).mockResolvedValue(undefined);
+        const repository = { process: jest.fn() };
+        await new IotFeedbackWorker("queue", repository, { send } as never, { info: jest.fn(), warn: jest.fn() }, 5, 90, { handle: jest.fn() }, phys).once();
+        expect(repository.process).not.toHaveBeenCalled(); expect(send).toHaveBeenCalledTimes(2);
+      }
+    });
+  });
 });

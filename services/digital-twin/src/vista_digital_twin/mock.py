@@ -85,15 +85,28 @@ class MockTelemetry:
 
 
 class LatestState:
-    """One frame only: slow readers skip old frames rather than building latency."""
+    """One frame only: slow readers skip old frames rather than building latency.
 
-    def __init__(self, *, stale_after_seconds: float = 0.5):
+    Freshness is judged one of two honest ways, never by silently widening a threshold:
+      * direct publisher (default): the frame is stale when its own MEASUREMENT is older than `stale_after_seconds` (0.5 s).
+      * relayed publisher (cloud path): `relay_stale_after_seconds` is set; the frame is stale when the Twin has not RECEIVED a new frame for that long
+        (connectivity/receipt freshness) OR the measurement itself is older than `max_measurement_age_seconds` (measurement freshness). The transport
+        delay (receipt time minus measurement time) is recorded and reported separately; it is never hidden and a late frame is not called real-time.
+    """
+
+    def __init__(self, *, stale_after_seconds: float = 0.5, relay_stale_after_seconds: float | None = None, max_measurement_age_seconds: float | None = None):
         if stale_after_seconds <= 0:
             raise ValueError("stale_after_seconds must be positive")
+        if relay_stale_after_seconds is not None:
+            if relay_stale_after_seconds <= 0 or max_measurement_age_seconds is None or max_measurement_age_seconds < relay_stale_after_seconds:
+                raise ValueError("relay mode needs a positive receipt threshold and a measurement-age bound that is not smaller")
         self.stale_after_seconds = stale_after_seconds
+        self.relay_stale_after_seconds = relay_stale_after_seconds
+        self.max_measurement_age_seconds = max_measurement_age_seconds
         self._state: JointState | None = None
+        self._received_at: datetime | None = None
 
-    def publish(self, state: JointState) -> bool:
+    def publish(self, state: JointState, received_at: datetime | None = None) -> bool:
         previous = self._state
         if previous is not None and (
             state.sequence <= previous.sequence
@@ -101,12 +114,31 @@ class LatestState:
         ):
             return False
         self._state = state
+        self._received_at = received_at
         return True
+
+    def timing(self, now: datetime) -> dict[str, int | None] | None:
+        """Separate clocks for the viewer: age since measurement, age since cloud receipt, and the measurement-to-receipt transport delay."""
+        state = self._state
+        if state is None:
+            return None
+        received = self._received_at
+        return {
+            "measurement_age_ms": max(0, int((now - state.measured_at).total_seconds() * 1000)),
+            "received_age_ms": None if received is None else max(0, int((now - received).total_seconds() * 1000)),
+            "transport_delay_ms": None if received is None else int((received - state.measured_at).total_seconds() * 1000),
+        }
 
     def latest(self, now: datetime) -> JointState | None:
         state = self._state
         if state is None:
             return None
-        if state.connection == "connected" and (now - state.measured_at).total_seconds() > self.stale_after_seconds:
+        if state.connection != "connected":
+            return state
+        if self.relay_stale_after_seconds is not None and self._received_at is not None:
+            if (now - self._received_at).total_seconds() > self.relay_stale_after_seconds or (now - state.measured_at).total_seconds() > (self.max_measurement_age_seconds or 0):
+                return state.model_copy(update={"connection": "stale"})
+            return state
+        if (now - state.measured_at).total_seconds() > self.stale_after_seconds:
             return state.model_copy(update={"connection": "stale"})
         return state

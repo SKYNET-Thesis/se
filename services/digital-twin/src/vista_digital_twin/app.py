@@ -45,6 +45,8 @@ def create_app(
     reconnect_at: int | None = None,
     authorizer: TwinAuthorizer | None = None,
     physical_owner: LeLabFollowerTelemetryAdapter | None = None,
+    relay_stale_after_seconds: float | None = None,
+    max_measurement_age_seconds: float | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> FastAPI:
     now = clock or (lambda: datetime.now(timezone.utc))
@@ -53,7 +55,8 @@ def create_app(
         disconnect_at=disconnect_at, reconnect_at=reconnect_at,
     )
     latest = LatestState()
-    physical_latest = LatestState()
+    relay = {"relay_stale_after_seconds": relay_stale_after_seconds, "max_measurement_age_seconds": max_measurement_age_seconds}
+    physical_latest = LatestState(**relay)
     # Keyed by (robot_id, attempt_id|None): frames published for one attempt are never visible to another attempt's viewer.
     simulation_latest: dict[tuple[str, str | None], LatestState] = {}
     simulation_organizations: dict[tuple[str, str | None], str] = {}
@@ -104,7 +107,7 @@ def create_app(
                 raise TelemetryRejected("measured_at and observation are required")
             measured_at = datetime.fromisoformat(raw_time.replace("Z", "+00:00"))
             state = physical_owner.from_lelab_observation(observation, measured_at=measured_at)
-            physical_latest.publish(state)
+            physical_latest.publish(state, received_at=now())
             return {"status": "accepted", "sequence": state.sequence}
         except (AuthorizationError, TelemetryRejected, ValueError):
             raise HTTPException(status_code=403, detail="physical telemetry rejected") from None
@@ -129,11 +132,11 @@ def create_app(
             if state.source_mode is not SourceMode.SIMULATION or state.robot_id != robot:
                 raise TelemetryRejected("simulation telemetry identity mismatch")
             key = (robot, attempt)
-            slot = simulation_latest.setdefault(key, LatestState())
+            slot = simulation_latest.setdefault(key, LatestState(**relay))
             previous = slot.latest(now())
             if previous is not None and previous.sequence == state.sequence and previous.model_dump(mode="json") == state.model_dump(mode="json"):
                 return {"status": "accepted", "sequence": state.sequence, "mujoco": "duplicate_unchanged"}
-            if not slot.publish(state):
+            if not slot.publish(state, received_at=now()):
                 raise TelemetryRejected("out-of-order telemetry")
             simulation_organizations[key] = org
             model_path = os.getenv("VISTA_TWIN_MUJOCO_MODEL_PATH")
@@ -184,6 +187,17 @@ def create_app(
                 continue
             if scope.attempt_id == attempt:
                 return scope
+        return None
+
+    def timing_for(physical_state, simulation_state, scope, at):
+        """Measurement age, cloud-receipt age and transport delay of the stream the viewer is on (null for the mock stream)."""
+        if physical_state is not None:
+            return physical_latest.timing(at)
+        if simulation_state is not None and scope is not None:
+            for robot in scope.robot_ids:
+                slot = simulation_latest.get((robot, scope.attempt_id))
+                if slot is not None:
+                    return slot.timing(at)
         return None
 
     @app.websocket("/ws/twin")
@@ -258,6 +272,7 @@ def create_app(
                         "source_mode": state.source_mode.value if state else None, "robot_id": state.robot_id if state else None,
                         "sequence": state.sequence if state else None, "connection": state.connection if state else "disconnected",
                         "age_ms": max(0, int((current_time - state.measured_at).total_seconds() * 1000)) if state else None,
+                        "timing": timing_for(physical_state, simulation_state, viewer_scope, current_time),
                     })
                     last_sent = loop.time()
                 await asyncio.sleep(tick)
@@ -299,6 +314,8 @@ def create_app_from_environment() -> FastAPI:
         if "VISTA_TWIN_MOCK_RECONNECT_AT" in os.environ else None,
         authorizer=authorizer,
         physical_owner=owner,
+        relay_stale_after_seconds=float(os.environ["VISTA_TWIN_RELAY_STALE_AFTER_SECONDS"]) if os.getenv("VISTA_TWIN_RELAY_STALE_AFTER_SECONDS") else None,
+        max_measurement_age_seconds=float(os.environ["VISTA_TWIN_MAX_MEASUREMENT_AGE_SECONDS"]) if os.getenv("VISTA_TWIN_MAX_MEASUREMENT_AGE_SECONDS") else None,
     )
 
 

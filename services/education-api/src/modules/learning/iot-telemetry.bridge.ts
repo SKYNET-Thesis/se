@@ -37,6 +37,7 @@ export class IotTelemetryBridge {
 
   private async process(value: unknown): Promise<TelemetryOutcome> {
     const event = value as Record<string, unknown>;
+    if (!isTelemetryEvent(value)) return this.drop("not_simulation_message");
     if (!this.twin) return this.drop("bridge_disabled");
     if (event.schemaVersion !== 1 || typeof event.robotId !== "string" || typeof event.commandId !== "string" || typeof event.eventId !== "string"
       || !Number.isSafeInteger(event.sequence) || !Number.isSafeInteger(event.occurredAtMs)) return this.drop("malformed");

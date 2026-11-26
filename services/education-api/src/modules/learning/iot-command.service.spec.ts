@@ -90,4 +90,16 @@ describe("IotCommandService", () => {
       }
     });
   });
+
+  describe("shadow reader wiring from the environment (no injected reader)", () => {
+    const env = { VISTA_IOT_ENABLED: "true", VISTA_IOT_DATA_ENDPOINT: "example-ats.iot.ap-southeast-1.amazonaws.com", VISTA_IOT_THING_PREFIX: "vista-demo", AWS_REGION: "ap-southeast-1" };
+    const publisher = { publish: jest.fn() } as never;
+    it.each([["simulation", "simulationStartEnabled"], ["physical_commissioning", "physicalStartEnabled"]] as const)("creates the AWS shadow reader for %s so that mode can actually start", (mode, method) => {
+      expect(new IotCommandService({ ...env, VISTA_IOT_START_MODE: mode } as NodeJS.ProcessEnv, publisher)[method]()).toBe(true);
+    });
+    it("creates no shadow reader (all start modes off) without a start mode", () => {
+      const service = new IotCommandService(env as NodeJS.ProcessEnv, publisher);
+      expect(service.simulationStartEnabled()).toBe(false); expect(service.physicalStartEnabled()).toBe(false);
+    });
+  });
 });
