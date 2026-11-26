@@ -8,6 +8,7 @@ mkdir -p "$WORK/bin" "$WORK/opt"
 cat > "$WORK/bin/docker" <<'STUB'
 #!/bin/bash
 echo "docker $*" >> "$STUB_LOG"
+if [ "$1" = run ]; then prev=""; for a in "$@"; do [ "$prev" = "--env-file" ] && cp "$a" "${STUB_LOG}.env.$(basename "$a")" 2>/dev/null; prev="$a"; done; fi
 case "$1" in inspect) echo true ;; pull) [ "${STUB_PULL_FAIL:-0}" = 1 ] && exit 1 || exit 0 ;; esac
 exit 0
 STUB
@@ -47,4 +48,18 @@ grep -qE 'docker run .*--memory 384m .*--no-healthcheck --entrypoint node .*dist
 run 'VISTA_RECORDINGS_WORKER_ENABLED=true\n' "$IMG"
 grep -qE 'docker run .*--memory 384m .*--no-healthcheck --entrypoint node .*dist/scripts/robot-recordings-worker.js' "$WORK/log" || fail "recordings worker command"
 run 'X=1\n' "$IMG"; grep -q 'docker rm -f vista-recordings-worker' "$WORK/log" || fail "an old recordings worker must be removed when the flag is off"
+# The telemetry relay (feedback worker) must be on the private twin network.
+run 'VISTA_TWIN_ENABLED=true\nDIGITAL_TWIN_SCOPE_SECRET=x\nVISTA_IOT_FEEDBACK_WORKER_ENABLED=true\n' "$IMG"
+grep -q 'docker network connect vista-net vista-iot-feedback-worker' "$WORK/log" || fail "the feedback worker (telemetry relay) must join the private twin network"
+run 'VISTA_TWIN_ENABLED=true\nDIGITAL_TWIN_SCOPE_SECRET=x\n' "$IMG"
+grep -q 'docker run.*iot-feedback' "$WORK/log" && fail "no worker may start when its flag is off"
+# Twin settings pass-through: only the whitelisted VISTA_TWIN_* keys with plain values reach twin.env, never anything else from api.env.
+run 'VISTA_TWIN_ENABLED=true\nDIGITAL_TWIN_SCOPE_SECRET=s3cret-value\nDATABASE_URL=postgres://u:p@h/db\nVISTA_TWIN_PHYSICAL_OWNER_ID=owner-1\nVISTA_TWIN_PHYSICAL_ORGANIZATION_ID=597cd591-ba63-4a27-af5d-12fede921fad\nVISTA_TWIN_PHYSICAL_ROBOT_ID=f1c066c4-b5f2-45c4-b933-f034f3824dd9\nVISTA_TWIN_RELAY_STALE_AFTER_SECONDS=3.0\nVISTA_TWIN_MAX_MEASUREMENT_AGE_SECONDS=5.0\nVISTA_TWIN_PHYSICAL_FOLLOWER_ID=bad value;rm -rf\n' "$IMG"
+CAP="$WORK/log.env.twin.env"; [ -f "$CAP" ] || fail "the twin env file must have been passed to docker run"
+grep -q '^VISTA_TWIN_AUTH_SECRET=s3cret-value$' "$CAP" || fail "twin auth secret"
+for kv in VISTA_TWIN_PHYSICAL_OWNER_ID=owner-1 VISTA_TWIN_PHYSICAL_ORGANIZATION_ID=597cd591-ba63-4a27-af5d-12fede921fad VISTA_TWIN_PHYSICAL_ROBOT_ID=f1c066c4-b5f2-45c4-b933-f034f3824dd9 VISTA_TWIN_RELAY_STALE_AFTER_SECONDS=3.0 VISTA_TWIN_MAX_MEASUREMENT_AGE_SECONDS=5.0; do grep -q "^$kv\$" "$CAP" || fail "twin env must contain $kv"; done
+grep -q 'DATABASE_URL' "$CAP" && fail "twin.env must never receive unrelated secrets"
+grep -q 'VISTA_TWIN_PHYSICAL_FOLLOWER_ID' "$CAP" && fail "a value with spaces or shell metacharacters must be ignored"
+run 'VISTA_TWIN_ENABLED=true\nDIGITAL_TWIN_SCOPE_SECRET=x\n' "$IMG"; rm -f "$WORK/log.env.twin.env"; run 'VISTA_TWIN_ENABLED=true\nDIGITAL_TWIN_SCOPE_SECRET=x\n' "$IMG"
+[ "$(wc -l < "$WORK/log.env.twin.env")" = 1 ] || fail "without Twin settings only the auth secret is passed (physical route stays disabled)"
 echo "sidecar tests passed"

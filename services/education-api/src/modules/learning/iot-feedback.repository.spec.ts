@@ -31,7 +31,7 @@ describe("FeedbackRepository", () => {
   it("rejects a telemetry message as a lifecycle event before any database access (it can never fail or complete a command)", async () => {
     const transaction = jest.fn();
     const repository = new FeedbackRepository({ $transaction: transaction } as never, () => 1_000);
-    await expect(repository.process({ ...event, kind: "status", status: "telemetry" })).rejects.toThrow(/not a command lifecycle event/);
+    for (const status of ["telemetry", "physical_telemetry"]) await expect(repository.process({ ...event, kind: "status", status })).rejects.toThrow(/not a command lifecycle event/);
     expect(transaction).not.toHaveBeenCalled();
   });
 });
