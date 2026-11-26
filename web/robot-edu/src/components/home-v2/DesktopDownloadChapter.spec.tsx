@@ -52,36 +52,46 @@ describe('DesktopDownloadChapter', () => {
     expect(container.textContent).toContain('Recommended');
   });
 
-  it('keeps the download unavailable while the release is unverified: disabled controls, no download link', async () => {
-    await render();
-    expect(container.querySelectorAll('a[href*="github.com"]')).toHaveLength(0);
-    expect([...container.querySelectorAll('button[disabled]')].map((b) => b.textContent)).toEqual(['Download unavailable', 'Coming Soon', 'Coming Soon']);
-    expect(container.textContent).toContain('not yet publicly available');
+  const openCommandTab = () => {
     const commandTab = [...container.querySelectorAll('[role="tab"]')].find((button) => button.textContent === 'Command Line')!;
     act(() => commandTab.dispatchEvent(new MouseEvent('click', { bubbles: true })));
-    expect(container.textContent).toContain('curl -fL "https://github.com/leduc121/vista_lab/releases/download/v0.1.0/VISTA.Lab.Station-0.1.0-amd64.deb" -o /tmp/vista-lab-station.deb');
-    expect(container.textContent).toContain('sudo apt install /tmp/vista-lab-station.deb');
-    expect(container.textContent).toContain('gtk-launch vista-lab-station');
-    expect(container.textContent).toContain('sha256sum -c');
-    const copies = [...container.querySelectorAll('button')].filter((button) => button.textContent === 'Copy');
-    expect(copies).toHaveLength(4); expect(copies.every((button) => button.disabled)).toBe(true);
-    expect(container.textContent).not.toMatch(/[0-9a-f]{64}/); // no checksum is hard-coded
+  };
+
+  it('offers the verified Ubuntu DEB: active download, version, size, direct link', async () => {
+    await render();
+    const link = container.querySelector('a[href="https://github.com/leduc121/vista_lab/releases/download/v0.1.0/VISTA.Lab.Station-0.1.0-amd64.deb"]');
+    expect(link?.textContent).toBe('Download DEB');
+    expect(container.textContent).toContain('v0.1.0');
+    expect(container.textContent).toContain('125.3 MiB (131,395,882 bytes)');
+    expect([...container.querySelectorAll('button[disabled]')].map((b) => b.textContent)).toEqual(['Coming Soon', 'Coming Soon']); // Windows and macOS only
+    expect(container.textContent).not.toContain('not yet publicly available');
   });
 
-  it('enables Download DEB and Copy only when verified release metadata exists', async () => {
+  it('shows terminal, checksum and launch commands with working Copy buttons for the verified release', async () => {
+    await render(); openCommandTab();
+    expect(container.textContent).toContain('curl -fL "https://github.com/leduc121/vista_lab/releases/download/v0.1.0/VISTA.Lab.Station-0.1.0-amd64.deb" -o /tmp/vista-lab-station.deb');
+    expect(container.textContent).toContain('echo "a5dbca4d54a28de1aae2f254b08484460efb3db6a3eeee7828d8dc24ea3ba8e4  /tmp/vista-lab-station.deb" | sha256sum -c -');
+    expect(container.textContent).toContain('sudo apt install /tmp/vista-lab-station.deb');
+    expect(container.textContent).toContain('gtk-launch vista-lab-station');
+    const copies = [...container.querySelectorAll('button')].filter((button) => button.textContent === 'Copy');
+    expect(copies).toHaveLength(5); expect(copies.every((button) => !button.disabled)).toBe(true);
+  });
+
+  it('keeps the download unavailable when verification metadata is absent: disabled controls, no download link, no hard-coded checksum', async () => {
     vi.resetModules();
     vi.doMock('./desktopRelease', async (importOriginal) => {
       const real = await importOriginal<typeof import('./desktopRelease')>();
-      return { ...real, DESKTOP_RELEASE: { ...real.DESKTOP_RELEASE, verification: { verifiedAt: '2026-12-01T00:00:00Z', sizeBytes: 1, sha256: 'a'.repeat(64) } } };
+      return { ...real, DESKTOP_RELEASE: { ...real.DESKTOP_RELEASE, verification: null } };
     });
-    const { DesktopDownloadChapter: Verified } = await import('./DesktopDownloadChapter');
-    await act(async () => { root.render(<Verified />); await Promise.resolve(); });
-    const link = container.querySelector('a[href$="VISTA.Lab.Station-0.1.0-amd64.deb"]');
-    expect(link?.textContent).toBe('Download DEB');
-    const commandTab = [...container.querySelectorAll('[role="tab"]')].find((button) => button.textContent === 'Command Line')!;
-    act(() => commandTab.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    const { DesktopDownloadChapter: Unverified } = await import('./DesktopDownloadChapter');
+    await act(async () => { root.render(<Unverified />); await Promise.resolve(); });
+    expect(container.querySelectorAll('a[href*="github.com"]')).toHaveLength(0);
+    expect([...container.querySelectorAll('button[disabled]')].map((b) => b.textContent)).toEqual(['Download unavailable', 'Coming Soon', 'Coming Soon']);
+    expect(container.textContent).toContain('not yet publicly available');
+    openCommandTab();
     const copies = [...container.querySelectorAll('button')].filter((button) => button.textContent === 'Copy');
-    expect(copies.every((button) => !button.disabled)).toBe(true);
+    expect(copies).toHaveLength(4); expect(copies.every((button) => button.disabled)).toBe(true);
+    expect(container.textContent).not.toMatch(/[0-9a-f]{64}/);
     vi.doUnmock('./desktopRelease');
   });
 

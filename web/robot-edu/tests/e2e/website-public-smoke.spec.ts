@@ -51,29 +51,36 @@ test('entry points: Sign in leads to the sign-in page; there is no public self-r
   await expect(page).toHaveURL(/\/login/);
 });
 
-test('Desktop download area: Ubuntu amd64 only, Windows/macOS Coming Soon, honest while the release is unavailable', async ({ page }) => {
+test('Desktop download area: verified Ubuntu amd64 DEB is downloadable, Windows/macOS Coming Soon, no AppImage', async ({ page }) => {
+  const DEB = 'https://github.com/leduc121/vista_lab/releases/download/v0.1.0/VISTA.Lab.Station-0.1.0-amd64.deb';
   await page.goto('/#v2-download');
   const section = page.locator('#v2-download');
   await section.scrollIntoViewIfNeeded();
   await expect(section.getByRole('heading', { name: 'Download VISTA Desktop' })).toBeVisible();
   const tabs = section.getByRole('tablist', { name: 'Installation options' });
   await expect(tabs.getByRole('tab')).toHaveCount(3);
-  // exactly one disabled "Download unavailable" (Ubuntu) and two disabled "Coming Soon" buttons (Windows, macOS); no AppImage entry
-  const unavailable = section.getByRole('button', { name: 'Download unavailable' });
-  await expect(unavailable).toHaveCount(1);
-  await expect(unavailable).toBeDisabled();
+  // Ubuntu: active direct download with version and size; Windows and macOS: two disabled "Coming Soon" buttons
+  const download = section.getByRole('link', { name: 'Download DEB' });
+  await expect(download).toHaveCount(1);
+  await expect(download).toHaveAttribute('href', DEB);
+  await expect(section).toContainText('v0.1.0');
+  await expect(section).toContainText('131,395,882 bytes');
+  await expect(section.getByRole('button', { name: 'Download unavailable' })).toHaveCount(0);
   const soon = section.getByRole('button', { name: 'Coming Soon' });
   await expect(soon).toHaveCount(2);
   for (let index = 0; index < 2; index += 1) await expect(soon.nth(index)).toBeDisabled();
-  await expect(section).toContainText('not yet publicly available');
-  await expect(section).not.toContainText(/appimage/i);
-  // no anchor anywhere on the page offers an installer
+  await expect(section).not.toContainText(/appimage(?! )/i);
+  // the only installer link on the page is that single verified DEB
   const links = await page.locator('a[href]').evaluateAll((nodes) => nodes.map((node) => (node as HTMLAnchorElement).href));
-  expect(links.filter((href) => /\.(exe|dmg|pkg|msi|deb|rpm|appimage|zip|tar\.gz)(\?|$)/i.test(href))).toEqual([]);
-  // the other tabs are keyboard reachable; commands cannot be copied until the release is verified
+  expect(links.filter((href) => /\.(exe|dmg|pkg|msi|deb|rpm|appimage|zip|tar\.gz)(\?|$)/i.test(href))).toEqual([DEB]);
+  // terminal installation, checksum and launch commands; Copy is enabled
   await tabs.getByRole('tab', { name: /Command/i }).click();
-  await expect(section.getByRole('tabpanel')).toContainText(/copying is disabled/i);
-  for (const copy of await section.getByRole('button', { name: /^Copy command/ }).all()) await expect(copy).toBeDisabled();
+  const panel = section.getByRole('tabpanel');
+  await expect(panel).toContainText(`curl -fL "${DEB}" -o /tmp/vista-lab-station.deb`);
+  await expect(panel).toContainText('a5dbca4d54a28de1aae2f254b08484460efb3db6a3eeee7828d8dc24ea3ba8e4');
+  await expect(panel).toContainText('sudo apt install /tmp/vista-lab-station.deb');
+  await expect(panel).toContainText('gtk-launch vista-lab-station');
+  for (const copy of await section.getByRole('button', { name: /^Copy command/ }).all()) await expect(copy).toBeEnabled();
   await tabs.getByRole('tab', { name: /Guide/i }).click();
   await expect(section.getByRole('tabpanel')).toContainText(/Ubuntu/);
   await tabs.getByRole('tab', { name: /Apps/i }).focus();
