@@ -1,6 +1,8 @@
 # CloudFront hardening: change assessment (PR #196), 2026-11-24
 
-Nothing here has been applied. The assessment comes from a **full** `terraform plan` of the whole configuration (refresh on, `-lock=false`, so no state write), not from a targeted plan.
+> **Correction 2026-11-26:** the response-headers policy described here is now live in Production (report-only CSP, X-Frame-Options, nosniff, Referrer-Policy, HSTS, no-cache on HTML) as observed from the live headers. The statement below reflects the state on 2026-11-24.
+
+Nothing here had been applied on 2026-11-24. The assessment comes from a **full** `terraform plan` of the whole configuration (refresh on, `-lock=false`, so no state write), not from a targeted plan.
 
 ## What a full plan shows
 `Plan: 3 to add, 3 to change, 0 to destroy.` No drift: Terraform found no object changed outside its state, and no resource is replaced or destroyed (the EC2 instance is untouched).
