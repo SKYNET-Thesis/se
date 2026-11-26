@@ -40,4 +40,29 @@ export class DigitalTwinTelemetryClient {
       return { status: "unavailable" as const };
     }
   }
+
+  /**
+   * Physical telemetry uses a DIFFERENT route (`/internal/physical-telemetry`), a different token kind/audience (`publisher`) and a different payload
+   * (the owner's raw observation) from simulation. The Twin binds it to its configured hardware owner, organization and robot and rejects anything else.
+   * The token is minted here from the server-held scope secret: the Edge/Desktop never receives a Twin credential.
+   */
+  async publishPhysical(input: { ownerId: string; organizationId: string; robotId: string; measuredAt: string; observation: Record<string, number> }) {
+    const secret = this.environment.DIGITAL_TWIN_SCOPE_SECRET?.trim();
+    const endpoint = this.environment.DIGITAL_TWIN_TELEMETRY_URL?.trim();
+    if (!secret || !endpoint || !isTwinInternalEndpoint(endpoint)) return { status: "unavailable" as const };
+    const exp = Math.floor(Date.now() / 1000) + 60;
+    const payload = { aud: "vista-digital-twin-publisher", exp, jti: randomUUID(), kind: "publisher", org: input.organizationId, robots: [input.robotId], sub: input.ownerId };
+    const encoded = Buffer.from(JSON.stringify(payload, Object.keys(payload).sort())).toString("base64url");
+    const signature = createHmac("sha256", secret).update(encoded).digest("base64url");
+    try {
+      const response = await this.fetcher(`${endpoint.replace(/\/$/, "")}/internal/physical-telemetry`, {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer v1.${encoded}.${signature}` },
+        body: JSON.stringify({ owner_id: input.ownerId, organization_id: input.organizationId, robot_id: input.robotId, measured_at: input.measuredAt, observation: input.observation }),
+        signal: AbortSignal.timeout(2000),
+      });
+      return response.ok ? { status: "accepted" as const } : { status: "rejected" as const };
+    } catch {
+      return { status: "unavailable" as const };
+    }
+  }
 }

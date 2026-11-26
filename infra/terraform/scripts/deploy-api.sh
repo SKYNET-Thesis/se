@@ -112,6 +112,12 @@ start_twin() {
   docker network connect vista-net vista-education-api >/dev/null 2>&1 || true
   mkdir -p /opt/vista/twin-model
   (umask 077; printf 'VISTA_TWIN_AUTH_SECRET=%s\n' "$secret" > /opt/vista/twin.env)
+  # Only these Twin settings are passed through from the secret-derived api.env (never the rest of it): the hardware-owner identity that enables the
+  # private physical route, and the relayed-telemetry freshness bounds. Values must be plain tokens/numbers; anything else is ignored.
+  for key in VISTA_TWIN_PHYSICAL_OWNER_ID VISTA_TWIN_PHYSICAL_ORGANIZATION_ID VISTA_TWIN_PHYSICAL_ROBOT_ID VISTA_TWIN_PHYSICAL_FOLLOWER_ID VISTA_TWIN_RELAY_STALE_AFTER_SECONDS VISTA_TWIN_MAX_MEASUREMENT_AGE_SECONDS; do
+    line="$(grep -m1 "^${key}=" /opt/vista/api.env || true)"
+    [[ "$line" =~ ^${key}=[A-Za-z0-9._-]+$ ]] && printf '%s\n' "$line" >> /opt/vista/twin.env
+  done
   docker run -d --name vista-digital-twin --network vista-net --restart unless-stopped --read-only --tmpfs /tmp --cap-drop ALL \
     --security-opt no-new-privileges --memory 768m --env-file /opt/vista/twin.env -v /opt/vista/twin-model:/model:ro \
     --log-driver awslogs --log-opt "awslogs-region=$AWS_REGION" --log-opt "awslogs-group=$LOG_GROUP" --log-opt awslogs-stream=digital-twin \

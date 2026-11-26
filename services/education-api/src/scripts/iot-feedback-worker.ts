@@ -3,13 +3,15 @@ import { PrismaClient } from "@prisma/client";
 import { FeedbackRepository, IotFeedbackRejectedError } from "../modules/learning/iot-feedback.repository";
 import { DigitalTwinTelemetryClient } from "../modules/learning/digital-twin-telemetry.client";
 import { IotTelemetryBridge, isTelemetryEvent } from "../modules/learning/iot-telemetry.bridge";
+import { IotPhysicalTelemetryBridge, isPhysicalTelemetryEvent } from "../modules/learning/iot-physical-telemetry.bridge";
+import { IotCommandService } from "../modules/learning/iot-command.service";
 
 export interface FeedbackRepositoryPort { process(event: unknown): Promise<"processed" | "duplicate">; }
 export interface TelemetryPort { handle(event: unknown): Promise<string>; }
 
 export class IotFeedbackWorker {
   private stopping = false;
-  constructor(private readonly queueUrl: string, private readonly repository: FeedbackRepositoryPort, private readonly sqs = new SQSClient({}), private readonly log: Pick<Console, "info" | "warn"> = console, private readonly concurrency = Number(process.env.VISTA_IOT_FEEDBACK_WORKER_CONCURRENCY ?? "5"), private readonly visibilitySeconds = Number(process.env.VISTA_IOT_FEEDBACK_VISIBILITY_SECONDS ?? "90"), private readonly telemetry: TelemetryPort | null = null) {}
+  constructor(private readonly queueUrl: string, private readonly repository: FeedbackRepositoryPort, private readonly sqs = new SQSClient({}), private readonly log: Pick<Console, "info" | "warn"> = console, private readonly concurrency = Number(process.env.VISTA_IOT_FEEDBACK_WORKER_CONCURRENCY ?? "5"), private readonly visibilitySeconds = Number(process.env.VISTA_IOT_FEEDBACK_VISIBILITY_SECONDS ?? "90"), private readonly telemetry: TelemetryPort | null = null, private readonly physicalTelemetry: TelemetryPort | null = null) {}
   stop() { this.stopping = true; }
   async once() {
     const received = await this.sqs.send(new ReceiveMessageCommand({ QueueUrl: this.queueUrl, WaitTimeSeconds: 20, VisibilityTimeout: this.visibilitySeconds, MaxNumberOfMessages: Math.min(10, Math.max(1, this.concurrency)) }));
@@ -24,6 +26,13 @@ export class IotFeedbackWorker {
       try { value = JSON.parse(message.Body ?? ""); } catch { throw new IotFeedbackRejectedError("iot feedback SQS body is not JSON"); }
       // Telemetry frames are NOT command lifecycle events: they never reach the repository (an unknown `status` would otherwise fail the run).
       // With no bridge configured they are acknowledged and dropped; with one, every outcome (including a Twin outage) is a dropped frame.
+      // Physical telemetry is a separate branch: it never shares a code path (or a Twin route) with simulation telemetry.
+      if (isPhysicalTelemetryEvent(value)) {
+        const outcome = this.physicalTelemetry ? await this.physicalTelemetry.handle(value).catch(() => "dropped:internal_error") : "dropped:bridge_disabled";
+        if (outcome !== "forwarded") this.log.info(JSON.stringify({ event: "iot_physical_telemetry_dropped", reason: outcome }));
+        await this.delete(message.ReceiptHandle);
+        return;
+      }
       if (isTelemetryEvent(value)) {
         const outcome = this.telemetry ? await this.telemetry.handle(value).catch(() => "dropped:internal_error") : "dropped:bridge_disabled";
         if (outcome !== "forwarded") this.log.info(JSON.stringify({ event: "iot_telemetry_dropped", reason: outcome }));
@@ -47,7 +56,11 @@ if (require.main === module) {
     const prisma = new PrismaClient();
     // Default off: set VISTA_IOT_TELEMETRY_BRIDGE_ENABLED=true to relay simulation telemetry to the private Twin (DIGITAL_TWIN_* must be configured).
     const telemetry = process.env.VISTA_IOT_TELEMETRY_BRIDGE_ENABLED === "true" ? new IotTelemetryBridge(prisma, new DigitalTwinTelemetryClient()) : null;
-    const worker = new IotFeedbackWorker(process.env.VISTA_IOT_FEEDBACK_QUEUE_URL, new FeedbackRepository(prisma), undefined, undefined, undefined, undefined, telemetry);
+    // Physical relay: default off; needs the physical commissioning authorization AND the Twin's hardware-owner id (same value as the Twin's VISTA_TWIN_PHYSICAL_OWNER_ID).
+    const physicalTelemetry = process.env.VISTA_IOT_PHYSICAL_TELEMETRY_BRIDGE_ENABLED === "true"
+      ? new IotPhysicalTelemetryBridge(prisma, new DigitalTwinTelemetryClient(), () => new IotCommandService(process.env, { publish: async () => undefined }).physicalCommissioningPolicy(), process.env.VISTA_TWIN_PHYSICAL_OWNER_ID ?? "")
+      : null;
+    const worker = new IotFeedbackWorker(process.env.VISTA_IOT_FEEDBACK_QUEUE_URL, new FeedbackRepository(prisma), undefined, undefined, undefined, undefined, telemetry, physicalTelemetry);
     const shutdown = async () => { worker.stop(); await prisma.$disconnect(); };
     process.once("SIGTERM", () => { void shutdown(); }); process.once("SIGINT", () => { void shutdown(); });
     void worker.run().finally(() => prisma.$disconnect());

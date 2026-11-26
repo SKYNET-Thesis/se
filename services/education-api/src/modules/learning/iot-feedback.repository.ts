@@ -22,7 +22,7 @@ export class FeedbackRepository {
 
   async process(input: unknown): Promise<FeedbackProcessResult> {
     const event = this.parse(input);
-    if ((event as { status?: string }).status === "telemetry") throw new IotFeedbackRejectedError("iot telemetry is not a command lifecycle event");
+    if (["telemetry", "physical_telemetry"].includes(String((event as { status?: string }).status))) throw new IotFeedbackRejectedError("iot telemetry is not a command lifecycle event");
     return this.prisma.$transaction(async (tx) => {
       if (!event.commandId) throw new IotFeedbackRejectedError("iot feedback commandId is required");
       const rows = await tx.$queryRaw<LifecycleRow[]>(Prisma.sql`

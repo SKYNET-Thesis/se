@@ -51,3 +51,16 @@ Shadow heartbeat ≤10 s; `stopped` semantics; additive `adapterMode`, `armed`, 
 
 ## 8. Decisions for you
 Approve/decline: #234 and #235 merges (web fix needs your OK); the three DB changes; the telemetry design (status-embedded frames, code only) or accept that the Web viewer shows no Edge telemetry tomorrow; the secret change and redeploys; the physical-commissioning configuration for tomorrow's session (separately, at the time).
+
+
+## 9. FINAL ACTIVATION SEQUENCE (supersedes the order above where they differ)
+Each step needs your explicit approval; none was executed.
+1. **Final Production deployment** (one release: #234, #235, #236, #237 and the physical-twin PR). Because `deploy-api.sh` changed (Twin settings pass-through), first the owner-approved host-script refresh: `infra/terraform/scripts/refresh-host-deploy-script.sh --execute`, then the gated deploy (the deploy refuses a stale host script by design). Rollback: `action=rollback`; the previous host script stays in the host snapshot/`refresh` script history.
+2. **WF01 entitlement provisioning** (§3a) and 3. **temporary VISTA Academy isolation** (§3b) and 4. **Student 1 Blockly profile** (§3c), then UI verification of WF01.
+5. **Codex Edge implementation**: heartbeat ≤10 s, additive shadow fields, `armed` handling, simulation frames and `physical_telemetry` messages, single-follower mapping (handoff §11).
+6. **Device certificate** created on the Edge machine and attached (§4).
+7. **Shadow heartbeat verification** (read-only AWS `get-thing-shadow`: `connection`, `reportedAtMs` advancing ≤10 s, `hardwareEnabled=false`).
+8. **MQTT simulation activation**: secret keys `VISTA_IOT_ENABLED=true`, `VISTA_IOT_START_MODE=simulation`, `VISTA_IOT_THING_PREFIX=vista-demo`, optional `VISTA_IOT_TELEMETRY_BRIDGE_ENABLED=true`, plus Twin settings `VISTA_TWIN_RELAY_STALE_AFTER_SECONDS=3.0`, `VISTA_TWIN_MAX_MEASUREMENT_AGE_SECONDS=5.0`; redeploy to reload (§6).
+9. **Cloud simulation acceptance** on the R1126-1901 dataset (hardware disabled): WF01 allocation → student start → ack/status → SQS → worker → experiment completes → simulation telemetry in the Web viewer (labelled delayed, with measured transport delay) → evidence → instructor review. Record the measured `transport_delay_ms`; adjust the two freshness settings only from that measurement.
+10. **Separate supervised physical commissioning** (tomorrow): second secret change to `VISTA_IOT_START_MODE=physical_commissioning` with `VISTA_PHYSICAL_COMMISSIONING_ROBOT_ID/USER_IDS/UNTIL`, `VISTA_PHYSICAL_RUNTIME_MODES=<adapterMode>`, `VISTA_IOT_PHYSICAL_TELEMETRY_BRIDGE_ENABLED=true`, and the Twin hardware-owner keys `VISTA_TWIN_PHYSICAL_OWNER_ID` (also in the API secret), `VISTA_TWIN_PHYSICAL_ORGANIZATION_ID=597cd591-ba63-4a27-af5d-12fede921fad`, `VISTA_TWIN_PHYSICAL_ROBOT_ID=f1c066c4-b5f2-45c4-b933-f034f3824dd9`; redeploy; then the runbook `PHYSICAL_COMMISSIONING_RUNBOOK_20261127.md`. **Single follower arm only**; dual-arm cloud acceptance is not supported.
+**Rollback for 8–10:** remove the keys (or move `AWSCURRENT` back to `AWSPREVIOUS`) and redeploy; Twin settings removal disables the physical route; deactivate the certificate; restore entitlements/profile per §3.
