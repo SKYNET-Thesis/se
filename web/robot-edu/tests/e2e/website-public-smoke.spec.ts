@@ -51,27 +51,31 @@ test('entry points: Sign in leads to the sign-in page; there is no public self-r
   await expect(page).toHaveURL(/\/login/);
 });
 
-test('Desktop download area: tabbed, all three platforms, and honest: no fake download links or installers', async ({ page }) => {
+test('Desktop download area: Ubuntu amd64 only, Windows/macOS Coming Soon, honest while the release is unavailable', async ({ page }) => {
   await page.goto('/#v2-download');
   const section = page.locator('#v2-download');
   await section.scrollIntoViewIfNeeded();
   await expect(section.getByRole('heading', { name: 'Download VISTA Desktop' })).toBeVisible();
   const tabs = section.getByRole('tablist', { name: 'Installation options' });
   await expect(tabs.getByRole('tab')).toHaveCount(3);
-  for (const platform of ['Windows', 'macOS', 'Linux']) await expect(section.getByRole('button', { name: platform, exact: true })).toBeVisible();
-  const downloads = section.getByRole('button', { name: 'Download unavailable' });
-  await expect(downloads).toHaveCount(3);
-  for (let index = 0; index < 3; index += 1) await expect(downloads.nth(index)).toBeDisabled();
-  await expect(section).toContainText('No verified Windows release artifact is published');
-  await expect(section).toContainText('No files download automatically');
+  // exactly one disabled "Download unavailable" (Ubuntu) and two disabled "Coming Soon" buttons (Windows, macOS); no AppImage entry
+  const unavailable = section.getByRole('button', { name: 'Download unavailable' });
+  await expect(unavailable).toHaveCount(1);
+  await expect(unavailable).toBeDisabled();
+  const soon = section.getByRole('button', { name: 'Coming Soon' });
+  await expect(soon).toHaveCount(2);
+  for (let index = 0; index < 2; index += 1) await expect(soon.nth(index)).toBeDisabled();
+  await expect(section).toContainText('not yet publicly available');
+  await expect(section).not.toContainText(/appimage/i);
   // no anchor anywhere on the page offers an installer
   const links = await page.locator('a[href]').evaluateAll((nodes) => nodes.map((node) => (node as HTMLAnchorElement).href));
   expect(links.filter((href) => /\.(exe|dmg|pkg|msi|deb|rpm|appimage|zip|tar\.gz)(\?|$)/i.test(href))).toEqual([]);
-  // the other two tabs are keyboard reachable and state the truth
+  // the other tabs are keyboard reachable; commands cannot be copied until the release is verified
   await tabs.getByRole('tab', { name: /Command/i }).click();
-  await expect(section.getByRole('tabpanel')).toContainText(/No supported package|not available|no verified/i);
+  await expect(section.getByRole('tabpanel')).toContainText(/copying is disabled/i);
+  for (const copy of await section.getByRole('button', { name: /^Copy command/ }).all()) await expect(copy).toBeDisabled();
   await tabs.getByRole('tab', { name: /Guide/i }).click();
-  await expect(section.getByRole('tabpanel')).toContainText(/will be published/i);
+  await expect(section.getByRole('tabpanel')).toContainText(/Ubuntu/);
   await tabs.getByRole('tab', { name: /Apps/i }).focus();
   await page.keyboard.press('ArrowRight');
   await expect(tabs.getByRole('tab', { selected: true })).toHaveCount(1);

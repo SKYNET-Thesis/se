@@ -4,8 +4,9 @@ Nothing below is executed without explicit owner approval. This is a plan, not a
 
 ## A. Gates before a Production release
 
-- [ ] #212, #213, #214, #215, #216, #217 merged by the owner (in that order); required checks green on each.
-- [ ] Integrated acceptance on the merged `develop` revision (`FINAL_SYSTEM_ACCEPTANCE_REPORT.md` §2–4), run sequentially.
+- [x] #212–#218 merged by the owner into `develop` (head `18f2dfa`, 2026-11-26); required checks were green on each.
+- [ ] #219 (integrated-acceptance fixes, D-09 import authorization ordering) merged; its CI is green (9 pass, 4 main-only skipped).
+- [x] Integrated acceptance on merged `develop` (`FINAL_SYSTEM_ACCEPTANCE_REPORT.md` §3), run sequentially; two findings fixed in #219.
 - [ ] `develop` → `main` release PR; required checks green; owner approval.
 - [ ] No migration is part of these PRs (verified: no `database/` change). If a later PR adds one it follows `docs/operations/production-migration-ownership.md` and the SQL-runner gate — never `db push`.
 - [ ] Desktop download remains disabled unless the Desktop release is published **and** verified (anonymous download, filename, size, SHA256SUMS, package version, architecture).
@@ -28,8 +29,8 @@ Nothing below is executed without explicit owner approval. This is a plan, not a
 
 | Item | Status |
 |---|---|
-| Required CI on #215/#216/#217 | in progress — see PR pages |
-| Integrated acceptance | NOT RUN (needs merges) |
+| Required CI | #212–#218 green at merge; #219 green (9 pass; 4 main-only skipped) |
+| Integrated acceptance (local, merged tree) | DONE 2026-11-26 — see report §3; Desktop E2E, AWS E2E, physical NOT RUN/BLOCKED |
 | Production deploy / migrations / MQTT / AWS / certificates | NOT APPROVED, NOT DONE |
 | Desktop Release | Draft — owner action |
 | Report 5 acceptance evidence | inputs: `WEB_ACCEPTANCE_MATRIX_2026-11-26.md`, `WF03_ACCEPTANCE_REPORT.md`, `QUIZ_RESULT_DASHBOARD.md`, `PILOT_IMPORT_ACCEPTANCE.md`, `WF04_REQUIREMENT_CHECK.md` |
