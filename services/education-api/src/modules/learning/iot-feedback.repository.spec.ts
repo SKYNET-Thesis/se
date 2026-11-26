@@ -27,4 +27,11 @@ describe("FeedbackRepository", () => {
     await expect(repository.process(event)).resolves.toBe("duplicate");
     expect(executeRaw).not.toHaveBeenCalled();
   });
+
+  it("rejects a telemetry message as a lifecycle event before any database access (it can never fail or complete a command)", async () => {
+    const transaction = jest.fn();
+    const repository = new FeedbackRepository({ $transaction: transaction } as never, () => 1_000);
+    await expect(repository.process({ ...event, kind: "status", status: "telemetry" })).rejects.toThrow(/not a command lifecycle event/);
+    expect(transaction).not.toHaveBeenCalled();
+  });
 });
