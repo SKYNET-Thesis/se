@@ -1,5 +1,7 @@
 # Robotics cloud-simulation activation plan (2026-11-26) — for owner approval
 
+> **Superseded in part on 2026-11-27 eve:** the consolidated, current checkpoint is `ROBOTICS_OWNER_APPROVAL_CHECKPOINT_20261126.md` (findings, DB changes incl. the student profile, reload procedure, physical mode). This plan keeps the certificate procedure (§3) and the acceptance script (§6). Correction to §6: a Course-Builder Module 5 does not show the physical steps until PR #235 is deployed, and the dataset is the Advanced course with its own classroom (ids in the handoff).
+
 Nothing here has been executed except the read-only dry run in section 1. Production serves `0b77ad2`; #225–#230 are merged in `develop` (`b1a5c3f`), no migration or Terraform change is required (`git diff main..develop -- database infra prisma .github` is empty; merge into `main` is clean, 12 commits ahead).
 
 ## 1. WF01 provisioning — dry-run result (read-only)
