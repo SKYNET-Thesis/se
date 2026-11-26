@@ -1,57 +1,52 @@
-# Robotics commissioning — consolidated owner approval checkpoint (2026-11-26)
+# Robotics commissioning — FINAL owner approval checkpoint (updated 2026-11-27 eve)
 
-Nothing below has been executed. Each numbered step needs your explicit approval; I will execute only what you approve, in this order.
+Production serves `ebf344f` (main = develop tree; #225–#233 deployed). Nothing below is executed; every item needs your explicit approval. Dataset ids are in `docs/operations/EDGE_CONTRACT_HANDOFF_20261126.md` §10.
 
-## A. Code and release
-| Item | Detail |
-|---|---|
-| PRs | #225 True/False IDs · #226 roster label · #227 login accessibility · #228 Production E2E docs · **#229 simulation-only IoT start mode + robot-entitlement provisioning script** (all CI green except #229, whose CI was running when written). A docs PR with this checkpoint follows |
-| Revision | after merging to `develop`, a new `develop`→`main` release PR; the deployed revision becomes the merge SHA (Production now `0b77ad2`) |
-| Migrations | **none** (no `database/` or `prisma/` change in any PR) |
-| Terraform | **none required** for the recommended option (identity already provisioned). No plan/hash exists because nothing is applied |
-| Deploy | normal gated path: merge to `main` → Education CI → Auto Deploy → `schema-gate` → `aws-demo` approval (API) → `aws-demo` approval (web). The host deploy script hash is unchanged (`ef5a33bf…04bd`) |
+## 1. What changed since the last checkpoint (findings)
+| Finding | Evidence | Consequence |
+|---|---|---|
+| **No physical start path existed**: `start()` accepted only `fake_follower` | `physical-execution.service.ts` | PR **#234** adds `VISTA_IOT_START_MODE=physical_commissioning` (off by default, see §5) |
+| **The Robot Lab start step is unreachable in Production**: the physical steps are generated only for Module 5 lessons without database sections (seeded curriculum); a Course-Builder Module 5 never shows them (`-physical` URL falls back to the first reading). The SO-101 seed is guarded to a local database and Production has no SO-101 course | `lessonActivities.ts`; Production DB; direct URL test | PR **#235** (small web defect fix; web scope was frozen, so it needs your explicit OK) |
+| Course with learner delivery cannot get new modules | HTTP 409 on add module | The Advanced course already has 5 modules (module 5 has a section); with #235 the physical steps are appended to it |
+| **Edge telemetry does not reach the Web Twin**: no rule or worker consumes MQTT `telemetry`; the Twin ingests over private HTTP only | `iot-feedback.service.ts`, `app.py`, IoT rule SQL | Twin telemetry from the Edge is **NOT IMPLEMENTED**; design in handoff §7, your decision |
+| Secrets Manager is read **only at deploy time** | `deploy-api.sh` lines 27–69 | editing the secret does not reload anything; a redeploy is required (§6) |
+| Students get the Blockly control mode only via a per-membership safety profile (role default is `student-sandbox`, manual only) | role/profile query | Student 1 needs `student-blockly-demo` (§3, also a per-student boundary) |
+| Dataset ready | R1126-1901: 5-module Advanced course, classroom `9c09e27d…` with Student 1 + instructor, module-4 Blockly assignment published, Student 1 passed the symbolic evaluation; eligibility API now answers `ROBOT_NOT_ALLOCATED` with `symbolicPassed:true` | only robot entitlement/allocation and the Edge are missing |
 
-## B. WF01 provisioning for the R1126-1901 organization (operator, DB write via existing mechanism)
-Entitle the robot to the test organization (`597cd591-ba63-4a27-af5d-12fede921fad`). Dry run first, then confirm (needs production DB credentials, run by you or by me with your approval; creates **one** `org_entitlements` row, touches no allocation):
-```
-cd services/education-api
-npm run provision:robot-entitlement -- --organization 597cd591-ba63-4a27-af5d-12fede921fad --robot f1c066c4-b5f2-45c4-b933-f034f3824dd9            # dry run
-npm run provision:robot-entitlement -- --organization 597cd591-ba63-4a27-af5d-12fede921fad --robot f1c066c4-b5f2-45c4-b933-f034f3824dd9 --confirm
-```
-Then, in the real UI: School Admin → classroom → Allocate robot (verifies eligible-robot listing, allocation, conflicts); Instructor sees it; foreign organizations (the isolation org B `689d24cd-…`) must not. Existing VISTA Academy allocations are preserved. **Decision for you:** accept that this robot is also allocated to VISTA Academy "Robotics Class A" (6 members), or ask me to prepare a reversible removal of those two allocations for the commissioning window.
+## 2. Release (one more release, no migration, no Terraform)
+Merge #234 and #235 (after CI), then the usual `develop`→`main` release and the two `aws-demo` approvals. Verify afterwards: version SHA, health/ready, and with the flags still unset a student start is still refused.
 
-## C. Identity choice (decision)
-**Option R (recommended):** reuse the provisioned, never-connected identity `vista-demo-f1c066c4-b5f2-45c4-b933-f034f3824dd9` (0 certificates, no shadow, no events; designated in the 2026-11-24 handoff as the physical device identity). No new fixed cost, no new IAM/queue/bucket.
-**Option N (not for tomorrow):** a dedicated second robot UUID needs a second IoT Terraform instance (separate state), new EC2-role statements, backend multi-queue/multi-bucket support, and a host-script refresh. Cost is pay-per-use (no compute), but it is several approval gates and code changes; do after the defense.
+## 3. Database changes (operator script; dry-runs refreshed against the deployed revision; `--confirm` NOT run)
+| # | Exact change | Dry-run result |
+|---|---|---|
+| a | **Create** one `org_entitlements` row: org `597cd591-ba63-4a27-af5d-12fede921fad`, `resource_type='robot'`, robot `f1c066c4-b5f2-45c4-b933-f034f3824dd9`, `valid_from=now()`, `valid_to=NULL` | `entitlement: create`, `willRegister:false`, 2 existing allocations untouched |
+| b | **Isolate**: set `valid_to=now()` on VISTA Academy's entitlement `e5739cc3-1572-4e8e-9bd1-cadab9735137` (flag `--isolate-others`); allocations `6fdd856a…` and `8052674c…` untouched | lists exactly that one row |
+| c | **Student**: set membership `2f9b67ce-b1dc-4d47-a0ed-7691e075d772` (Student 1) `safety_profile_id` = existing `student-blockly-demo` (previous value NULL) (needs PR #234's script) | `blocklyStudent` as shown; Students 2–5 keep `student-sandbox` and cannot start anything |
+No new robot row, no deletes, nothing else changes. Pending commands: `iot_command_lifecycles` has 0 rows; no running experiments (checked). Alternative command entry points: the only start route is `POST /me/attempts/:id/physical-executions/start` guarded as above; the Twin and recordings routes issue no commands.
+Commands: `npm run provision:robot-entitlement -- --organization 597cd591-… --robot f1c066c4-… [--isolate-others] [--confirm]` and `… --organization 597cd591-… --blockly-student f9eb7496-… [--confirm]`.
+**Restore (all reversible):** `… --restore e5739cc3-1572-4e8e-9bd1-cadab9735137 --confirm` (clears `valid_to`; SQL equivalent `UPDATE org_entitlements SET valid_to=NULL WHERE id='e5739cc3-…'`); end the new entitlement with `valid_to=now()`; `… --clear-blockly-student f9eb7496-… --confirm`.
+After approval I then verify through the real UI: School Admin sees the robot and allocates it to "VISTA Advanced Simulation Class"; the instructor sees it; Student 1 reaches the Physical Experiment step (needs #235 deployed); org B and VISTA Academy students are refused (`ROBOT_ENTITLEMENT_INVALID`/not found). I will report any allocation conflict exactly and not bypass it.
 
-## D. AWS IoT certificate (owner at the Edge machine; no Terraform)
-1. Create the certificate/key on the Edge workstation (`aws iot create-keys-and-certificate` or CSR flow); the private key never leaves that machine and is never committed or put in a secret.
-2. Attach the certificate to the Thing, attach `vista-demo-f1c066c4-…-policy` to the certificate, activate. (No policy change: it is already restricted to this one client id, its own topics and its own shadow.)
-3. Store key/cert/Amazon Root CA in a root-owned 0700 directory; the runtime config references paths only.
-Rollback: deactivate and detach the certificate, detach the policy, delete the key.
+## 4. Certificate (you, on the Edge machine; commands in `ROBOTICS_ACTIVATION_PLAN_20261126.md` §3)
+Create inactive → attach Thing and `…-policy` → activate; key never leaves the machine. Policy verified scoped (own client id, own topics, own shadow). Rollback: deactivate, detach, delete.
 
-## E. Secrets Manager configuration diff (existing secret `vista/demo/education-api/env`; names only, values written by you)
-| Key | Now | Change to | Effect |
-|---|---|---|---|
-| `VISTA_IOT_ENABLED` | `false` | `true` | API may publish commands; student starts remain refused unless the next key is set |
-| `VISTA_IOT_START_MODE` | (absent) | `simulation` | enables the Device Shadow preflight; MOCK_RUNTIME with hardware disabled only |
-| `VISTA_IOT_THING_PREFIX` | (absent) | `vista-demo` | Thing = `vista-demo-<robot uuid>` |
-| `VISTA_IOT_SHADOW_MAX_AGE_MS` | (absent) | optional `30000` | staleness bound |
-| unchanged | | | endpoint, topic prefix, queue URLs, worker `true`, TTL 10000, recovery `false`, Twin and recordings keys already present |
-Then redeploy/restart the API container (the deploy workflow does this). Recovery (`VISTA_IOT_PUBLISH_RECOVERY_ENABLED`) stays `false`: an unknown publish outcome must never be replayed.
-**Rollback:** set `VISTA_IOT_ENABLED=false` and remove `VISTA_IOT_START_MODE`; redeploy (or `action=rollback` to the previous image). The Edge side: stop the runtime, deactivate the certificate. No data to reverse.
+## 5. Production configuration — simulation first (secret `vista/demo/education-api/env`)
+| Key | Change | When |
+|---|---|---|
+| `VISTA_IOT_ENABLED` | `false`→`true` | only after §6 gates |
+| `VISTA_IOT_START_MODE` | `simulation` | same time |
+| `VISTA_IOT_THING_PREFIX` | `vista-demo` | same time |
+**Physical commissioning (tomorrow, separate approval, requires #234 deployed):** `VISTA_IOT_START_MODE=physical_commissioning` plus `VISTA_PHYSICAL_COMMISSIONING_ROBOT_ID=f1c066c4-b5f2-45c4-b933-f034f3824dd9`, `VISTA_PHYSICAL_COMMISSIONING_USER_IDS=f9eb7496-9369-449f-9b9f-9368122fa410`, `VISTA_PHYSICAL_COMMISSIONING_UNTIL=<ISO end of the supervised session>`, `VISTA_PHYSICAL_RUNTIME_MODES=<the Edge adapterMode, e.g. so101_follower>`. Without every key, or after the window, a physical start is refused; the Edge must also report `hardwareEnabled`, `armed`, `calibrationReady`, no fault, fresh heartbeat. Simulation ≠ physical: switching modes is a config change + redeploy.
 
-## F. Sequence (each step verified before the next)
-1. Merge #225–#229; release PR; deploy API then web (gated). Verify health, version, `quiz-result` 401, and that with the flags still off a student start still returns `LOCAL_FAKE_RUNTIME_REQUIRED` (safety lock unchanged).
-2. Provisioning command (section B), UI verification of WF01.
-3. Edge host: certificate (D), Edge config `iot.enabled=true`, `fakeRobot=true`, **`hardwareEnabled=false`**, hardware **physically disconnected**.
-4. Edge connects; verify the Shadow appears (`connection=connected`, `runtimeKind=MOCK_RUNTIME`, `hardwareEnabled=false`).
-5. Secret change (E) and API restart.
-6. Student starts the physical-experiment activity in the R1126-1901 classroom; verify `pending_publish→publishing→queued→acknowledged→executing→completed`, feedback worker commits, DLQs empty, experiment evidence with provenance **MOCK_RUNTIME**, Twin telemetry from the Edge visible only to the authorized student/instructor, instructor review and release.
-7. Stop here for tonight. Physical steps only in the supervised runbook (`docs/operations/PHYSICAL_COMMISSIONING_RUNBOOK_20261127.md`).
+## 6. Reload procedure (verified from `deploy-api.sh` and the workflow)
+1. Write a new secret version: `CUR=$(aws secretsmanager get-secret-value --secret-id vista/demo/education-api/env --query SecretString --output text); NEW=$(printf %s "$CUR" | jq -c '. + {VISTA_IOT_ENABLED:"true",VISTA_IOT_START_MODE:"simulation",VISTA_IOT_THING_PREFIX:"vista-demo"}'); aws secretsmanager put-secret-value --secret-id vista/demo/education-api/env --secret-string "$NEW"` (values never printed; previous version stays `AWSPREVIOUS`).
+2. **Reload = redeploy**: the host script reads the secret only when it runs, rewrites `/opt/vista/api.env` and recreates the containers (API, both workers, Twin). Run the workflow **Education CI → Run workflow on `main`, action `deploy`** for the current head (images exist, so it reuses them), with the `aws-demo` approval. A Secrets Manager edit alone does nothing to running containers.
+3. Verify: `docker exec vista-education-api printenv` for the three flags (SSM, read-only), `/health/ready`, workers running, queues empty.
+**Activation gates (all required before step 1):** release with #229 (deployed ✔) and #234/#235 deployed as needed; entitlement + isolation + student profile verified; Edge certificate and policy ready; Edge heartbeat verified (Codex, not yet implemented); hardware disabled/disconnected; API and workers healthy; rollback ready.
+**Rollback:** `put-secret-value` with `VISTA_IOT_ENABLED=false` and the start-mode keys removed (or move `AWSCURRENT` back to `AWSPREVIOUS`: `aws secretsmanager update-secret-version-stage … --move-to-version-id <previous>`), redeploy the same way (or `action=rollback`); Edge: stop, deactivate certificate; DB: the three restores above.
 
-## G. Cost
-No new fixed-cost resource. Per run: a handful of MQTT messages, SQS requests, a few MB of S3, Shadow operations; well below US$1/day. Option N would add only pay-per-use resources plus engineering time.
+## 7. Codex (see handoff §11)
+Shadow heartbeat ≤10 s; `stopped` semantics; additive `adapterMode`, `armed`, `calibrationReady`, `fault`; local-only arming reset on reconnect; optional telemetry-in-status frame if you approve; Desktop sign-in and recording upload for the hardware phase.
 
-## H. Boundaries kept
-No Production MQTT until you approve E; no certificates before D; no Terraform apply; no physical connection or actuation tonight; no merge to `main` or deploy without you; SIMULATION/MOCK_RUNTIME are never labelled PHYSICAL_ROBOT.
+## 8. Decisions for you
+Approve/decline: #234 and #235 merges (web fix needs your OK); the three DB changes; the telemetry design (status-embedded frames, code only) or accept that the Web viewer shows no Edge telemetry tomorrow; the secret change and redeploys; the physical-commissioning configuration for tomorrow's session (separately, at the time).
