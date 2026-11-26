@@ -64,6 +64,20 @@ describeDb('real PostgreSQL ExperimentService.runSchematic authorization', () =>
     await expect(service.runSchematic(s.user, s.exp.id)).resolves.toBeDefined();
     expect(await statusOf(s.exp.id)).toBe('succeeded');
   });
+  it('returns persisted event primary keys as exact decimal strings and keeps events owner-scoped', async () => {
+    const x = await world(); const owner = await student(x); const sameTenantStudent = await student(x);
+    const y = await world(); const otherTenantStudent = await student(y);
+    // Exercise values beyond Number.MAX_SAFE_INTEGER: conversion to JS number would lose precision.
+    const eventId = 9_007_199_254_740_993n + BigInt(Math.floor(Math.random() * 1_000_000));
+    await db.$executeRaw`INSERT INTO public.learning_experiment_events(id,experiment_id,event_index,event_type,event_data) OVERRIDING SYSTEM VALUE VALUES(${eventId},${owner.exp.id}::uuid,0,'serialization_test',${JSON.stringify({ source: 'postgres-integration' })}::jsonb)`;
+
+    const events = await service.events(owner.user, owner.exp.id) as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ id: eventId.toString(), event_index: 0, event_type: 'serialization_test', event_data: { source: 'postgres-integration' } });
+    expect(JSON.parse(JSON.stringify(events))[0].id).toBe(eventId.toString());
+    await expect(service.events(sameTenantStudent.user, owner.exp.id)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.events(otherTenantStudent.user, owner.exp.id)).rejects.toBeInstanceOf(NotFoundException);
+  });
   it('denies direct invocation after the enrollment is revoked and leaves the experiment pending', async () => {
     const x = await world(); const s = await student(x);
     await enrollments.revokeClassroomEnrollment(x.room.id, s.u.id);

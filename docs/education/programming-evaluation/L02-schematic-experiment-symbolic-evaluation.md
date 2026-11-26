@@ -72,6 +72,8 @@ web [Practice.tsx](../../../web/robot-edu/src/pages/Practice.tsx) (`runSimulatio
 | `POST /me/experiments/:id/cancel` | Huỷ experiment đang `pending` | 409 |
 | `POST /me/experiment-comparisons` `{title, experimentIds[≥2], conclusion?}` | Lưu so sánh nhiều lần chạy | 400 trùng id · 404 id không phải của mình |
 
+`GET /me/experiments/:id/events` returns the existing event-row fields; `id` is a decimal string so PostgreSQL `BIGINT` values retain exact precision in JSON. `event_index` remains an integer and ordering is unchanged. Clients should treat `id` as an opaque identifier (the VISTA Desktop currently reads the event array/count and does not perform numeric operations on IDs).
+
 ## 4. Engine mô phỏng — quy tắc tất định
 
 Trạng thái ban đầu: hai tay ở `(0,0,0)`, kẹp mở; vật mặc định `cube-red` tại `(120,150,0)`; vùng đích mặc định `A = (60,280,120×90)`.
