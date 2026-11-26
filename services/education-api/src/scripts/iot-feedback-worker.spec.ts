@@ -14,4 +14,28 @@ describe("IotFeedbackWorker", () => {
     await worker.once();
     expect(send).toHaveBeenCalledTimes(2);
   });
+
+  describe("telemetry frames", () => {
+    const body = JSON.stringify({ schemaVersion: 1, kind: "status", status: "telemetry", eventId: "e", robotId: "r", commandId: "c", sequence: 5, occurredAtMs: 1, telemetry: {} });
+    it("never reaches the lifecycle repository and is deleted (bridge disabled: dropped)", async () => {
+      const send = jest.fn().mockResolvedValueOnce({ Messages: [{ Body: body, ReceiptHandle: "receipt" }] }).mockResolvedValue(undefined);
+      const repository = { process: jest.fn() };
+      await new IotFeedbackWorker("queue", repository, { send } as never, { info: jest.fn(), warn: jest.fn() }).once();
+      expect(repository.process).not.toHaveBeenCalled(); expect(send).toHaveBeenCalledTimes(2);
+    });
+    it("is relayed through the bridge, still never the repository, and a bridge failure cannot retain or fail the message", async () => {
+      const send = jest.fn().mockResolvedValueOnce({ Messages: [{ Body: body, ReceiptHandle: "r1" }, { Body: body, ReceiptHandle: "r2" }] }).mockResolvedValue(undefined);
+      const repository = { process: jest.fn() };
+      const telemetry = { handle: jest.fn().mockResolvedValueOnce("forwarded").mockRejectedValueOnce(new Error("twin")) };
+      await new IotFeedbackWorker("queue", repository, { send } as never, { info: jest.fn(), warn: jest.fn() }, 5, 90, telemetry).once();
+      expect(telemetry.handle).toHaveBeenCalledTimes(2); expect(repository.process).not.toHaveBeenCalled(); expect(send).toHaveBeenCalledTimes(3);
+    });
+    it("a lifecycle message right after telemetry is still processed normally", async () => {
+      const ack = JSON.stringify({ eventId: "e2", kind: "ack", robotId: "r", commandId: "c", sequence: 6, occurredAtMs: 1 });
+      const send = jest.fn().mockResolvedValueOnce({ Messages: [{ Body: body, ReceiptHandle: "r1" }, { Body: ack, ReceiptHandle: "r2" }] }).mockResolvedValue(undefined);
+      const repository = { process: jest.fn().mockResolvedValue("processed") };
+      await new IotFeedbackWorker("queue", repository, { send } as never, { info: jest.fn(), warn: jest.fn() }, 5, 90, { handle: jest.fn().mockResolvedValue("forwarded") }).once();
+      expect(repository.process).toHaveBeenCalledTimes(1);
+    });
+  });
 });

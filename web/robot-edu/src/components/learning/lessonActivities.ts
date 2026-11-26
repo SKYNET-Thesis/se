@@ -102,9 +102,74 @@ const demonstration = (
   action: 'reading',
 });
 
+/**
+ * The physical-lab activities of Module 5 (readiness, experiment, evidence, reflection). They are built from the server's qualification handoff, so they
+ * are offered both for the seeded curriculum and for a Module 5 authored in the Course Builder (whose sections come from the database). A lesson
+ * without a qualification gets them as unavailable; the server still authorizes every start.
+ */
+function physicalExecutionSection(lesson: LessonSummaryOrDetail): LessonActivitySection {
+  return {
+    title: 'Physical Execution',
+    items: [
+      {
+        id: `${lesson.id}-readiness`,
+        type: 'physical_lab' as const,
+        title: 'Robot Readiness / Safety Check',
+        description: 'Physical lab execution will become available when the robot runtime is authorized and ready.',
+        durationMinutes: null,
+        status: lesson.qualification
+          ? (lesson.status === 'completed' ? ('completed' as const) : ('current' as const))
+          : ('unavailable' as const),
+        actionable: Boolean(lesson.qualification),
+        authoritative: true,
+        action: null,
+      },
+      {
+        id: `${lesson.id}-physical`,
+        type: 'physical_lab' as const,
+        title: 'Physical Experiment',
+        description: 'Physical lab execution will become available when the robot runtime is authorized and ready.',
+        durationMinutes: null,
+        status: lesson.qualification
+          ? (lesson.status === 'completed' ? ('completed' as const) : ('available' as const))
+          : ('unavailable' as const),
+        actionable: Boolean(lesson.qualification),
+        authoritative: true,
+        action: null,
+      },
+      {
+        id: `${lesson.id}-evidence`,
+        type: 'result' as const,
+        title: 'Result / Evidence',
+        description: 'Review authoritative physical robot experiment evidence.',
+        durationMinutes: null,
+        status: lesson.qualification
+          ? (lesson.status === 'completed' ? ('completed' as const) : ('neutral' as const))
+          : ('unavailable' as const),
+        actionable: Boolean(lesson.qualification),
+        authoritative: true,
+        action: null,
+      },
+      {
+        id: `${lesson.id}-reflection`,
+        type: 'reflection' as const,
+        title: 'Reflection',
+        description: 'Reflection on physical vs simulated execution.',
+        durationMinutes: null,
+        status: lesson.qualification
+          ? (lesson.status === 'completed' ? ('completed' as const) : ('neutral' as const))
+          : ('unavailable' as const),
+        actionable: Boolean(lesson.qualification),
+        authoritative: false,
+        action: null,
+      },
+    ],
+  };
+}
+
 export function buildLessonActivitySections(lesson: LessonSummaryOrDetail): LessonActivitySection[] {
   if (lesson.databaseSections?.length) {
-    return lesson.databaseSections.map((section) => ({
+    const authored: LessonActivitySection[] = lesson.databaseSections.map((section) => ({
       title: section.title,
       items: section.activities.map((item) => {
         const type = item.type as LessonActivityType;
@@ -135,6 +200,8 @@ export function buildLessonActivitySections(lesson: LessonSummaryOrDetail): Less
         };
       }),
     }));
+    // Module 5 authored in the Course Builder: once the learner is qualified (or not yet), the physical-lab steps are shown after the authored sections.
+    return lesson.ordinal === 5 && lesson.qualification ? [...authored, physicalExecutionSection(lesson)] : authored;
   }
   const sections = lesson.content?.conceptSections ?? [];
   const summary = lesson.content?.summary ?? lesson.content?.taskPreview ?? '';
@@ -334,63 +401,7 @@ export function buildLessonActivitySections(lesson: LessonSummaryOrDetail): Less
           ),
         ],
       },
-      {
-        title: 'Physical Execution',
-        items: [
-          {
-            id: `${lesson.id}-readiness`,
-            type: 'physical_lab' as const,
-            title: 'Robot Readiness / Safety Check',
-            description: 'Physical lab execution will become available when the robot runtime is authorized and ready.',
-            durationMinutes: null,
-            status: lesson.qualification
-              ? (lesson.status === 'completed' ? ('completed' as const) : ('current' as const))
-              : ('unavailable' as const),
-            actionable: Boolean(lesson.qualification),
-            authoritative: true,
-            action: null,
-          },
-          {
-            id: `${lesson.id}-physical`,
-            type: 'physical_lab' as const,
-            title: 'Physical Experiment',
-            description: 'Physical lab execution will become available when the robot runtime is authorized and ready.',
-            durationMinutes: null,
-            status: lesson.qualification
-              ? (lesson.status === 'completed' ? ('completed' as const) : ('available' as const))
-              : ('unavailable' as const),
-            actionable: Boolean(lesson.qualification),
-            authoritative: true,
-            action: null,
-          },
-          {
-            id: `${lesson.id}-evidence`,
-            type: 'result' as const,
-            title: 'Result / Evidence',
-            description: 'Review authoritative physical robot experiment evidence.',
-            durationMinutes: null,
-            status: lesson.qualification
-              ? (lesson.status === 'completed' ? ('completed' as const) : ('neutral' as const))
-              : ('unavailable' as const),
-            actionable: Boolean(lesson.qualification),
-            authoritative: true,
-            action: null,
-          },
-          {
-            id: `${lesson.id}-reflection`,
-            type: 'reflection' as const,
-            title: 'Reflection',
-            description: 'Reflection on physical vs simulated execution.',
-            durationMinutes: null,
-            status: lesson.qualification
-              ? (lesson.status === 'completed' ? ('completed' as const) : ('neutral' as const))
-              : ('unavailable' as const),
-            actionable: Boolean(lesson.qualification),
-            authoritative: false,
-            action: null,
-          },
-        ],
-      },
+      physicalExecutionSection(lesson),
     ];
   }
 

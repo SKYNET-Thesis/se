@@ -234,7 +234,7 @@ describe("PhysicalExecutionService Gate 1", () => {
   });
 
   it("refuses an enabled IoT dispatch before sending anything outside the local fake runtime", async () => {
-    const iot = { enabled: jest.fn().mockReturnValue(true), simulationStartEnabled: jest.fn().mockReturnValue(false) }; // default: the simulation start mode is not selected
+    const iot = { enabled: jest.fn().mockReturnValue(true), simulationStartEnabled: jest.fn().mockReturnValue(false), physicalStartEnabled: jest.fn().mockReturnValue(false) }; // default: the simulation start mode is not selected
     const guarded = new PhysicalExecutionService(
       { $queryRaw: queryRaw, $executeRaw: executeRaw, $transaction: transaction } as never,
       runtime as never,
@@ -256,7 +256,7 @@ describe("PhysicalExecutionService Gate 1", () => {
   describe("simulation-only IoT start mode (Device Shadow preflight)", () => {
     const freshShadow = (over: Record<string, unknown> = {}) => ({ connection: "connected", runtimeKind: "MOCK_RUNTIME", hardwareEnabled: false, stopped: false, reportedAtMs: Date.now(), ...over });
     const build = (shadow: unknown, createRunCommand = jest.fn()) => {
-      const iot = { enabled: jest.fn().mockReturnValue(true), simulationStartEnabled: jest.fn().mockReturnValue(true), readShadow: jest.fn().mockResolvedValue(shadow), shadowMaxAgeMs: jest.fn().mockReturnValue(30000), createRunCommand };
+      const iot = { enabled: jest.fn().mockReturnValue(true), simulationStartEnabled: jest.fn().mockReturnValue(true), physicalStartEnabled: jest.fn().mockReturnValue(false), readShadow: jest.fn().mockResolvedValue(shadow), shadowMaxAgeMs: jest.fn().mockReturnValue(30000), createRunCommand };
       const svc = new PhysicalExecutionService(
         { $queryRaw: queryRaw, $executeRaw: executeRaw, $transaction: transaction } as never, runtime as never, progression as never, iot as never);
       queryRaw
@@ -299,6 +299,57 @@ describe("PhysicalExecutionService Gate 1", () => {
       expect(iot.createRunCommand).toHaveBeenCalledTimes(1);
       expect(runtime.status).not.toHaveBeenCalled();
       expect(runtime.createRun).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("supervised physical commissioning start mode", () => {
+    const READY = { connection: "connected", runtimeKind: "UNVERIFIED_RUNTIME", adapterMode: "so101_follower", hardwareEnabled: true, armed: true, calibrationReady: true, fault: null, stopped: false };
+    const shadow = (over: Record<string, unknown> = {}) => ({ ...READY, reportedAtMs: Date.now(), ...over });
+    const policy = (over: Record<string, unknown> = {}) => ({ robotId: String(scope().robot_id).toLowerCase(), userIds: new Set([String((user as { vistaUserId: string }).vistaUserId).toLowerCase()]), untilMs: Date.now() + 3_600_000, runtimeModes: new Set(["so101_follower"]), ...over });
+    const build = (sh: unknown, pol: unknown = policy(), createRunCommand = jest.fn()) => {
+      const iot = { enabled: jest.fn().mockReturnValue(true), simulationStartEnabled: jest.fn().mockReturnValue(false), physicalStartEnabled: jest.fn().mockReturnValue(true),
+        physicalCommissioningPolicy: jest.fn(() => { if (pol instanceof Error) throw pol; return pol; }), readShadow: jest.fn().mockResolvedValue(sh), shadowMaxAgeMs: jest.fn().mockReturnValue(30000), createRunCommand };
+      const svc = new PhysicalExecutionService({ $queryRaw: queryRaw, $executeRaw: executeRaw, $transaction: transaction } as never, runtime as never, progression as never, iot as never);
+      queryRaw.mockResolvedValueOnce([scope()]).mockResolvedValueOnce([scope()]).mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: "18181818-1818-4181-8181-181818181818", state: "created", created_at: new Date() }])
+        .mockResolvedValueOnce([{ id: "19191919-1919-4191-8191-191919191919", status: "pending", execution_mode: "real_robot", created_at: new Date() }])
+        .mockResolvedValueOnce([scope()]);
+      return { svc, iot };
+    };
+    const start = (svc: PhysicalExecutionService) => svc.start(user as never, scope().attempt_id as string, { safetyConfirmed: true });
+
+    it.each([
+      ["not configured", shadow(), new Error("x"), "PHYSICAL_COMMISSIONING_NOT_CONFIGURED"],
+      ["a closed window", shadow(), policy({ untilMs: Date.now() - 1 }), "PHYSICAL_COMMISSIONING_CLOSED"],
+      ["an unapproved robot", shadow(), policy({ robotId: "99999999-9999-4999-8999-999999999999" }), "PHYSICAL_COMMISSIONING_ROBOT_NOT_APPROVED"],
+      ["a user outside the allowlist", shadow(), policy({ userIds: new Set(["99999999-9999-4999-8999-999999999999"]) }), "PHYSICAL_COMMISSIONING_USER_NOT_AUTHORIZED"],
+      ["a disarmed runtime", shadow({ armed: false }), policy(), "ROBOT_NOT_READY"],
+      ["an armed flag that is missing", shadow({ armed: undefined }), policy(), "ROBOT_NOT_READY"],
+      ["an uncalibrated runtime", shadow({ calibrationReady: false }), policy(), "ROBOT_NOT_READY"],
+      ["a runtime with a fault", shadow({ fault: "servo_overload" }), policy(), "ROBOT_NOT_READY"],
+      ["hardware disabled", shadow({ hardwareEnabled: false }), policy(), "ROBOT_NOT_READY"],
+      ["a stopped runtime", shadow({ stopped: true }), policy(), "ROBOT_RUNTIME_STOPPED"],
+      ["a stale shadow", shadow({ reportedAtMs: Date.now() - 120000 }), policy(), "ROBOT_RUNTIME_UNAVAILABLE"],
+      ["a mock adapter", shadow({ adapterMode: "fake_follower" }), policy({ runtimeModes: new Set(["fake_follower"]) }), "PHYSICAL_RUNTIME_NOT_DECLARED"],
+      ["a MOCK_RUNTIME kind", shadow({ runtimeKind: "MOCK_RUNTIME" }), policy(), "PHYSICAL_RUNTIME_NOT_DECLARED"],
+      ["an undeclared adapter mode", shadow({ adapterMode: "something_else" }), policy(), "PHYSICAL_RUNTIME_NOT_DECLARED"],
+    ])("refuses %s and never dispatches", async (_label, sh, pol, code) => {
+      const { svc, iot } = build(sh, pol as never);
+      await expect(start(svc)).rejects.toMatchObject({ response: expect.objectContaining({ code }) });
+      expect(iot.createRunCommand).not.toHaveBeenCalled(); expect(runtime.createRun).not.toHaveBeenCalled(); expect(runtime.status).not.toHaveBeenCalled();
+    });
+
+    it("dispatches only when the approved robot, user, window, fresh armed calibrated declared-physical shadow and safety confirmation all hold", async () => {
+      const sentinel = new Error("reached IoT dispatch");
+      const { svc, iot } = build(shadow(), policy(), jest.fn(() => { throw sentinel; }));
+      await expect(start(svc)).rejects.toBe(sentinel);
+      expect(iot.createRunCommand).toHaveBeenCalledTimes(1); expect(runtime.createRun).not.toHaveBeenCalled();
+    });
+
+    it("still requires the student's explicit safety confirmation", async () => {
+      const { svc, iot } = build(shadow());
+      await expect(svc.start(user as never, scope().attempt_id as string, {} as never)).rejects.toMatchObject({ response: expect.objectContaining({ code: "SAFETY_CONFIRMATION_REQUIRED" }) });
+      expect(iot.readShadow).not.toHaveBeenCalled();
     });
   });
 

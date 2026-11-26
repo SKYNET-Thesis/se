@@ -13,9 +13,12 @@ import { PrismaClient } from "@prisma/client";
  * entitlements that OTHER organizations hold for the same robot. Their classroom allocation rows stay untouched, but the Education API then
  * answers ROBOT_ENTITLEMENT_INVALID for their students. Restore with:
  *   node dist/scripts/provision-robot-entitlement.js --restore <entitlement uuid> [--confirm]
+ *
+ * Student authorization: --blockly-student <user uuid> gives ONE student of the organization the existing `student-blockly-demo` safety profile
+ * (allowed mode blockly), the only way a student can pass the Blockly-mode check of the physical/IoT start. Undo with --clear-blockly-student.
  */
 export type Isolated = { id: string; organizationId: string; validTo: string | null };
-export type Plan = { organization: { id: string; name: string }; robot: { id: string | null; serialNo: string; willRegister: boolean }; entitlement: "exists" | "create"; allocations: number; isolate?: Isolated[]; restore?: { id: string; action: "clear valid_to" } };
+export type Plan = { organization: { id: string; name: string }; robot: { id: string | null; serialNo: string; willRegister: boolean }; entitlement: "exists" | "create"; allocations: number; isolate?: Isolated[]; restore?: { id: string; action: "clear valid_to" }; blocklyStudent?: { userId: string; membershipId: string; previousProfileId: string | null } };
 export interface ProvisioningStore {
   organization(id: string): Promise<{ id: string; name: string; status: string } | null>;
   robotById(id: string): Promise<{ id: string; serial_no: string } | null>;
@@ -27,8 +30,11 @@ export interface ProvisioningStore {
   activeEntitlementsOfOthers(robotId: string, exceptOrganizationId: string): Promise<Array<{ id: string; organization_id: string }>>;
   setEntitlementEnd(id: string, validTo: Date | null): Promise<void>;
   entitlementById(id: string): Promise<{ id: string; organization_id: string; valid_to: Date | null } | null>;
+  studentMembership(organizationId: string, userId: string): Promise<{ id: string; safety_profile_id: string | null } | null>;
+  blocklyProfileId(): Promise<string | null>;
+  setMembershipProfile(membershipId: string, profileId: string | null): Promise<void>;
 }
-export type Args = { organization: string; robot?: string; registerSerial?: string; name?: string; confirm: boolean; isolateOthers?: boolean; restore?: string };
+export type Args = { blocklyStudent?: string; clearBlocklyStudent?: string; organization: string; robot?: string; registerSerial?: string; name?: string; confirm: boolean; isolateOthers?: boolean; restore?: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -39,8 +45,10 @@ export function parseArgs(argv: string[]): Args {
     if (!UUID.test(restore)) throw new Error("--restore must be an entitlement UUID.");
     return { organization: "", restore, confirm: argv.includes("--confirm") };
   }
-  const args: Args = { organization: get("--organization") ?? "", robot: get("--robot"), registerSerial: get("--register-serial"), name: get("--name"), confirm: argv.includes("--confirm"), isolateOthers: argv.includes("--isolate-others") };
+  const args: Args = { blocklyStudent: get("--blockly-student"), clearBlocklyStudent: get("--clear-blockly-student"), organization: get("--organization") ?? "", robot: get("--robot"), registerSerial: get("--register-serial"), name: get("--name"), confirm: argv.includes("--confirm"), isolateOthers: argv.includes("--isolate-others") };
   if (!UUID.test(args.organization)) throw new Error("--organization must be an organization UUID.");
+  for (const [flag, value] of [["--blockly-student", args.blocklyStudent], ["--clear-blockly-student", args.clearBlocklyStudent]] as const) if (value && !UUID.test(value)) throw new Error(`${flag} must be a user UUID.`);
+  if (args.blocklyStudent || args.clearBlocklyStudent) { if (args.robot || args.registerSerial) throw new Error("Student profile changes are a separate invocation from robot provisioning."); return args; }
   if (Boolean(args.robot) === Boolean(args.registerSerial)) throw new Error("Give exactly one of --robot <uuid> or --register-serial <serial>.");
   if (args.robot && !UUID.test(args.robot)) throw new Error("--robot must be a robot UUID.");
   if (args.registerSerial && (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$/.test(args.registerSerial) || !args.name?.trim())) throw new Error("--register-serial needs a 3-64 character serial and --name.");
@@ -59,6 +67,17 @@ export async function provision(store: ProvisioningStore, args: Args): Promise<{
   const organization = await store.organization(args.organization);
   if (!organization) throw new Error("Organization was not found.");
   if (organization.status !== "active") throw new Error("Organization is not active.");
+  if (args.blocklyStudent || args.clearBlocklyStudent) {
+    const userId = (args.blocklyStudent ?? args.clearBlocklyStudent)!;
+    const membership = await store.studentMembership(organization.id, userId);
+    if (!membership) throw new Error("The user is not a student member of this organization.");
+    const profileId = args.blocklyStudent ? await store.blocklyProfileId() : null;
+    if (args.blocklyStudent && !profileId) throw new Error("The student-blockly-demo safety profile does not exist.");
+    const studentPlan: Plan = { organization: { id: organization.id, name: organization.name }, robot: { id: null, serialNo: "", willRegister: false }, entitlement: "exists", allocations: 0, blocklyStudent: { userId, membershipId: membership.id, previousProfileId: membership.safety_profile_id } };
+    if (!args.confirm) return { plan: studentPlan, applied: false };
+    await store.setMembershipProfile(membership.id, profileId);
+    return { plan: studentPlan, applied: true };
+  }
   let robot = args.robot ? await store.robotById(args.robot) : await store.robotBySerial(args.registerSerial!);
   if (args.robot && !robot) throw new Error("Robot was not found; use --register-serial to register a new robot resource.");
   const willRegister = !robot;
@@ -89,6 +108,9 @@ function prismaStore(prisma: PrismaClient): ProvisioningStore {
     registerRobot: (serial, name) => prisma.robots.create({ data: { serial_no: serial, name, notes: "Registered by provision-robot-entitlement. Resource record only: it does not represent hardware readiness or execution authorization." }, select: { id: true, serial_no: true } }),
     activeEntitlementsOfOthers: (robotId, exceptOrganizationId) => prisma.org_entitlements.findMany({ where: { robot_id: robotId, resource_type: "robot", organization_id: { not: exceptOrganizationId }, valid_to: null }, select: { id: true, organization_id: true } }),
     setEntitlementEnd: async (id, validTo) => { await prisma.org_entitlements.update({ where: { id }, data: { valid_to: validTo } }); },
+    studentMembership: async (organizationId, userId) => (await prisma.memberships.findFirst({ where: { organization_id: organizationId, user_id: userId, status: "active", roles: { is: { code: "student" } } }, select: { id: true, safety_profile_id: true } })) as never,
+    blocklyProfileId: async () => (await prisma.safety_profiles.findUnique({ where: { name: "student-blockly-demo" }, select: { id: true } }))?.id ?? null,
+    setMembershipProfile: async (membershipId, profileId) => { await prisma.memberships.update({ where: { id: membershipId }, data: { safety_profile_id: profileId } }); },
     entitlementById: (id) => prisma.org_entitlements.findUnique({ where: { id }, select: { id: true, organization_id: true, valid_to: true } }),
     createEntitlement: async (organizationId, robotId) => { await prisma.org_entitlements.create({ data: { organization_id: organizationId, robot_id: robotId, resource_type: await resourceType(), valid_from: new Date(), valid_to: null } }); },
   };
