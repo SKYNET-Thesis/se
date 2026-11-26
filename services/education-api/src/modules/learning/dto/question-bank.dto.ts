@@ -53,7 +53,8 @@ export class QuestionSearchDto {
 export class AddAssignmentQuestionDto {
   @IsUUID() questionVersionId!: string;
   @IsInt() @Min(1) ordinal!: number;
-  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) points!: number;
+  /** Optional: when absent the question's difficulty default applies (easy 1, medium 2, hard 3). */
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) points?: number;
 }
 
 export class ReorderAssignmentQuestionsDto {

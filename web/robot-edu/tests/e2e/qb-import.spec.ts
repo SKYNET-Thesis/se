@@ -104,15 +104,15 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   const template = await download;
   expect(template.suggestedFilename()).toBe('question-bank-template.csv');
   const templateText = await readFile((await template.path())!, 'utf8');
-  expect(templateText.split('\r\n')[0]).toBe('code,type,difficulty,cognitive_level,stem,option_a,option_b,option_c,option_d,option_e,option_f,correct,points,explanation,source_reference');
+  expect(templateText.split('\r\n')[0]).toBe('code,type,difficulty,cognitive_level,stem,option_a,option_b,option_c,option_d,option_e,option_f,correct,points,explanation,source_reference,course,lesson,learning_section,topic,learning_objective');
 
   // 3-6. upload a file with two valid rows, one duplicate and one invalid row; the preview explains each
   const header = templateText.split('\r\n')[0];
   const csv = [header,
-    ',single_choice,easy,remember,Which control stops the robot instantly?,Emergency stop,Slow down,Ignore it,,,,A,3,The emergency stop halts all motion.,',
-    ',single_choice,easy,remember,Which part is a robot sensor?,Camera,Chair,,,,,A,1,A camera senses the scene.,',
-    ',single_choice,easy,remember,  which control STOPS the robot instantly?,Emergency stop,Slow down,,,,,A,2,duplicate of row 2,',
-    ',single_choice,easy,remember,Broken row,Yes,No,,,,,Z,1,bad answer key,',
+    ',single_choice,easy,remember,Which control stops the robot instantly?,Emergency stop,Slow down,Ignore it,,,,A,3,The emergency stop halts all motion.,,,,,Robot safety,',
+    ',single_choice,easy,remember,Which part is a robot sensor?,Camera,Chair,,,,,A,1,A camera senses the scene.,,,,,,',
+    ',single_choice,easy,remember,  which control STOPS the robot instantly?,Emergency stop,Slow down,,,,,A,2,duplicate of row 2,,,,,,',
+    ',single_choice,easy,remember,Broken row,Yes,No,,,,,Z,1,bad answer key,,,,,,',
   ].join('\r\n') + '\r\n';
   await dialog.getByLabel('Question file').setInputFiles({ name: 'questions.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(dialog.getByRole('status').filter({ hasText: '4 rows · 2 valid · 1 with errors · 1 duplicate (skipped)' })).toBeVisible();
@@ -126,10 +126,13 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   // a Learning Outcome is required before importing
   await expect(dialog.getByRole('button', { name: /^Import 2 valid questions/ })).toBeDisabled();
   await dialog.getByLabel('New Learning Outcome').fill('Learners can name basic robot controls.');
+  await expect(dialog.getByRole('button', { name: /^Import 2 valid questions/ })).toBeDisabled(); // outcome chosen, preview not yet confirmed
+  await dialog.getByLabel('Publish immediately (otherwise questions are imported as drafts)').check(); // the quiz below needs published questions
+  await dialog.getByLabel('I reviewed this preview and want to import the valid rows.').check();
 
   // 7. confirm the import
   await dialog.getByRole('button', { name: /^Import 2 valid questions/ }).click();
-  await expect(dialog.getByText('Imported 2 questions. Skipped: 1 invalid, 1 duplicate.')).toBeVisible();
+  await expect(dialog.getByText('Imported 2 questions as published. Skipped: 1 invalid, 1 duplicate.')).toBeVisible();
   await dialog.getByRole('button', { name: 'Done' }).click();
 
   // 8-10. imported questions are in the Question Bank with the file's points pre-filled; add both to the quiz
@@ -159,7 +162,7 @@ test('Question Bank import: template, preview with row errors and duplicates, im
   const xlsxTemplate = await xlsxDownload;
   expect(xlsxTemplate.suggestedFilename()).toBe('question-bank-template.xlsx');
   await dialog.getByLabel('Question file').setInputFiles({ name: xlsxTemplate.suggestedFilename(), mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: await readFile((await xlsxTemplate.path())!) });
-  await expect(dialog.getByRole('status').filter({ hasText: '2 rows · 2 valid · 0 with errors · 0 duplicates (skipped)' })).toBeVisible();
+  await expect(dialog.getByRole('status').filter({ hasText: '3 rows · 3 valid · 0 with errors · 0 duplicates (skipped)' })).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 
   const saved = page.waitForResponse((r) => r.request().method() === 'PATCH' && r.url().includes('/author/activities/'));
