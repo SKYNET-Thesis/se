@@ -23,7 +23,8 @@ export function NewQuestionDialog({ open, onClose, lessonId, token, onCreated }:
   const [localError, setLocalError] = useState<string | null>(null);
   const objectives = useQuery({ queryKey: ['quiz-authoring-objectives', lessonId], queryFn: () => quizAuthoringApi.objectives(lessonId, token), enabled: open });
   const items = type === 'true_false' ? ['True', 'False'] : options;
-  const ids = items.map((_, i) => letters[i]);
+  // The API requires the fixed option IDs `true` and `false` for True/False questions; other types use a, b, c...
+  const ids = type === 'true_false' ? ['true', 'false'] : items.map((_, i) => letters[i]);
   const reset = () => { setStem(''); setOptions(['', '']); setCorrect([]); setExplanation(''); setObjectiveId(''); setNewObjective(''); setLocalError(null); setType('single_choice'); };
   const create = useMutation({
     mutationFn: () => quizAuthoringApi.authorQuestion(lessonId, token, {
