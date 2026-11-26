@@ -76,4 +76,20 @@ describe('NewQuestionDialog', () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toContain('Lesson was not found.');
     expect(onCreated).not.toHaveBeenCalled(); expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('sends the fixed option IDs true/false for a True/False question (the API rejects letter IDs)', async () => {
+    api.authorQuestion.mockResolvedValue({ questionId: 'q', versionId: 'v', status: 'published' });
+    await mount();
+    const select = document.querySelector('select') as HTMLSelectElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, 'true_false'); select.dispatchEvent(new Event('change', { bubbles: true })); });
+    const [stem, explanation] = [...document.querySelectorAll('textarea')];
+    await set(stem, 'A program must be validated before it runs.');
+    await click(byLabel('Correct answer 1'));
+    await set(explanation, 'Validation catches block errors.');
+    await set(document.querySelector('input[placeholder="Learners can …"]')!, 'Learners can explain validation.');
+    await click(save());
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    const [, , body] = api.authorQuestion.mock.calls[0];
+    expect(body.content).toMatchObject({ type: 'true_false', answerKey: ['true'], options: [{ id: 'true', text: 'True' }, { id: 'false', text: 'False' }] });
+  });
 });
