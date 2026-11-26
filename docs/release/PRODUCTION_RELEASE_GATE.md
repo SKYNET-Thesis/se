@@ -1,5 +1,7 @@
 # VISTA — Production release gate (read-only review, 2026-11-26)
 
+> **Update, final develop `6d49566`:** host-script gate **PASS** and Production configuration checked read-only via AWS profile `vista` / SSM (results in §9). Release PR: #222 (draft).
+
 Scope: what merging `develop` into `main` would do. Sources: repository, GitHub Actions metadata and variables (read-only), public HTTP endpoints. **No Production or AWS resource was modified, no SSM command was run, no credential was used.** Items that need AWS or Supabase credentials are listed as NOT VERIFIED.
 
 ## 1. State of the three revisions
@@ -52,5 +54,17 @@ API: dispatch Education CI with `action=rollback` (not schema-gated); the previo
 ## 8. Not verified / owner confirmations
 
 Host script hash; environment-scoped GitHub variables; Supabase hosted settings (Site URL, redirects, SMTP) and whether `STUDENT_TEMP_PASSWORD_ENABLED` is intended as set in the Production secret (flagged on 2026-11-24, still open); CloudFront security-header Terraform (unapplied); Production MQTT stays off.
+
+## 9. Read-only verification results (2026-11-26, after #220/#221 merged)
+
+| Check | Result |
+|---|---|
+| Host `/usr/local/bin/vista-deploy-api` SHA-256 | `ef5a33bf805e52bbc39c614ec980c5a912562ba01d81a3c8e3e35877c89704bd` = `main` = `develop` `deploy-api.sh` → **PASS** (supersedes the NOT VERIFIED in §3) |
+| `/health`, `/health/ready` | 200; database, academicMetadataColumns, mediaArchiveColumns, runtimeRole all true |
+| Running revision | `ef95cdd`; containers API, Digital Twin (`/health` ok, mode `mock`), IoT feedback worker, recordings worker running, 0 restarts |
+| Production MQTT | `VISTA_IOT_ENABLED=false`; 1 IoT Thing, 1 rule, **0 certificates** → disabled |
+| `STUDENT_TEMP_PASSWORD_ENABLED` | **`true` on the running API** — not the documented default; unchanged by this release; owner decision pending (not modified) |
+| Schema compatibility | `schema-gate` on `main` `745c7ac` reported `compatible`; `database/` identical to `develop` |
+| Gates | `aws-demo` reviewers + branch policy; `production-database-preflight` branch policy |
 
 Verdict: **READY TO MERGE to `main` as a draft/approval-gated release once #220 and #221 are in `develop`; deployment is BLOCKED on the owner's `aws-demo` approval and on the host-script check.** No production acceptance is claimed.
