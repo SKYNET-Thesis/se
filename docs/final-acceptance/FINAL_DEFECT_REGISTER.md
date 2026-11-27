@@ -28,3 +28,8 @@ Stop Execution (run lasts ~0.5 s), concurrent control, reconnect during a run, s
 
 | D-10 | Low (test debt) | `platform-route-sweep` expected `/admin/robots` to redirect; the route is a real page since #243 (duplicate dead redirect route remains in `App.tsx`) | Test fixed in #261; dead route left untouched |
 | D-06 proposal | | Implemented as DRAFT #263 (409 `RUBRIC_INCOMPLETE`; non-rubric unchanged; 36 assessment tests pass). **Not to be merged without explicit owner approval.** |
+
+| D-11 | Medium (owner decision) | Legacy `PUT /education-admin/classrooms/:id/robot-allocation` now **adds** an allocation (many-to-many, #243) instead of replacing the classroom's robot; the classroom detail `allocated_robot` stays the first one. Playwright `lms-independent`/`digital-twin-*` still assumed "replace" | contract change from migration S | **Owner decision:** keep PUT as "add" (documented), or restore replace semantics for PUT only? Tests updated to the current behaviour |
+| D-12 | Low (fixed in #264) | `/admin/robots` overflowed horizontally by 410 px at 390 px (`sr-only` caption escaping the scroll container) found by `platform-route-inventory` | absolute caption without a positioned ancestor | Fixed + verified (SW 390, spec 12/12); not deployed |
+| D-13 | Low (test debt, fixed in #264) | Stale Playwright expectations after #243/#250/#253 and the import confirmation; Playwright is not part of CI | specs not maintained with product changes | Updated; **recommend adding the Playwright suite (or a smoke subset) to CI** |
+| D-14 | Info | `platform-invite-security`, `platform-system-admin` cannot run locally (need `local-gotrue-proxy` + GoTrue keys; no provisioning script) | environment | BLOCKED; add a harness script |

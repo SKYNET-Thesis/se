@@ -46,3 +46,9 @@ Local isolated stack, release-candidate web (UI branch), synthetic fixtures — 
 Production (read-only, designated accounts, `430ad59`): instructor `GET /courses`, `/course-offerings`, `learner-progress` (2), `progress-summary`, `submissions` (4) all 200; student `/me/attempts` 200; student against instructor endpoints (`quiz-results`, `learner-progress`, `submissions`) 404 (isolation PASS). The E2E class has **no quiz delivered** (`published-quizzes` and `/me/quizzes` empty), and no course/quiz/Question Bank/Excel import authoring was performed on Production: those cases stay **NOT RUN/BLOCKED (needs authored test content in the Production E2E org)**.
 Course Builder capture: the fixture course returned "Course was not found" for the school-admin route, so no Course Builder before/after exists.
 Deployment coverage and the reviewed Terraform plan: `RELEASE_AND_APPROVAL_CHECKLIST_20261127.md`. Paper MCP re-checked: still "account setup incomplete".
+
+## Update: completion sprint (final)
+- #257–#262 are merged into `develop` (`2d0b260`); Production is still `430ad59` (re-checked); #263 (D-06) remains an unmerged draft.
+- Follow-up PR #264 (not merged): UI composition polish, Robot Resources mobile overflow fix (D-12), stale-test alignment (D-13), WF-01..04 definition package, UI route audit, regression report, corrected architecture docs, IoT handoff verification, Production test-content approval request.
+- Regression (local): Playwright 188 pass / 0 fail / 4 skipped / 16 blocked of 208 + harness 18 + 13; Vitest 837; Jest DB+S3 250 pass; Twin 72 pass; R1 35 pass — see `REGRESSION_REPORT_20261127.md`.
+- Still open on Production: D-03/D-08 (needs deploy + Terraform apply), D-09 (needs deploy), Production LMS/quiz acceptance (needs approved test content), safety cases NOT RUN. Web Freeze remains **PENDING**.
