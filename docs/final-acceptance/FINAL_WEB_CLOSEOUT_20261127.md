@@ -29,3 +29,20 @@ WF04 scoring/release/student view PASS; telemetry provenance resolved as *not* R
 - **#262** D-09 Twin run telemetry: root cause verified live (attempt-bound scope 404 after submission; robot-wide viewer closed 4403; fixture shown). Fix + tests; not deployed; live retest pending.
 - **#261** UI polish: shared tokens plus consistent card layout on the instructor class page and mobile assignment titles; 14 pages x 4 viewports captured on an isolated local stack (synthetic data) before and after; 8 before/after pairs in `docs/acceptance/screenshots/ui-polish/`. Palette and light theme unchanged. Paper MCP was reachable but refused every call (account setup incomplete): **not used**. The Taste skill was read as guidance only; the application already followed a coherent design system, so the polish is deliberately small. Not deployed.
 - Still NOT RUN on Production: LMS/Course Builder/Question Bank/Excel import/Quiz/Gradebook regression, simulation safety cases (need CC-4 long fixture).
+
+## Update: release consolidation (late evening)
+Local isolated stack, release-candidate web (UI branch), synthetic fixtures — **local evidence, not Production**:
+| Suite | Result |
+|---|---|
+| Vitest | 834/834 |
+| TypeScript, production build | clean / OK |
+| ESLint | 0 errors (286 existing warnings across `src`) |
+| Playwright `lab-session-management` (WF01) | 4/4 |
+| Playwright `lms-assignment-grading` | 1/1 |
+| Playwright `lms-module-quiz` | 1/1 |
+| Playwright `lms-a11y-smoke` | 13/13 |
+| Playwright `platform-route-sweep` | 22/23 before; the one failure is a **stale test** (`/admin/robots` is now a real page since #243, the test still expected a redirect) — expectation removed in #261; legacy-route group 5/5 afterwards |
+| Not run | the other ~40 Playwright specs (WF03 runtime evidence, Twin browser specs, QB import, student-auth, …); browser console/network capture beyond what the suites assert |
+Production (read-only, designated accounts, `430ad59`): instructor `GET /courses`, `/course-offerings`, `learner-progress` (2), `progress-summary`, `submissions` (4) all 200; student `/me/attempts` 200; student against instructor endpoints (`quiz-results`, `learner-progress`, `submissions`) 404 (isolation PASS). The E2E class has **no quiz delivered** (`published-quizzes` and `/me/quizzes` empty), and no course/quiz/Question Bank/Excel import authoring was performed on Production: those cases stay **NOT RUN/BLOCKED (needs authored test content in the Production E2E org)**.
+Course Builder capture: the fixture course returned "Course was not found" for the school-admin route, so no Course Builder before/after exists.
+Deployment coverage and the reviewed Terraform plan: `RELEASE_AND_APPROVAL_CHECKLIST_20261127.md`. Paper MCP re-checked: still "account setup incomplete".
