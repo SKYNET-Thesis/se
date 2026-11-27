@@ -19,3 +19,27 @@ else (no)
 endif
 stop
 @enduml
+
+@startuml
+title Classroom Lab Session (refines WF-01 allocation and the WF-03 start gate)
+actor Instructor
+actor Student
+participant API as "Education API"
+database DB as "PostgreSQL"
+participant Edge as "Edge Runtime"
+Instructor -> API : POST /classrooms/{id}/lab-sessions {robotId}
+API -> DB : lock(robot); check allocation, entitlement, status, no open session, no active control
+DB --> API : INSERT classroom_lab_sessions(active) [unique index = one open per robot]
+API --> Instructor : active session (reserves only; no arming, no command)
+Student -> API : start experiment
+API -> DB : lock(robot); open session of THIS classroom? (else LAB_SESSION_NOT_ACTIVE / ROBOT_RESERVED_BY_ANOTHER_CLASSROOM)
+API -> Edge : run command (existing MQTT/HTTP contract)
+Instructor -> API : POST /lab-sessions/{id}/end
+API -> DB : active -> terminating (no new runs)
+API -> Edge : stop active run (R1 cancel) or wait for terminal event
+alt no unfinished control session
+  API -> DB : terminating -> released
+else stop unconfirmed
+  API -> DB : quarantined (robot stays blocked)
+end
+@enduml
