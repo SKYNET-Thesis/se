@@ -14,6 +14,7 @@ import { classifyImportError, ImportProvisioningError, type ImportErrorCode } fr
 import { StudentProvisioningService } from "./student-provisioning.service";
 import { EnrollmentDeliveryService } from "../learning/enrollment-delivery.service";
 import { DigitalTwinRevocationService } from "../learning/digital-twin-revocation.service";
+import { LabSessionSchemaProbe } from "../learning/lab-session-schema";
 import { UpdateClassroomDto } from "./dto/update-classroom.dto";
 import { UpdateCourseOfferingDto } from "./dto/update-course-offering.dto";
 import { runCourseSyncTransaction } from "../learning/course-sync-transaction";
@@ -21,7 +22,7 @@ import { runCourseSyncTransaction } from "../learning/course-sync-transaction";
 @Injectable()
 export class EducationAdminService {
   private readonly logger = new Logger(EducationAdminService.name);
-  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly supabaseAdmin: SupabaseAdminService, private readonly studentProvisioning: StudentProvisioningService, private readonly enrollments: EnrollmentDeliveryService, private readonly twinRevocation?: DigitalTwinRevocationService) {}
+  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly supabaseAdmin: SupabaseAdminService, private readonly studentProvisioning: StudentProvisioningService, private readonly enrollments: EnrollmentDeliveryService, private readonly twinRevocation?: DigitalTwinRevocationService, private readonly labSchema?: LabSessionSchemaProbe) {}
 
   async organizations(user: AuthenticatedUser) {
     if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Organizations were not found.");
@@ -497,8 +498,14 @@ export class EducationAdminService {
       const rows = await tx.$queryRaw<Array<{ id: string; classroom_id: string; robot_id: string; created_at: Date }>>`
         INSERT INTO public.learning_classroom_robot_allocations(classroom_id,robot_id,created_by_user_id)
         VALUES(${classroomId}::uuid,${dto.robotId}::uuid,${user.vistaUserId}::uuid)
-        ON CONFLICT (classroom_id,robot_id) DO NOTHING RETURNING id,classroom_id,robot_id,created_at`;
-      if (!rows[0]) throw new ConflictException({ code: "ROBOT_ALREADY_ALLOCATED", message: "This robot is already allocated to this classroom." });
+        ON CONFLICT DO NOTHING RETURNING id,classroom_id,robot_id,created_at`;
+      if (!rows[0]) {
+        // A target-less ON CONFLICT works on both schemas (release compatibility with migration S): the pair already exists, or the pre-S
+        // one-robot-per-classroom constraint still applies and a second robot cannot be added yet.
+        const pair = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM public.learning_classroom_robot_allocations WHERE classroom_id=${classroomId}::uuid AND robot_id=${dto.robotId}::uuid`;
+        if (pair[0]) throw new ConflictException({ code: "ROBOT_ALREADY_ALLOCATED", message: "This robot is already allocated to this classroom." });
+        throw new ConflictException({ code: "MULTI_ROBOT_ALLOCATION_NOT_ENABLED", message: "This classroom already has a robot. Several robots per classroom become available after the database migration." });
+      }
       return rows;
     });
   }
@@ -512,7 +519,9 @@ export class EducationAdminService {
     const revoke = await this.twinRevocation?.prepare({ classroomId });   // resolved BEFORE the allocation changes
     const removed = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${robotId}::text, 0))`;
-      const open = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM public.classroom_lab_sessions WHERE classroom_id=${classroomId}::uuid AND robot_id=${robotId}::uuid AND state IN ('active','terminating','quarantined') LIMIT 1`;
+      const open = (await this.labSchema?.isReady() ?? true)
+        ? await tx.$queryRaw<{ id: string }[]>`SELECT id FROM public.classroom_lab_sessions WHERE classroom_id=${classroomId}::uuid AND robot_id=${robotId}::uuid AND state IN ('active','terminating','quarantined') LIMIT 1`
+        : [];
       if (open[0]) throw new ConflictException({ code: "LAB_SESSION_OPEN", message: "End this classroom's Lab Session for the robot before removing its allocation." });
       return tx.$executeRaw`DELETE FROM public.learning_classroom_robot_allocations WHERE classroom_id=${classroomId}::uuid AND robot_id=${robotId}::uuid`;
     });

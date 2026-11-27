@@ -5,6 +5,7 @@ import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface
 import { ProgressionService } from "./progression.service";
 import { RobotRuntimeClient, RuntimeSnapshot } from "./robot-runtime.client";
 import { IotCommandService, IotPublishDefiniteFailureError } from "./iot-command.service";
+import { LabSessionSchemaProbe } from "./lab-session-schema";
 import { classifyExecution, satisfiesPhysicalPractical } from "./execution-provenance";
 import { DigitalTwinTelemetryClient } from "./digital-twin-telemetry.client";
 import { ExperimentEvidenceService } from "./experiment-evidence.service";
@@ -50,6 +51,8 @@ interface PhysicalScope {
   entitlement_id: string | null;
   /** The open (active, unexpired) Classroom Lab Session of this classroom for `robot_id`; execution requires it. */
   lab_session_id?: string | null;
+  /** False only while the Lab Session schema is not installed (release transition); the reservation gate is skipped then. */
+  lab_gate?: boolean;
   /** True when ANOTHER classroom holds an open reservation of `robot_id`. Never says which classroom. */
   reserved_by_other?: boolean;
   safety_profile_id: string | null;
@@ -95,6 +98,7 @@ export class PhysicalExecutionService {
     @Optional() private readonly iot?: IotCommandService,
     @Optional() private readonly digitalTwin?: DigitalTwinTelemetryClient,
     @Optional() private readonly evidence?: ExperimentEvidenceService,
+    @Optional() private readonly labSchema?: LabSessionSchemaProbe,
   ) {}
 
   async eligibility(user: AuthenticatedUser, attemptId: string) {
@@ -472,13 +476,36 @@ export class PhysicalExecutionService {
   }
 
   private async resolveScope(db: Pick<PrismaService, "$queryRaw">, user: AuthenticatedUser, attemptId: string): Promise<PhysicalScope> {
+    // Release compatibility with staged migration S: without the Lab Session table the robot is the classroom's single legacy allocation and no
+    // reservation gate applies (there can be no reservation yet). With it, the gate is mandatory. See lab-session-schema.ts.
+    const labReady = this.labSchema ? await this.labSchema.isReady() : true;
+    const allocationJoin = labReady ? Prisma.sql`
+      LEFT JOIN LATERAL (
+        -- A classroom may hold several robots. The robot used for execution is the one this classroom has an open Lab Session for; without one,
+        -- prefer a robot that is not reserved elsewhere so the reason shown to the student is accurate.
+        SELECT al.robot_id,true AS lab_gate,lab.id AS lab_session_id,
+          EXISTS (SELECT 1 FROM public.classroom_lab_sessions other WHERE other.robot_id=al.robot_id AND other.classroom_id<>c.id
+            AND other.state IN ('active','terminating','quarantined')) AS reserved_by_other
+        FROM public.learning_classroom_robot_allocations al
+        LEFT JOIN public.classroom_lab_sessions lab ON lab.robot_id=al.robot_id AND lab.classroom_id=c.id AND lab.state='active' AND lab.expires_at>now()
+        WHERE al.classroom_id=c.id
+        ORDER BY (lab.id IS NOT NULL) DESC,
+          EXISTS (SELECT 1 FROM public.classroom_lab_sessions other WHERE other.robot_id=al.robot_id AND other.classroom_id<>c.id
+            AND other.state IN ('active','terminating','quarantined')) ASC,
+          al.created_at ASC,al.robot_id ASC
+        LIMIT 1
+      ) allocation ON true` : Prisma.sql`
+      LEFT JOIN LATERAL (
+        SELECT al.robot_id,NULL::uuid AS lab_session_id,false AS reserved_by_other,false AS lab_gate
+        FROM public.learning_classroom_robot_allocations al WHERE al.classroom_id=c.id ORDER BY al.created_at ASC,al.robot_id ASC LIMIT 1
+      ) allocation ON true`;
     const rows = await db.$queryRaw<PhysicalScope[]>`
       SELECT
         a.id AS attempt_id,ca.id AS classroom_assignment_id,ca.assignment_id,la.challenge_id,
         ca.classroom_id,c.organization_id,m.id AS membership_id,a.program_id,
         s.id AS submission_id,s.program_version_id,pv.robot_program,
         se.id AS symbolic_evaluation_id,se.verdict AS symbolic_verdict,
-        allocation.robot_id,allocation.lab_session_id,allocation.reserved_by_other,r.name AS robot_name,r.model_name AS robot_model,r.serial_no AS robot_serial,
+        allocation.robot_id,allocation.lab_gate,allocation.lab_session_id,allocation.reserved_by_other,r.name AS robot_name,r.model_name AS robot_model,r.serial_no AS robot_serial,
         entitlement.id AS entitlement_id,
         COALESCE(m.safety_profile_id,role.default_safety_profile_id) AS safety_profile_id,
         CASE WHEN sp.id IS NULL THEN NULL ELSE jsonb_build_object(
@@ -516,21 +543,7 @@ export class PhysicalExecutionService {
           AND schematic.input_snapshot->>'attemptId'=a.id::text
         ORDER BY evidence.created_at DESC LIMIT 1
       ) se ON true
-      LEFT JOIN LATERAL (
-        -- A classroom may hold several robots. The robot used for execution is the one this classroom has an open Lab Session for; without one,
-        -- prefer a robot that is not reserved elsewhere so the reason shown to the student is accurate.
-        SELECT al.robot_id,lab.id AS lab_session_id,
-          EXISTS (SELECT 1 FROM public.classroom_lab_sessions other WHERE other.robot_id=al.robot_id AND other.classroom_id<>c.id
-            AND other.state IN ('active','terminating','quarantined')) AS reserved_by_other
-        FROM public.learning_classroom_robot_allocations al
-        LEFT JOIN public.classroom_lab_sessions lab ON lab.robot_id=al.robot_id AND lab.classroom_id=c.id AND lab.state='active' AND lab.expires_at>now()
-        WHERE al.classroom_id=c.id
-        ORDER BY (lab.id IS NOT NULL) DESC,
-          EXISTS (SELECT 1 FROM public.classroom_lab_sessions other WHERE other.robot_id=al.robot_id AND other.classroom_id<>c.id
-            AND other.state IN ('active','terminating','quarantined')) ASC,
-          al.created_at ASC,al.robot_id ASC
-        LIMIT 1
-      ) allocation ON true
+      ${allocationJoin}
       LEFT JOIN public.robots r ON r.id=allocation.robot_id
       LEFT JOIN LATERAL (
         SELECT entitlement_row.id
@@ -556,7 +569,7 @@ export class PhysicalExecutionService {
     if (!scope.robot_id) return { code: "ROBOT_NOT_ALLOCATED", message: "No Robot is allocated to this Classroom." };
     if (!scope.entitlement_id) return { code: "ROBOT_ENTITLEMENT_INVALID", message: "The allocated Robot is not currently entitled to this Organization." };
     // Classroom Lab Session: allocation grants eligibility only. Exclusive use needs an open reservation held by THIS classroom.
-    if (!scope.lab_session_id) {
+    if (scope.lab_gate !== false && !scope.lab_session_id) {
       return scope.reserved_by_other
         ? { code: "ROBOT_RESERVED_BY_ANOTHER_CLASSROOM", message: "This Robot is reserved by another classroom right now." }
         : { code: "LAB_SESSION_NOT_ACTIVE", message: "Your instructor has not started a Robot Lab Session for this classroom." };

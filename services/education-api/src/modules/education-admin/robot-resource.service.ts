@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from "@nestjs/common
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/database/prisma.service";
 import type { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
+import { LabSessionSchemaProbe } from "../learning/lab-session-schema";
 import { LabSessionService } from "../learning/lab-session.service";
 import { LearningScopeService } from "../learning/learning-scope.service";
 import { CreateRobotResourceDto, GrantRobotEntitlementDto, UpdateRobotResourceDto } from "./dto/robot-resource.dto";
@@ -14,7 +15,9 @@ import { CreateRobotResourceDto, GrantRobotEntitlementDto, UpdateRobotResourceDt
  */
 @Injectable()
 export class RobotResourceService {
-  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly labSessions: LabSessionService) {}
+  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly labSessions: LabSessionService, private readonly labSchema?: LabSessionSchemaProbe) {}
+
+  private labReady() { return this.labSchema ? this.labSchema.isReady() : Promise.resolve(true); }
 
   private requireSystemAdministrator(user: AuthenticatedUser) {
     if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Robot resource was not found.");
@@ -22,12 +25,15 @@ export class RobotResourceService {
 
   async list(user: AuthenticatedUser) {
     this.requireSystemAdministrator(user);
+    const open = (await this.labReady())
+      ? Prisma.sql`(SELECT COUNT(*)::int FROM public.classroom_lab_sessions s WHERE s.robot_id=r.id AND s.state IN ('active','terminating','quarantined'))`
+      : Prisma.sql`0`;
     return this.prisma.$queryRaw`
       SELECT r.id,r.serial_no AS "serialNo",r.name,r.model_name AS "modelName",r.firmware_version AS "firmwareVersion",r.status,r.owner_organization_id AS "ownerOrganizationId",
         r.notes,r.created_at AS "createdAt",
         (SELECT COUNT(*)::int FROM public.org_entitlements e WHERE e.robot_id=r.id AND e.resource_type='robot' AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now())) AS "activeEntitlements",
         (SELECT COUNT(*)::int FROM public.learning_classroom_robot_allocations a WHERE a.robot_id=r.id) AS "allocations",
-        (SELECT COUNT(*)::int FROM public.classroom_lab_sessions s WHERE s.robot_id=r.id AND s.state IN ('active','terminating','quarantined')) AS "openLabSessions",
+        ${open} AS "openLabSessions",
         false AS "commissioned"
       FROM public.robots r ORDER BY r.name,r.serial_no`;
   }
@@ -44,7 +50,7 @@ export class RobotResourceService {
         FROM public.org_entitlements e JOIN public.organizations o ON o.id=e.organization_id WHERE e.robot_id=${robotId}::uuid AND e.resource_type='robot' ORDER BY e.valid_from DESC`,
       this.prisma.$queryRaw`SELECT a.id,a.classroom_id AS "classroomId",c.name AS "classroomName",c.organization_id AS "organizationId",o.name AS "organizationName",a.created_at AS "createdAt"
         FROM public.learning_classroom_robot_allocations a JOIN public.learning_classrooms c ON c.id=a.classroom_id JOIN public.organizations o ON o.id=c.organization_id WHERE a.robot_id=${robotId}::uuid ORDER BY a.created_at DESC`,
-      this.prisma.$queryRaw`SELECT s.id,s.classroom_id AS "classroomId",s.state,s.expires_at AS "expiresAt" FROM public.classroom_lab_sessions s WHERE s.robot_id=${robotId}::uuid AND s.state IN ('active','terminating','quarantined')`,
+      (await this.labReady()) ? this.prisma.$queryRaw`SELECT s.id,s.classroom_id AS "classroomId",s.state,s.expires_at AS "expiresAt" FROM public.classroom_lab_sessions s WHERE s.robot_id=${robotId}::uuid AND s.state IN ('active','terminating','quarantined')` : Promise.resolve([]),
     ]);
     return { ...robots[0], commissioned: false, connectivity: "not_reported", entitlements, allocations, openLabSessions: sessions };
   }
@@ -113,6 +119,7 @@ export class RobotResourceService {
   }
 
   private async terminateOpenSessions(filter: { robotId: string; organizationId?: string }, reason: string) {
+    if (!(await this.labReady())) return;
     const open = await this.prisma.$queryRaw<Array<{ id: string }>>`
       SELECT id FROM public.classroom_lab_sessions WHERE robot_id=${filter.robotId}::uuid AND state IN ('active','terminating','quarantined')
         AND (${filter.organizationId ?? null}::uuid IS NULL OR organization_id=${filter.organizationId ?? null}::uuid)`;

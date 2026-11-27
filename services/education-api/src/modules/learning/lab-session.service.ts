@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/database/prisma.service";
 import type { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { IotCommandService } from "./iot-command.service";
+import { LabSessionSchemaProbe } from "./lab-session-schema";
 import { LearningScopeService } from "./learning-scope.service";
 import { PhysicalExecutionService, TERMINAL_CONTROL_SESSION_STATES } from "./physical-execution.service";
 
@@ -53,7 +54,10 @@ export class LabSessionService {
     private readonly scope: LearningScopeService,
     private readonly physical: PhysicalExecutionService,
     @Optional() private readonly iot?: IotCommandService,
+    @Optional() private readonly schema?: LabSessionSchemaProbe,
   ) {}
+
+  private async requireSchema() { await this.schema?.require(); }
 
   // ---------------------------------------------------------------- authorization
 
@@ -96,6 +100,7 @@ export class LabSessionService {
   // ---------------------------------------------------------------- start / extend
 
   async start(user: AuthenticatedUser, classroomId: string, dto: { robotId: string; durationMinutes?: number }) {
+    await this.requireSchema();
     const classroom = await this.classroomForInstructor(user, classroomId);
     const minutes = dto.durationMinutes ?? this.config.defaultMinutes;
     if (!Number.isInteger(minutes) || minutes < 5 || minutes > this.config.maxTotalMinutes) {
@@ -138,6 +143,7 @@ export class LabSessionService {
   }
 
   async extend(user: AuthenticatedUser, sessionId: string, dto: { minutes: number }) {
+    await this.requireSchema();
     const target = await this.sessionRobot(sessionId);
     await this.classroomForInstructor(user, target.classroom_id);
     if (!Number.isInteger(dto.minutes) || dto.minutes < 5 || dto.minutes > this.config.maxExtensionMinutes) {
@@ -165,12 +171,14 @@ export class LabSessionService {
   // ---------------------------------------------------------------- end / force end / expiry
 
   async end(user: AuthenticatedUser, sessionId: string) {
+    await this.requireSchema();
     const target = await this.sessionRobot(sessionId);
     await this.classroomForInstructor(user, target.classroom_id);
     return this.terminate(sessionId, { userId: user.vistaUserId, role: "instructor", reason: "ended_by_instructor" });
   }
 
   async forceEnd(user: AuthenticatedUser, sessionId: string, dto: { reason: string; confirm: boolean }) {
+    await this.requireSchema();
     const target = await this.sessionRobot(sessionId).catch(() => { throw labSessionError("not_found", "LAB_SESSION_NOT_FOUND", "Lab Session was not found."); });
     await this.schoolAdminOrganization(user, target.organization_id);
     const reason = typeof dto.reason === "string" ? dto.reason.trim() : "";
@@ -220,6 +228,7 @@ export class LabSessionService {
 
   /** Expiry and recovery sweep: expired active sessions go to controlled termination; ending sessions are retried. Never transfers ownership unsafely. */
   async reconcile(): Promise<{ expired: number; retried: number }> {
+    if (this.schema && !(await this.schema.isReady())) return { expired: 0, retried: 0 };
     const due = await this.prisma.$queryRaw<Array<{ id: string; state: LabSessionState; expired: boolean }>>`
       SELECT id,state,(state='active' AND expires_at<=now()) AS expired FROM public.classroom_lab_sessions
       WHERE state IN ('terminating','quarantined') OR (state='active' AND expires_at<=now()) ORDER BY started_at LIMIT 50`;
@@ -235,6 +244,7 @@ export class LabSessionService {
 
   /** Sessions of a classroom for the Instructor / School Admin of that classroom. */
   async classroomSessions(user: AuthenticatedUser, classroomId: string) {
+    await this.requireSchema();
     await this.scope.assertTeacherClassroomPermission(user, classroomId, ["education.lab_session.manage"]).catch(async () => {
       const room = await this.prisma.$queryRaw<Array<{ organization_id: string }>>`SELECT organization_id FROM public.learning_classrooms WHERE id=${classroomId}::uuid`;
       if (!room[0]) throw labSessionError("not_found", "CLASSROOM_NOT_FOUND", "Classroom was not found.");
@@ -254,6 +264,7 @@ export class LabSessionService {
    * and operational/safety state are separate fields; a connected robot is not necessarily available.
    */
   async classroomRobots(user: AuthenticatedUser, classroomId: string) {
+    await this.requireSchema();
     const room = await this.prisma.$queryRaw<Array<{ organization_id: string }>>`SELECT organization_id FROM public.learning_classrooms WHERE id=${classroomId}::uuid`;
     if (!room[0]) throw labSessionError("not_found", "CLASSROOM_NOT_FOUND", "Classroom was not found.");
     await this.scope.assertClassroomAccess(user, classroomId);
