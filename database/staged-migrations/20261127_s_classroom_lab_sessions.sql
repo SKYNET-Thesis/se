@@ -54,16 +54,19 @@ CREATE INDEX IF NOT EXISTS ix_classroom_lab_sessions_open_expiry ON public.class
 -- Same exposure model as migration L: RLS on, one backend policy for the runtime role, nothing for PostgREST roles. No DELETE: sessions are history.
 ALTER TABLE public.classroom_lab_sessions ENABLE ROW LEVEL SECURITY;
 DO $$
+DECLARE t text;
 BEGIN
-  REVOKE ALL ON TABLE public.classroom_lab_sessions FROM PUBLIC;
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN REVOKE ALL ON TABLE public.classroom_lab_sessions FROM anon; END IF;
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN REVOKE ALL ON TABLE public.classroom_lab_sessions FROM authenticated; END IF;
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='vista_app_runtime') THEN
-    GRANT SELECT, INSERT, UPDATE ON TABLE public.classroom_lab_sessions TO vista_app_runtime;
-    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='classroom_lab_sessions' AND policyname='vista_app_runtime_backend_access') THEN
-      CREATE POLICY vista_app_runtime_backend_access ON public.classroom_lab_sessions FOR ALL TO vista_app_runtime USING (true) WITH CHECK (true);
+  FOREACH t IN ARRAY ARRAY['classroom_lab_sessions'] LOOP
+    EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC', t);
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon') THEN EXECUTE format('REVOKE ALL ON TABLE public.%I FROM anon', t); END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN EXECUTE format('REVOKE ALL ON TABLE public.%I FROM authenticated', t); END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='vista_app_runtime') THEN
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE ON TABLE public.%I TO vista_app_runtime', t);
+      IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename=t AND policyname='vista_app_runtime_backend_access') THEN
+        EXECUTE format('CREATE POLICY vista_app_runtime_backend_access ON public.%I FOR ALL TO vista_app_runtime USING (true) WITH CHECK (true)', t);
+      END IF;
     END IF;
-  END IF;
+  END LOOP;
 END $$;
 
 -- Many-to-many allocation. Allocation grants ELIGIBILITY only; exclusive control comes from an open classroom_lab_sessions row.
