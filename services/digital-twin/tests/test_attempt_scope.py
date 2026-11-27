@@ -83,9 +83,6 @@ def test_each_attempt_sees_only_its_own_frames_and_everything_else_is_refused():
             denied = {}
             cases = {
                 "robot-wide token (no attempt claim)": auth.issue_viewer(subject="student", organization_id=ORG, robot_ids=[ROBOT]),
-                "other attempt": auth.issue_viewer(subject="student", organization_id=ORG, robot_ids=[ROBOT], attempt_id="attempt-C"),
-                "other school": auth.issue_viewer(subject="student", organization_id=OTHER_ORG, robot_ids=[ROBOT], attempt_id="attempt-A"),
-                "other robot": auth.issue_viewer(subject="student", organization_id=ORG, robot_ids=[OTHER_ROBOT], attempt_id="attempt-A"),
                 "expired": auth.issue_viewer(subject="student", organization_id=ORG, robot_ids=[ROBOT], attempt_id="attempt-A", expires_at=datetime.now(timezone.utc) - timedelta(seconds=5)),
                 "no token": "",
             }
@@ -95,6 +92,23 @@ def test_each_attempt_sees_only_its_own_frames_and_everything_else_is_refused():
                 message = await sock.next()
                 denied[label] = (message["type"], message.get("code"))
                 await sock.close()
+            # valid scopes that match no buffered stream (other attempt / school / robot) are held open but see nothing: no one's frames, no offline fixture
+            leaked = {}
+            for label, tok in {
+                "other attempt": auth.issue_viewer(subject="student", organization_id=ORG, robot_ids=[ROBOT], attempt_id="attempt-C"),
+                "other school": auth.issue_viewer(subject="student", organization_id=OTHER_ORG, robot_ids=[ROBOT], attempt_id="attempt-A"),
+                "other robot": auth.issue_viewer(subject="student", organization_id=ORG, robot_ids=[OTHER_ROBOT], attempt_id="attempt-A"),
+            }.items():
+                other = Socket(app, tok)
+                await other.open()
+                assert (await other.next())["type"] == "websocket.accept"
+                await asyncio.sleep(0.2)
+                got = []
+                while not other.outgoing.empty():
+                    got.append(await other.next())
+                await other.close()
+                leaked[label] = [m for m in got if m.get("text") and "measured" in m["text"]]
+            assert not any(leaked.values()), leaked
             return seen, denied
 
     seen, denied = asyncio.run(run())
@@ -152,3 +166,36 @@ def test_accept_selects_the_offered_viewer_subprotocol_so_browsers_do_not_abort_
 
     accept = asyncio.run(run())
     assert accept["type"] == "websocket.accept" and accept["subprotocol"] == f"vista.twin.{token}"
+
+
+def test_attempt_viewer_receives_its_own_run_frames_and_never_the_offline_fixture():
+    """Regression for D-09: the viewer must show the run's relayed telemetry (identity + marker value), not just any non-empty stream."""
+    auth = TwinAuthorizer(SECRET)
+    app = create_app(rate_hz=30, authorizer=auth)
+    token = auth.issue_viewer(subject="student", organization_id=ORG, robot_ids=[ROBOT], attempt_id="attempt-A")
+
+    async def run():
+        async with app.router.lifespan_context(app):
+            sock = Socket(app, token)
+            await sock.open()
+            assert (await sock.next())["type"] == "websocket.accept"
+            before = []
+            await asyncio.sleep(0.2)                           # no run frames yet: nothing may be shown (no mock fallback)
+            while not sock.outgoing.empty():
+                before.append(await sock.next())
+            status = await post(app, "/internal/simulation-telemetry", {"organization_id": ORG, "robot_id": ROBOT, "experiment_id": "exp-A", "attempt_id": "attempt-A",
+                                                                         "telemetry": frame(ROBOT, 7, 0.42)}, publisher(auth))
+            received = None
+            for _ in range(20):
+                message = await sock.next()
+                if message["type"] == "websocket.send":
+                    received = json.loads(message["text"])
+                    break
+            await sock.close()
+            return before, status, received
+
+    before, status, received = asyncio.run(run())
+    assert status == 202
+    assert all(json.loads(m["text"]).get("controller_id") != "offline-fixture" for m in before if m.get("text") and "measured" in m["text"]), before
+    assert received["robot_id"] == ROBOT and received["controller_id"] == "r1-fake" and received["sequence"] == 7
+    assert received["measured"][0]["position"] == 0.42

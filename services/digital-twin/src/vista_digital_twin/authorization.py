@@ -91,6 +91,16 @@ class TwinAuthorizer:
             raise AuthorizationError("viewer scope denied")
         return scope
 
+    def presented_attempt_viewer(self, token: str) -> TwinScope | None:
+        """A valid, unexpired attempt-bound viewer scope, or None. Lets the Twin hold the viewer for its own run before the first frame."""
+        try:
+            scope = self._scope(token)
+        except AuthorizationError:
+            return None
+        if scope.kind != "viewer" or scope.audience != "vista-digital-twin-viewer" or not scope.attempt_id:
+            return None
+        return scope
+
     def verify_publisher(self, token: str, *, owner_id: str, robot_id: str, organization_id: str) -> TwinScope:
         scope = self._scope(token)
         if scope.kind != "publisher" or scope.audience != "vista-digital-twin-publisher" or scope.subject != owner_id or scope.organization_id != organization_id or robot_id not in scope.robot_ids:

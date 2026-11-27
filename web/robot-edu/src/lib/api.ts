@@ -841,6 +841,8 @@ export interface DigitalTwinRobot { id: string; name: string; modelName: string;
 export const digitalTwinApi = {
   availability: (token: string) => apiGet<DigitalTwinRobot[]>('/robots/digital-twin/availability', token),
   viewerScope: (robotId: string, token: string) => apiRequest<DigitalTwinViewerScope>(`/robots/${robotId}/digital-twin/viewer-scope`, token, "POST"),
+  /** Attempt-bound, read-only scope (the Twin only streams that attempt's own run to this viewer). */
+  attemptViewerScope: (attemptId: string, robotId: string, token: string) => apiRequest<DigitalTwinViewerScope>(`/me/attempts/${attemptId}/digital-twin/viewer-scope`, token, "POST", { robotId }),
 };
 /** Future Nest-only robot execution boundary. It deliberately does not expose
  * a CHECKIK URL, runtime token, serial port, or canonical program payload. */

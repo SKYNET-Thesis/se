@@ -215,6 +215,9 @@ def create_app(
                 return
         if physical is None:
             viewer_scope = simulation_viewer_scope(websocket, now())
+            if viewer_scope is None:
+                # An attempt-bound viewer waits for ITS OWN run: it never falls back to the independent offline fixture.
+                viewer_scope = auth.presented_attempt_viewer(viewer_token(websocket))
             if simulation_latest and viewer_scope is None:
                 await websocket.close(code=4403, reason="viewer scope required")
                 return
@@ -260,7 +263,9 @@ def create_app(
                             simulation_state = slot.latest(current_time)
                             if simulation_state is not None:
                                 break
-                state = physical_state or simulation_state or latest.latest(current_time)
+                attempt_bound = viewer_scope is not None and viewer_scope.attempt_id is not None
+                # Only a viewer without an attempt-bound scope may see the explicitly labelled offline fixture (preview/demo).
+                state = physical_state or simulation_state or (None if attempt_bound else latest.latest(current_time))
                 if state is not None and state.sequence != sent_sequence:
                     await websocket.send_json(state.model_dump(mode="json", exclude_none=True))
                     sent_sequence = state.sequence
