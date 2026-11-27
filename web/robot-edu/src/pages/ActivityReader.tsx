@@ -26,6 +26,8 @@ import { studentLearningKeys } from '../queries/studentLearningQueries';
 import { Badge } from '../components/ui/Badge';
 import { ActivityContentPreview } from '../components/authoring/ActivityEditorPanel';
 import { createRobotExecutionClient, type PhysicalExecution } from '../lib/robotExecution';
+import { DigitalTwinPanel } from '../components/digital-twin/DigitalTwinPanel';
+import { useAttemptViewerScope } from '../components/digital-twin/useAttemptViewerScope';
 import { useActivityProgress } from '../components/learning/useActivityProgress';
 
 function RobotReadinessPanel({
@@ -318,6 +320,7 @@ function PhysicalExperimentPanel({
   };
 
   const isRunning = execution && ['pending', 'queued', 'running'].includes(execution.state);
+  const twinScope = useAttemptViewerScope(session?.access_token, attemptId, execution?.robot?.id, Boolean(execution?.id && execution.robot?.id && !execution.runtime?.physical));
 
   return (
     <section className="space-y-6">
@@ -427,6 +430,22 @@ function PhysicalExperimentPanel({
             </dl>
           </div>
 
+          {execution.robot?.id && !execution.runtime?.physical && (
+            <div className="pt-2">
+              {twinScope.scope ? (
+                <DigitalTwinPanel
+                  viewerScopeToken={twinScope.scope.token}
+                  scopeExpiresAt={twinScope.scope.expiresAt}
+                  expectedRobotId={execution.robot.id}
+                  mode="simulation" />
+              ) : (
+                <p role="status" className="rounded-lg bg-sunken p-3 text-xs text-ink-muted">
+                  {twinScope.status === 'unavailable' ? 'Digital Twin telemetry is not available for this run.' : 'Requesting this run\u2019s Digital Twin telemetry…'}
+                </p>
+              )}
+            </div>
+          )}
+
           {isRunning && (
             <div className="pt-2 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs text-ink-muted">
@@ -447,12 +466,12 @@ function PhysicalExperimentPanel({
             <div className="rounded-xl border border-ok/30 bg-ok-soft/50 p-5 space-y-3">
               <div className="flex items-center gap-2">
                 <CheckCircle2Icon className="h-5 w-5 text-ok" />
-                <h4 className="text-sm font-bold text-ink">{execution.runtime?.physical ? 'Physical Run Succeeded & Evidence Persisted!' : 'Simulation Run Succeeded & Evidence Persisted!'}</h4>
+                <h4 className="text-sm font-bold text-ink">{`${execution.runtime?.physical ? 'Physical' : 'Simulation'} Run Succeeded${execution.evidence === 'available' ? ' & Evidence Persisted' : ''}`}</h4>
               </div>
               <p className="text-xs text-ink/90 leading-relaxed">
                 {execution.runtime?.physical
-                  ? 'The SO-101 robot completed the physical trajectory. Durable evidence has been recorded in Education API.'
-                  : `The ${execution.runtime?.mode === 'fake_follower' ? 'local fake follower' : 'configured runtime'} completed this simulation. It does not represent physical robot execution. Durable evidence has been recorded in Education API.`}
+                  ? 'The SO-101 robot completed the physical trajectory. ' + (execution.evidence === 'available' ? 'Durable evidence has been recorded in Education API.' : 'Evidence is not available yet.')
+                  : `The ${execution.runtime?.mode === 'fake_follower' ? 'local fake follower' : 'configured runtime'} completed this simulation. It does not represent physical robot execution. ${execution.evidence === 'available' ? 'Durable evidence has been recorded in Education API.' : 'Evidence is not available yet.'}`}
               </p>
               <div className="pt-1">
                 <Link

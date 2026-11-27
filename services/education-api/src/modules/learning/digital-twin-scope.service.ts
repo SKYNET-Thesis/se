@@ -80,7 +80,13 @@ export class DigitalTwinScopeService {
       JOIN public.memberships m ON m.id=cm.membership_id AND m.user_id=at.learner_user_id
         AND m.organization_id=c.organization_id AND m.status='active'
       JOIN public.learning_classroom_robot_allocations allocation ON allocation.classroom_id=c.id AND allocation.robot_id=${robotId}::uuid
-      WHERE at.id=${attemptId}::uuid AND at.learner_user_id=${user.vistaUserId}::uuid AND at.status='in_progress'
+      WHERE at.id=${attemptId}::uuid AND at.learner_user_id=${user.vistaUserId}::uuid
+        AND (at.status='in_progress' OR EXISTS (
+          -- WF-03 runs only after the submission, when the attempt is no longer in progress: the owner of a recent real-robot run
+          -- of THIS attempt may still watch it (still bound to this one attempt; never to another attempt).
+          SELECT 1 FROM public.learning_experiments run
+          WHERE run.learner_user_id=at.learner_user_id AND run.execution_mode='real_robot'
+            AND run.input_snapshot->>'attemptId'=at.id::text AND run.created_at > now() - interval '30 minutes'))
         AND EXISTS (
           SELECT 1 FROM public.role_permissions rp JOIN public.permissions permission ON permission.id=rp.permission_id
           WHERE rp.role_id=m.role_id AND permission.code='learning.experiment.execute')

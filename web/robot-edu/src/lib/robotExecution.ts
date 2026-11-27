@@ -34,6 +34,7 @@ export type PhysicalExecution = {
   robot?: { id: string; name: string; model: string; serial: string };
   programVersion?: { id: string };
   runtime?: { mode?: string | null; provenance?: string; physical?: boolean };
+  evidence?: 'available' | 'unavailable';
   startedAt?: string | null;
   endedAt?: string | null;
 };
@@ -198,6 +199,7 @@ function parseExecution(value: Record<string, unknown>, total = 0): PhysicalExec
     label: typeof value.label === 'string' ? value.label : status.replace(/_/g, ' '),
     message: typeof value.message === 'string' ? value.message : typeof value.error === 'string' ? value.error : undefined,
     robot: value.robot as PhysicalExecution['robot'],
+    evidence: value.evidence === 'available' ? 'available' : value.evidence === 'unavailable' ? 'unavailable' : undefined,
     programVersion: value.programVersion as PhysicalExecution['programVersion'],
     runtime: value.runtime as PhysicalExecution['runtime'],
     startedAt: typeof value.startedAt === 'string' ? value.startedAt : null,
