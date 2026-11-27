@@ -304,7 +304,7 @@ describe('Login Component', () => {
   it('displays error and signs out client when credentials are invalid', async () => {
     authMocks.signInWithPassword.mockResolvedValueOnce({
       data: { session: null },
-      error: new Error('Invalid login credentials'),
+      error: new Error('The details you entered are incorrect'),
     });
 
     await change('#login-email', 'wrong@school.edu');
@@ -313,7 +313,7 @@ describe('Login Component', () => {
 
     expect(authMocks.signOut).toHaveBeenCalled();
     const alert = container.querySelector('[role="alert"]');
-    expect(alert?.textContent).toContain('Invalid login credentials');
+    expect(alert?.textContent).toContain('The details you entered are incorrect');
   });
 
   it('rejects student sign-in when account lacks active student membership', async () => {

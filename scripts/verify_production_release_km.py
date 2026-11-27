@@ -77,13 +77,16 @@ def runtime_sequence_allowlist(root: Path) -> set[str]:
 # verification still rejects their tables. Only the DISPOSABLE staged path (staged=True: migration M applied through
 # apply_staged_migration_to_test_database.py, optionally followed by these) accepts them, and only with the EXACT grants their own SQL declares
 # (parsed here, never hand-copied), RLS enabled and nothing for PUBLIC/anon/authenticated.
-STAGED_EXTENSION_FILES = ["database/staged-migrations/20261120_r_device_provisioning.sql", "database/staged-migrations/20261127_s_classroom_lab_sessions.sql"]
+STAGED_EXTENSION_FILES = ["database/staged-migrations/20261120_r_device_provisioning.sql"]
+# Additive tables created by LATER released scopes (not staged): once such a scope is applied its table legitimately holds runtime grants, so the K-L/K-M
+# verifiers accept it (only when it exists, and only with the EXACT grants its own SQL declares). Scope S: classroom_lab_sessions.
+RELEASED_EXTENSION_FILES = ["database/migrations/20261127_s_classroom_lab_sessions.sql"]
 
 
-def staged_extension_privileges(root: Path) -> dict[str, set[str]]:
+def staged_extension_privileges(root: Path, files: list[str] | None = None) -> dict[str, set[str]]:
     """{table: exact runtime privileges} declared by the staged additive migrations (single source of truth: their SQL)."""
     expected: dict[str, set[str]] = {}
-    for name in STAGED_EXTENSION_FILES:
+    for name in (STAGED_EXTENSION_FILES if files is None else files):
         path = root / name
         if not path.exists():
             continue
@@ -98,9 +101,10 @@ def staged_extension_privileges(root: Path) -> dict[str, set[str]]:
     return expected
 
 
-def present_staged_extension(url: str, root: Path) -> dict[str, set[str]]:
-    """The staged-extension tables that exist in this database (an extension that was not applied is simply not expected)."""
-    declared = staged_extension_privileges(root)
+def present_staged_extension(url: str, root: Path, staged: bool = True) -> dict[str, set[str]]:
+    """The extension tables that exist in this database (an extension that was not applied is simply not expected). Released-scope extensions always
+    count; staged ones only on the disposable staged path."""
+    declared = {**(staged_extension_privileges(root) if staged else {}), **staged_extension_privileges(root, RELEASED_EXTENSION_FILES)}
     if not declared:
         return {}
     names = ",".join(f"'{name}'" for name in sorted(declared))
@@ -253,7 +257,7 @@ def verify(url: str, pre: dict, root: Path | None = None, scope_name: str = "M",
           WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f') AND has_table_privilege('{RUNTIME_ROLE}',c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')),
       'audit_select',COALESCE(has_table_privilege('{RUNTIME_ROLE}','public.audit_logs','SELECT'),false),
       'audit_insert',COALESCE(has_table_privilege('{RUNTIME_ROLE}','public.audit_logs','INSERT'),false))::text""")
-    extension = present_staged_extension(url, root) if staged else {}
+    extension = present_staged_extension(url, root, staged)
     allow = runtime_allowlist(root) | set(extension)
     outside = sorted(set(least["public_tables_outside_allowlist"]) - allow)
     check("runtime role is not a member of any role and owns nothing", least["member_of"] == 0 and least["owns"] == 0)

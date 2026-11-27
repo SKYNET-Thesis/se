@@ -64,7 +64,11 @@ class StagedMigrationMTests(unittest.TestCase):
     def test_the_production_path_still_rejects_unknown_tables(self):
         import inspect
         source = inspect.getsource(km.verify)
-        self.assertIn("present_staged_extension(url, root) if staged else {}", source)  # only the disposable staged path may extend the frozen allowlist
+        # Only the disposable staged path may extend the frozen allowlist with STAGED tables; the production path accepts nothing but the reviewed,
+        # released additive scopes (exactly scope S's table, with the exact grants its own SQL declares).
+        self.assertIn("present_staged_extension(url, root, staged)", source)
+        self.assertEqual(km.RELEASED_EXTENSION_FILES, ["database/migrations/20261127_s_classroom_lab_sessions.sql"])
+        self.assertEqual(km.staged_extension_privileges(ROOT, km.RELEASED_EXTENSION_FILES), {"classroom_lab_sessions": {"SELECT", "INSERT", "UPDATE"}})
 
     def test_staged_application_never_marks_m_as_released(self):
         ledger = base.query(URL, "SELECT COALESCE(json_agg(version ORDER BY version),'[]'::json)::text FROM public.vista_schema_migrations")
