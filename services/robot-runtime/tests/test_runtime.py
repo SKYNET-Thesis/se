@@ -200,7 +200,8 @@ class IotBridgeTests(unittest.TestCase):
         self.assertEqual(topic, "$aws/things/vista-demo-so101-001/shadow/update")
         reported = payload["state"]["reported"]
         self.assertEqual(reported["runtimeKind"], "MOCK_RUNTIME")                                                  # a fake follower is never labelled physical
-        self.assertEqual((reported["connection"], reported["hardwareEnabled"], reported["stopped"], reported["activeRunId"]), ("disconnected", True, False, "run-1"))
+        self.assertEqual((reported["connection"], reported["hardwareEnabled"], reported["stopped"], reported["activeRunId"]), ("disconnected", False, False, "run-1"))   # no physical hardware: never claimed, whatever the runtime switch says
+        self.assertEqual((reported["adapterMode"], reported["armed"], reported["calibrationReady"], reported["fault"]), ("fake_follower", False, False, None))
         self.assertNotIn("must-not-leak", json.dumps(payload))
 
     def test_unknown_runtime_is_never_reported_as_physical_and_the_shadow_can_be_turned_off(self):
@@ -332,3 +333,79 @@ class IotBridgeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+ROBOT = "f1c066c4-b5f2-45c4-b933-f034f3824dd9"
+CMD = "11111111-1111-4111-8111-111111111111"
+JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
+
+
+def frame(sequence, robot=ROBOT, source="SIMULATION"):
+    return {"schema_version": 1, "robot_id": robot, "source_mode": source, "controller_id": "checkik", "sequence": sequence,
+            "measured_at": "2026-11-27T00:00:00Z", "connection": "connected",
+            "measured": [{"name": n, "position": 0.1, "unit": "percent" if n == "gripper" else "rad"} for n in JOINTS]}
+
+
+class CloudSimulationDeviceTests(unittest.TestCase):
+    def bridge(self, **extra):
+        class FakeRuntime:
+            config = {"adapterMode": "fake_follower"}
+            def submit(self, _value): return {"state": "queued"}
+            def status(self): return {"hardwareEnabled": True, "stopped": False, "activeRunId": None}
+        t = [1000]
+        def clock():
+            t[0] += 1; return t[0]
+        return IotBridge({"thingName": "vista-demo-" + ROBOT, "robotId": ROBOT, "topicPrefix": "vista/demo/robots/" + ROBOT, **extra}, FakeRuntime(), clock=clock)
+
+    def test_correlated_telemetry_is_relayed_once_per_sequence_on_the_status_topic(self):
+        bridge = self.bridge()
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(5)})
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(5)})        # same sequence: not repeated
+        bridge.report_progress(CMD, 1, {"state": "succeeded", "telemetry": frame(6)})      # terminal frame bypasses the rate limit only
+        events = [v for topic, v in bridge.drain_publications() if topic.endswith("/status") and v.get("status") == "telemetry"]
+        self.assertEqual([e["sequence"] for e in events], [5, 6])
+        self.assertEqual({(e["commandId"], e["robotId"], e["kind"]) for e in events}, {(CMD, ROBOT, "status")})
+        self.assertEqual(events[0]["eventId"], f"{CMD}:telemetry:5")
+        self.assertIn("telemetry", events[0]); self.assertNotIn("jointState", events[0])
+
+    def test_telemetry_is_rate_limited_and_never_relays_foreign_or_non_simulation_frames(self):
+        bridge = self.bridge()
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(1)})
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(2)})         # inside 0.5 s of the previous frame
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(3, robot="other")})
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(4, source="PHYSICAL_ROBOT")})
+        sequences = [v["sequence"] for t, v in bridge.drain_publications() if v.get("status") == "telemetry"]
+        self.assertEqual(sequences, [1])
+
+    def test_idle_heartbeat_reports_a_fresh_honest_shadow_within_ten_seconds(self):
+        bridge = self.bridge(heartbeatSeconds=99)                                            # clamped to the 10 s ceiling
+        self.assertEqual(bridge._heartbeat_seconds, 10.0)
+        bridge.connected = True
+        bridge._heartbeat()
+        bridge._closing.set()
+        (topic, payload), = bridge.drain_shadow_publications()
+        reported = payload["state"]["reported"]
+        self.assertEqual((reported["runtimeKind"], reported["hardwareEnabled"], reported["connection"]), ("MOCK_RUNTIME", False, "connected"))
+        self.assertGreater(reported["reportedAtMs"], 1000)
+        if bridge._heartbeat_timer: bridge._heartbeat_timer.cancel()
+
+    def test_default_paho_client_uses_the_v2_callback_api_and_the_thing_name_as_client_id(self):
+        calls = []
+        class Client:
+            def __init__(self, **kw): calls.append(kw)
+            def tls_set_context(self, *_): pass
+            def tls_insecure_set(self, *_): pass
+            def will_set(self, *_a, **_k): pass
+            def connect_async(self, *_a, **_k): pass
+            def loop_start(self): pass
+        import types, iot
+        mqtt = types.SimpleNamespace(Client=Client, MQTTv311=4, CallbackAPIVersion=types.SimpleNamespace(VERSION2="v2"))
+        paho = types.ModuleType("paho"); paho_mqtt = types.ModuleType("paho.mqtt"); paho_client = types.ModuleType("paho.mqtt.client")
+        paho_client.Client, paho_client.MQTTv311, paho_client.CallbackAPIVersion = Client, 4, mqtt.CallbackAPIVersion
+        bridge = self.bridge()
+        with patch.dict(sys.modules, {"paho": paho, "paho.mqtt": paho_mqtt, "paho.mqtt.client": paho_client}), \
+             patch.object(iot.ssl, "create_default_context") as ctx:
+            ctx.return_value.load_cert_chain = lambda *_: None
+            bridge.connect(iot.TlsSettings("e", "vista-demo-" + ROBOT, "ca", "cert", "key"))
+        self.assertEqual(calls[0]["client_id"], "vista-demo-" + ROBOT)
+        self.assertEqual((calls[0]["callback_api_version"], calls[0]["clean_session"]), ("v2", True))
