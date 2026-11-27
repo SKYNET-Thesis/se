@@ -145,7 +145,7 @@ export function CourseLearningShell({
       <aside
         id="course-material-nav"
         aria-label="Course Material"
-        className={`${mobileOpen ? 'block' : 'hidden'} fixed inset-y-0 left-0 z-40 w-[min(90vw,22rem)] shrink-0 overflow-y-auto bg-surface transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none lg:static lg:z-auto lg:block lg:w-auto lg:overflow-visible ${
+        className={`${mobileOpen ? 'block' : 'hidden'} fixed inset-y-0 left-0 z-40 w-[min(90vw,22rem)] shrink-0 overflow-y-auto bg-surface transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none lg:static lg:z-auto lg:block lg:w-auto lg:overflow-visible lg:bg-transparent ${
           focusedRoute
             ? focusedNavigatorCollapsed
               ? 'lg:w-0 lg:overflow-hidden lg:opacity-0'

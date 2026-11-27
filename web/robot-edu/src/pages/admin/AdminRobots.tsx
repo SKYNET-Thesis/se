@@ -44,8 +44,8 @@ export function AdminRobots() {
               {list.data.map((robot: ApiRobotRegistryItem) => (
                 <tr key={robot.id} className="border-t border-line">
                   <td className="p-3 font-medium text-ink"><BotIcon className="mr-2 inline h-4 w-4 text-ink-muted" aria-hidden="true" />{robot.name}</td>
-                  <td className="p-3 text-ink-muted">{robot.serialNo}</td>
-                  <td className="p-3 text-ink-muted">{robot.modelName}</td>
+                  <td className="whitespace-nowrap p-3 font-mono text-[13px] text-ink-muted">{robot.serialNo}</td>
+                  <td className="whitespace-nowrap p-3 text-ink-muted">{robot.modelName}</td>
                   <td className="p-3">{STATUS_LABEL[robot.status] ?? robot.status}{!robot.commissioned ? <span className="ml-2 text-xs text-ink-muted">Not commissioned</span> : null}</td>
                   <td className="p-3">{robot.activeEntitlements}</td>
                   <td className="p-3">{robot.allocations}</td>
