@@ -15,6 +15,8 @@ import { StudentProvisioningService } from "./student-provisioning.service";
 import { EnrollmentDeliveryService } from "../learning/enrollment-delivery.service";
 import { DigitalTwinRevocationService } from "../learning/digital-twin-revocation.service";
 import { LabSessionSchemaProbe } from "../learning/lab-session-schema";
+import { ParseImportFileDto } from "./dto/parse-import-file.dto";
+import { ImportFileError, readImportTable } from "../learning/question-import";
 import { UpdateClassroomDto } from "./dto/update-classroom.dto";
 import { UpdateCourseOfferingDto } from "./dto/update-course-offering.dto";
 import { runCourseSyncTransaction } from "../learning/course-sync-transaction";
@@ -357,6 +359,28 @@ export class EducationAdminService {
       await tx.learning_classroom_members.update({ where: { id: member.id }, data: { status: "removed", left_at: new Date() } });
       return { removed: true };
     });
+  }
+
+  /**
+   * Turns an uploaded .xlsx/.csv into the CSV text the school import UI already validates. Nothing is created: this only reads. XLSX is read with the
+   * bounded reader (no formula evaluation, no macros, no external references; a workbook that contains formulas is rejected) and every value is kept as
+   * text, so Vietnamese names and leading zeros survive. Authorization is the same as the import itself (organization-scoped `education.members.provision`).
+   */
+  async parseImportFile(user: AuthenticatedUser, organizationId: string, dto: ParseImportFileDto) {
+    await this.assertOrganizationPermission(user, organizationId, "education.members.provision");
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(dto.contentBase64) || dto.contentBase64.length % 4 !== 0) throw new BadRequestException({ code: "IMPORT_FILE_INVALID", message: "The file content is not valid." });
+    let table: string[][];
+    try { table = readImportTable(dto.fileName, Buffer.from(dto.contentBase64, "base64"), { rejectFormulas: true }); }
+    catch (error) {
+      if (error instanceof ImportFileError) throw new BadRequestException({ code: "IMPORT_FILE_INVALID", message: error.message });
+      throw error;
+    }
+    if (table.length < 2) throw new BadRequestException({ code: "IMPORT_FILE_EMPTY", message: "The file has a header but no records." });
+    if (table.length > 501) throw new BadRequestException({ code: "IMPORT_FILE_TOO_LARGE", message: "At most 500 records can be imported at once." });
+    // Cells that begin with a formula trigger are refused outright (spreadsheet injection), whatever the file type.
+    for (const row of table) for (const cell of row) if (/^[=@\t\r]/.test(cell) || /^[+-][A-Za-z(]/.test(cell)) throw new BadRequestException({ code: "IMPORT_FILE_INVALID", message: "A cell starts with a formula character (= + - @). Remove it and upload again." });
+    const quote = (cell: string) => (/[",\n\r]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell);
+    return { rows: table.length - 1, csv: table.map((row) => row.map(quote).join(",")).join("\n") + "\n" };
   }
 
   async importUsers(user: AuthenticatedUser, organizationId: string, dto: ImportSchoolUsersDto) {

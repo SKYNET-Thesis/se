@@ -8,6 +8,7 @@ import { CurrentUser } from "../identity/auth/current-user.decorator";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { SupabaseAuthGuard } from "../identity/auth/supabase-auth.guard";
 import { CreateClassroomDto } from "./dto/create-classroom.dto";
+import { ParseImportFileDto } from "./dto/parse-import-file.dto";
 import { AllocateClassroomRobotDto } from "./dto/allocate-classroom-robot.dto";
 import { UpsertClassroomMemberDto } from "./dto/upsert-classroom-member.dto";
 import { AssignClassroomOfferingDto } from "./dto/assign-classroom-offering.dto";
@@ -72,6 +73,7 @@ export class EducationAdminController {
   @Post("organizations/:organizationId/classrooms/:classroomId/members") upsertMember(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("classroomId", ParseUUIDPipe) classroomId: string, @Body() dto: UpsertClassroomMemberDto) { return this.educationAdmin.upsertClassroomMember(user, organizationId, classroomId, dto); }
   @Post("organizations/:organizationId/classrooms/:classroomId/student-imports/preview") previewClassroomStudents(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("classroomId", ParseUUIDPipe) classroomId: string, @Body() dto: ImportClassroomStudentsDto) { return this.classroomStudentImports.preview(user, organizationId, classroomId, dto); }
   @Header("Cache-Control", "no-store, private") @Header("Pragma", "no-cache") @Post("organizations/:organizationId/classrooms/:classroomId/student-imports") confirmClassroomStudents(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("classroomId", ParseUUIDPipe) classroomId: string, @Body() dto: ImportClassroomStudentsDto) { return this.classroomStudentImports.confirm(user, organizationId, classroomId, dto); }
+  @Header("Cache-Control", "no-store, private") @Post("organizations/:organizationId/user-imports/parse-file") parseImportFile(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Body() dto: ParseImportFileDto) { return this.educationAdmin.parseImportFile(user, organizationId, dto); }
   @Get("classrooms/:classroomId/eligible-robots") eligibleRobots(@CurrentUser() user: AuthenticatedUser, @Param("classroomId", ParseUUIDPipe) classroomId: string) { return this.educationAdmin.eligibleRobots(user, classroomId); }
   @Delete("classrooms/:classroomId/robot-allocations/:robotId") removeRobotAllocation(@CurrentUser() user: AuthenticatedUser, @Param("classroomId", ParseUUIDPipe) classroomId: string, @Param("robotId", ParseUUIDPipe) robotId: string) { return this.educationAdmin.removeRobotAllocation(user, classroomId, robotId); }
   @Post("classrooms/:classroomId/robot-allocations") addRobotAllocation(@CurrentUser() user: AuthenticatedUser, @Param("classroomId", ParseUUIDPipe) classroomId: string, @Body() dto: AllocateClassroomRobotDto) { return this.educationAdmin.allocateRobot(user, classroomId, dto); }

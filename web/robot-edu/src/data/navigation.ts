@@ -90,7 +90,8 @@ export const navigationByRole: Record<Role, NavSection[]> = {
     title: 'Administration',
     items: [
     { to: '/admin/organizations', label: 'Organizations', icon: BuildingIcon },
-    { to: '/admin/robots', label: 'Robot Resources', icon: BotIcon }]
+    { to: '/admin/robots', label: 'Robot Resources', icon: BotIcon },
+    { to: '/admin/students', label: 'Student accounts', icon: UsersIcon }]
 
   },
   {

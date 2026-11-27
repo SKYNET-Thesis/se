@@ -602,6 +602,11 @@ export const educationAdminApi = {
   upsertMember: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`,token,'POST',body),
   revokeMember: (organizationId:string,classroomId:string,studentId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members/${studentId}`,token,'DELETE'),
   removeStaff: (organizationId:string,classroomId:string,staffUserId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/staff/${staffUserId}`,token,'DELETE'),
+  /** Reads an .xlsx/.csv on the server (bounded reader, formulas rejected) and returns the CSV text the import review validates. Creates nothing. */
+  parseImportFile: async (organizationId:string,token:string,file:File) => {
+    const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ''; for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return apiRequest<{rows:number;csv:string}>(`/education-admin/organizations/${organizationId}/user-imports/parse-file`,token,'POST',{fileName:file.name,contentBase64:btoa(binary)});
+  },
   eligibleRobots: (classroomId:string,token:string) => apiGet<ApiRobotResource[]>(`/education-admin/classrooms/${classroomId}/eligible-robots`,token),
 
   allocateRobot: (classroomId:string,token:string,robotId:string) => apiRequest<ApiRecord>(`/education-admin/classrooms/${classroomId}/robot-allocations`,token,'POST',{robotId}),

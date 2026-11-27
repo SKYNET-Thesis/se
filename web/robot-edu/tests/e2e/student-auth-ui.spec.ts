@@ -41,7 +41,7 @@ test('School Admin imports students in the UI and receives one-time temporary cr
   await page.getByRole('tab', { name: 'Students' }).click();
   const csv = ['first_name,last_name,student_code,grade_level,email,guardian_email', `Ui,One,TP-${codes[0]},7,,`, `Ui,Two,TP-${codes[1]},7,,`].join('\n') + '\n';
   codes[0] = `TP-${codes[0]}`; codes[1] = `TP-${codes[1]}`;
-  await page.locator('input[aria-label="Upload CSV"]').setInputFiles({ name: 'students.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await page.locator('input[aria-label="Upload CSV or XLSX"]').setInputFiles({ name: 'students.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   const review = page.getByRole('dialog', { name: /Review student import/ });
   await expect(review).toBeVisible();
   await review.getByRole('button', { name: 'Confirm import' }).click();
