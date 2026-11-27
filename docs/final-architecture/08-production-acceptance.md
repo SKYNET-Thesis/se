@@ -27,3 +27,6 @@ Click → start API response 3.28 s (Shadow read, DB, IoT publish); `queued` rec
 
 ## Deferred (explicit boundaries)
 Desktop Edge runtime, physical SO-101 execution, physical stop/Emergency Stop acceptance, VLA — **not accepted, not claimed**.
+
+## Update 2026-11-27 (Production `43dcb60`)
+PR #253/#255/#256 deployed. Retest: Twin accepts run telemetry (202) and the authorized viewer received 205 frames; simulation wording correct; run `succeeded` (prepared, queued, executing, completed). **Open:** evidence artifact missing on this revision (fix PR #257, CI green, not deployed); ACK event dropped as stale (D-04, low). WF03 is therefore accepted for lifecycle/Twin, **not** for evidence, until #257 is released and the flow retested. See `../final-acceptance/FINAL_DEFECT_REGISTER.md`.
