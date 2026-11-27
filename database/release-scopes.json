@@ -220,49 +220,6 @@
         "functions": 15
       },
       "verifier": "oq"
-    },
-    "S": {
-      "description": "Classroom Lab Session (migration S): new table classroom_lab_sessions (RLS, one backend policy, runtime SELECT/INSERT/UPDATE) with a partial unique index (one open reservation per robot) and two plain indexes; learning_classroom_robot_allocations UNIQUE(classroom_id) is replaced by UNIQUE(classroom_id, robot_id) (many-to-many allocation); permission education.lab_session.manage for the instructor role. No backfill, no row is rewritten or deleted; requires D-L, N and O-Q applied.",
-      "productionStatus": "PROPOSED, NOT APPROVED: apply ONLY after the Lab-Session-aware API (PR #243 or later; it tolerates both schemas) is deployed - the pre-Lab-Session API (f0b3d87 and older) cannot run on the new schema (its allocation upsert fails with 42P10). Needs the production-database-apply reviewer approval and a verified backup. After it is applied no pre-Lab-Session image may be redeployed (the rollback-guard job enforces this).",
-      "requiresApplied": [
-        "20261110_d_activity_content",
-        "20261110_e_learning_media",
-        "20261111_f_global_question_scope",
-        "20261111_g_activity_progress_scope_guard",
-        "20261112_h_learning_media_audio_mpeg",
-        "20261113_i_attempt_submission_foundation",
-        "20261114_j_one_submission_per_attempt",
-        "20261116_k_course_authoring_capabilities",
-        "20261116_l_runtime_role",
-        "20261118_n_student_password_change_required",
-        "20261119_o_wf01_robot_allocation_permission",
-        "20261119_p_course_level_tags_prerequisites_assignment_difficulty",
-        "20261120_q_media_archive"
-      ],
-      "versions": [
-        "20261127_s_classroom_lab_sessions"
-      ],
-      "sha256": {
-        "20261127_s_classroom_lab_sessions": "671a68a40fc552700e4644f0f70b10ca96868deed3594be1114b12d12699c58a"
-      },
-      "excludedVersions": [
-        "20261116_m_revoke_public_temp_privilege"
-      ],
-      "expectedCatalogBefore": {
-        "tables": 91,
-        "rls_enabled": 49,
-        "policies": 48,
-        "triggers": 22,
-        "functions": 15
-      },
-      "expectedCatalogAfter": {
-        "tables": 92,
-        "rls_enabled": 50,
-        "policies": 49,
-        "triggers": 22,
-        "functions": 15
-      },
-      "verifier": "s"
     }
   }
 }

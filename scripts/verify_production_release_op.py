@@ -18,10 +18,10 @@ from pathlib import Path
 
 try:
     from scripts import verify_production_release_d_i as base
-    from scripts.verify_production_release_n import CATALOG_SQL, expected_catalog
+    from scripts.verify_production_release_n import CATALOG_SQL
 except ModuleNotFoundError:  # executed as a script from the repository root
     import verify_production_release_d_i as base  # type: ignore
-    from verify_production_release_n import CATALOG_SQL, expected_catalog  # type: ignore
+    from verify_production_release_n import CATALOG_SQL  # type: ignore
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSIONS = ("20261119_o_wf01_robot_allocation_permission", "20261119_p_course_level_tags_prerequisites_assignment_difficulty", "20261120_q_media_archive")
@@ -91,7 +91,7 @@ def verify(url: str, pre: dict, root: Path | None = None) -> list[tuple[str, boo
         check(f"ledger keeps {version}", bool(r) and r["sum"] == pinned.get(version) and r["prov"] == "executed")
     check("ledger kept every earlier version and gained only O, P and Q", set(pre["ledger"]) | set(VERSIONS) == set(by_version), f"{len(pre['ledger'])} -> {len(by_version)}")
     cat = base.query(url, CATALOG_SQL)
-    check("catalog counts equal the pinned post-release schema (column/constraint/index/row changes leave them unchanged)", cat == expected_catalog(root, "O-Q", by_version), f"found {json.dumps(cat, sort_keys=True)}")
+    check("catalog counts equal the pinned post-release schema (column/constraint/index/row changes leave them unchanged)", cat == scope["expectedCatalogAfter"], f"found {json.dumps(cat, sort_keys=True)}")
 
     cols = {(r["t"], r["c"]): r for r in base.query(url, """SELECT COALESCE(json_agg(json_build_object('t',table_name,'c',column_name,'u',udt_name,'n',is_nullable,'d',column_default)),'[]'::json)::text
         FROM information_schema.columns WHERE table_schema='public' AND table_name = ANY(ARRAY['learning_courses','learning_assignments','learning_classrooms','learning_media_assets'])""")}
