@@ -2,6 +2,8 @@
 
 Status values: PASS / FAIL / BLOCKED / NOT RUN. "Evidence" cites `docs/acceptance/screenshots/` or the acceptance script output recorded in `08-production-acceptance.md`. Every case's cleanup is "none" unless stated. Requirement refs point to `docs/SRS.md` areas (R-AUTH, R-ADM, R-LMS, R-ROB, R-SEC, R-IOT) and `docs/final-architecture/04-use-case-model.md`.
 
+Environment for every row: Production `https://skynex.best` unless stated. **Tested revision:** rows executed on 2026-11-27 morning = `43dcb60`; WF03/WF04 retest rows = `430ad59`; CI/DB-spec/unit rows = the CI run of the cited PR (not Production); NOT RUN rows have no revision.
+
 Columns: **ID · Req · Objective · Actor · Preconditions/Data · Navigation · Steps (numbered) · Expected · API/DB verification · Actual · Status · Evidence · Cleanup**.
 
 ## AUTH
@@ -82,3 +84,13 @@ Columns: **ID · Req · Objective · Actor · Preconditions/Data · Navigation �
 | SAFE-02 | R-SEC | Safe-stop confirmation (`edgeStopUnconfirmed`) on end | Instructor | — | — | — | quarantine until edge confirms | session state | DB specs; not run on Production | NOT RUN | CI | — |
 | SAFE-03 | R-SEC | Arm only by local operator action | Operator | hardware | — | — | `armed=false` after connect | Shadow | tomorrow | NOT RUN | — | — |
 | SAFE-04 | R-SEC | First physical motion limited, one pair | Operator | — | — | — | — | — | tomorrow | NOT RUN | — | — |
+
+## Detailed procedures for the thin rows (execute with designated accounts only)
+**LMS-01 / ASSIGN / course delivery** — Pre: published course in class `9c09e27d…`, student enrolled. 1 Student opens My Learning → course. 2 Open module → lesson; media loads (presigned URL). 3 Mark activity complete. Expect: progress bar advances; `GET /me/...progress` reflects it. Actual: NOT RUN on Production (local acceptance only).
+**QUIZ-01..03** — Pre: module with mini-quiz at module end (weights shown before submit), single- and multiple-choice items, pass threshold. 1 Student opens the module end. 2 Confirm weights visible. 3 Submit all-correct → pass + feedback. 4 Submit partially wrong multiple-choice → partial/zero per rule. 5 Score below threshold → fail state. Expect per approved rules; Verify `quiz attempt` rows. Actual: NOT RUN on Production.
+**Course Builder / Question Bank / Excel import** — Instructor creates course → module → lesson → media upload → quiz from Question Bank; imports an XLSX of questions (preview, mapping, validation errors listed) ; publishes. Expect: draft→published, student sees it. Actual: NOT RUN on Production.
+**Gradebook / analytics** — Instructor opens class gradebook; row for VTEST112701 shows 9/10 for `64b58103…`. Actual: not opened in the UI; API verified.
+**WF01** — 1 System Admin confirms entitlement+allocation. 2 Instructor `/teacher` → class → Start Lab Session. 3 Student eligibility `GET …/physical-execution-eligibility` → eligible. 4 End Lab Session. 5 Eligibility → `LAB_SESSION_NOT_ACTIVE`. DB: reservation `active→released`. Actual 2026-11-27: PASS (`43dcb60`, repeated `430ad59`).
+**WF02** — 1 Student starts attempt (`POST /classroom-assignments/:id/attempts`). 2 Program + version. 3 Schematic run. 4 Symbolic check. 5 Submit. Actual `430ad59`: PASS (attempt `92c7780c…`).
+**WF03** — 1 Lab Session active. 2 Student ticks the 3 simulation confirmations, clicks Confirm & Run Local Simulation. 3 Poll `GET /me/physical-executions/:id` until `succeeded`. 4 Check events. 5 Open Twin (attempt scope). 6 List artifacts. Expect: events incl. ack, executing, completed; Twin frames carry the robot UUID and run sequence; artifact retrievable. Actual `430ad59`: steps 1–4 PASS; step 3 returns 500 after success (D-08); step 5 shows fixture frames (D-09); step 6 empty (D-03).
+**WF04** — 1 Instructor opens submission. 2 Opens evidence (BLOCKED by D-03). 3 `POST /submissions/:id/assessment` with scores. 4 Feedback. 5 Release. 6 Student opens Assignments → Completed. Actual `430ad59`: 1,3–6 PASS (9/10), 2 NOT RUN.
