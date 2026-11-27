@@ -23,3 +23,9 @@ Feature freeze in force: only the evidence fix and docs remain. Education Platfo
 
 ## Update: 430ad59 retest
 WF04 scoring/release/student view PASS; telemetry provenance resolved as *not* R1-synchronised (D-09). LMS/quiz/admin Production regression, simulation safety cases and authenticated before/after UI screenshots were NOT RUN in this session. Paper MCP was not available; Taste-skill guidance was applied only to a minimal shared polish.
+
+## Update: evening (open PRs and what is verified)
+- **#260** evidence IAM + 500 fix: CI all green; read-only Terraform plan = 1 in-place change (`ExperimentEvidenceObjectAccess` on `learning-media/experiments/*`), 0 add, 0 destroy. Needs merge → deploy → owner `terraform apply` (with the live IoT/recordings variables) → retest.
+- **#262** D-09 Twin run telemetry: root cause verified live (attempt-bound scope 404 after submission; robot-wide viewer closed 4403; fixture shown). Fix + tests; not deployed; live retest pending.
+- **#261** UI polish: shared tokens plus consistent card layout on the instructor class page and mobile assignment titles; 14 pages x 4 viewports captured on an isolated local stack (synthetic data) before and after; 8 before/after pairs in `docs/acceptance/screenshots/ui-polish/`. Palette and light theme unchanged. Paper MCP was reachable but refused every call (account setup incomplete): **not used**. The Taste skill was read as guidance only; the application already followed a coherent design system, so the polish is deliberately small. Not deployed.
+- Still NOT RUN on Production: LMS/Course Builder/Question Bank/Excel import/Quiz/Gradebook regression, simulation safety cases (need CC-4 long fixture).
