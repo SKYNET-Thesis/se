@@ -19,7 +19,6 @@
 --   DROP TABLE public.classroom_lab_sessions;
 --   DELETE FROM public.role_permissions WHERE permission_id IN (SELECT id FROM public.permissions WHERE code='education.lab_session.manage');
 --   DELETE FROM public.permissions WHERE code='education.lab_session.manage';
-BEGIN;
 DO $$
 BEGIN
   IF to_regclass('public.organizations') IS NULL OR to_regclass('public.users') IS NULL OR to_regclass('public.robots') IS NULL
@@ -86,4 +85,3 @@ ON CONFLICT (code) DO UPDATE SET description=EXCLUDED.description;
 INSERT INTO public.role_permissions(role_id, permission_id)
 SELECT r.id, p.id FROM public.roles r, public.permissions p WHERE r.code='instructor' AND r.scope='organization' AND p.code='education.lab_session.manage'
 ON CONFLICT DO NOTHING;
-COMMIT;
