@@ -46,21 +46,6 @@ _STRIP = " ".join(f"- '{c}'" for c in NEW_COLUMNS)
 ROW_DIGEST_SQL = f"SELECT md5(COALESCE(string_agg((to_jsonb(p) {_STRIP})::text, '|' ORDER BY p.user_id::text, p.organization_id::text), '')) FROM public.{TABLE} p"
 
 
-def expected_catalog(root: Path, scope_name: str, applied_versions) -> dict:
-    """The scope's pinned post-release catalog plus the pinned deltas of LATER released scopes that depend on it and are already applied (for example S adds a
-    table). Keeps this verifier correct on a database that has moved on, without loosening what it checks at the scope's own release time."""
-    scopes = json.loads((Path(root) / "database/release-scopes.json").read_text())["scopes"]
-    expected = dict(scopes[scope_name]["expectedCatalogAfter"])
-    mine = set(scopes[scope_name]["versions"])
-    for name, other in scopes.items():
-        if name == scope_name or "expectedCatalogBefore" not in other:
-            continue
-        if mine <= set(other.get("requiresApplied", [])) and set(other["versions"]) <= set(applied_versions):
-            for key in expected:
-                expected[key] += other["expectedCatalogAfter"][key] - other["expectedCatalogBefore"][key]
-    return expected
-
-
 def preview(url: str) -> dict:
     """What the migration will meet: counts only, no identifiers or content."""
     return base.query(url, f"""SELECT json_build_object(
@@ -101,7 +86,7 @@ def verify(url: str, pre: dict, root: Path | None = None) -> list[tuple[str, boo
     check("ledger kept every earlier version and gained only this one", set(pre["ledger"]) | {VERSION} == set(by_version), f"{len(pre['ledger'])} -> {len(by_version)}")
 
     cat = base.query(url, CATALOG_SQL)
-    check("catalog counts equal the pinned post-release schema (a column-only change leaves them unchanged)", cat == expected_catalog(root, "N", by_version), f"found {json.dumps(cat, sort_keys=True)}")
+    check("catalog counts equal the pinned post-release schema (a column-only change leaves them unchanged)", cat == scope["expectedCatalogAfter"], f"found {json.dumps(cat, sort_keys=True)}")
 
     cols = {r["c"]: r for r in base.query(url, f"""SELECT COALESCE(json_agg(json_build_object('c',column_name,'t',data_type,'n',is_nullable,'d',column_default)),'[]'::json)::text
         FROM information_schema.columns WHERE table_schema='public' AND table_name='{TABLE}' AND column_name = ANY(ARRAY[{",".join(repr(c) for c in NEW_COLUMNS)}])""")}
