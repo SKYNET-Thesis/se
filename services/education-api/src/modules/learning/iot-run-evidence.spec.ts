@@ -29,4 +29,9 @@ describe('cloud simulation evidence is created from the real relayed frame once 
     await expect(svc.status(student, EXP)).resolves.toMatchObject({ evidence: 'unavailable' });
     expect(evidence.persistTelemetry).not.toHaveBeenCalled();
   });
+  it('a failing evidence persistence never makes the run status fail', async () => {
+    const { svc, evidence } = build('completed', [{ event_data: { source_mode: 'SIMULATION' } }]);
+    evidence.persistTelemetry.mockRejectedValueOnce(new Error('db check violation') as never);
+    await expect(svc.status(student, EXP)).resolves.toMatchObject({ status: 'succeeded', evidence: 'unavailable' });
+  });
 });

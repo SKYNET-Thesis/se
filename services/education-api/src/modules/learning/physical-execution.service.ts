@@ -400,7 +400,8 @@ export class PhysicalExecutionService {
       const frames = await this.prisma.$queryRaw<Array<{ event_data: unknown }>>`
         SELECT event_data FROM public.learning_experiment_events WHERE experiment_id=${experimentId}::uuid AND event_type='simulation_telemetry_latest' LIMIT 1`;
       if (!frames[0]) return { ...dto, evidence: "unavailable" as const };
-      const evidence = await this.evidence.persistTelemetry(experimentId, frames[0].event_data);
+      // Evidence is best-effort: a persistence failure must never turn the run status into a 500.
+      const evidence = await this.evidence.persistTelemetry(experimentId, frames[0].event_data).catch(() => ({ availability: "unavailable" as const }));
       return { ...dto, evidence: evidence.availability };
     }
     const runId = execution.run_id ?? `wf03-${execution.experiment_id}`;
