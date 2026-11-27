@@ -36,7 +36,7 @@ export function AdminRobots() {
       {list.isError ? <p className="mt-6 text-sm text-danger" role="alert">{message(list.error)}</p> : null}
       {list.isSuccess && list.data.length === 0 ? <p className="mt-6 text-sm text-ink-muted">No robot resources are registered.</p> : null}
       {list.isSuccess && list.data.length > 0 ? (
-        <div className="mt-6 w-full max-w-full overflow-x-auto rounded-lg border border-line">
+        <div className="relative mt-6 w-full max-w-full overflow-x-auto rounded-lg border border-line">
           <table className="w-full text-left text-sm">
             <caption className="sr-only">Registered robot resources</caption>
             <thead className="bg-sunken text-xs text-ink-muted"><tr><th className="p-3">Name</th><th className="p-3">Serial</th><th className="p-3">Model</th><th className="p-3">Status</th><th className="p-3">Entitled orgs</th><th className="p-3">Allocations</th><th className="p-3">Open sessions</th><th className="p-3"><span className="sr-only">Actions</span></th></tr></thead>

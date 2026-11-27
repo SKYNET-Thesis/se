@@ -114,7 +114,7 @@ test.describe.serial('Digital Twin: a connected WebSocket viewer is closed the m
     expect(bad.attemptFrames).toBe(0);
   });
 
-  test('final submission closes THAT attempt\'s viewer with 4403; another attempt of the same student stays connected', async ({ page }) => {
+  test('final submission does NOT close the viewer (the WF-03 run happens after submission, #253); another attempt of the same student stays connected', async ({ page }) => {
     const target = await freshAttempt(page);                                                        // a brand-new attempt: program and submission rows are created here
     reopen(target, attempt2);
     const a = await viewerFor(page, target); const b = await viewerFor(page, attempt2);
@@ -124,12 +124,10 @@ test.describe.serial('Digital Twin: a connected WebSocket viewer is closed the m
     const version = (await api(page, studentToken, 'POST', `/me/programs/${program.id}/versions`, { changeSummary: 'final' })).body;
     const submitted = await api(page, studentToken, 'POST', `/me/attempts/${target}/submission`, { programVersionId: version.id });
     expect(submitted.status, JSON.stringify(submitted.body)).toBe(201);
-    const closed = await closedWithin(a.viewer);
-    expect(closed?.code).toBe(4403); expect(closed?.reason).toMatch(/revoked/i);
-    expect(await stillOpen(b.viewer)).toBe(true);                                                  // isolation: the other attempt keeps streaming
-    // fail closed: the still-valid scope token of the revoked attempt cannot reconnect
-    expect((await probe(a.token)).attemptFrames).toBe(0);                                          // the revoked attempt's scope yields no attempt data
-    // a new scope for the submitted attempt is refused by the API
+    expect(await stillOpen(a.viewer)).toBe(true);                                                  // a submission alone never revokes: the authorized run still has to be watched
+    expect(await stillOpen(b.viewer)).toBe(true);                                                  // and the other attempt keeps streaming
+    a.viewer.stop();
+    // a NEW scope for the submitted attempt is refused by the API while no real-robot run of it exists (#262 only admits the owner of a recent run)
     expect((await api(page, studentToken, 'POST', `/me/attempts/${target}/digital-twin/viewer-scope`, { robotId: fixture.allocatedRobotId })).status).toBe(404);
     b.viewer.stop();
   });
@@ -140,7 +138,7 @@ test.describe.serial('Digital Twin: a connected WebSocket viewer is closed the m
     ['organization suspension', (p) => api(p, sysToken, 'PATCH', `/education-admin/organizations/${fixture.schoolId}`, { status: 'suspended' }), (p) => api(p, sysToken, 'PATCH', `/education-admin/organizations/${fixture.schoolId}`, { status: 'active' })],
     ['removal from the classroom', (p) => api(p, adminToken, 'DELETE', `/education-admin/organizations/${fixture.schoolId}/classrooms/${fixture.classroomId}/members/${fixture.users.student.userId}`), (p) => api(p, adminToken, 'POST', `/education-admin/organizations/${fixture.schoolId}/classrooms/${fixture.classroomId}/members`, { userId: fixture.users.student.userId })],
     ['classroom archive', (p) => api(p, adminToken, 'POST', `/education-admin/organizations/${fixture.schoolId}/classrooms/${fixture.classroomId}/archive`), (p) => api(p, adminToken, 'POST', `/education-admin/organizations/${fixture.schoolId}/classrooms/${fixture.classroomId}/reactivate`)],
-    ['robot reassignment', (p) => putAllocation(p, fixture.replacementRobotId), (p) => putAllocation(p, fixture.allocatedRobotId)],
+    ['robot allocation removed', (p) => api(p, adminToken, 'DELETE', `/education-admin/classrooms/${fixture.classroomId}/robot-allocations/${fixture.allocatedRobotId}`), (p) => putAllocation(p, fixture.allocatedRobotId)],
   ];
   for (const [name, trigger, restore] of scenarios) {
     test(`${name} closes the connected viewer with 4403`, async ({ page }) => {

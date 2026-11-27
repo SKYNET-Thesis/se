@@ -50,17 +50,20 @@ test.describe.serial('Twin viewers are revoked the moment the right to watch end
     reopen();
   });
 
-  test('allocating a DIFFERENT robot revokes viewers bound to the previous robot; the same robot revokes nothing', async ({ page }) => {
+  test('removing the allocation revokes viewers bound to that robot; (re)adding it revokes nothing', async ({ page }) => {
     const admin = await headers(page, 'schoolAdmin');
-    expect((await page.request.put(`${apiBase}/education-admin/classrooms/${fixture.classroomId}/robot-allocation`, { headers: admin, data: { robotId: fixture.allocatedRobotId } })).ok()).toBeTruthy();
+    expect((await page.request.put(`${apiBase}/education-admin/classrooms/${fixture.classroomId}/robot-allocation`, { headers: admin, data: { robotId: fixture.allocatedRobotId } })).status()).toBeLessThan(500);
     await settle(); expect(revokedFor(attemptId)).toHaveLength(0);
-    const swap = await page.request.put(`${apiBase}/education-admin/classrooms/${fixture.classroomId}/robot-allocation`, { headers: admin, data: { robotId: fixture.replacementRobotId } });
-    expect(swap.ok(), await swap.text()).toBeTruthy();
-    await settle();
+    // allocation is many-to-many since migration S: adding another robot never revokes; removing THIS one does
+    const added = await page.request.post(`${apiBase}/education-admin/classrooms/${fixture.classroomId}/robot-allocations`, { headers: admin, data: { robotId: fixture.replacementRobotId } });
+    expect(added.ok(), await added.text()).toBeTruthy(); await settle(); expect(revokedFor(attemptId)).toHaveLength(0);
+    const removed = await page.request.delete(`${apiBase}/education-admin/classrooms/${fixture.classroomId}/robot-allocations/${fixture.allocatedRobotId}`, { headers: admin });
+    expect(removed.ok(), await removed.text()).toBeTruthy(); await settle();
     const hits = revokedFor(attemptId);
     expect(hits).toHaveLength(1);
-    expect(hits[0]).toMatchObject({ path: '/internal/revoke-attempt', validSignature: true, claims: { kind: 'simulation_publisher', aud: 'vista-digital-twin-simulation-publisher', robots: [fixture.allocatedRobotId], org: fixture.schoolId }, body: { organization_id: fixture.schoolId, robot_id: fixture.allocatedRobotId, attempt_id: attemptId } });
-    expect((await page.request.put(`${apiBase}/education-admin/classrooms/${fixture.classroomId}/robot-allocation`, { headers: admin, data: { robotId: fixture.allocatedRobotId } })).ok()).toBeTruthy();
+    expect(hits[0]).toMatchObject({ path: '/internal/revoke-attempt', validSignature: true, claims: { kind: 'simulation_publisher', aud: 'vista-digital-twin-simulation-publisher', robots: [fixture.allocatedRobotId], org: fixture.schoolId } });
+    expect((await page.request.post(`${apiBase}/education-admin/classrooms/${fixture.classroomId}/robot-allocations`, { headers: admin, data: { robotId: fixture.allocatedRobotId } })).ok()).toBeTruthy();
+    await page.request.delete(`${apiBase}/education-admin/classrooms/${fixture.classroomId}/robot-allocations/${fixture.replacementRobotId}`, { headers: admin });
   });
 
   test('suspending the member revokes; suspending someone else does not; reactivation restores', async ({ page }) => {
@@ -97,13 +100,12 @@ test.describe.serial('Twin viewers are revoked the moment the right to watch end
     finally { await page.request.patch(`${apiBase}/education-admin/organizations/${fixture.schoolId}`, { headers: sys, data: { status: 'active' } }); }
   });
 
-  test('final submission revokes the attempt viewers', async ({ page }) => {
+  test('final submission does NOT revoke the attempt viewers (#253: the WF-03 run follows the submission)', async ({ page }) => {
     const student = await headers(page, 'student'); reopen(); received.length = 0;
     const program = await (await page.request.post(`${apiBase}/me/attempts/${attemptId}/program`, { headers: student, data: { title: 'P', workspaceJson: { blocks: { languageVersion: 0, blocks: [] } }, robotProgram: { kind: 'robot_program', schemaVersion: 1, steps: [] } } })).json() as { id: string };
     const version = await (await page.request.post(`${apiBase}/me/programs/${program.id}/versions`, { headers: student, data: { changeSummary: 'final' } })).json() as { id: string };
     const submitted = await page.request.post(`${apiBase}/me/attempts/${attemptId}/submission`, { headers: student, data: { programVersionId: version.id } });
     expect(submitted.ok(), await submitted.text()).toBeTruthy(); await settle();
-    expect(revokedFor(attemptId)).toHaveLength(1);
-    expect(revokedFor(attemptId)[0].validSignature).toBe(true);
+    expect(revokedFor(attemptId)).toHaveLength(0);
   });
 });
