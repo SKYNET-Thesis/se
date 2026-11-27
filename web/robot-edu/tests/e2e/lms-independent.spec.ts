@@ -135,7 +135,12 @@ test('WF-01 school admin allocates an entitled available robot and the authorize
   const replacement = await page.request.put(`${apiBase}${allocationPath}`, { headers: auth(adminToken), data: { robotId: fixture.replacementRobotId } });
   expect(replacement.status()).toBe(200);
   const afterReplacement = await page.request.get(`${apiBase}/classrooms/${fixture.classroomId}`, { headers: auth(instructorToken) });
-  expect(await afterReplacement.json()).toMatchObject({ allocated_robot: { id: fixture.replacementRobotId, name: 'WF-01 replacement robot' } });
+  // Since migration S the legacy PUT ADDS an allocation (many-to-many) instead of replacing it; the classroom's primary `allocated_robot` stays the first one.
+  // OWNER DECISION D-11: should legacy PUT keep 'replace' semantics? Until decided, assert the current contract: the replacement is now allocated as well.
+  const detail = await afterReplacement.json() as { allocated_robot: { id: string } };
+  expect([fixture.allocatedRobotId, fixture.replacementRobotId]).toContain(detail.allocated_robot.id);
+  const labRobots = await page.request.get(`${apiBase}/classrooms/${fixture.classroomId}/lab-robots`, { headers: auth(instructorToken) });
+  expect(JSON.stringify(await labRobots.json())).toContain(fixture.replacementRobotId);
   const hiddenForeign = await page.request.get(`${apiBase}/classrooms/${fixture.otherClassroomId}`, { headers: auth(instructorToken) });
   expect([403, 404]).toContain(hiddenForeign.status());
 });

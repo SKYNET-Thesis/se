@@ -73,8 +73,10 @@ test('System Admin authors and imports questions in a Global Course; school auth
   await dialog.getByLabel('Question file').setInputFiles({ name: 'global.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(dialog.getByRole('status')).toContainText('1 valid');
   await dialog.getByLabel('New Learning Outcome').fill('Import globally reusable questions.');
+  await dialog.getByLabel('Publish immediately (otherwise questions are imported as drafts)').check();
+  await dialog.getByLabel('I reviewed this preview and want to import the valid rows.').check();   // hash-bound confirmation (61dcda5)
   await dialog.getByRole('button', { name: 'Import 1 valid question' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Imported 1 question.');
+  await expect(dialog.getByRole('status')).toContainText(/Imported 1 question/);
   expect((await api(page, adminToken, 'GET', `/author/question-bank/quiz-authoring/lessons/${fixture.lessonId}/questions`)).status).toBe(200);
 
   for (const role of ['schoolAdmin', 'instructor']) {

@@ -13,7 +13,12 @@ Key routes by workflow:
 | provisioning | `POST /education-admin/organizations/:id/user-imports/parse-file`, `…/user-imports` (kind students), `…/students/:userId/temporary-password/reissue` | student accounts |
 | auth | `POST /auth/students/login`, `PATCH /auth/students/password`, `POST /auth/students/recover` | student sign-in and mandatory change |
 | WF03 | `GET /me/attempts/:id/physical-execution-eligibility`, `POST …/physical-executions/start`, `GET /me/physical-executions/:id`, `…/stop` | eligibility, start, status |
-| WF03 | `POST /internal/…` (feedback/Twin relay, not public) | worker → Twin |
+| WF03 | `POST /me/attempts/:attemptId/digital-twin/viewer-scope` `{robotId}` | attempt-bound read-only Twin scope (60 s); also allowed for the owner of a run of that attempt after submission (#262) |
+| WF03 | `POST /robots/:robotId/digital-twin/viewer-scope` | robot-wide scope (staff tooling / Robot Lab preview; may see the labelled offline fixture) |
+| WF03 | `GET /me/experiments/:id/{events,artifacts,result}`, `…/evidence/:artifactId/download` | run events and stored evidence (student owner) |
+| WF04 | `GET /classrooms/:id/submissions`, `GET /submissions/:id`, `…/experiments/:eid/artifacts/:aid/download` | instructor review incl. evidence |
+| WF04 | `GET\|POST /submissions/:id/assessment`, `GET\|POST …/feedback`, `POST …/release`, `POST /attempts/:id/grading/reopen`; student `GET /me/attempts/:id/grading`, `GET /me/submissions/:id/feedback` | rubric scoring, feedback, release, audited reopen, student view |
+| WF03 | `POST /internal/…` (feedback/Twin relay, not public) | worker → Twin (`/internal/simulation-telemetry`, `/internal/revoke-attempt`, signed publisher tokens) |
 
 ## 7.2 MQTT contract (canonical: `docs/operations/EDGE_CONTRACT_HANDOFF_20261126.md`)
 Broker `am09ew70geib4-ats.iot.ap-southeast-1.amazonaws.com:8883`, mutual TLS, MQTT 3.1.1, **client id = Thing name `vista-demo-<robot uuid>`** (policy allows only this id). Topic prefix `vista/demo/robots/<robot uuid>`.

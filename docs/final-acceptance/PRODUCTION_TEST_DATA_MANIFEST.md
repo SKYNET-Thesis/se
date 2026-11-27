@@ -31,3 +31,16 @@ Identifiers only. **No passwords, tokens or keys appear here.** Credential files
 - Safety profile: `provision-robot-entitlement --clear-blockly-student feedb291-… --confirm`.
 - Lab Session: End Lab Session in the instructor UI (done; robot `Available`).
 - Acceptance students may be deactivated from `/admin/students` after the defense; no deletion of audit rows.
+
+## Approval request — additional Production test content (NOT created; owner approval required)
+Purpose: close the LMS/Course Builder/Question Bank/Quiz/Gradebook Production cases that were blocked because the E2E class has no quiz or authored content. Scope: the existing E2E organization `597cd591-…` and class `9c09e27d-…` only; synthetic text; no real student data; no grades for real students (only `VTEST112701`, already used for acceptance).
+| # | Object | Exact content | Cleanup |
+|---|---|---|---|
+| 1 | Course (organization-owned) | "E2E Acceptance Course 20261127", 1 module, 1 lesson with 1 reading activity | archive after acceptance |
+| 2 | Media | one 50 KB PNG uploaded through Learning Media | delete via UI |
+| 3 | Question Bank | import `docs/education/Question_Bank_Template.xlsx` variant with 4 questions: 2 single-choice (weights 1, 2), 1 multiple-choice (weight 2), 1 multiple-choice with a partial-credit trap; mapping + validation preview exercised, one deliberately invalid row | questions retired |
+| 4 | Quiz / mini-quiz | module-end mini-quiz of the 4 questions, pass threshold 60 %, weights visible before submit, feedback text per question | unpublish |
+| 5 | Offering + delivery | offering for the course, delivered to class `9c09e27d-…` | deactivate offering |
+| 6 | Attempts | `VTEST112701` takes the quiz three times: all-correct (pass), partial multiple-choice (partial/zero per rule), below threshold (fail) | none (attempt rows remain) |
+| 7 | Gradebook/analytics | instructor opens gradebook and learner-progress for the class | none |
+Acceptance evidence recorded in `PRODUCTION_TEST_CASE_MATRIX.md` rows LMS-01, QUIZ-01..03, ASSIGN-01 and the Course Builder/Question Bank/Excel rows. Estimated effort: 45 minutes with the existing browser automation. **Do not execute until the owner says "approved: Production test content".**

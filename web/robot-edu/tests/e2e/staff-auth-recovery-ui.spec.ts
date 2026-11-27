@@ -27,7 +27,7 @@ async function restore(request: import('@playwright/test').APIRequestContext) {
 }
 async function uiSignIn(page: import('@playwright/test').Page, password: string) {
   await page.goto('/login');
-  await page.getByLabel('Email').fill(EMAIL);
+  await page.getByLabel('Email address').fill(EMAIL);
   await page.locator('input[type="password"]').first().fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }
@@ -60,8 +60,9 @@ test('a genuine recovery link lets the user choose a new password once; the old 
   await expect(page.getByRole('heading', { name: 'Choose a new password' })).toBeVisible();
   const fields = page.locator('input[autocomplete="new-password"]');
   await fields.nth(0).fill(RESET_TO); await fields.nth(1).fill(`${RESET_TO}-different`);
-  await page.getByRole('button', { name: 'Update password' }).click();
-  await expect(page.getByRole('alert')).toContainText('do not match');
+  // live validation (#250): a mismatch is explained inline and submit stays disabled
+  await expect(page.getByRole('button', { name: 'Update password' })).toBeDisabled();
+  await expect(page.getByText(/do not match/i).first()).toBeVisible();
   await fields.nth(1).fill(RESET_TO);
   await page.getByRole('button', { name: 'Update password' }).click();
   await expect(page).toHaveURL(/\/login\?reason=PASSWORD_RESET/);

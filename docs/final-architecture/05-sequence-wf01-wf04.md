@@ -61,8 +61,10 @@ sequenceDiagram
   Q->>W: events
   W->>DB: lifecycle + control session + experiment terminal state
   W->>TW: relay validated simulation frames
-  WEB-->>TW: wss /ws/twin (scoped viewer token)
-  API->>DB: experiment evidence (artifact) for the student and instructor
+  WEB->>API: POST /me/attempts/{id}/digital-twin/viewer-scope (attempt-bound, 60 s)
+  WEB-->>TW: wss /ws/twin (token in subprotocol; only this attempt's relayed frames)
+  WEB->>API: GET /me/physical-executions/{id} (status)
+  API->>DB: when succeeded: read simulation_telemetry_latest, store evidence JSON in S3 + artifact row (skipped, evidence=unavailable, if the object store refuses)
 ```
 Stop Execution (instructor) publishes `kind:"cancel"` for the active command; the reservation is released only by the Edge's own terminal status or a fresh idle Shadow (`edgeStopUnconfirmed`).
 

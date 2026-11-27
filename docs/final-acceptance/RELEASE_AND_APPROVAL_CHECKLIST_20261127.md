@@ -36,3 +36,6 @@ Verify: API/Web SHA and Twin image `twin-<sha>`; container health; SQS/DLQ = 0; 
 
 ## 6. Freeze baseline (proposed, NOT in force)
 Feature Freeze: only defect/security fixes and IoT-compatibility changes after the release above. Architecture Freeze: API contracts, DB schema (through `20261127_s_classroom_lab_sessions`), auth/RBAC, storage boundaries, WF01–WF04, Edge Contract unchanged. Web Freeze is **PENDING** until the owner approves it and the post-release acceptance passes.
+
+## Update (completion sprint)
+Merged into `develop`: #260, #262, #261, #258 (2026-11-27 14:30–14:31Z). Remaining for the release: **#264** (follow-up UI/test/docs; no migration, no IAM), then the `develop`→`main` release PR, `deploy-api` (also deploys the Twin) and `deploy-web`, then `terraform apply reviewed.plan` (plan must be re-validated first: `terraform plan` with the five live IoT/recordings variables must still show 0 add / 1 change / 0 destroy). #263 stays a draft until D-06 is decided. Owner decisions pending: D-06, D-11 (legacy PUT allocation semantics), WF-01..04 open decisions in `WF01_WF04_DEFINITION_PACKAGE.md`, approval of the Production test content (`PRODUCTION_TEST_DATA_MANIFEST.md`), Paper MCP re-authentication.
