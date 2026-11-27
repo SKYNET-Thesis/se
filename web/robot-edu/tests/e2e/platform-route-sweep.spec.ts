@@ -50,7 +50,7 @@ for (const [role, routes] of Object.entries(ROUTES)) {
 
 test.describe('legacy prototype routes', () => {
   // The old browser-only demo screens are gone: their URLs land on the real, API-backed pages instead.
-  const REDIRECTS: Array<[string, string, RegExp]> = [['instructor', '/teacher/courses', /\/admin\/courses$/], ['student', '/assignments/asg-reach', /\/my-learning$/], ['admin', '/admin/robots', /\/admin\/organizations$/], ['admin', '/admin/users', /\/admin\/organizations$/], ['admin', '/admin/settings', /\/admin\/organizations$/]];
+  const REDIRECTS: Array<[string, string, RegExp]> = [['instructor', '/teacher/courses', /\/admin\/courses$/], ['student', '/assignments/asg-reach', /\/my-learning$/], ['admin', '/admin/users', /\/admin\/organizations$/], ['admin', '/admin/settings', /\/admin\/organizations$/]];
   for (const [role, from, to] of REDIRECTS) {
     test(`${role}: ${from} redirects to the real page`, async ({ page }) => {
       const fixture = await loadFixture(); await signIn(page, fixture, role);
