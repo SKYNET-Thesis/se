@@ -14,16 +14,17 @@ import { filterImportRows, importSummary, parseSchoolCsv, rowStatus, template, t
 const PAGE_SIZE = 10;
 const dash = (value?: string) => value || '—';
 
-export function SchoolImportUsers() {
+/** `organizationId` is supplied by the System Administrator page (the target school); a School Administrator always imports into their own organization. */
+export function SchoolImportUsers({ organizationId: targetOrganizationId, studentsOnly = false, heading }: { organizationId?: string; studentsOnly?: boolean; heading?: string } = {}) {
   const navigate = useNavigate(); const { session } = useSupabaseSession(); const { memberships } = useRole(); const queryClient = useQueryClient(); const token = session?.access_token ?? '';
-  const [kind, setKind] = useState<ImportKind>('teachers');
+  const [kind, setKind] = useState<ImportKind>(studentsOnly ? 'students' : 'teachers');
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [fileName, setFileName] = useState('');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [filter, setFilter] = useState<'All' | ImportStatus>('All');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
-  const organizationId = memberships.find(item => item.roleCode === 'school_admin' && item.status === 'active')?.organizationId ?? '';
+  const organizationId = targetOrganizationId ?? (memberships.find(item => item.roleCode === 'school_admin' && item.status === 'active')?.organizationId ?? '');
   const [provisioning, setProvisioning] = useState(false);
   const [result, setResult] = useState<ApiSchoolImportResult | null>(null);
   const [provisionError, setProvisionError] = useState<string | null>(null);
@@ -44,7 +45,15 @@ export function SchoolImportUsers() {
   const resetReviewControls = () => { setFilter('All'); setQuery(''); setPage(1); };
   const switchKind = (next: ImportKind) => { setKind(next); setRows([]); setFileName(''); setResult(null); setProvisionError(null); setReviewOpen(false); resetReviewControls(); };
   const chooseAnother = () => { setRows([]); setFileName(''); setResult(null); setProvisionError(null); setReviewOpen(false); resetReviewControls(); if (fileRef.current) fileRef.current.value = ''; };
-  const upload = async (file: File) => { setFileName(file.name); setRows(parseSchoolCsv(kind, await file.text())); setResult(null); setProvisionError(null); resetReviewControls(); setReviewOpen(true); };
+  const upload = async (file: File) => {
+    setFileName(file.name); setResult(null); setProvisionError(null); resetReviewControls();
+    try {
+      // .xlsx is read on the server (bounded reader, no formulas); .csv is read locally. Both end up in the same review and validation.
+      const text = file.name.toLowerCase().endsWith('.xlsx') ? (await educationAdminApi.parseImportFile(organizationId, token, file)).csv : await file.text();
+      setRows(parseSchoolCsv(kind, text));
+    } catch (error) { setRows([{ row: 1, firstName: '', lastName: '', fullName: '', email: '', errors: [error instanceof Error ? error.message : 'The file could not be read.'] }]); }
+    setReviewOpen(true);
+  };
   const download = () => { const link = document.createElement('a'); const url = URL.createObjectURL(new Blob([template(kind)], { type: 'text/csv' })); link.href = url; link.download = `vista-${kind}-template.csv`; link.click(); URL.revokeObjectURL(url); };
   const updateFilter = (next: 'All' | ImportStatus) => { setFilter(next); setPage(1); };
   const updateQuery = (next: string) => { setQuery(next); setPage(1); };
@@ -71,17 +80,17 @@ export function SchoolImportUsers() {
 
   return <main className="mx-auto max-w-6xl px-5 py-8">
     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">School administration</p>
-    <h1 className="mt-2 text-3xl font-semibold tracking-tight text-ink">Import users</h1>
-    <p className="mt-2 max-w-2xl text-ink-muted">Download a school template, validate its CSV locally, then review every record before account provisioning is enabled.</p>
+    <h1 className="mt-2 text-3xl font-semibold tracking-tight text-ink">{heading ?? 'Import users'}</h1>
+    <p className="mt-2 max-w-2xl text-ink-muted">Download the template, upload a .csv or .xlsx file (formulas are never evaluated), then review every record before accounts are created.</p>
     <div className="mt-7 flex gap-2 border-b border-line" role="tablist" aria-label="Import type">
-      {(['teachers', 'students'] as ImportKind[]).map(item => <button key={item} type="button" role="tab" aria-selected={kind === item} onClick={() => switchKind(item)} className={kind === item ? 'border-b-2 border-accent px-4 py-3 text-sm font-semibold text-accent' : 'px-4 py-3 text-sm font-medium text-ink-muted hover:text-ink'}>{item === 'teachers' ? 'Teachers' : 'Students'}</button>)}
+      {((studentsOnly ? ['students'] : ['teachers', 'students']) as ImportKind[]).map(item => <button key={item} type="button" role="tab" aria-selected={kind === item} onClick={() => switchKind(item)} className={kind === item ? 'border-b-2 border-accent px-4 py-3 text-sm font-semibold text-accent' : 'px-4 py-3 text-sm font-medium text-ink-muted hover:text-ink'}>{item === 'teachers' ? 'Teachers' : 'Students'}</button>)}
     </div>
     <p className="mt-4 text-sm text-ink-muted">{kind === 'students' ? 'Student email is optional. When temporary-password rollout is enabled, new accounts receive a one-time password; legacy pending accounts retain Setup Code activation.' : 'Teacher email and employee code are required.'}</p>
     <section className="mt-6 rounded-xl border border-line bg-surface p-5">
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" onClick={download} icon={<DownloadIcon className="h-4 w-4" />}>Download {noun} template</Button>
-        <input ref={fileRef} className="hidden" type="file" accept=".csv,text/csv" aria-label="Upload CSV" onChange={event => { const next = event.target.files?.[0]; if (next) void upload(next); }} />
-        <Button onClick={() => fileRef.current?.click()} icon={<FileUpIcon className="h-4 w-4" />}>{fileName ? 'Choose another file' : 'Upload CSV'}</Button>
+        <input ref={fileRef} className="hidden" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Upload CSV or XLSX" onChange={event => { const next = event.target.files?.[0]; if (next) void upload(next); }} />
+        <Button onClick={() => fileRef.current?.click()} icon={<FileUpIcon className="h-4 w-4" />}>{fileName ? 'Choose another file' : 'Upload CSV or XLSX'}</Button>
       </div>
       {rows.length > 0 && <div className="mt-5 flex flex-wrap items-end justify-between gap-4 border-t border-line pt-5">
         <div><p className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">Uploaded file</p><p className="mt-1 font-medium text-ink">{fileName}</p></div>
@@ -89,7 +98,7 @@ export function SchoolImportUsers() {
         <div className="flex gap-2"><Button variant="secondary" onClick={() => setReviewOpen(true)}>Review data</Button><Button variant="ghost" onClick={chooseAnother}>Choose another file</Button></div>
       </div>}
     </section>
-    <Dialog open={reviewOpen} onClose={() => setReviewOpen(false)} size="xl" title={`Review ${noun} import`} description={<><span>Review and validate {summary.Records} {noun} records before importing them.</span><span className="mt-1 block text-xs">{fileName}</span></>} footer={result && resultView ? resultView.tone === 'failed' ? <><Button variant="secondary" onClick={retryFailed}>Try again</Button><Button onClick={() => setReviewOpen(false)}>Close</Button></> : <><p className="mr-auto self-center text-xs text-ink-muted">{resultView.persistence ? 'All records were saved successfully.' : 'Some records were saved successfully.'}</p>{result.failed > 0 && <Button variant="secondary" onClick={retryFailed}>Retry failed</Button>}<Button variant="secondary" onClick={() => navigate('/school/users')}>View users</Button><Button onClick={() => setReviewOpen(false)}>Done</Button></> : <><p className="mr-auto self-center text-xs text-ink-muted">Ready means the row passed validation. No account has been created yet.</p><Button variant="secondary" onClick={() => setReviewOpen(false)}>Cancel</Button><Button onClick={() => void submitImport()} loading={provisioning} disabled={!organizationId || rows.length === 0 || summary.Ready !== rows.length}>Confirm import</Button></>}>
+    <Dialog open={reviewOpen} onClose={() => setReviewOpen(false)} size="xl" title={`Review ${noun} import`} description={<><span>Review and validate {summary.Records} {noun} records before importing them.</span><span className="mt-1 block text-xs">{fileName}</span></>} footer={result && resultView ? resultView.tone === 'failed' ? <><Button variant="secondary" onClick={retryFailed}>Try again</Button><Button onClick={() => setReviewOpen(false)}>Close</Button></> : <><p className="mr-auto self-center text-xs text-ink-muted">{resultView.persistence ? 'All records were saved successfully.' : 'Some records were saved successfully.'}</p>{result.failed > 0 && <Button variant="secondary" onClick={retryFailed}>Retry failed</Button>}<Button variant="secondary" onClick={() => navigate('/school/users')}>View users</Button><Button onClick={() => setReviewOpen(false)}>Done</Button></> : <><p className="mr-auto self-center text-xs text-ink-muted">Ready means the row passed validation. No account has been created yet.</p><Button variant="secondary" onClick={() => setReviewOpen(false)}>Cancel</Button>{summary.Ready > 0 && summary.Ready !== rows.length ? <Button variant="secondary" onClick={() => { const skipped = rows.length - summary.Ready; if (window.confirm(`Import only the ${summary.Ready} ready record(s)? ${skipped} record(s) with problems will be skipped and no account will be created for them.`)) void submitImport(rows.filter(row => rowStatus(row) === 'Ready')); }} loading={provisioning} disabled={!organizationId}>Import {summary.Ready} ready only</Button> : null}<Button onClick={() => void submitImport()} loading={provisioning} disabled={!organizationId || rows.length === 0 || summary.Ready !== rows.length}>Confirm import</Button></>}>
       <div className="space-y-5">
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><Metric label="Records" value={summary.Records} /><Metric label="Ready" value={summary.Ready} tone="text-ok" /><Metric label="Duplicate" value={summary.Duplicate} tone="text-warn" /><Metric label="Needs review" value={summary['Needs review']} tone="text-danger" /></div>
         <div className="flex flex-col justify-between gap-3 border-y border-line py-3 lg:flex-row lg:items-center">
