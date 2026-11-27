@@ -436,10 +436,37 @@ export class PhysicalExecutionService {
       FROM public.learning_experiments e JOIN public.control_sessions cs ON cs.id=e.control_session_id
       WHERE e.id=${active.experiment_id}::uuid LIMIT 1`;
     const runId = rows[0]?.run_id ?? `wf03-${active.experiment_id}`;
+    if (this.iot?.enabled()) return this.requestIotCancel(robotId, active.experiment_id, runId);
     try {
       const snapshot = await this.runtime.cancelRun(robotId, runId);
       await this.persistRuntimeSnapshot(active.experiment_id, active.control_session_id, runId, snapshot, "lab_session_stop_requested");
       return { active: Boolean(await this.activeSession(this.prisma, robotId)), stopRequested: true, runtimeUnavailable: false };
+    } catch {
+      return { active: true, stopRequested: false, runtimeUnavailable: true };
+    }
+  }
+
+  /**
+   * MQTT Stop Execution: publishes ONE cancel command bound to the robot, the experiment's active command and run. It is idempotent (an audit event per
+   * experiment) and never changes the lifecycle itself: the control session ends only through the target command's terminal status from the Edge.
+   */
+  private async requestIotCancel(robotId: string, experimentId: string, runId: string): Promise<{ active: boolean; stopRequested: boolean; runtimeUnavailable: boolean }> {
+    const lifecycle = await this.prisma.$queryRaw<Array<{ command_id: string; state: string }>>`
+      SELECT command_id,state FROM public.iot_command_lifecycles WHERE experiment_id=${experimentId}::uuid AND robot_id=${robotId}::uuid
+        AND state IN ('queued','acknowledged','executing') ORDER BY created_at DESC LIMIT 1`;
+    if (!lifecycle[0]) return { active: true, stopRequested: false, runtimeUnavailable: false };   // not dispatched, or already terminal: wait for the lifecycle
+    const already = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT experiment_id AS id FROM public.learning_experiment_events WHERE experiment_id=${experimentId}::uuid AND event_type='lab_session_cancel_requested' LIMIT 1`;
+    if (already[0]) return { active: true, stopRequested: true, runtimeUnavailable: false };
+    try {
+      const cancel = this.iot!.createCancelCommand(robotId, { targetCommandId: lifecycle[0].command_id, runId, reason: "lab_session_stop" });
+      await this.iot!.publishCancelCommand(cancel);
+      await this.prisma.$executeRaw`
+        INSERT INTO public.learning_experiment_events(experiment_id,event_index,event_type,event_data)
+        SELECT ${experimentId}::uuid,COALESCE(MAX(event_index),-1)+1,'lab_session_cancel_requested',${JSON.stringify({ targetCommandId: lifecycle[0].command_id, cancelCommandId: cancel.commandId })}::jsonb
+        FROM public.learning_experiment_events WHERE experiment_id=${experimentId}::uuid
+        ON CONFLICT (experiment_id,event_index) DO NOTHING`;
+      return { active: true, stopRequested: true, runtimeUnavailable: false };
     } catch {
       return { active: true, stopRequested: false, runtimeUnavailable: true };
     }

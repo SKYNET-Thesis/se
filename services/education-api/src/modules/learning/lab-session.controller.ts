@@ -27,6 +27,10 @@ export class LabSessionController {
   @Post("lab-sessions/:sessionId/extend")
   extend(@CurrentUser() user: AuthenticatedUser, @Param("sessionId", ParseUUIDPipe) sessionId: string, @Body() dto: ExtendLabSessionDto) { return this.labSessions.extend(user, sessionId, dto); }
 
+  /** Stops the student's current run only; the reservation is preserved (see LabSessionService.stopExecution). */
+  @Post("lab-sessions/:sessionId/stop-execution")
+  stopExecution(@CurrentUser() user: AuthenticatedUser, @Param("sessionId", ParseUUIDPipe) sessionId: string) { return this.labSessions.stopExecution(user, sessionId); }
+
   @Post("lab-sessions/:sessionId/end")
   end(@CurrentUser() user: AuthenticatedUser, @Param("sessionId", ParseUUIDPipe) sessionId: string) { return this.labSessions.end(user, sessionId); }
 

@@ -204,4 +204,19 @@ describeDb('real PostgreSQL Classroom Lab Session', () => {
     expect(count).toBe(2);
     await expect(allocate(w.room2.id, w.robotA.id)).rejects.toThrow();
   });
+
+  it('Stop Execution stops only the current run: the reservation stays active, only the session\'s instructor may use it, and an ended session refuses it', async () => {
+    const w = await world();
+    const session = await service.start(w.teacher1, w.room1.id, { robotId: w.robotA.id });
+    await expect(service.stopExecution(w.teacher2, session.id)).rejects.toBeInstanceOf(NotFoundException);
+    control.active = true;
+    await expect(service.stopExecution(w.teacher1, session.id)).resolves.toMatchObject({ controlActive: true, stopRequested: true });
+    expect(control.stops).toBe(1);
+    expect((await open(w.robotA.id))[0]?.state).toBe('active');                                      // reservation preserved
+    await expect(service.start(w.teacher2, w.room2.id, { robotId: w.robotA.id })).rejects.toMatchObject({ response: { code: 'ROBOT_RESERVED_BY_ANOTHER_CLASSROOM' } });
+    control.active = false;
+    await expect(service.stopExecution(w.teacher1, session.id)).resolves.toMatchObject({ controlActive: false });
+    await service.end(w.teacher1, session.id);
+    await expect(service.stopExecution(w.teacher1, session.id)).rejects.toMatchObject({ response: { code: 'LAB_SESSION_NOT_ACTIVE' } });
+  });
 });

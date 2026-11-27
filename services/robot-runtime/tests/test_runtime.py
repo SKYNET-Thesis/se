@@ -409,3 +409,58 @@ class CloudSimulationDeviceTests(unittest.TestCase):
             bridge.connect(iot.TlsSettings("e", "vista-demo-" + ROBOT, "ca", "cert", "key"))
         self.assertEqual(calls[0]["client_id"], "vista-demo-" + ROBOT)
         self.assertEqual((calls[0]["callback_api_version"], calls[0]["clean_session"]), ("v2", True))
+
+
+class CancelCommandTests(unittest.TestCase):
+    """Stop Execution contract (kind "cancel"): bound to robot, target command, its run, and an ACTIVE run; the stop itself is reported by the terminal status."""
+    def bridge(self):
+        class FakeRuntime:
+            config = {"adapterMode": "fake_follower"}
+            active = None
+            cancelled: list = []
+            def submit(self, _value): FakeRuntime.active = "run-1"; return {"state": "running", "runId": "run-1"}
+            def status(self): return {"hardwareEnabled": True, "stopped": False, "activeRunId": FakeRuntime.active}
+            def cancel_run(self, run_id): FakeRuntime.cancelled.append(run_id); return {"state": "cancelled", "runId": run_id}
+            def get(self, run_id): return {"state": "running", "runId": run_id}
+        FakeRuntime.cancelled = []
+        t = [10_000]
+        def clock():
+            t[0] += 1; return t[0]
+        b = IotBridge({"thingName": "vista-demo-" + ROBOT, "robotId": ROBOT, "topicPrefix": "p/" + ROBOT, "watchProgress": False}, FakeRuntime(), clock=clock)
+        b.handle_command({"schemaVersion": 1, "kind": "run", "commandId": CMD, "robotId": ROBOT, "sequence": 100, "expiresAtMs": 10**12, "payload": {}})
+        b.acks.clear()
+        return b, FakeRuntime
+
+    def cancel(self, **over):
+        base = {"schemaVersion": 1, "kind": "cancel", "commandId": "33333333-3333-4333-8333-333333333333", "robotId": ROBOT, "sequence": 200, "expiresAtMs": 10**12, "payload": {"targetCommandId": CMD, "runId": "run-1", "reason": "lab_session_stop"}}
+        base.update(over); return base
+
+    def test_accepts_a_cancel_bound_to_the_active_run_and_does_not_claim_the_stop(self):
+        b, rt = self.bridge()
+        b.handle_command(self.cancel())
+        self.assertEqual([(a["status"], a.get("code")) for a in b.acks], [("accepted", None)])
+        self.assertEqual(rt.cancelled, ["run-1"])
+        self.assertFalse(any(v.get("status") in {"stopped", "completed"} for _t, v in b._publications))   # the ACK is not a stop confirmation
+
+    def test_rejects_wrong_robot_unknown_target_wrong_run_stale_and_replayed_cancels(self):
+        b, rt = self.bridge()
+        b.handle_command(self.cancel(robotId="other", sequence=200)); b.handle_command(self.cancel(commandId="44444444-4444-4444-8444-444444444444", sequence=201, payload={"targetCommandId": "nope", "runId": "run-1", "reason": "x"}))
+        b.handle_command(self.cancel(commandId="55555555-5555-4555-8555-555555555555", sequence=202, payload={"targetCommandId": CMD, "runId": "run-OTHER", "reason": "x"}))
+        b.handle_command(self.cancel(commandId="66666666-6666-4666-8666-666666666666", sequence=1))                      # not newer than the last command
+        b.handle_command(self.cancel(commandId="77777777-7777-4777-8777-777777777777", sequence=203, payload={"targetCommandId": CMD, "runId": "run-1"}))   # missing reason
+        self.assertEqual([(a["status"], a.get("code")) for a in b.acks],
+                         [("rejected", "command_identity_invalid"), ("rejected", "cancel_target_unknown"), ("rejected", "cancel_target_mismatch"), ("rejected", "command_replayed"), ("rejected", "command_payload_invalid")])
+        self.assertEqual(rt.cancelled, [])
+
+    def test_a_cancel_for_a_finished_run_cannot_stop_a_later_run(self):
+        b, rt = self.bridge()
+        rt.active = None                                                                                                # the run already ended
+        b.handle_command(self.cancel())
+        self.assertEqual((b.acks[-1]["status"], b.acks[-1]["code"]), ("rejected", "cancel_target_not_active"))
+        self.assertEqual(rt.cancelled, [])
+
+    def test_duplicate_cancel_is_idempotent(self):
+        b, rt = self.bridge()
+        b.handle_command(self.cancel()); b.handle_command(self.cancel())
+        self.assertEqual([a["status"] for a in b.acks], ["accepted", "accepted"])
+        self.assertEqual(rt.cancelled, ["run-1"])                                                                       # cancelled once

@@ -177,6 +177,24 @@ export class LabSessionService {
     return this.terminate(sessionId, { userId: user.vistaUserId, role: "instructor", reason: "ended_by_instructor" });
   }
 
+  /**
+   * Stop Execution: asks the runtime to stop the student's CURRENT run and nothing else. The Lab Session and the classroom reservation are untouched; the
+   * next student may start only after the run's terminal status releases the individual control session (Layer B). Distinct from End Lab Session
+   * (which also ends the reservation) and from Emergency Stop (a local Edge safety mechanism that never depends on the cloud).
+   */
+  async stopExecution(user: AuthenticatedUser, sessionId: string) {
+    await this.requireSchema();
+    const target = await this.sessionRobot(sessionId);
+    await this.classroomForInstructor(user, target.classroom_id);
+    const state = await this.prisma.$queryRaw<Array<{ state: LabSessionState }>>`SELECT state FROM public.classroom_lab_sessions WHERE id=${sessionId}::uuid`;
+    if (state[0]?.state !== "active") throw labSessionError("conflict", "LAB_SESSION_NOT_ACTIVE", "Only an active Lab Session can stop a student's execution; use End Lab Session instead.");
+    const stop = await this.physical.requestRobotStop(target.robot_id);
+    return {
+      controlActive: stop.active, stopRequested: stop.stopRequested, runtimeUnavailable: stop.runtimeUnavailable,
+      message: !stop.active ? "No student run is active." : stop.runtimeUnavailable ? "The runtime could not be reached; the run is still considered active." : stop.stopRequested ? "Stop requested. The robot stays reserved for this classroom; the next student can start after the run's terminal status confirms the stop." : "The run has not reached the runtime yet; try again shortly.",
+    };
+  }
+
   async forceEnd(user: AuthenticatedUser, sessionId: string, dto: { reason: string; confirm: boolean }) {
     await this.requireSchema();
     const target = await this.sessionRobot(sessionId).catch(() => { throw labSessionError("not_found", "LAB_SESSION_NOT_FOUND", "Lab Session was not found."); });

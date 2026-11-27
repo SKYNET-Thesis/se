@@ -30,6 +30,7 @@ class IotBridge:
         self.last_sequence, self.acks, self._publications, self._client, self.connected = -1, [], [], None, False
         self._shadow_publications: list[tuple[str, dict[str, Any]]] = []
         self._seen_commands: dict[str, tuple[str, str | None]] = {}
+        self._run_by_command: dict[str, str] = {}      # command id -> runtime run id, so a cancel is bound to the run it names
         self._max_seen_commands = max(1, int(config.get("commandDedupLimit", 1024)))
         self._retry_seconds = 1
         self._reported: set[tuple[str, str]] = set()
@@ -144,7 +145,31 @@ class IotBridge:
     def _remember_command(self, command_id: str, status: str, code: str | None) -> None:
         self._seen_commands[command_id] = (status, code)
         while len(self._seen_commands) > self._max_seen_commands: self._seen_commands.pop(next(iter(self._seen_commands)))
+    def _handle_cancel(self, command: dict[str, Any]) -> None:
+        """Stop Execution for ONE run. Bound to this robot, to the target command's own run and to a run that is still active, so a stale or
+        misdirected cancel can never stop an unrelated later run. The ACK only says the request was accepted; the stop is reported solely by the
+        target command's terminal status (`failed`, code `cancelled`) published by the watcher after the runtime has actually stopped the run."""
+        command_id, robot_id, sequence, expires, payload = command.get("commandId"), command.get("robotId"), command.get("sequence"), command.get("expiresAtMs"), command.get("payload")
+        if not isinstance(command_id, str) or not command_id or robot_id != self.robot_id or not isinstance(sequence, int) or isinstance(sequence, bool) or not isinstance(expires, int): self._ack(command, "rejected", "command_identity_invalid"); return
+        previous = self._seen_commands.get(command_id)
+        if previous is not None: self._ack(command, *previous); return
+        if expires <= self.clock(): self._ack(command, "rejected", "command_expired"); return
+        if sequence <= self.last_sequence: self._ack(command, "rejected", "command_replayed"); return
+        if not isinstance(payload, dict) or set(payload) != {"targetCommandId", "runId", "reason"} or not all(isinstance(payload[k], str) and payload[k] for k in payload): self._ack(command, "rejected", "command_payload_invalid"); return
+        self.last_sequence = sequence
+        target_run = self._run_by_command.get(payload["targetCommandId"])
+        status, code = "rejected", "cancel_target_unknown"
+        if target_run is not None and target_run == payload["runId"]:
+            active = self.runtime.status().get("activeRunId")
+            if active == target_run:
+                snapshot = self.runtime.cancel_run(target_run) if hasattr(self.runtime, "cancel_run") else None
+                status, code = ("accepted", None) if isinstance(snapshot, dict) else ("rejected", "cancel_unavailable")
+            else: code = "cancel_target_not_active"
+        elif target_run is not None: code = "cancel_target_mismatch"
+        self._remember_command(command_id, status, code); self._ack(command, status, code)
+
     def handle_command(self, command: Any) -> None:
+        if isinstance(command, dict) and command.get("schemaVersion") == 1 and command.get("kind") == "cancel": self._handle_cancel(command); return
         if not isinstance(command, dict) or command.get("schemaVersion") != 1 or command.get("kind") != "run": self._ack(command if isinstance(command, dict) else {}, "rejected", "command_invalid"); return
         command_id, robot_id, sequence, expires = command.get("commandId"), command.get("robotId"), command.get("sequence"), command.get("expiresAtMs")
         if not isinstance(command_id, str) or not command_id or robot_id != self.robot_id or not isinstance(sequence, int) or isinstance(sequence, bool) or not isinstance(expires, int): self._ack(command, "rejected", "command_identity_invalid"); return
@@ -162,7 +187,11 @@ class IotBridge:
         except Exception as error:
             LOG.warning("iot command rejected: %s", type(error).__name__)
         self._remember_command(command_id, status, code); self._ack(command, status, code)
-        if status == "accepted": self._track(command_id, sequence, snapshot)
+        if status == "accepted":
+            if isinstance(snapshot, dict) and isinstance(snapshot.get("runId"), str):
+                self._run_by_command[command_id] = snapshot["runId"]
+                while len(self._run_by_command) > self._max_seen_commands: self._run_by_command.pop(next(iter(self._run_by_command)))
+            self._track(command_id, sequence, snapshot)
         self.publish_state()
     def publish_state(self) -> None:
         status = self.runtime.status()
