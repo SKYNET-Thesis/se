@@ -1,3 +1,4 @@
+import { summarizeRubric } from "./rubric-score";
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { classifyExecution } from "./execution-provenance";
@@ -151,7 +152,16 @@ export class AssessmentService {
       WHERE f.author_user_id<>${user.vistaUserId}::uuid AND (f.attempt_id=${attemptId}::uuid
         OR f.submission_id IN (SELECT s.id FROM public.learning_submissions s WHERE s.attempt_id=${attemptId}::uuid AND s.learner_user_id=${user.vistaUserId}::uuid))
       ORDER BY f.created_at ASC`;
-    return { attemptId, released:true, releasedAt:attempts[0].grading_released_at, score:attempts[0].score===null?null:Number(attempts[0].score), assessment:assessment[0]??null, feedback };
+    // Canonical rubric summary (additive): computed from EVERY criterion of the assignment, an ungraded criterion counts in the maximum.
+    const rubric=await this.prisma.$queryRaw<{max_points:string|number;awarded_points:string|number|null}[]>`
+      SELECT c.max_points,sc.awarded_points
+      FROM public.learning_submissions s
+      JOIN public.learning_rubric_criteria c ON c.assignment_id=s.assignment_id
+      LEFT JOIN public.learning_assessments ass ON ass.submission_id=s.id
+      LEFT JOIN public.learning_assessment_scores sc ON sc.assessment_id=ass.id AND sc.criterion_id=c.id
+      WHERE s.attempt_id=${attemptId}::uuid AND s.learner_user_id=${user.vistaUserId}::uuid ORDER BY c.ordinal`;
+    const summary=rubric.length>0 && assessment[0] ? summarizeRubric(rubric.map(r=>({maxPoints:r.max_points,awardedPoints:r.awarded_points}))) : null;
+    return { attemptId, released:true, releasedAt:attempts[0].grading_released_at, score:attempts[0].score===null?null:Number(attempts[0].score), assessment:assessment[0]??null, summary, feedback };
   }
 
   /** Instructor release of one attempt's grading and feedback (idempotent; the release is attempt-level for every assignment type). */

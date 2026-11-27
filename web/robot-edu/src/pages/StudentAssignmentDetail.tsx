@@ -83,6 +83,7 @@ export function StudentAssignmentDetail() {
             <li key={criterion.id} className="flex items-start justify-between gap-4 px-4 py-3 text-sm"><div><p className="font-medium text-ink">{criterion.title}</p>{criterion.description && <p className="mt-0.5 text-ink-muted">{criterion.description}</p>}</div><span className="shrink-0 text-ink-muted">{criterion.maxPoints} points</span></li>
           ))}
         </ul>
+        <p className="mt-2 text-right text-xs text-ink-muted tabular-nums" data-testid="rubric-total">Total: {(item.rubric ?? []).reduce((sum, criterion) => sum + Number(criterion.maxPoints), 0)} points</p>
       </section>
     )}
     <section className="mt-8">

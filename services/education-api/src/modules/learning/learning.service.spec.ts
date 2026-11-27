@@ -479,6 +479,7 @@ describe("LearningService assignment delivery", () => {
       expect(sql).toContain("score");
       expect(sql).toContain("score_max");
       expect(sql).toContain("assessment_max");
+      expect(sql).toContain("rc.assignment_id=ca.assignment_id");   // D-15: the maximum counts EVERY rubric criterion, not only the scored rows
       expect(sql).toContain("teacher_feedback");
       expect(sql).toContain("status");
     }

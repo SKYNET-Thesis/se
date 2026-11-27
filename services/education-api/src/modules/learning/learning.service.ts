@@ -534,7 +534,7 @@ export class LearningService {
           CASE WHEN latest.grading_released_at IS NOT NULL
             THEN (SELECT SUM(sc.awarded_points)::float FROM public.learning_assessment_scores sc WHERE sc.assessment_id=ass.id) END AS assessment_score,
           CASE WHEN latest.grading_released_at IS NOT NULL
-            THEN (SELECT SUM(rc.max_points)::float FROM public.learning_assessment_scores sc JOIN public.learning_rubric_criteria rc ON rc.id=sc.criterion_id WHERE sc.assessment_id=ass.id) END AS assessment_max
+            THEN (SELECT SUM(rc.max_points)::float FROM public.learning_rubric_criteria rc WHERE ass.id IS NOT NULL AND rc.assignment_id=ca.assignment_id) END AS assessment_max   -- canonical denominator: EVERY criterion (D-15), same rule as rubric-score.ts
         FROM public.learning_submissions s
         LEFT JOIN public.learning_assessments ass ON ass.submission_id=s.id
         WHERE s.assignment_id=ca.assignment_id AND s.learner_user_id=${user.vistaUserId}::uuid AND s.status<>'draft'

@@ -39,3 +39,9 @@ Feature Freeze: only defect/security fixes and IoT-compatibility changes after t
 
 ## Update (completion sprint)
 Merged into `develop`: #260, #262, #261, #258 (2026-11-27 14:30–14:31Z). Remaining for the release: **#264** (follow-up UI/test/docs; no migration, no IAM), then the `develop`→`main` release PR, `deploy-api` (also deploys the Twin) and `deploy-web`, then `terraform apply reviewed.plan` (plan must be re-validated first: `terraform plan` with the five live IoT/recordings variables must still show 0 add / 1 change / 0 destroy). #263 stays a draft until D-06 is decided. Owner decisions pending: D-06, D-11 (legacy PUT allocation semantics), WF-01..04 open decisions in `WF01_WF04_DEFINITION_PACKAGE.md`, approval of the Production test content (`PRODUCTION_TEST_DATA_MANIFEST.md`), Paper MCP re-authentication.
+
+
+## Update (2026-11-28)
+- Merged: #264 (develop `e245aa8`). Open: **#265** (rubric summary + scoring panel + deep-page review; no migration), draft **#263** (D-06, needs approval), and the release PR **#266 develop → main** (no database/prisma changes; only `infra/terraform/compute.tf`). Production still `430ad59`.
+- Terraform plan re-validated 2026-11-27T17:10Z with the five live variables: **0 add / 1 change / 0 destroy**, only `aws_iam_role_policy.ec2` (+`ExperimentEvidenceObjectAccess`); files in `~/.vista-acceptance/20261127-phaseA/tfplan/` (`recheck2.plan` is the latest). Not applied.
+- Order: merge #265 (optional), merge #266, approve `deploy-api` (also deploys the Twin) and `deploy-web`, `terraform apply`, then post-release acceptance. Owner decisions: `OWNER_DECISIONS_WF01_WF04.md`.

@@ -36,3 +36,18 @@ Paper MCP: tools are listed but every call returns "Paper account setup is incom
 | Student run panel (WF-03) | Student | no Digital Twin in the run panel; success text claimed evidence unconditionally | attempt-scoped Twin panel; truthful evidence text (#262) | — (needs a live run; covered by `digital-twin-*` specs) | — | **Improved (functional)** |
 
 **Not captured / not reviewed visually (no data or route in the fixture):** quiz taking and quiz result views, assignment detail/submission screens, rubric scoring and evidence viewer, gradebook, Question Bank, Excel import wizard, Learning Media upload, Quiz Builder. These are covered functionally by Playwright (`lms-module-quiz`, `lms-assignment-grading`, `qb-import`, `lms-lesson-media`, `lms-authoring`) but **no new visual review was done for them**; listed as follow-up, not claimed.
+
+
+## Addendum — deep pages (2026-11-28, previously unreviewed)
+Captured on the isolated stack with synthetic fixtures at 1440 and 390 px (`tests/e2e/ui-screens-deep.spec.ts`); images in `docs/acceptance/screenshots/ui-deep/`.
+| Page | Role | Finding | Change | Responsive | Status |
+|---|---|---|---|---|---|
+| Student quiz landing (`…/activities/:quiz`) | Student | clear start card, "what to expect" panel | none | 1440/390 reviewed | Reviewed, meets standard (quiz **taking** and **result** views need an in-progress quiz attempt: covered by `lms-module-quiz`, not re-photographed) |
+| Student reading activity | Student | clean | none | reviewed | Reviewed |
+| Student assignment detail | Student | rubric list had no total | "Total: N points" under "How this is graded" | reviewed | **Improved** |
+| Instructor submissions list | Instructor | clear stats and table | none | reviewed | Reviewed |
+| Instructor submission review + **rubric scoring** | Instructor | criterion rows lacked description, a points field detached from its criterion, no ungraded cue, no running total | criterion cards with description, points beside the criterion, **"Not graded" vs "x of N"**, live total / percentage / score of 10 / rating (twin of the API contract) | reviewed at 1440 and 390 (stacks cleanly) | **Improved** |
+| Course Builder (curriculum, details, media library, settings) | Admin | dense but organised | none | reviewed | Reviewed |
+| Quiz Builder (info + **Questions / Question Bank** tab) | Admin | clear; points per question visible | none | reviewed | Reviewed |
+| Excel/CSV **Import wizard** dialog | Admin | not captured (button inside the Questions tab opens the dialog; automation did not reach it) | — | — | **NOT reviewed visually** (functionally covered by `qb-import`, `global-course-question-authoring`) |
+| Evidence viewer, **Gradebook** | — | no rubric Gradebook exists; evidence panel shows "No persisted experiment evidence" for the fixture | — | — | Gradebook: **not applicable/gap** (decision W4-5); evidence viewer with a real artifact: NOT captured (needs a WF-03 run) |

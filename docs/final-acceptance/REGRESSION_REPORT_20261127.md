@@ -34,3 +34,8 @@ Specs that collect `pageerror` (`course-builder-delivery`, `student-auth-session
 
 ## Simulation safety cases (local)
 Covered by real-PostgreSQL specs, all green in the DB run above: `lab-session.db.spec` (simultaneous Start ×5 → one winner, controlled termination, quarantine, expiry, Force End), `lab-session-safe-stop.spec`, `lab-session-stop.spec`, `iot-feedback.service.spec` (stale/duplicate feedback), `iot-publish-recovery.*`, Twin `test_attempt_scope` (revocation, isolation). Runtime disconnect on a live run and Stop Execution against a long run were **not executed end to end** (the CHECKIK fake follower completes in about 0.5 s; CC-4 adds a longer fixture).
+
+
+## Addendum (2026-11-28) — rubric/grading changes (PR #265)
+Local, fresh stacks with R1 + CHECKIK: `lms-assignment-grading` 1/1, `lms-beginner-lab` 1/1, `lms-independent` 9/9, `blockly-simulation` 1/1 pass against the new scoring panel (selectors `Points / N`, `Save assessment` preserved). Jest `rubric-score` 6, `assessment*.spec` 33, Vitest 282 (pages + queries) pass; tsc clean. **Not re-run after #265:** the full 208-test Playwright pass, the Jest DB suite and the GoTrue harness (the change touches only grading read paths and the instructor/student grading components; the grading-related specs above were re-run).
+Remaining inconsistency: the student *assignment list* still derives `assessment_score/assessment_max` from scored rows only (`learning.service.ts` ~L537); it differs from the canonical `summary` only for a partially graded, already released legacy grade. Tracked as D-15.
