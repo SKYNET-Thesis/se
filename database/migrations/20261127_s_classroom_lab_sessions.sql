@@ -1,5 +1,5 @@
--- Staged migration S: Classroom Lab Session (classroom-level exclusive robot reservation) and many-to-many robot allocation.
--- NOT part of the release manifest and NOT approved for Production. Additive except for ONE relaxation (below). Idempotent. No data is rewritten.
+-- Migration S: Classroom Lab Session (classroom-level exclusive robot reservation) and many-to-many robot allocation.
+-- Released only through the approval-gated Production Database Release (scope S). Additive except for ONE relaxation (below). Idempotent. No data is rewritten.
 -- Depends on: L (runtime role), K (permissions/roles), the WF-01 allocation table. Preserves robots, entitlements, allocations, experiments, recordings and users.
 --
 -- 1. classroom_lab_sessions: server-authoritative reservation of ONE robot by ONE classroom for a bounded, supervised practical session.
@@ -10,15 +10,15 @@
 --    constraint because they already satisfy the stricter one.
 -- 3. permission education.lab_session.manage for the instructor role (start / extend / end a Lab Session of a classroom they teach).
 --
--- COMPATIBILITY: the currently deployed API issues `ON CONFLICT (classroom_id)` against the allocation table. Apply this migration ONLY together with
--- (or after) the API build that uses (classroom_id, robot_id); applying it earlier makes the deployed allocation endpoint fail with 42P10.
+-- COMPATIBILITY: the pre-Lab-Session API (f0b3d87 and older) issues `ON CONFLICT (classroom_id)` against the allocation table. Apply this migration only AFTER
+-- the Lab-Session-aware API (PR #243 or later, tolerant of both schemas) is deployed; applying it earlier makes the old allocation endpoint fail with 42P10.
+-- After it is applied never redeploy a pre-Lab-Session image (the rollback-guard job in Education CI enforces this).
 -- Rollback (after the API build that uses it no longer runs, and only while every classroom has at most one allocation):
 --   ALTER TABLE public.learning_classroom_robot_allocations DROP CONSTRAINT learning_classroom_robot_allocations_classroom_robot_key;
 --   ALTER TABLE public.learning_classroom_robot_allocations ADD CONSTRAINT learning_classroom_robot_allocations_classroom_id_key UNIQUE (classroom_id);
 --   DROP TABLE public.classroom_lab_sessions;
 --   DELETE FROM public.role_permissions WHERE permission_id IN (SELECT id FROM public.permissions WHERE code='education.lab_session.manage');
 --   DELETE FROM public.permissions WHERE code='education.lab_session.manage';
-BEGIN;
 DO $$
 BEGIN
   IF to_regclass('public.organizations') IS NULL OR to_regclass('public.users') IS NULL OR to_regclass('public.robots') IS NULL
@@ -85,4 +85,3 @@ ON CONFLICT (code) DO UPDATE SET description=EXCLUDED.description;
 INSERT INTO public.role_permissions(role_id, permission_id)
 SELECT r.id, p.id FROM public.roles r, public.permissions p WHERE r.code='instructor' AND r.scope='organization' AND p.code='education.lab_session.manage'
 ON CONFLICT DO NOTHING;
-COMMIT;

@@ -58,7 +58,9 @@ class NVerifierOnBootstrappedDatabaseTests(unittest.TestCase):
 
     def test_the_catalog_is_unchanged_by_a_column_only_release(self):
         scope = json.loads((ROOT / "database/release-scopes.json").read_text())["scopes"]["N"]
-        self.assertEqual(base.query(URL, n.CATALOG_SQL), scope["expectedCatalogAfter"])
+        # N itself changes no catalog object; on a database that already carries later released scopes (S adds a table) the pinned deltas of those scopes explain the rest.
+        self.assertEqual(n.expected_catalog(ROOT, "N", set(self.pre()["ledger"]) | {n.VERSION, "20261127_s_classroom_lab_sessions"}), base.query(URL, n.CATALOG_SQL))
+        self.assertEqual(scope["expectedCatalogAfter"], scope["expectedCatalogBefore"])   # the scope's own delta is still pinned as zero
 
     def test_a_forced_student_is_detected_as_a_backfill_violation_and_reverted(self):
         pre = self.pre()
