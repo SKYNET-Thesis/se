@@ -363,7 +363,8 @@ export interface ApiSubmissionFile { id: string; attempt_id: string; original_fi
 export interface ApiPresignedPost { url: string; fields: Record<string, string>; }
 export interface ApiGradingScore { criterionId: string; title: string; maxPoints: number | string; awardedPoints: number | string; comment: string | null; }
 /** Until an instructor releases an attempt the server returns ONLY { attemptId, released: false }. */
-export type ApiAttemptGrading = { attemptId: string; released: false } | { attemptId: string; released: true; releasedAt: string; score: number | null; assessment: { overallFeedback: string | null; reviewedAt: string | null; scores: ApiGradingScore[] } | null; feedback: Array<{ id: string; feedbackType: string; content: string; createdAt: string }> };
+export interface ApiRubricSummary { awarded: number; max: number; percentage: number; scoreOutOf10: number; rating: 'Excellent' | 'Good' | 'Satisfactory' | 'Needs Improvement' | 'Needs Review'; gradedCriteria: number; totalCriteria: number; complete: boolean }
+export type ApiAttemptGrading = { attemptId: string; released: false } | { attemptId: string; released: true; releasedAt: string; score: number | null; assessment: { overallFeedback: string | null; reviewedAt: string | null; scores: ApiGradingScore[] } | null; summary?: ApiRubricSummary | null; feedback: Array<{ id: string; feedbackType: string; content: string; createdAt: string }> };
 export interface ApiDraftAnswer { questionId: string; optionId?: string; optionIds?: string[]; }
 export interface ApiExperiment { id: string; status: string; execution_mode: string; input_snapshot?:{attemptId?:string;programVersionId?:string}; submission_id?:string; }
 export interface ApiSymbolicRuleResult { ordinal: number; type: string; passed: boolean; expected: Record<string, unknown>; observed: Record<string, unknown>; evidence: Array<{ timelineIndex?: number }>; reason: string; code?: string; message?: string; }

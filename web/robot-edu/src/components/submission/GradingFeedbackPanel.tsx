@@ -12,11 +12,13 @@ export function GradingFeedbackPanel({ attemptId, token, submitted }: { attemptI
   if (grading.error || !grading.data) return <p role="alert" className="mt-6 text-sm text-danger">The grade could not be loaded.</p>;
   const data = grading.data;
   if (!data.released) return <section aria-label="Grade and feedback" className="mt-6 rounded-md border border-line bg-sunken/40 p-4"><p className="font-medium text-ink">Awaiting review</p><p className="mt-1 text-sm text-ink-muted">Your instructor has not released a grade or feedback for this attempt yet.</p></section>;
-  const total = data.assessment ? gradeSummary(data.assessment.scores) : null;
+  const summary = data.summary ?? null;                                           // canonical server-side summary (all criteria counted in the maximum)
+  const total = data.assessment ? (summary ? { awarded: summary.awarded, max: summary.max } : gradeSummary(data.assessment.scores)) : null;
   return <section aria-label="Grade and feedback" className="mt-6 rounded-md border border-accent/40 p-5">
     <div className="flex items-start justify-between gap-4">
       <div><h3 className="text-lg font-semibold text-accent-ink">Grade received</h3><p className="text-xs text-ink-subtle">Released {new Date(data.releasedAt).toLocaleString()}</p></div>
       {total && total.max > 0 && <p className="rounded-full bg-sunken px-4 py-2 text-lg font-semibold text-ink" aria-label={`Score ${total.awarded} out of ${total.max}`}>{total.awarded}<span className="text-sm text-ink-muted">/{total.max}</span></p>}
+      {summary && summary.totalCriteria > 0 && <p className="basis-full text-right text-xs text-ink-muted sm:basis-auto" data-testid="rubric-summary">{summary.percentage}% · {summary.scoreOutOf10}/10 · <span className="font-medium text-ink">{summary.rating}</span>{!summary.complete && <span> · {summary.totalCriteria - summary.gradedCriteria} criterion not graded</span>}</p>}
     </div>
     {data.assessment?.overallFeedback && <p className="mt-4 whitespace-pre-wrap text-sm text-ink">{data.assessment.overallFeedback}</p>}
     {data.assessment && data.assessment.scores.length > 0 && <table className="mt-4 w-full text-left text-sm"><thead><tr className="text-xs uppercase tracking-wide text-ink-subtle"><th className="py-1 font-medium">Criterion</th><th className="py-1 text-right font-medium">Points</th></tr></thead>
