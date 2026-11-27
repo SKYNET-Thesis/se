@@ -123,7 +123,19 @@ export class PhysicalExecutionService {
     if (scope.robot_id) {
       const active = await this.activeSession(this.prisma, scope.robot_id);
       activeSession = Boolean(active);
-      try {
+      if (this.iot?.simulationStartEnabled()) {
+        // Cloud simulation: the runtime is the Edge behind AWS IoT, observed through its Device Shadow (the loopback HTTP runtime does not exist here). Without
+        // this the student UI cannot tell a simulation robot from a physical one and shows the physical-motion wording.
+        try {
+          const shadow = await this.iot.readShadow(scope.robot_id);
+          const age = Date.now() - Number(shadow?.reportedAtMs);
+          runtimeOnline = Boolean(shadow && shadow.connection === "connected" && Number.isFinite(age) && age >= -5000 && age <= this.iot.shadowMaxAgeMs());
+          runtimeStopped = shadow?.stopped === true;
+          if (runtimeOnline && shadow?.runtimeKind === "MOCK_RUNTIME" && shadow.hardwareEnabled === false) {
+            runtimeMode = "fake_follower"; checkikReachable = true; robotReady = !runtimeStopped;
+          }
+        } catch { /* runtime offline */ }
+      } else try {
         const snap = await this.runtime.status(scope.robot_id);
         if (snap) {
           runtimeOnline = true;

@@ -180,8 +180,9 @@ export class ProgrammingService {
         : { completedLessonId: null, newlyUnlockedLessonIds: [] };
       return { ...submissions[0], evaluated, progression };
     });
-    // The final submission ends the right to watch this attempt live: close its Twin viewers now (best-effort, never blocks the submission).
-    void this.twinRevocation?.revoke({ attemptIds: [attemptId] });
+    // NOTE: a final submission must NOT revoke the attempt in the Digital Twin. The authorized robot experiment (WF-03) runs on the SUBMITTED attempt, so a
+    // permanent Twin revocation here made the Twin reject every simulation/physical telemetry frame of that run (403) and refuse its viewer. Viewers are
+    // revoked when access really ends (classroom archived, student removed/suspended, organization disabled, allocation replaced/removed).
     return result;
   }
 

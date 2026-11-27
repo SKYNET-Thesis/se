@@ -80,6 +80,19 @@ describeDb('real PostgreSQL attempt-based submissions', () => {
   const row = async (sql: Promise<unknown[]>) => (await sql)[0] as Record<string, unknown>;
   const fingerprint = (id: string) => row(db.$queryRaw`SELECT md5(s::text) AS h FROM public.learning_submissions s WHERE id=${id}::uuid`);
 
+  it('regression: the final submission does not revoke the attempt in the Digital Twin (the authorized run happens on the SUBMITTED attempt)', async () => {
+    // Real ProgrammingService.submit against real PostgreSQL. Revoking here made the Twin reject every telemetry frame of the later WF-03 run (Production, 2026-11-27).
+    const revoke = jest.fn(async () => ({ requested: 0, accepted: 0, unavailable: 0, rejected: 0 }));
+    const spied = new ProgrammingService(db as never, scope, undefined, undefined, { revoke, prepare: jest.fn() } as never);
+    const f = await fixture();
+    const attempt = await learning.startAttempt(f.user, f.delivery.id) as { id: string; attempt_number: number };
+    const created = await spied.createProgram(f.user, attempt.id, { title: 'P', workspaceJson: { blocks: [{ type: 'robot_wait' }] }, robotProgram: program });
+    const version = await spied.createVersion(f.user, created.id, { changeSummary: 'v' });
+    await spied.submit(f.user, attempt.id, { programVersionId: version.id, reflection: 'r' });
+    expect(revoke).not.toHaveBeenCalled();
+    // ...while real access changes still revoke (the revocation path itself is unchanged and covered in digital-twin-revocation specs).
+  });
+
   it('keeps the first attempt\'s submission, program version and snapshot unchanged after a second attempt', async () => {
     const f = await fixture();
     const first = await submitAttempt(f);
