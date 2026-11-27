@@ -40,3 +40,19 @@ Owner and operator present; E-stop reachable; clear workspace. Order: inventory 
 
 ## 6. Recommended order for 2026-11-28
 1. Owner: approvals for CC-1 (merge/deploy/apply). 2. Claude: retest WF03/WF04 evidence. 3. Codex: CX-1..3 against a **different** client id only if the owner approves a second Thing; otherwise do the R1→Desktop handover (§2). 4. Claude CC-2/CC-4 in parallel. 5. Supervised commissioning (§5). 6. Only then CC-5/CC-7.
+
+## 7. Source verification, inputs/outputs and conflict matrix (verified against the repository on `develop` `2d0b260`)
+| Task | Verified source location | Inputs | Outputs | Interface contract | Blockers |
+|---|---|---|---|---|---|
+| CC-1 | PRs #260/#262 merged; IAM `infra/terraform/compute.tf` (`ExperimentEvidenceObjectAccess`); Twin `services/digital-twin/src/vista_digital_twin/{app,authorization}.py`; scope `learning/digital-twin-scope.service.ts` | owner: release to `main`, `deploy-api`/`deploy-web`, `terraform apply reviewed.plan` | deployed `430ad59`→new SHA; evidence artifact; attempt-viewer frames | EDGE §3–§6 (frame schema), `07-api-and-mqtt-contracts.md` | owner approvals |
+| CC-2 | `learning/iot-feedback.repository.ts:49` (`event.sequence <= lifecycle.last_sequence` → "stale") | SQS ack/status order | exactly-once `iot_ack_acknowledged`, monotonic state | EDGE §7 (ACK/terminal rules) | none (code change on `develop`) |
+| CC-3 | `learning/iot-command.service.ts`, `physical-execution.service.ts`, `iot-publish-recovery.{service,runner}.ts`, `lab-session.service.ts` | command TTL/dedupe rules | defined terminal state per failure | EDGE §2–§7, §14 cancel | CC-4 for live proof |
+| CC-4 | `web/checkIk/wf03_command_adapter.py`, `services/robot-runtime/config/runtime.cloud-simulation.json` | adapter delay parameter (config only) | ≥10 s simulated run | none changed | owner OK to run on Production |
+| CC-5 | `learning/iot-physical-telemetry.bridge.ts`; Production flag (unset) | Codex CX-3 frames (`physical_telemetry`) | `LIVE_PHYSICAL` classified frames | EDGE §6 | owner approval for the flag; Codex CX-3 |
+| CC-6 | `infra/terraform/iot/*` (Thing, cert, policy, rule), `docs/operations/aws-iot-so101.md` | owner decision on a second Thing | none unless approved | policy: one client id per Thing | owner approval |
+| CC-7 | `learning/lab-session.service.ts` (`edgeStopUnconfirmed`, quarantine), `physical-execution.service.ts` start gate | Shadow `armed`, `stopped`, `fault` | API refuses start unless armed+fresh | EDGE §1 Shadow fields | Codex CX-3/CX-5, hardware |
+| CX-1…CX-6 | Desktop repo `leduc121/vista_lab` (local `vistadesktop/vista-lab-station`; **not touched tonight**); reference implementation `services/robot-runtime/src/{iot.py,runtime.py}` (`runtime.py:199,207` reject every adapter except `fake_follower`); runbooks `docs/operations/PHYSICAL_COMMISSIONING_RUNBOOK_20261127.md`, `DESKTOP_TWIN_AI_HANDOFF_20261124.md` | cert files in `~/vista-edge-certs/`, robot UUID, Thing, endpoint, `runtime.cloud-simulation.json` shape | Shadow, ack/status/telemetry per contract; recordings | `EDGE_CONTRACT_HANDOFF_20261126.md` (P1–P4, §12–§14) | hardware, operator, owner on site |
+
+**File ownership (no simultaneous edits):** Claude Code edits only `services/education-api/**`, `services/digital-twin/**`, `web/robot-edu/**`, `infra/terraform/**`, `docs/**` except the Edge contract; Codex edits only the Desktop repository. **`docs/operations/EDGE_CONTRACT_HANDOFF_20261126.md` and `services/robot-runtime/**` are shared: change only via a written proposal appended to the contract doc, approved by the owner, then implemented by the owning agent.** R1 stays read-only for Codex.
+
+**Commissioning:** the one-pair sequence in §5 follows the existing supervised runbook `PHYSICAL_COMMISSIONING_RUNBOOK_20261127.md` (which lists two pairs: use only one leader/follower pair first, e.g. L-A/F-A, before F-B/L-B). Nothing was executed.
