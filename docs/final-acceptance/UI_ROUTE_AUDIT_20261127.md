@@ -51,3 +51,16 @@ Captured on the isolated stack with synthetic fixtures at 1440 and 390 px (`test
 | Quiz Builder (info + **Questions / Question Bank** tab) | Admin | clear; points per question visible | none | reviewed | Reviewed |
 | Excel/CSV **Import wizard** dialog | Admin | not captured (button inside the Questions tab opens the dialog; automation did not reach it) | — | — | **NOT reviewed visually** (functionally covered by `qb-import`, `global-course-question-authoring`) |
 | Evidence viewer, **Gradebook** | — | no rubric Gradebook exists; evidence panel shows "No persisted experiment evidence" for the fixture | — | — | Gradebook: **not applicable/gap** (decision W4-5); evidence viewer with a real artifact: NOT captured (needs a WF-03 run) |
+
+
+## Addendum 2 (2026-11-28) — remaining visual reviews (screens actually reached by automation; images in `docs/acceptance/screenshots/ui-final/`)
+| Screen | Evidence | Result |
+|---|---|---|
+| Excel/CSV **Import questions** wizard (dialog: template links, file picker, disabled "Import 0 valid questions" until a valid preview) | `builder-import-wizard-1440/390.png`; the filled wizard (mapping, default points, draft, confirmation checkbox) is driven by `qb-pilot-import` UI test (passes) | Reviewed, meets standard (dialog is compact, keyboard reachable, same palette) |
+| Quiz Builder Questions tab (Question Bank search, per-question points, quiz order) | `builder-quiz-questions-1440.png` | Reviewed |
+| **Quiz result** (weighted score ring, PASS/FAIL, rating, points earned, pass mark, "exact match — no partial credit" note, question types, difficulty, objectives, suggested review) | `quiz-result-pass.png`, `quiz-result-fail.png` from `lms-module-quiz` | Reviewed, meets standard |
+| **Evidence viewer with a real synthetic artifact** (instructor review of a WF-03 run on the local stack) | `wf03-instructor-evidence-review.png`, `wf03-student-run-result.png` | Reviewed |
+| Rubric authoring (assignment editor "Grading rubric": criterion, description, max points, total) and rubric scoring (live summary) | visual-audit `teacher-assignment-edit`, deep `instructor-grading-panel` | Reviewed |
+| Quiz **taking** (question page with weights/answers) | not photographed: the fixture's "practice quiz" activity resolves to an assignment landing; `lms-module-quiz` exercises the taking flow (weights visible, answers, submit, result) but takes no screenshot of it | **NOT visually reviewed** |
+| Gradebook | no rubric Gradebook exists (decision W4-5) | gap, not reviewed |
+Machine check: visual-audit `overflow.json` reports 0 px horizontal overflow on every captured LMS/teacher screen at 1440 and 390.

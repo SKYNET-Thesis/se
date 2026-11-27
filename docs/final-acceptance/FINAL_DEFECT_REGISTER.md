@@ -36,3 +36,7 @@ Stop Execution (run lasts ~0.5 s), concurrent control, reconnect during a run, s
 
 | D-15 | Low | Student assignment list shows `SUM(awarded)/SUM(max of scored rows)` while the grading DTO now returns the canonical `summary` (all criteria in the maximum); they differ only for partially graded legacy releases. Two parallel instructor grading components exist (`TeacherSubmissionReview`, `SubmissionReviewDetail`) | historical implementation | Open: after D-06 is decided, point the list at the same function; consolidate the two components |
 | D-06 | (unchanged) | Release gate still **not** implemented in `develop` (#263 draft, red on purpose); rubric spec v0.1 compatibility: `RUBRIC_COMPATIBILITY_MATRIX.md` | owner approval | Open |
+
+| D-15 | (update) | **Fixed and merged (#265)**: the student assignment list now divides by the canonical maximum (all criteria); regression assertion added | — | Closed locally; Production verification after release |
+| D-16 | Info | Multiple-choice quiz grading is **exact match, no partial credit** (shown on the result page). Unchanged by this work | existing rule | **Owner to confirm** the rule is the intended one (the rubric spec says "preserve existing") |
+| D-17 | Info | Quarantine after a runtime disconnect releases only after the run's status is reconciled once the runtime is back (a status read + End retry); nothing releases it autonomously | design | Documented; acceptable; revisit with CC-3 |
