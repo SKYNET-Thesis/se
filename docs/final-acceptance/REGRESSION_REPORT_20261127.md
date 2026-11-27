@@ -39,3 +39,15 @@ Covered by real-PostgreSQL specs, all green in the DB run above: `lab-session.db
 ## Addendum (2026-11-28) — rubric/grading changes (PR #265)
 Local, fresh stacks with R1 + CHECKIK: `lms-assignment-grading` 1/1, `lms-beginner-lab` 1/1, `lms-independent` 9/9, `blockly-simulation` 1/1 pass against the new scoring panel (selectors `Points / N`, `Save assessment` preserved). Jest `rubric-score` 6, `assessment*.spec` 33, Vitest 282 (pages + queries) pass; tsc clean. **Not re-run after #265:** the full 208-test Playwright pass, the Jest DB suite and the GoTrue harness (the change touches only grading read paths and the instructor/student grading components; the grading-related specs above were re-run).
 Remaining inconsistency: the student *assignment list* still derives `assessment_score/assessment_max` from scored rows only (`learning.service.ts` ~L537); it differs from the canonical `summary` only for a partially graded, already released legacy grade. Tracked as D-15.
+
+
+## Addendum (2026-11-28) — simulation safety cases on a long-running isolated fixture (LOCAL, PASS 4/4)
+`web/robot-edu/tests/e2e/wf03-safety-long-run.spec.ts` rewrites the disposable WF-03 fixture's submitted program to ~15 s of waits (disposable DB only; no Production timing, no hardware) and drives the real R1 + CHECKIK fake follower:
+| Case | Result |
+|---|---|
+| Stop Execution (instructor): current run ends (not completed), reservation stays `active` | **PASS** |
+| Concurrent control: a repeated start returns the SAME run (idempotent, no second command); another student cannot read or stop it | **PASS** (a second student's own start on a busy robot is covered by the real-PostgreSQL specs) |
+| End Lab Session during a run: no new runs, safe stop requested, `released` after the runtime confirms | **PASS** |
+| Session expiry (expired `expires_at`): session terminated, run stopped | **PASS** |
+| Runtime disconnect mid-run: never reported `succeeded` (503/`failed`); End with the runtime unreachable → `quarantined`; after R1 restarts and the status is reconciled, release succeeds | **PASS** |
+Findings: quarantine recovery needs the run's status to be reconciled after the runtime returns (a student/status read); nothing releases it autonomously — acceptable, documented in the handoff (CC-3).
