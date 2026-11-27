@@ -45,3 +45,7 @@ Merged into `develop`: #260, #262, #261, #258 (2026-11-27 14:30–14:31Z). Remai
 - Merged: #264 (develop `e245aa8`). Open: **#265** (rubric summary + scoring panel + deep-page review; no migration), draft **#263** (D-06, needs approval), and the release PR **#266 develop → main** (no database/prisma changes; only `infra/terraform/compute.tf`). Production still `430ad59`.
 - Terraform plan re-validated 2026-11-27T17:10Z with the five live variables: **0 add / 1 change / 0 destroy**, only `aws_iam_role_policy.ec2` (+`ExperimentEvidenceObjectAccess`); files in `~/.vista-acceptance/20261127-phaseA/tfplan/` (`recheck2.plan` is the latest). Not applied.
 - Order: merge #265 (optional), merge #266, approve `deploy-api` (also deploys the Twin) and `deploy-web`, `terraform apply`, then post-release acceptance. Owner decisions: `OWNER_DECISIONS_WF01_WF04.md`.
+
+
+## Update (2026-11-28, final develop candidate)
+Merged into develop by the assistant under the owner's develop-merge authorization (all required CI green, no migration, no policy change): #265 (rubric summary + scoring panel + D-15), #268 (safety spec). Develop head at the time of writing: `1f5402f` (plus this docs PR). Not merged by design: #263 (D-06 gate, draft), #267 (migration T proposal, draft), #266 (develop → main, owner only). Production remains `430ad59`. Release PR #266 includes everything on develop except nothing unapproved: the draft PRs are separate branches. Migration requirement for #266: **none** (no `database/` or `schema.prisma` change).

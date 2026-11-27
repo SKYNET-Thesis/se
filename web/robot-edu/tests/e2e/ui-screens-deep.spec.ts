@@ -27,6 +27,17 @@ test('student: quiz, assignment, result', async ({ page }) => {
   await go(page, `/courses/${f.courseId}/lessons/${f.lessonId}/activities/${f.quizActivityId}`); await shoot(page, 'student-quiz');
   await go(page, `/courses/${f.courseId}/lessons/${f.lessonId}/activities/${f.readingActivityId}`); await shoot(page, 'student-reading');
   await go(page, `/my-learning/${f.programDeliveryId}`); await shoot(page, 'student-assignment-detail');
+  // quiz TAKING and RESULT through the real UI
+  await go(page, `/courses/${f.courseId}/lessons/${f.lessonId}/activities/${f.quizActivityId}`);
+  const start = page.getByRole('button', { name: /Start (practice )?quiz|Start attempt/i }).first();
+  if (await start.count()) {
+    await start.click(); await page.waitForTimeout(2000); await shoot(page, 'student-quiz-taking');
+    const option = page.getByRole('radio').first();
+    if (await option.count()) await option.check().catch(() => undefined); else await page.getByRole('checkbox').first().check().catch(() => undefined);
+    await page.waitForTimeout(500);
+    await page.getByRole('button', { name: /submit/i }).first().click().catch(() => undefined);
+    await page.waitForTimeout(2500); await shoot(page, 'student-quiz-result');
+  }
 });
 
 test('instructor: submission review with rubric scoring, then released student result', async ({ page }) => {
@@ -48,6 +59,7 @@ test('admin: course builder, quiz builder, question bank, import wizard, media',
   if (await quizNode.count()) { await quizNode.click(); await page.waitForTimeout(1500); await shoot(page, 'builder-quiz-builder'); }
   await page.getByText('Questions', { exact: true }).first().click().catch(() => undefined); await page.waitForTimeout(1200); await shoot(page, 'builder-quiz-questions');
   const importBtn = page.getByRole('button', { name: 'Import questions' }).first();
+  await importBtn.waitFor({ timeout: 8000 }).catch(() => undefined);
   if (await importBtn.count()) { await importBtn.click(); await page.waitForTimeout(800); await shoot(page, 'builder-import-wizard'); await page.keyboard.press('Escape'); }
   await go(page, `/admin/courses/${f.courseId}?tab=media`); await shoot(page, 'builder-media-library');
   await go(page, `/admin/courses/${f.courseId}?tab=details`); await shoot(page, 'builder-details');

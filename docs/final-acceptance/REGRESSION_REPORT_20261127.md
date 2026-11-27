@@ -51,3 +51,21 @@ Remaining inconsistency: the student *assignment list* still derives `assessment
 | Session expiry (expired `expires_at`): session terminated, run stopped | **PASS** |
 | Runtime disconnect mid-run: never reported `succeeded` (503/`failed`); End with the runtime unreachable → `quarantined`; after R1 restarts and the status is reconciled, release succeeds | **PASS** |
 Findings: quarantine recovery needs the run's status to be reconciled after the runtime returns (a student/status read); nothing releases it autonomously — acceptable, documented in the handoff (CC-3).
+
+
+## FINAL regression on the integrated candidate — develop `1f5402f` (2026-11-28, LOCAL; Production untouched)
+Isolated stack, R1 + CHECKIK fake follower, real GoTrue harness; heavy suites strictly sequential. Per-spec logs: `~/.vista-acceptance/regression/` (outside Git).
+| Suite | Discovered | Passed | Failed | Skipped | Blocked |
+|---|---|---|---|---|---|
+| Playwright main config (51 spec files, incl. the new safety spec) | 212 | **207** | 0 | 5 | **0** |
+| Playwright GoTrue harness UI (5 files) | 18 | **18** | 0 | 0 | 0 |
+| Playwright GoTrue harness API | 13 (9 on a UI-first run) | **13** (clean API-first run) | 0 | 0 | 0 — a UI-first run exhausts single-use fixtures/limiter (environmental, documented) |
+| Jest, whole suite with real PostgreSQL + S3 flags | 1671 | **1645** | 0 | 26 | 2 suites need CI-only databases (`runtime-role-security.db`, `iot-feedback.repository.int`; green in CI `fresh-bootstrap`) |
+| Vitest (web) | 837+ | all pass (last run 282 targeted + 837 full) | 0 | 0 | 0 |
+| Twin pytest (+mujoco) / R1 pytest | 73 / 35 | 72 / 35 | 0 | 1 / 0 | 0 |
+| Question Bank **pilot import** (`VISTA_PILOT_DIR`, normalized from the local pilot package: 180 Vietnamese + 60 English rows) | 2 | **2** | 0 | 0 | 0 |
+| **Visual audit** (opt-in) incl. machine overflow check at 1440/390 | 2 | **2** | 0 | 0 | 0 (`overflow.json`: every screen 0 px) |
+| Simulation safety (long-running fixture) | 4 | **4** | 0 | 0 | 0 |
+Playwright skips: 4 opt-in specs now run separately (pilot import 2, visual audit 2 — counted passed above, not in the 207) plus 1 intentional skip in `platform-invite-security`.
+**`platform-invite-security` (10 pass) and `platform-system-admin` (5 pass) were previously BLOCKED:** resolved by running the repository's `local-gotrue-proxy.mjs` (real GoTrue + signing key converted to PEM + service-role/anon keys from the harness directory) on :54323, and pointing `platform-system-admin` at the harness API (:3012, which has a real service-role key for GoTrue invitations).
+Not done: a separate global browser console/network sweep beyond the suites' own `pageerror`/overflow/404 assertions and the visual-audit overflow check.
