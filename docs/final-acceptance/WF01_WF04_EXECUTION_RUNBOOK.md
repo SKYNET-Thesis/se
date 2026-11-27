@@ -1,5 +1,7 @@
 # WF01–WF04 execution runbook
 
+> Correction (2026-11-27 late): the approved definitions are WF-01 *School Administration & Robot Resource Allocation*, WF-02 *Learning & Assignment Management*, WF-03 *Robot Experiment Execution*, WF-04 *AI/Data Integration & Teacher Review*. The Lab Session below is the 2026-11-27 *refinement* of WF-01/WF-03 authorization, not a separate workflow. The authoritative per-workflow definition is `WF01_WF04_DEFINITION_PACKAGE.md`.
+
 Exactly four registered workflows. All run against Production with synthetic data (`PRODUCTION_TEST_DATA_MANIFEST.md`). Base API `https://api.skynex.best/api/v1`. Result of each as of Production `43dcb60` is in `PRODUCTION_TEST_CASE_MATRIX.md`.
 
 ## WF01 — Robot resource allocation and Lab Session
