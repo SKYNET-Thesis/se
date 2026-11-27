@@ -393,7 +393,15 @@ export class PhysicalExecutionService {
         WHERE experiment_id=${experimentId}::uuid ORDER BY created_at DESC LIMIT 1`;
       const row = lifecycle[0];
       const state = row?.state === "acknowledged" ? "queued" : row?.state === "executing" ? "running" : row?.state === "completed" ? "succeeded" : row?.state === "failed" || row?.state === "timed_out" || row?.state === "publish_failed" || row?.state === "reconciliation_required" ? "failed" : "queued";
-      return this.executionDto(execution, { state, startedAtMs: row?.acknowledged_at?.getTime(), endedAtMs: row?.completed_at?.getTime(), errorCode: row?.error_code ?? undefined });
+      const dto = this.executionDto(execution, { state, startedAtMs: row?.acknowledged_at?.getTime(), endedAtMs: row?.completed_at?.getTime(), errorCode: row?.error_code ?? undefined });
+      if (state !== "succeeded" || !this.evidence) return dto;
+      // Cloud simulation evidence: the Edge's telemetry arrives through the feedback worker, which keeps the latest validated SIMULATION frame of the run as an
+      // experiment event. The artifact is created from that real frame once the run has terminally succeeded (idempotent, scoped to student/classroom/run).
+      const frames = await this.prisma.$queryRaw<Array<{ event_data: unknown }>>`
+        SELECT event_data FROM public.learning_experiment_events WHERE experiment_id=${experimentId}::uuid AND event_type='simulation_telemetry_latest' LIMIT 1`;
+      if (!frames[0]) return { ...dto, evidence: "unavailable" as const };
+      const evidence = await this.evidence.persistTelemetry(experimentId, frames[0].event_data);
+      return { ...dto, evidence: evidence.availability };
     }
     const runId = execution.run_id ?? `wf03-${execution.experiment_id}`;
     let snapshot: RuntimeSnapshot;

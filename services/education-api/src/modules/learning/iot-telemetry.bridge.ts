@@ -14,7 +14,7 @@ import { classifyExecution } from "./execution-provenance";
 export const SO101_JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"] as const;
 export type TelemetryOutcome = "forwarded" | `dropped:${string}`;
 export interface TwinPublisherPort { publish(input: { organizationId: string; robotId: string; experimentId: string; attemptId?: string | null; telemetry: unknown }): Promise<{ status: string }>; }
-type Db = { $queryRaw<T = unknown>(query: Prisma.Sql): Promise<T> };
+type Db = { $queryRaw<T = unknown>(query: Prisma.Sql): Promise<T>; $executeRaw?(query: Prisma.Sql): Promise<number> };
 type Correlation = { command_id: string; robot_id: string; state: string; experiment_id: string; organization_id: string; attempt_id: string | null; runtime_mode: string | null; execution_mode: string };
 
 export const isTelemetryEvent = (value: unknown): boolean => Boolean(value) && typeof value === "object" && (value as { kind?: unknown }).kind === "status" && (value as { status?: unknown }).status === "telemetry";
@@ -68,6 +68,7 @@ export class IotTelemetryBridge {
 
     this.remember(commandId, sequence);
     const result = await this.twin.publish({ organizationId: row.organization_id, robotId, experimentId: row.experiment_id, attemptId: row.attempt_id, telemetry: frame });
+    if (result.status === "accepted") await this.keepLatestFrame(row.experiment_id, frame);
     return result.status === "accepted" ? "forwarded" : this.drop(`twin_${result.status}`);
   }
 
@@ -89,6 +90,22 @@ export class IotTelemetryBridge {
       if (joint.name !== "gripper" && joint.unit === "percent") return "invalid_joints";
     }
     return null;
+  }
+
+  /** Keeps ONE row per experiment with the latest validated SIMULATION frame (evidence source). Best-effort: a storage hiccup never blocks live telemetry. */
+  private async keepLatestFrame(experimentId: string, frame: unknown): Promise<void> {
+    try {
+      const json = JSON.stringify(frame);
+      if (json.length > 16_384) return;
+      if (!this.db.$executeRaw) return;
+      const updated = await this.db.$executeRaw(Prisma.sql`UPDATE public.learning_experiment_events SET event_data=${json}::jsonb,occurred_at=now() WHERE experiment_id=${experimentId}::uuid AND event_type='simulation_telemetry_latest'`);
+      if (updated === 0) {
+        await this.db.$executeRaw(Prisma.sql`
+          INSERT INTO public.learning_experiment_events(experiment_id,event_index,event_type,event_data)
+          SELECT ${experimentId}::uuid,COALESCE(MAX(event_index),-1)+1,'simulation_telemetry_latest',${json}::jsonb FROM public.learning_experiment_events WHERE experiment_id=${experimentId}::uuid
+          ON CONFLICT (experiment_id,event_index) DO NOTHING`);
+      }
+    } catch { /* evidence source only */ }
   }
 
   private admit(robotId: string, now: number): boolean {

@@ -6,8 +6,8 @@ const joints = (over: Record<string, unknown>[] = []) => SO101_JOINTS.map((name,
 const frame = (over: Record<string, unknown> = {}) => ({ schema_version: 1, robot_id: ROBOT, source_mode: "SIMULATION", controller_id: "edge-fake", measured_at: new Date(NOW - 200).toISOString(), sequence: 1, connection: "connected", measured: joints(), ...over });
 const event = (over: Record<string, unknown> = {}, f: Record<string, unknown> = {}) => ({ schemaVersion: 1, kind: "status", status: "telemetry", robotId: ROBOT, commandId: CMD, eventId: `${CMD}:telemetry:${over.sequence ?? 10}`, sequence: 10, occurredAtMs: NOW - 100, telemetry: frame(f), ...over });
 const row = (over: Record<string, unknown> = {}) => ({ command_id: CMD, robot_id: ROBOT, state: "executing", experiment_id: EXP, organization_id: ORG, attempt_id: "44444444-4444-4444-8444-444444444444", runtime_mode: "fake_follower", execution_mode: "real_robot", ...over });
-const build = (rows: unknown[] = [row()], twinStatus = "accepted") => {
-  const db = { $queryRaw: jest.fn().mockResolvedValue(rows) };
+const build = (rows: unknown[] = [row()], twinStatus = "accepted", updated = 0) => {
+  const db = { $queryRaw: jest.fn().mockResolvedValue(rows), $executeRaw: jest.fn().mockResolvedValue(updated) };
   const twin = { publish: jest.fn().mockResolvedValue({ status: twinStatus }) };
   const bridge = new IotTelemetryBridge(db as never, twin as never, () => NOW);
   return { bridge, db, twin };
@@ -25,6 +25,18 @@ describe("IotTelemetryBridge", () => {
     const { bridge, twin } = build();
     await expect(bridge.handle(event())).resolves.toBe("forwarded");
     expect(twin.publish).toHaveBeenCalledWith({ organizationId: ORG, robotId: ROBOT, experimentId: EXP, attemptId: "44444444-4444-4444-8444-444444444444", telemetry: expect.objectContaining({ source_mode: "SIMULATION", robot_id: ROBOT }) });
+  });
+
+  it("keeps the latest validated frame of the run as the evidence source (update, else insert) and only after the Twin accepted it", async () => {
+    const accepted = build();
+    await expect(accepted.bridge.handle(event())).resolves.toBe("forwarded");
+    expect(accepted.db.$executeRaw).toHaveBeenCalledTimes(2);                        // no existing row -> UPDATE matched 0 -> INSERT
+    const refreshed = build([row()], "accepted", 1);
+    await refreshed.bridge.handle(event());
+    expect(refreshed.db.$executeRaw).toHaveBeenCalledTimes(1);                       // an existing row is only updated
+    const rejected = build([row()], "rejected");
+    await expect(rejected.bridge.handle(event())).resolves.toBe("dropped:twin_rejected");
+    expect(rejected.db.$executeRaw).not.toHaveBeenCalled();                          // never store a frame the Twin refused
   });
 
   it.each([
