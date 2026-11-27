@@ -186,6 +186,11 @@ export class PhysicalExecutionService {
         throw this.businessConflict("CONTROL_SESSION_POLICY_INVALID", "Physical execution session policy is not configured.");
       }
 
+      // Layer B must not be reacquired on the strength of a cloud-side timeout alone: another student may drive the robot only once the previous run is
+      // known to have stopped (Edge terminal status, or a fresh idle Edge Shadow after the timeout).
+      if (await this.edgeStopUnconfirmed(scope.robot_id as string)) {
+        throw this.businessConflict("ROBOT_STOP_UNCONFIRMED", "The previous run on this robot has not been confirmed stopped by the robot. Wait for the robot to report idle, or ask your instructor.");
+      }
       const active = await this.activeSession(tx, scope.robot_id as string);
       if (active) {
         if (this.isEquivalent(active, scope, user)) return this.existingDto(active, scope);
@@ -470,6 +475,28 @@ export class PhysicalExecutionService {
     } catch {
       return { active: true, stopRequested: false, runtimeUnavailable: true };
     }
+  }
+
+  /**
+   * Trustworthy safe-stop confirmation. A cloud-side terminal state (`timed_out`: no answer; `reconciliation_required`: publish outcome unknown) proves
+   * nothing about the hardware, so it neither releases a Lab Session reservation nor lets another student acquire control. Only an Edge-originated fact
+   * restores trust: the target command's own terminal status (`completed`/`failed`, published by the Edge) or an Edge Device Shadow that is connected,
+   * reported AFTER the cloud gave up, is fresh and shows no active run. Without MQTT lifecycle rows (local HTTP runtime) the runtime's own terminal
+   * snapshot is the confirmation, so nothing is withheld here.
+   */
+  async edgeStopUnconfirmed(robotId: string): Promise<boolean> {
+    if (!this.iot?.enabled?.()) return false;
+    const rows = await this.prisma.$queryRaw<Array<{ state: string; updated_at: Date }>>`
+      SELECT state,updated_at FROM public.iot_command_lifecycles WHERE robot_id=${robotId}::uuid ORDER BY created_at DESC LIMIT 1`;
+    const last = rows[0];
+    if (!last || !["timed_out", "reconciliation_required"].includes(last.state)) return false;
+    try {
+      const shadow = await this.iot.readShadow(robotId);
+      const reportedAt = Number(shadow?.reportedAtMs);
+      const fresh = Number.isFinite(reportedAt) && Date.now() - reportedAt <= this.iot.shadowMaxAgeMs() && reportedAt > new Date(last.updated_at).getTime();
+      const idle = !shadow?.activeRunId;
+      return !(shadow && shadow.connection === "connected" && fresh && idle);
+    } catch { return true; }
   }
 
   /** True while the robot has an unfinished individual control session (Layer B), independent of any reservation. */

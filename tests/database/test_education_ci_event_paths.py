@@ -34,7 +34,7 @@ def _evaluate(expression: str, github: dict, inputs: dict, variables: dict, need
     return bool(eval(py, {"__builtins__": {}}, scope))  # noqa: S307 - expression text comes from the checked-in workflow
 
 
-def simulate(event: str, ref: str, action: str = "", aws_enabled: str = "true", gate: str = "success", api_ok: bool = True, targets=("true", "true")) -> dict:
+def simulate(event: str, ref: str, action: str = "", aws_enabled: str = "true", gate: str = "success", api_ok: bool = True, targets=("true", "true"), guard: str = "success") -> dict:
     """Returns {job: 'success'|'skipped'|'failure'}. `gate` is what schema-gate would report if it runs (Production lacking K-M => 'failure')."""
     jobs = _jobs(CI)
     github = {"event_name": event, "ref": ref}
@@ -42,7 +42,7 @@ def simulate(event: str, ref: str, action: str = "", aws_enabled: str = "true", 
     variables = {"AWS_DEPLOY_ENABLED": aws_enabled}
     results: dict[str, str] = {}
     outputs = {"changes": {"api": targets[0], "web": targets[1]}}
-    order = ["api", "web", "docker", "database-safety", "changes", "schema-gate", "deploy-api", "deploy-web"]
+    order = ["api", "web", "docker", "database-safety", "changes", "schema-gate", "rollback-guard", "deploy-api", "deploy-web"]
     for name in order:
         body = jobs[name]
         needs_match = re.search(r"(?m)^    needs: (\[.*\]|\w[\w-]*)\s*$", body)
@@ -60,6 +60,8 @@ def simulate(event: str, ref: str, action: str = "", aws_enabled: str = "true", 
             results[name] = "skipped"
         elif name == "schema-gate":
             results[name] = gate
+        elif name == "rollback-guard":
+            results[name] = guard
         elif name == "api" and not api_ok:
             results[name] = "failure"
         else:
@@ -110,6 +112,17 @@ class EducationCiEventPathTests(unittest.TestCase):
     def test_dispatch_from_a_branch_other_than_main_cannot_deploy(self):
         r = simulate("workflow_dispatch", "refs/heads/feat/anything", action="deploy")
         self.assertEqual([r[j] for j in ("changes", "schema-gate", *DEPLOYS)], ["skipped"] * 4)
+
+    def test_rollback_needs_a_passing_rollback_guard_and_a_deploy_never_runs_it(self):
+        ok = simulate("workflow_dispatch", MAIN, action="rollback", gate="failure", guard="success")
+        self.assertEqual((ok["rollback-guard"], ok["deploy-api"]), ("success", "success"))
+        blocked = simulate("workflow_dispatch", MAIN, action="rollback", gate="failure", guard="failure")   # schema outgrew the previous image
+        self.assertEqual((blocked["rollback-guard"], blocked["deploy-api"], blocked["deploy-web"]), ("failure", "skipped", "skipped"))
+        deploy = simulate("workflow_dispatch", MAIN, action="deploy", guard="failure")
+        self.assertEqual((deploy["rollback-guard"], deploy["deploy-api"]), ("skipped", "success"))          # the guard is irrelevant to a gated deploy
+        for event, ref in (("push", MAIN), ("pull_request", PR)):
+            self.assertEqual(simulate(event, ref)["rollback-guard"], "skipped")
+        self.assertEqual(simulate("workflow_dispatch", "refs/heads/feat/x", action="rollback")["rollback-guard"], "skipped")
 
     def test_rollback_is_the_only_path_that_does_not_need_the_schema_gate(self):
         r = simulate("workflow_dispatch", MAIN, action="rollback", gate="failure")

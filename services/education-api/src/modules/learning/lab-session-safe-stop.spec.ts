@@ -1,4 +1,4 @@
-import { LabSessionService } from './lab-session.service';
+import { PhysicalExecutionService } from './physical-execution.service';
 
 /** A cloud-side terminal state alone must never establish that the robot stopped. */
 function service(opts: { lifecycle?: { state: string; updated_at: Date } | null; shadow?: Record<string, unknown> | null; shadowThrows?: boolean; iot?: boolean }) {
@@ -7,7 +7,7 @@ function service(opts: { lifecycle?: { state: string; updated_at: Date } | null;
     enabled: () => true, shadowMaxAgeMs: () => 30_000,
     readShadow: jest.fn(async () => { if (opts.shadowThrows) throw new Error('shadow down'); return opts.shadow ?? null; }),
   };
-  return new LabSessionService(prisma as never, {} as never, {} as never, iot as never) as unknown as { edgeStopUnconfirmed(robotId: string): Promise<boolean> };
+  return new PhysicalExecutionService(prisma as never, {} as never, undefined, iot as never);
 }
 const gaveUp = new Date(Date.now() - 60_000);
 const shadow = (over: Record<string, unknown> = {}) => ({ connection: 'connected', reportedAtMs: Date.now() - 1_000, ...over });
