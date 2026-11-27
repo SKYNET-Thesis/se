@@ -191,7 +191,7 @@ export function StudentAssignments() {
                             <div className="space-y-1">
                               <h3
                                 id={`assignment-title-${item.classroom_assignment_id}`}
-                                className="text-2xl font-bold text-ink"
+                                className="text-xl font-semibold tracking-[-0.01em] text-ink sm:text-2xl"
                               >
                                 {item.title}
                               </h3>
@@ -316,7 +316,7 @@ export function StudentAssignments() {
                             <div className="space-y-1">
                               <h3
                                 id={`assignment-title-${item.classroom_assignment_id}`}
-                                className="text-2xl font-bold text-ink"
+                                className="text-xl font-semibold tracking-[-0.01em] text-ink sm:text-2xl"
                               >
                                 {item.title}
                               </h3>

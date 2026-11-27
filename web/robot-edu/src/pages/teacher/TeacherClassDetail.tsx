@@ -54,7 +54,7 @@ export function TeacherClassDetail() {
         </nav>
       </div>
 
-      <section className="mt-6 border-l-4 border-[#176255] bg-[#f1f3ef] p-5">
+      <section className="mt-6 rounded-xl border border-line bg-surface p-5 sm:p-6">
         <h2 className="text-lg font-semibold text-ink">Robot Resource</h2>
         {robot ? <p className="mt-2 text-sm text-ink-muted">Allocated: <span className="font-medium text-ink">{robot.name}</span> · {robot.modelName} · {robot.serialNo}{robotCount > 1 ? ` · +${robotCount - 1} more allocated` : ''}</p> : <p className="mt-2 text-sm text-ink-muted">No robot resource allocated to this class.</p>}
       </section>
@@ -63,14 +63,14 @@ export function TeacherClassDetail() {
       {actionError && <p role="alert" className="mt-5 border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-800">{actionError}</p>}
       {isLoading && <p className="mt-6 text-sm text-ink-muted">Loading classroom delivery…</p>}
 
-      <section className="mt-8 grid gap-8 lg:grid-cols-2">
-        <div>
-          <h2 className="text-xl font-semibold text-ink">Students</h2>
+      <section className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="rounded-xl border border-line bg-surface p-5 sm:p-6">
+          <h2 className="text-lg font-semibold text-ink">Students</h2>
           <ul className="mt-4 divide-y divide-line">{(roster.data ?? []).map((student) => <li key={String(student.id)} className="py-3"><p className="font-medium text-ink">{String(student.full_name)}</p><p className="text-sm text-ink-muted">{student.email ? String(student.email) : 'No email on file'}</p></li>)}</ul>
           {!roster.isLoading && !roster.data?.length && <p className="mt-3 text-sm text-ink-muted">No students in this classroom.</p>}
         </div>
-        <div>
-          <h2 className="text-xl font-semibold text-ink">Assigned learning</h2><p className="mt-1 text-sm text-ink-muted">Programming assignments and quizzes delivered to this classroom.</p>
+        <div className="rounded-xl border border-line bg-surface p-5 sm:p-6">
+          <h2 className="text-lg font-semibold text-ink">Assigned learning</h2><p className="mt-1 text-sm text-ink-muted">Programming assignments and quizzes delivered to this classroom.</p>
           <ul className="mt-4 divide-y divide-line">
             {(assignments.data ?? []).map((assignment) => (
               <li key={assignment.id} className="py-4">
@@ -89,8 +89,8 @@ export function TeacherClassDetail() {
       <LearnerProgressTable classroomId={classroomId} token={token} />
       <QuizResultsTable classroomId={classroomId} token={token} />
 
-      <section className="mt-10">
-        <h2 className="text-xl font-semibold text-ink">Submitted results</h2>
+      <section className="mt-6 rounded-xl border border-line bg-surface p-5 sm:p-6">
+        <h2 className="text-lg font-semibold text-ink">Submitted results</h2>
         <ul className="mt-4 divide-y divide-line">{(submissions.data ?? []).map((result) => <li key={result.id} className="flex items-center justify-between gap-4 py-3"><div><p className="font-medium text-ink">{result.full_name ?? 'Student'} · {result.assignment_title??'Assignment'}{result.attempt_number?` · Attempt ${result.attempt_number}`:''}</p><p className="text-sm text-ink-muted">{result.status} · {result.grading_released_at?'released to student':'not released'} · {result.submitted_at?new Date(result.submitted_at).toLocaleString():'Not timestamped'} · {result.review_status??'unreviewed'}</p></div><Link to={`/teacher/classes/${classroomId}/submissions/${result.id}`} className="text-sm font-semibold text-[#176255] underline underline-offset-4">Review</Link></li>)}</ul>
         {!submissions.isLoading && !submissions.data?.length && <p className="mt-3 text-sm text-ink-muted">No submitted results yet.</p>}
       </section>
