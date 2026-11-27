@@ -617,6 +617,7 @@ export const labSessionApi = {
   start: (classroomId:string,token:string,robotId:string,durationMinutes?:number) => apiRequest<ApiLabSession>(`/classrooms/${classroomId}/lab-sessions`,token,'POST',{robotId,...(durationMinutes?{durationMinutes}:{})}),
   extend: (sessionId:string,token:string,minutes:number) => apiRequest<ApiLabSession>(`/lab-sessions/${sessionId}/extend`,token,'POST',{minutes}),
   end: (sessionId:string,token:string) => apiRequest<ApiLabSession>(`/lab-sessions/${sessionId}/end`,token,'POST',{}),
+  stopExecution: (sessionId:string,token:string) => apiRequest<{controlActive:boolean;stopRequested:boolean;runtimeUnavailable:boolean;message:string}>(`/lab-sessions/${sessionId}/stop-execution`,token,'POST',{}),
   forceEnd: (sessionId:string,token:string,reason:string) => apiRequest<ApiLabSession>(`/lab-sessions/${sessionId}/force-end`,token,'POST',{reason,confirm:true}),
 };
 

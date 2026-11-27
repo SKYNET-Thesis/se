@@ -32,6 +32,7 @@ function expiry(iso: string | null) {
 export function LabSessionPanel({ classroomId, token, role }: { classroomId: string; token: string; role: 'instructor' | 'school_admin' }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [forceTarget, setForceTarget] = useState<ApiLabSession | null>(null);
   const [reason, setReason] = useState('');
   const enabled = Boolean(classroomId && token);
@@ -51,6 +52,7 @@ export function LabSessionPanel({ classroomId, token, role }: { classroomId: str
       <h2 id="lab-session-heading" className="text-lg font-semibold text-ink">Robot Lab Session</h2>
       <p className="mt-1 text-sm text-ink-muted">A Lab Session reserves an allocated robot for this classroom. Only this classroom&apos;s students can run experiments on it while the session is active. Starting a session does not arm or move the robot.</p>
       {error ? <p role="alert" className="mt-3 text-sm text-danger">{error}</p> : null}
+      {notice ? <p role="status" className="mt-3 text-sm text-ink">{notice}</p> : null}
       {robots.isLoading ? <p className="mt-3 text-sm text-ink-muted" role="status">Loading robots…</p> : null}
       {robots.isError ? <p role="alert" className="mt-3 text-sm text-danger">{message(robots.error)}</p> : null}
       {robots.isSuccess && robots.data.length === 0 ? <p className="mt-3 text-sm text-ink-muted">No robots are allocated to this classroom.</p> : null}
@@ -79,6 +81,7 @@ export function LabSessionPanel({ classroomId, token, role }: { classroomId: str
                   ) : null}
                   {role === 'instructor' && mine && session?.state === 'active' ? (
                     <>
+                      {robot.controllerActive ? <Button variant="secondary" disabled={run.isPending} onClick={() => run.mutate(async () => { const result = await labSessionApi.stopExecution(session.id, token); setNotice(result.message); })}>Stop execution</Button> : null}
                       <Button variant="secondary" disabled={run.isPending} onClick={() => run.mutate(() => labSessionApi.extend(session.id, token, 30))}>Extend 30 min</Button>
                       <Button variant="secondary" disabled={run.isPending} onClick={() => { if (window.confirm('End the Lab Session and release this robot? A running student experiment will be stopped.')) run.mutate(() => labSessionApi.end(session.id, token)); }}>End Lab Session</Button>
                     </>

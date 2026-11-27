@@ -93,6 +93,7 @@ function CreateRobotDialog({ token, onClose, onDone }: { token: string; onClose:
 function RobotDetailDialog({ token, robotId, onClose, onChanged }: { token: string; robotId: string; onClose: () => void; onChanged: () => Promise<unknown> }) {
   const queryClient = useQueryClient();
   const [orgId, setOrgId] = useState('');
+  const [edit, setEdit] = useState<{ name: string; modelName: string; firmwareVersion: string; notes: string } | null>(null);
   const detail = useQuery({ queryKey: [...key, robotId], queryFn: () => robotRegistryApi.detail(robotId, token) });
   const orgs = useQuery({ queryKey: ['system-admin', 'organizations'], queryFn: () => educationAdminApi.managedOrganizations(token) });
   const refresh = async () => { await queryClient.invalidateQueries({ queryKey: key }); await onChanged(); };
@@ -111,6 +112,26 @@ function RobotDetailDialog({ token, robotId, onClose, onChanged }: { token: stri
               {data.status === 'available' ? <Button variant="secondary" disabled={act.isPending} onClick={() => { if (window.confirm('Disable this robot? Open Lab Sessions are ended through controlled termination.')) act.mutate(() => robotRegistryApi.update(robotId, token, { status: 'maintenance' })); }}>Disable</Button> : null}
               {data.status !== 'retired' ? <Button variant="secondary" disabled={act.isPending} onClick={() => { if (window.confirm('Retire this robot? History is kept; it can no longer be allocated.')) act.mutate(() => robotRegistryApi.update(robotId, token, { status: 'retired' })); }}>Retire</Button> : null}
             </div>
+          </section>
+          <section aria-label="Details">
+            <h3 className="font-semibold text-ink">Details</h3>
+            {edit ? (
+              <div className="mt-2 space-y-2">
+                <Field label="Name">{(p) => <input {...p} className={inputClasses} value={edit.name} onChange={(event) => setEdit({ ...edit, name: event.target.value })} maxLength={120} />}</Field>
+                <Field label="Model">{(p) => <input {...p} className={inputClasses} value={edit.modelName} onChange={(event) => setEdit({ ...edit, modelName: event.target.value })} maxLength={60} />}</Field>
+                <Field label="Firmware version">{(p) => <input {...p} className={inputClasses} value={edit.firmwareVersion} onChange={(event) => setEdit({ ...edit, firmwareVersion: event.target.value })} maxLength={60} />}</Field>
+                <Field label="Notes">{(p) => <textarea {...p} className={inputClasses} rows={2} value={edit.notes} onChange={(event) => setEdit({ ...edit, notes: event.target.value })} maxLength={1000} />}</Field>
+                <div className="flex gap-2">
+                  <Button variant="primary" disabled={act.isPending || edit.name.trim().length < 2} onClick={() => act.mutate(async () => { await robotRegistryApi.update(robotId, token, { name: edit.name.trim(), modelName: edit.modelName.trim() || undefined, firmwareVersion: edit.firmwareVersion.trim() || undefined, notes: edit.notes.trim() || undefined }); setEdit(null); })}>Save details</Button>
+                  <Button variant="secondary" onClick={() => setEdit(null)}>Cancel</Button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <p className="text-ink-muted">{data.modelName}{data.firmwareVersion ? ` · firmware ${data.firmwareVersion}` : ''}{data.notes ? ` · ${data.notes}` : ''}</p>
+                <Button variant="secondary" onClick={() => setEdit({ name: data.name, modelName: data.modelName, firmwareVersion: data.firmwareVersion ?? '', notes: data.notes ?? '' })}>Edit details</Button>
+              </div>
+            )}
           </section>
           <section aria-label="Entitlements">
             <h3 className="font-semibold text-ink">Organization entitlements</h3>
