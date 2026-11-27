@@ -15,6 +15,7 @@ describeDb('real PostgreSQL Classroom Lab Session', () => {
   const control = { active: false, runtimeUnavailable: false, stops: 0 };
   const physical = {
     hasActiveControlSession: async () => control.active,
+    edgeStopUnconfirmed: async () => false,
     requestRobotStop: async () => { control.stops += 1; return { active: control.active, stopRequested: !control.runtimeUnavailable, runtimeUnavailable: control.active && control.runtimeUnavailable }; },
   };
   let service: LabSessionService;
