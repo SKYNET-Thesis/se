@@ -450,6 +450,29 @@ def evidence(args) -> dict:
     return result
 
 
+def rollback_guard(args) -> dict:
+    """Read-only guard to run BEFORE any rollback/redeploy of an older API image (Education CI action=rollback is not schema-gated).
+    Migration S (Classroom Lab Session, many-to-many allocation) makes the pre-S API (f0b3d87 and older) unsafe: its allocation upsert fails (42P10), it picks an
+    arbitrary robot for a classroom holding several, and it has no reservation gate. Once S is applied the only supported recovery is FORWARD (stay on a
+    Lab-Session-aware API). Nothing is written and nothing is deleted to make an old image 'fit'."""
+    env = _env_for(args)
+    _check_target(args, env, "read")
+    _require_reader_access(args, env)
+    facts = _server_json(env, """SELECT json_build_object(
+      'lab_sessions_table', to_regclass('public.classroom_lab_sessions') IS NOT NULL,
+      'multi_robot_classrooms', CASE WHEN to_regclass('public.learning_classroom_robot_allocations') IS NULL THEN 0 ELSE
+        (SELECT count(*) FROM (SELECT classroom_id FROM public.learning_classroom_robot_allocations GROUP BY classroom_id HAVING count(*)>1) m) END,
+      'open_lab_sessions', CASE WHEN to_regclass('public.classroom_lab_sessions') IS NULL THEN 0 ELSE
+        (SELECT count(*) FROM public.classroom_lab_sessions WHERE state IN ('active','terminating','quarantined')) END)::text""")
+    facts = json.loads(facts) if isinstance(facts, str) else facts
+    blocked = bool(facts["lab_sessions_table"])
+    if blocked:
+        raise ReleaseError("Rollback to a pre-Lab-Session API is blocked: migration S is applied (classroom_lab_sessions exists; "
+                           f"{facts['multi_robot_classrooms']} classroom(s) hold several robots, {facts['open_lab_sessions']} Lab Session(s) are open). "
+                           "Use the forward-recovery procedure in docs/education/wf-01-robot-resource-allocation.md; roll back only to a Lab-Session-aware image.")
+    return {"status": "rollback-allowed", **facts}
+
+
 def compat(args) -> dict:
     """Gate for API/Web deployments: the image's manifest must be fully applied (names and checksums) in the target database."""
     root = _root(args)
@@ -488,6 +511,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--backup-mode", choices=["managed", "logical"], default="managed")
     p = sub.add_parser("compat"); common(p)
     p = sub.add_parser("evidence"); common(p)
+    p = sub.add_parser("rollback-guard"); common(p)
     args = parser.parse_args(argv)
     try:
         if args.command == "plan":
@@ -504,6 +528,8 @@ def main(argv: list[str] | None = None) -> int:
             out = apply_release(args)
         elif args.command == "evidence":
             out = evidence(args)
+        elif args.command == "rollback-guard":
+            out = rollback_guard(args)
         else:
             out = compat(args)
     except ReleaseError as exc:

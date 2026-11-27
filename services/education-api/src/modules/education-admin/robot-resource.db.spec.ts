@@ -11,7 +11,7 @@ describeDb('real PostgreSQL System Administrator robot resources', () => {
   const db = (describeDb === describe ? createDb() : undefined) as unknown as Db;
   let robots: RobotResourceService; let labs: LabSessionService;
   const stop = { calls: 0 };
-  const physical = { hasActiveControlSession: async () => false, requestRobotStop: async () => { stop.calls += 1; return { active: false, stopRequested: false, runtimeUnavailable: false }; } };
+  const physical = { hasActiveControlSession: async () => false, edgeStopUnconfirmed: async () => false, requestRobotStop: async () => { stop.calls += 1; return { active: false, stopRequested: false, runtimeUnavailable: false }; } };
   let sysadmin: never;
   const schoolAdmin = (organizationId: string) => ({ authUserId: 'a', vistaUserId: randomUUID(), email: 'a@test', status: 'active', systemRoleCodes: [], systemPermissions: [], memberships: [{ id: 'm', organizationId, roleCode: 'school_admin', status: 'active', permissions: ['education.classroom.resource.allocate'] }] }) as never;
 

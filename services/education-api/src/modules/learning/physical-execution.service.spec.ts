@@ -58,6 +58,8 @@ describe("PhysicalExecutionService Gate 1", () => {
   let service: PhysicalExecutionService;
 
   beforeEach(() => {
+    // The cloud-timeout stop check has its own tests (lab-session-safe-stop.spec.ts); here it must not consume the data-layer mock sequences.
+    jest.spyOn(PhysicalExecutionService.prototype, "edgeStopUnconfirmed").mockResolvedValue(false);
     queryRaw.mockReset();
     executeRaw.mockReset();
     transaction.mockReset();
@@ -175,6 +177,12 @@ describe("PhysicalExecutionService Gate 1", () => {
       .mockResolvedValueOnce([{ control_session_id: "18181818-1818-4181-8181-181818181818", state: "created", experiment_id: "19191919-1919-4191-8191-191919191919", experiment_status: "pending", learner_user_id: user.vistaUserId, attempt_id: scope().attempt_id, submission_id: scope().submission_id, program_version_id: scope().program_version_id }]);
     await expect(service.prepare(user as never, scope().attempt_id as string)).resolves.toMatchObject({ id: "19191919-1919-4191-8191-191919191919", idempotent: true });
     expect(executeRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a new student control session while the previous run's stop is unconfirmed (cloud-only timeout)", async () => {
+    (PhysicalExecutionService.prototype.edgeStopUnconfirmed as jest.Mock).mockResolvedValue(true);
+    queryRaw.mockResolvedValueOnce([scope()]).mockResolvedValueOnce([scope()]);
+    await expect(service.prepare(user as never, scope().attempt_id as string)).rejects.toMatchObject({ response: expect.objectContaining({ code: "ROBOT_STOP_UNCONFIRMED" }) });
   });
 
   it("rejects another Student or Classroom when the allocated Robot is busy", async () => {

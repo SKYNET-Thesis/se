@@ -298,8 +298,8 @@ class DeploymentSemanticsTests(unittest.TestCase):
     def setUp(self):
         self.text = (WORKFLOWS / "backend-ci.yml").read_text()
 
-    def ctx(self, event, action, gate, deploy_api="skipped", aws="true", api=True, web=True, ref="refs/heads/main", other="success", changes="success"):
-        needs = {"schema-gate": {"result": gate}, "deploy-api": {"result": deploy_api}, "changes": {"result": changes, "outputs": {"api": str(api).lower(), "web": str(web).lower()}},
+    def ctx(self, event, action, gate, deploy_api="skipped", aws="true", api=True, web=True, ref="refs/heads/main", other="success", changes="success", guard="success"):
+        needs = {"schema-gate": {"result": gate}, "rollback-guard": {"result": guard}, "deploy-api": {"result": deploy_api}, "changes": {"result": changes, "outputs": {"api": str(api).lower(), "web": str(web).lower()}},
                  **{name: {"result": other} for name in ("api", "web", "docker", "database-safety")}}
         return {"github": {"ref": ref, "event_name": event}, "vars": {"AWS_DEPLOY_ENABLED": aws}, "inputs": {"action": action}, "needs": needs}
 
@@ -328,7 +328,12 @@ class DeploymentSemanticsTests(unittest.TestCase):
 
     def test_rollback_to_the_previous_image_is_not_blocked_by_the_gate(self):
         for gate in self.RESULTS:
-            self.assertTrue(self.run_if("deploy-api", event="workflow_dispatch", action="rollback", gate=gate), gate)
+            self.assertTrue(self.run_if("deploy-api", event="workflow_dispatch", action="rollback", gate=gate, guard="success"), gate)
+            # ...but it IS blocked when the read-only rollback guard fails or is skipped (the schema has outgrown the previous image)
+            for guard in ("failure", "skipped", "cancelled"):
+                if gate == "success":
+                    continue   # a rollback dispatch never runs schema-gate; a passing gate is the ordinary deploy path
+                self.assertFalse(self.run_if("deploy-api", event="workflow_dispatch", action="rollback", gate=gate, guard=guard), (gate, guard))
         self.assertFalse(_Expr(_job_if(self.text, "schema-gate"), self.ctx("workflow_dispatch", "rollback", "skipped")).value())  # the gate itself is skipped for rollback
 
     def test_the_gate_runs_exactly_when_a_deployment_could_follow(self):
