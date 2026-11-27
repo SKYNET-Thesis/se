@@ -230,6 +230,7 @@ export class LabSessionService {
   /** Releases a terminating/quarantined session iff the robot has no unfinished control session. Safe to call repeatedly. */
   async finalize(sessionId: string) {
     const target = await this.sessionRobot(sessionId);
+    const unconfirmed = await this.edgeStopUnconfirmed(target.robot_id);   // external read, kept outside the transaction
     const row = await this.prisma.$transaction(async (tx) => {
       await this.lock(tx, target.robot_id);
       const session = await this.loadForUpdate(tx, sessionId);
@@ -237,11 +238,37 @@ export class LabSessionService {
       if (session.state === "released" || session.state === "active") return session;
       const unfinished = await this.physical.hasActiveControlSession(target.robot_id);
       if (unfinished) return session;
+      if (unconfirmed) {
+        // The control session is closed only because the CLOUD gave up (no Edge terminal status). That is not evidence that the robot stopped.
+        const held = await tx.$queryRaw<LabSessionRow[]>`UPDATE public.classroom_lab_sessions SET state='quarantined' WHERE id=${sessionId}::uuid AND state IN ('terminating','quarantined') RETURNING *`;
+        return held[0] ?? session;
+      }
       const released = await tx.$queryRaw<LabSessionRow[]>`
         UPDATE public.classroom_lab_sessions SET state='released',ended_at=now() WHERE id=${sessionId}::uuid AND state IN ('terminating','quarantined') RETURNING *`;
       return released[0] ?? session;
     });
     return { ...this.dto(row), recovery: row.state === "quarantined" ? "The runtime could not confirm the stop. The robot stays blocked until the run finishes or the runtime reports it stopped; retry End Lab Session." : row.state === "terminating" ? "Waiting for the active student run to finish." : null };
+  }
+
+  /**
+   * Trustworthy safe-stop confirmation. A cloud-side terminal state (`timed_out`: no answer; `reconciliation_required`: publish outcome unknown) proves
+   * nothing about the hardware, so it never releases a reservation. Only an Edge-originated fact does: either the target command's own terminal status
+   * (`completed`/`failed`, published by the Edge) or an Edge Device Shadow that is connected, reported AFTER the cloud gave up, and shows no active run.
+   * Without MQTT lifecycle rows (local HTTP runtime) the runtime's own terminal snapshot is the confirmation, so nothing is withheld here.
+   */
+  private async edgeStopUnconfirmed(robotId: string): Promise<boolean> {
+    if (!this.iot?.enabled?.()) return false;
+    const rows = await this.prisma.$queryRaw<Array<{ state: string; updated_at: Date }>>`
+      SELECT state,updated_at FROM public.iot_command_lifecycles WHERE robot_id=${robotId}::uuid ORDER BY created_at DESC LIMIT 1`;
+    const last = rows[0];
+    if (!last || !["timed_out", "reconciliation_required"].includes(last.state)) return false;
+    try {
+      const shadow = await this.iot.readShadow(robotId);
+      const reportedAt = Number(shadow?.reportedAtMs);
+      const fresh = Number.isFinite(reportedAt) && Date.now() - reportedAt <= this.iot.shadowMaxAgeMs() && reportedAt > new Date(last.updated_at).getTime();
+      const idle = !shadow?.activeRunId;
+      return !(shadow && shadow.connection === "connected" && fresh && idle);
+    } catch { return true; }
   }
 
   /** Expiry and recovery sweep: expired active sessions go to controlled termination; ending sessions are retried. Never transfers ownership unsafely. */
