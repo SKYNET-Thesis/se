@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { Button } from '../components/ui/Button';
-import { passwordProblem } from '../lib/passwordPolicy';
+import { passwordFormState, passwordProblem } from '../lib/passwordPolicy';
+import { PasswordFields } from '../components/auth/PasswordFields';
 
 /**
  * Landing page of the e-mailed recovery link. The form is shown ONLY when the browser arrived through a recovery link
@@ -26,7 +27,7 @@ export function ResetPassword() {
   }
 
   const submit = async (event: React.FormEvent) => {
-    event.preventDefault(); setError(null);
+    event.preventDefault(); if (busy) return; setError(null);
     const problem = passwordProblem(password, confirmation); if (problem) { setError(problem); return; }
     setBusy(true);
     try {
@@ -40,11 +41,10 @@ export function ResetPassword() {
   return <main className="min-h-screen bg-[#f5f5f1] px-4 py-10"><section className="mx-auto max-w-md rounded-xl border border-line bg-surface p-6 shadow-sm">
     <p className="text-xs font-semibold uppercase tracking-wider text-accent">Account recovery</p>
     <h1 className="mt-2 text-2xl font-semibold text-ink">Choose a new password</h1>
-    <form className="mt-6 space-y-4" onSubmit={(event) => void submit(event)}>
-      <label className="block text-sm font-medium text-ink">New password<input required minLength={12} autoComplete="new-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-1 h-11 w-full rounded-lg border border-line-strong bg-surface px-3.5 text-sm outline-none focus:border-accent" /></label>
-      <label className="block text-sm font-medium text-ink">Confirm new password<input required minLength={12} autoComplete="new-password" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="mt-1 h-11 w-full rounded-lg border border-line-strong bg-surface px-3.5 text-sm outline-none focus:border-accent" /></label>
+    <form className="mt-6 space-y-5" onSubmit={(event) => void submit(event)} noValidate>
+      <PasswordFields value={password} confirmation={confirmation} onValue={setPassword} onConfirmation={setConfirmation} disabled={busy} />
       {error && <p role="alert" className="rounded-md bg-danger-soft p-3 text-sm text-danger">{error}</p>}
-      <Button type="submit" variant="primary" loading={busy} className="w-full">Update password</Button>
+      <Button type="submit" variant="primary" loading={busy} disabled={!passwordFormState(password, confirmation).valid || busy} className="w-full">{busy ? 'Updating password…' : 'Update password'}</Button>
     </form>
   </section></main>;
 }

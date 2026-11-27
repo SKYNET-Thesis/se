@@ -184,3 +184,36 @@ test('School Admin imports an XLSX into their own school through the same pipeli
   const line = (await review.locator('p.font-mono', { hasText: code }).first().innerText()).split('·').map((part) => part.trim());
   expect(line[2].length).toBeGreaterThanOrEqual(32); remember(`bulk-school-admin-temp:${code}`, line[2]);
 });
+
+test('password-change page: responsive layouts, keyboard focus, independent show/hide, live match, duplicate-submit guard', async ({ browser }) => {
+  const page = await freshPage(browser);
+  await studentLogin(page, schoolCode, codes[1], temp[codes[1]]);
+  await expect(page).toHaveURL(/\/student\/change-password$/);
+  const shots = process.env.SA_SHOTS ?? '/tmp';
+  for (const [name, width, height] of [['mobile', 390, 844], ['tablet', 768, 1024], ['desktop', 1440, 900]] as const) {
+    await page.setViewportSize({ width, height });
+    await expect(page.getByRole('heading', { name: 'Choose a new password' })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);   // no horizontal overflow
+    await page.screenshot({ path: `${shots}/password-change-${name}.png`, fullPage: true });
+  }
+  const form = page.getByRole('main');
+  const [first, second] = [form.locator('input[autocomplete="new-password"]').first(), form.locator('input[autocomplete="new-password"]').nth(1)];
+  await form.getByLabel('Temporary password', { exact: true }).fill(temp[codes[1]]);
+  await first.focus(); await page.keyboard.press('Tab');                          // keyboard order: new → its show/hide button → confirmation
+  await expect(form.getByRole('button', { name: 'Show new password' })).toBeFocused();
+  await page.keyboard.press('Tab'); await expect(second).toBeFocused();
+  await first.fill('Resp-Layout-Passw0rd'); await second.fill('Resp-Layout-Passw0rd');
+  await expect(form.locator('[data-state]')).toHaveAttribute('data-state', 'match');
+  await form.getByRole('button', { name: 'Show new password' }).click();
+  await expect(first).toHaveAttribute('type', 'text'); await expect(second).toHaveAttribute('type', 'password');
+  await expect(form.locator('[data-state]')).toHaveAttribute('data-state', 'match');   // toggling keeps validation
+  await expect(form.getByTestId('password-strength')).toContainText(/Strength: (Weak|Fair|Good|Strong)/);
+  await page.screenshot({ path: `${shots}/password-change-match.png`, fullPage: true });
+  // duplicate-submit guard: the request is sent once even on a double click
+  let requests = 0; await page.route('**/auth/students/password', async (route) => { requests += 1; await new Promise((r) => setTimeout(r, 600)); await route.continue(); });
+  const update = form.getByRole('button', { name: /Update password|Updating password/ });
+  await update.dblclick();
+  await expect(page).toHaveURL(/\/my-learning$/, { timeout: 20_000 });
+  expect(requests).toBe(1);
+  remember(`bulk-new:${codes[1]}`, 'Resp-Layout-Passw0rd');
+});

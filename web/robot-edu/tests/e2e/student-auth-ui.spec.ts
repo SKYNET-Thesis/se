@@ -66,22 +66,32 @@ test('Student signs in with the temporary password, is held on the password-chan
   const form = page.getByRole('main');
   const fill = async (current: string, next: string, confirm: string) => {
     await form.locator('input[autocomplete="current-password"]').fill(current); await form.locator('input[autocomplete="new-password"]').first().fill(next); await form.locator('input[autocomplete="new-password"]').nth(1).fill(confirm);
-    await form.getByRole('button', { name: 'Update password' }).click();
   };
-  // password policy feedback
+  // live policy feedback: nothing is sent, and Update password stays disabled until every real rule is met
+  const update = form.getByRole('button', { name: 'Update password' });
+  const match = form.locator('[data-state]');
   await fill(temp[codes[0]], 'short', 'short');
-  expect(await form.locator('input[autocomplete="new-password"]').first().evaluate((el: HTMLInputElement) => el.validity.tooShort)).toBe(true); // 12-character minimum enforced before any request
-  await expect(page).toHaveURL(/\/student\/change-password$/);
+  expect(await form.locator('input[autocomplete="new-password"]').first().evaluate((el: HTMLInputElement) => el.validity.tooShort)).toBe(true); // 12-character minimum
+  await expect(update).toBeDisabled();
+  await expect(form.getByRole('list', { name: 'Password requirements' })).toContainText('At least 12 characters');
   await fill(temp[codes[0]], 'A-valid-new-Passw0rd', 'A-different-Passw0rd');
-  await expect(page.getByRole('alert')).toContainText(/do not match/i);
+  await expect(match).toHaveAttribute('data-state', 'mismatch'); await expect(match).toContainText('Passwords do not match');
+  await expect(update).toBeDisabled();
+  await form.locator('input[autocomplete="new-password"]').nth(1).fill('A-valid-new-Passw0rd');
+  await expect(match).toHaveAttribute('data-state', 'match'); await expect(match).toContainText('Passwords match');
+  await form.locator('input[autocomplete="new-password"]').first().fill('A-valid-new-Passw0rd!');                   // changing the original revalidates the confirmation
+  await expect(match).toHaveAttribute('data-state', 'mismatch');
   await fill(temp[codes[0]], temp[codes[0]], temp[codes[0]]);
-  await expect(page.getByRole('alert')).toContainText(/differ/i);
+  await expect(update).toBeDisabled();                                                                              // must differ from the temporary password
+  await page.screenshot({ path: `${process.env.SA_SHOTS ?? '/tmp'}/password-change-mismatch.png`, fullPage: true });
   await fill('not-the-temporary-password', 'A-valid-new-Passw0rd', 'A-valid-new-Passw0rd');
-  await expect(page.getByRole('alert')).toContainText(/incorrect|rejected|failed/i);
+  await expect(update).toBeEnabled(); await update.click();
+  await expect(page.getByRole('alert')).toContainText(/incorrect|rejected|failed/i);                                 // backend refusal is shown, entered values are kept
   await expect(page).toHaveURL(/\/student\/change-password$/);
 
   const newPassword = `Ui-Changed-${run}-Passw0rd!`; remember(`ui-new:${codes[0]}`, newPassword);
   await fill(temp[codes[0]], newPassword, newPassword);
+  await update.click();
   await expect(page).toHaveURL(/\/my-learning$/);
   await expect(page.getByRole('heading', { name: /My Learning/ }).first()).toBeVisible();
   expect(await page.locator('body').innerText()).not.toMatch(ALIAS);
