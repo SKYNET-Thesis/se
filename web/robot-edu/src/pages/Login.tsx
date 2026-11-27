@@ -4,6 +4,7 @@ import { Link, Navigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { VistaMark } from '../components/layout/VistaMark';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
+import { signInErrorMessage } from '../lib/passwordPolicy';
 import { identityApi, studentAuthApi } from '../lib/api';
 
 export type StudentMode = 'login' | 'setup' | 'recovery';
@@ -164,7 +165,7 @@ export function Login() {
       } catch {
         // Ignore cleanup failure so original sign-in error is reported to user
       }
-      setError(reason instanceof Error ? reason.message : 'Unable to sign in. Please check your credentials and try again.');
+      setError(signInErrorMessage(reason));
     } finally {
       setSubmitting(false);
     }
