@@ -203,7 +203,7 @@ export function Login() {
               className="h-full w-full object-cover object-[52%_52%] mix-blend-screen opacity-90"
             />
           </div>
-          <p className="relative z-10 mt-auto max-w-[28ch] text-sm leading-relaxed text-[#dce5dc]">
+          <p className="relative z-10 mt-auto max-w-[30ch] self-start rounded-lg bg-[#17352e]/90 px-4 py-3 text-sm leading-relaxed text-[#e8efe8] shadow-sm">
             A focused environment for programming, schematic experiments, and robot practice.
           </p>
         </aside>
