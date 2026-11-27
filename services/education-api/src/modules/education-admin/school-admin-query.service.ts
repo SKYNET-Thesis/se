@@ -71,9 +71,10 @@ export class SchoolAdminQueryService {
     return this.prisma.$queryRaw`
       SELECT c.id,c.organization_id,c.offering_id,c.name,c.code,c.description,c.capacity,c.status,
              o.title AS offering_title,
-             COUNT(cm.id) FILTER (WHERE cm.status='active' AND cm.classroom_role='student')::int AS student_count,
-             COUNT(cm.id) FILTER (WHERE cm.status='active' AND cm.classroom_role IN ('teacher','teaching_assistant'))::int AS teaching_staff_count,
-             (jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name)) FILTER (WHERE r.id IS NOT NULL))->0 AS allocated_robot
+             COUNT(DISTINCT cm.id) FILTER (WHERE cm.status='active' AND cm.classroom_role='student')::int AS student_count,
+             COUNT(DISTINCT cm.id) FILTER (WHERE cm.status='active' AND cm.classroom_role IN ('teacher','teaching_assistant'))::int AS teaching_staff_count,
+             (jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name)) FILTER (WHERE r.id IS NOT NULL))->0 AS allocated_robot,
+             COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name)) FILTER (WHERE r.id IS NOT NULL),'[]'::jsonb) AS allocated_robots
       FROM public.learning_classrooms c
       JOIN public.learning_course_offerings o ON o.id=c.offering_id
       LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id=c.id

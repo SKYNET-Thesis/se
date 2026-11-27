@@ -975,7 +975,7 @@ model learning_classrooms {
 
 model learning_classroom_robot_allocations {
   id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  classroom_id        String              @unique @db.Uuid
+  classroom_id        String              @db.Uuid
   robot_id            String              @db.Uuid
   created_by_user_id  String              @db.Uuid
   created_at          DateTime            @default(now()) @db.Timestamptz(6)
@@ -983,7 +983,29 @@ model learning_classroom_robot_allocations {
   robots              robots              @relation(fields: [robot_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users               users               @relation(fields: [created_by_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@unique([classroom_id, robot_id], map: "learning_classroom_robot_allocations_classroom_robot_key")
   @@index([robot_id], map: "idx_classroom_robot_allocations_robot")
+}
+
+/// Classroom-level exclusive robot reservation (staged migration S). Plain columns only: every access is a guarded raw query.
+model classroom_lab_sessions {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organization_id    String    @db.Uuid
+  classroom_id       String    @db.Uuid
+  robot_id           String    @db.Uuid
+  instructor_user_id String    @db.Uuid
+  state              String    @default("active")
+  started_at         DateTime  @default(now()) @db.Timestamptz(6)
+  expires_at         DateTime  @db.Timestamptz(6)
+  extension_count    Int       @default(0)
+  terminating_at     DateTime? @db.Timestamptz(6)
+  ended_at           DateTime? @db.Timestamptz(6)
+  ended_by_user_id   String?   @db.Uuid
+  ended_by_role      String?
+  end_reason         String?
+  created_at         DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([classroom_id, started_at(sort: Desc)], map: "ix_classroom_lab_sessions_classroom")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.

@@ -23,6 +23,8 @@ const identities = {
   instructor: { id: 'f2430000-0000-4000-8000-000000000003', auth: 'f2430000-0000-4000-8000-000000000103', email: 'phase243-instructor@vista.test', name: 'Phase 2.4.3 Test Instructor' },
   student: { id: 'f2430000-0000-4000-8000-000000000004', auth: 'f2430000-0000-4000-8000-000000000104', email: 'phase243-student@vista.test', name: 'Phase 2.4.3 Test Student' },
   otherSchoolAdmin: { id: 'f2430000-0000-4000-8000-000000000005', auth: 'f2430000-0000-4000-8000-000000000105', email: 'phase243-other-school-admin@vista.test', name: 'Phase 2.4.3 Other School Admin' },
+  instructor2: { id: 'f2430000-0000-4000-8000-000000000007', auth: 'f2430000-0000-4000-8000-000000000107', email: 'phase243-instructor2@vista.test', name: 'Phase 2.4.3 Second Instructor' },
+  student3: { id: 'f2430000-0000-4000-8000-000000000008', auth: 'f2430000-0000-4000-8000-000000000108', email: 'phase243-student3@vista.test', name: 'Phase 2.4.3 Classroom 2 Student' },
   otherStudent: { id: 'f2430000-0000-4000-8000-000000000006', auth: 'f2430000-0000-4000-8000-000000000106', email: 'phase243-other-student@vista.test', name: 'Phase 2.4.3 Other Student' },
 };
 
@@ -92,6 +94,8 @@ async function seed(): Promise<Record<string, unknown>> {
   await db.user_system_roles.create({ data: { user_id: identities.admin.id, role_id: roleIds.system_admin } });
   const schoolMembership = await db.memberships.create({ data: { user_id: identities.schoolAdmin.id, organization_id: org.id, role_id: roleIds.school_admin, status: 'active' } });
   const instructorMembership = await db.memberships.create({ data: { user_id: identities.instructor.id, organization_id: org.id, role_id: roleIds.instructor, status: 'active' } });
+  const instructor2Membership = await db.memberships.create({ data: { user_id: identities.instructor2.id, organization_id: org.id, role_id: roleIds.instructor, status: 'active' } });
+  const student3Membership = await db.memberships.create({ data: { user_id: identities.student3.id, organization_id: org.id, role_id: roleIds.student, status: 'active' } });
   const studentMembership = await db.memberships.create({ data: { user_id: identities.student.id, organization_id: org.id, role_id: roleIds.student, status: 'active' } });
   const otherStudentMembership = await db.memberships.create({ data: { user_id: identities.otherStudent.id, organization_id: org.id, role_id: roleIds.student, status: 'active' } });
   await db.memberships.create({ data: { user_id: identities.otherSchoolAdmin.id, organization_id: otherOrg.id, role_id: roleIds.school_admin, status: 'active' } });
@@ -129,6 +133,11 @@ async function seed(): Promise<Record<string, unknown>> {
 
   const offering = await db.learning_course_offerings.create({ data: { course_id: course.id, organization_id: org.id, code: 'E2E-243-OFFERING', title: 'Phase 2.4.3 Test Offering', status: 'active', created_by: identities.schoolAdmin.id } });
   const classroom = await db.learning_classrooms.create({ data: { organization_id: org.id, offering_id: offering.id, name: 'Phase 2.4.3 Test Classroom', code: 'E2E-243-CLASS', status: 'active', created_by: identities.schoolAdmin.id } });
+  const classroom2 = await db.learning_classrooms.create({ data: { organization_id: org.id, offering_id: offering.id, name: 'Phase 2.4.3 Lab Classroom 2', code: 'E2E-243-CLASS-2', status: 'active', created_by: identities.schoolAdmin.id } });
+  await db.learning_classroom_members.createMany({ data: [
+    { classroom_id: classroom2.id, user_id: identities.instructor2.id, membership_id: instructor2Membership.id, classroom_role: 'teacher', status: 'active' },
+    { classroom_id: classroom2.id, user_id: identities.student3.id, membership_id: student3Membership.id, classroom_role: 'student', status: 'active' },
+  ] });
   const allocatedRobot = await db.robots.create({ data: { name: 'WF-01 entitled robot', serial_no: 'E2E-WF01-ENTITLED', model_name: 'SO-101', status: 'available', owner_organization_id: org.id } });
   await db.org_entitlements.create({ data: { organization_id: org.id, resource_type: 'robot', robot_id: allocatedRobot.id, valid_from: new Date(Date.now() - 60_000) } });
   const replacementRobot = await db.robots.create({ data: { name: 'WF-01 replacement robot', serial_no: 'E2E-WF01-REPLACEMENT', model_name: 'SO-101', status: 'available', owner_organization_id: org.id } });
@@ -155,7 +164,7 @@ async function seed(): Promise<Record<string, unknown>> {
     kind: 'vista_phase_2_4_3_e2e_fixture_v1', schoolId: org.id, organizationId: org.id, courseId: course.id, lessonId: lesson.id,
     objectiveId: objective.id, questionId: question.id, questionVersionId: version.id, canonicalQuizAssignmentId: quiz.id,
     sectionId: section.id, readingActivityId: reading.id, videoActivityId: video.id, quizActivityId: knowledgeCheck.id,
-    classroomId: classroom.id, offeringId: offering.id, enrollmentId: enrollment.id,
+    classroomId: classroom.id, classroom2Id: classroom2.id, offeringId: offering.id, enrollmentId: enrollment.id,
     allocatedRobotId: allocatedRobot.id, replacementRobotId: replacementRobot.id, expiredRobotId: expiredRobot.id, maintenanceRobotId: maintenanceRobot.id, foreignRobotId: foreignRobot.id,
     programAssignmentId: programAssignment.id, programDeliveryId: programDelivery.id, rubricCriterionId: rubricCriterion.id,
     otherSchoolId: otherOrg.id, otherClassroomId: otherClassroom.id,

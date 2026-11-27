@@ -24,6 +24,7 @@ import { TeacherAssignmentEditor } from './pages/teacher/TeacherAssignmentEditor
 import { QuizDeliveries } from './pages/teacher/QuizDeliveries';
 import { TeacherSubmissions } from './pages/teacher/TeacherSubmissions';
 import { AdminOrganizations } from './pages/admin/AdminOrganizations';
+import { AdminRobots } from './pages/admin/AdminRobots';
 import { AdminCourses } from './pages/admin/AdminCourses';
 const CourseBuilder = lazy(() => import('./pages/admin/CourseBuilder').then((module) => ({ default: module.CourseBuilder })));
 import { NotFound } from './pages/NotFound';
@@ -109,6 +110,7 @@ export function App() {
                   <Route path="teacher/challenges" element={<RequireRole roles={['teacher']}><TeacherChallenges /></RequireRole>} />
                   <Route path="teacher/submissions" element={<RequireRole roles={['teacher']}><TeacherSubmissions /></RequireRole>} />
                   <Route path="admin/organizations" element={<RequireRole roles={['admin']}><AdminOrganizations /></RequireRole>} />
+                  <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />
                   <Route path="admin/users" element={<Navigate to="/admin/organizations" replace />} />
                   <Route path="admin/robots" element={<Navigate to="/admin/organizations" replace />} />
                   <Route path="admin/settings" element={<Navigate to="/admin/organizations" replace />} />

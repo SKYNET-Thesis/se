@@ -36,6 +36,8 @@ const scope = (overrides: Record<string, unknown> = {}) => ({
   robot_model: "SO-101",
   robot_serial: "VISTA-DEMO-01",
   entitlement_id: "15151515-1515-4151-8151-151515151515",
+  lab_session_id: "18181818-1818-4181-8181-181818181818",
+  reserved_by_other: false,
   safety_profile_id: "16161616-1616-4161-8161-161616161616",
   safety_profile_snapshot: { maxSpeedPct: 10, allowedModes: ["blockly"] },
   mode_id: "17171717-1717-4171-8171-171717171717",
@@ -123,6 +125,8 @@ describe("PhysicalExecutionService Gate 1", () => {
     [{ symbolic_verdict: "failed" }, "SYMBOLIC_PASS_REQUIRED"],
     [{ robot_id: null }, "ROBOT_NOT_ALLOCATED"],
     [{ entitlement_id: null }, "ROBOT_ENTITLEMENT_INVALID"],
+    [{ lab_session_id: null }, "LAB_SESSION_NOT_ACTIVE"],
+    [{ lab_session_id: null, reserved_by_other: true }, "ROBOT_RESERVED_BY_ANOTHER_CLASSROOM"],
   ])("fails closed for incomplete authoritative provenance %p", async (overrides, code) => {
     queryRaw.mockResolvedValueOnce([scope(overrides)]);
     await expect(service.eligibility(user as never, scope().attempt_id as string)).resolves.toMatchObject({ eligible: false, code });

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { createDb, createWorld, describeDb, type Db } from '../learning/db-test-support';
 import { LearningScopeService } from '../learning/learning-scope.service';
 import { LearningService } from '../learning/learning.service';
@@ -53,7 +53,7 @@ describeDb('real PostgreSQL WF-01 classroom robot allocation', () => {
     expect(listed.some((item) => item.id === maintenance.item.id || item.id === expired.item.id)).toBe(false);
   });
 
-  it('allocates and replaces a robot, and the authorized instructor sees only the current valid allocation', async () => {
+  it('allocates several robots (many-to-many), rejects a duplicate, removes one, and the instructor sees only current valid allocations', async () => {
     const f = await fixture();
     const first = await robot(f.x.org.id);
     const replacement = await robot(f.x.org.id);
@@ -61,8 +61,14 @@ describeDb('real PostgreSQL WF-01 classroom robot allocation', () => {
     await expect(learning.classroom(f.teacherUser, f.x.room.id)).resolves.toMatchObject({ allocated_robot: { id: first.item.id } });
 
     await educationAdmin.allocateRobot(f.schoolAdmin, f.x.room.id, { robotId: replacement.item.id } as never);
+    await expect(db.learning_classroom_robot_allocations.count({ where: { classroom_id: f.x.room.id } })).resolves.toBe(2);
+    const both = await learning.classroom(f.teacherUser, f.x.room.id) as unknown as { allocated_robots: Array<{ id: string }> };
+    expect(both.allocated_robots.map((item) => item.id)).toEqual([first.item.id, replacement.item.id]);
+    await expect(educationAdmin.allocateRobot(f.schoolAdmin, f.x.room.id, { robotId: replacement.item.id } as never)).rejects.toBeInstanceOf(ConflictException);
+    await educationAdmin.removeRobotAllocation(f.schoolAdmin, f.x.room.id, first.item.id);
     await expect(db.learning_classroom_robot_allocations.count({ where: { classroom_id: f.x.room.id } })).resolves.toBe(1);
     await expect(learning.classroom(f.teacherUser, f.x.room.id)).resolves.toMatchObject({ allocated_robot: { id: replacement.item.id } });
+    await expect(educationAdmin.removeRobotAllocation(f.schoolAdmin, f.x.room.id, first.item.id)).rejects.toBeInstanceOf(NotFoundException);
 
     await db.org_entitlements.update({ where: { id: replacement.entitlement.id }, data: { valid_from: new Date(Date.now() - 120_000), valid_to: new Date(Date.now() - 60_000) } });
     await expect(learning.classroom(f.teacherUser, f.x.room.id)).resolves.toMatchObject({ allocated_robot: null });
