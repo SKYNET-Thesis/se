@@ -6,6 +6,7 @@ import { ClipboardCheckIcon, FileQuestionIcon } from 'lucide-react';
 import { QuizResultsTable } from '../../components/teacher/QuizResultsTable';
 import { LearnerProgressTable } from '../../components/teacher/LearnerProgressTable';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { LabSessionPanel } from '../../components/robot/LabSessionPanel';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { assignmentApi, classroomApi, instructorApi, type ApiClassroomAssignment } from '../../lib/api';
 import { canPublishAssignment, teacherLearningInvalidations, teacherLearningKeys } from '../../queries/teacherLearningQueries';
@@ -39,6 +40,7 @@ export function TeacherClassDetail() {
   }
 
   const robot = classroom.data?.allocated_robot;
+  const robotCount = classroom.data?.allocated_robots?.length ?? (robot ? 1 : 0);
   const isLoading = classroom.isLoading || roster.isLoading || assignments.isLoading || submissions.isLoading;
 
   return (
@@ -54,8 +56,9 @@ export function TeacherClassDetail() {
 
       <section className="mt-6 border-l-4 border-[#176255] bg-[#f1f3ef] p-5">
         <h2 className="text-lg font-semibold text-ink">Robot Resource</h2>
-        {robot ? <p className="mt-2 text-sm text-ink-muted">Allocated: <span className="font-medium text-ink">{robot.name}</span> · {robot.modelName} · {robot.serialNo}</p> : <p className="mt-2 text-sm text-ink-muted">No robot resource allocated to this class.</p>}
+        {robot ? <p className="mt-2 text-sm text-ink-muted">Allocated: <span className="font-medium text-ink">{robot.name}</span> · {robot.modelName} · {robot.serialNo}{robotCount > 1 ? ` · +${robotCount - 1} more allocated` : ''}</p> : <p className="mt-2 text-sm text-ink-muted">No robot resource allocated to this class.</p>}
       </section>
+      <LabSessionPanel classroomId={classroomId} token={token} role="instructor" />
 
       {actionError && <p role="alert" className="mt-5 border-l-4 border-red-600 bg-red-50 p-3 text-sm text-red-800">{actionError}</p>}
       {isLoading && <p className="mt-6 text-sm text-ink-muted">Loading classroom delivery…</p>}

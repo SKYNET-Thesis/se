@@ -63,6 +63,18 @@ test('student browser runs the local R1 fake follower and retrieves scoped persi
   const peerToken = await signIn(await browser.newPage(), 'peer');
   const foreignTeacherToken = await signIn(await browser.newPage(), 'foreignTeacher');
 
+  // Classroom Lab Session (refines WF-03 authorization): allocation alone is not enough; the classroom's instructor must reserve the robot first.
+  const gated = await request(page, studentToken, 'GET', `/me/attempts/${fixture.attemptId}/physical-execution-eligibility`);
+  expect(await gated.json()).toMatchObject({ eligible: false, code: 'LAB_SESSION_NOT_ACTIVE' });
+  const refusedStart = await request(page, studentToken, 'POST', `/me/attempts/${fixture.attemptId}/physical-executions/start`, { safetyConfirmed: true });
+  expect(refusedStart.status()).toBe(409);
+  expect(await request(page, studentToken, 'POST', `/classrooms/${fixture.classroomId}/lab-sessions`, { robotId: '00000000-0000-4000-8000-000000000000' }).then((r) => r.status())).toBe(404);   // a student cannot reserve
+  const labRobots = await (await request(page, teacherToken, 'GET', `/classrooms/${fixture.classroomId}/lab-robots`)).json() as Array<{ robotId: string; status: string }>;
+  const labStart = await request(page, teacherToken, 'POST', `/classrooms/${fixture.classroomId}/lab-sessions`, { robotId: labRobots[0].robotId });
+  expect(labStart.status()).toBe(201);
+  const labSession = await labStart.json() as { id: string; state: string };
+  expect(labSession.state).toBe('active');
+
   const eligibility = await request(page, studentToken, 'GET', `/me/attempts/${fixture.attemptId}/physical-execution-eligibility`);
   expect(eligibility.status()).toBe(200);
   const ready = await eligibility.json();
@@ -158,4 +170,12 @@ test('student browser runs the local R1 fake follower and retrieves scoped persi
 
   const nonexistent = await request(page, studentToken, 'GET', `/me/experiments/${run.id}/artifacts/00000000-0000-4000-8000-000000000001/download`);
   expect([404, 422]).toContain(nonexistent.status());
+
+  // End Lab Session: new executions are blocked at once and the robot is released only after the individual control session is finished.
+  const ended = await request(page, teacherToken, 'POST', `/lab-sessions/${labSession.id}/end`);
+  expect(ended.status()).toBe(201);
+  expect(await ended.json()).toMatchObject({ state: 'released' });
+  const after = await request(page, studentToken, 'GET', `/me/attempts/${fixture.attemptId}/physical-execution-eligibility`);
+  expect(await after.json()).toMatchObject({ eligible: false, code: 'LAB_SESSION_NOT_ACTIVE' });
+  expect((await request(page, peerToken, 'POST', `/lab-sessions/${labSession.id}/end`)).status()).toBe(404);
 });

@@ -77,7 +77,7 @@ def runtime_sequence_allowlist(root: Path) -> set[str]:
 # verification still rejects their tables. Only the DISPOSABLE staged path (staged=True: migration M applied through
 # apply_staged_migration_to_test_database.py, optionally followed by these) accepts them, and only with the EXACT grants their own SQL declares
 # (parsed here, never hand-copied), RLS enabled and nothing for PUBLIC/anon/authenticated.
-STAGED_EXTENSION_FILES = ["database/staged-migrations/20261120_r_device_provisioning.sql"]
+STAGED_EXTENSION_FILES = ["database/staged-migrations/20261120_r_device_provisioning.sql", "database/staged-migrations/20261127_s_classroom_lab_sessions.sql"]
 
 
 def staged_extension_privileges(root: Path) -> dict[str, set[str]]:

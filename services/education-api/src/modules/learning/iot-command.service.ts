@@ -39,6 +39,16 @@ export type IotRunCommand = {
   issuedAtMs: number; expiresAtMs: number; payload: Record<string, unknown>;
 };
 
+/**
+ * Stop Execution (instructor): asks the Edge to stop ONE run. Same topic, envelope, TTL, sequence and dedupe rules as a run command; an Edge that does not
+ * implement `cancel` rejects it (ACK `rejected`), which is safe. Receipt or ACK of a cancel is NEVER proof of a stop: the API only treats the target
+ * command's own terminal status (published by the Edge after its local safe stop) as release of control. See docs/education/wf-01-robot-resource-allocation.md.
+ */
+export type IotCancelCommand = {
+  schemaVersion: number; kind: "cancel"; commandId: string; robotId: string; sequence: number;
+  issuedAtMs: number; expiresAtMs: number; payload: { targetCommandId: string; runId: string; reason: string };
+};
+
 class AwsIotPublisher implements IotPublisher {
   private readonly client: IoTDataPlaneClient;
   constructor(environment: NodeJS.ProcessEnv) {
@@ -112,6 +122,20 @@ export class IotCommandService {
     return { schemaVersion: 1, kind: "run", commandId: this.uuid(), robotId, sequence, issuedAtMs, expiresAtMs: issuedAtMs + ttl, payload };
   }
   async publishRunCommand(command: IotRunCommand) {
+    if (!this.publisher) throw new Error("AWS IoT command publisher is disabled");
+    const prefix = (this.environment.VISTA_IOT_TOPIC_PREFIX ?? "").replace(/\/$/, "");
+    if (!prefix) throw new Error("VISTA_IOT_TOPIC_PREFIX is required when AWS IoT is enabled");
+    await this.publisher.publish(`${prefix}/${command.robotId}/commands`, command);
+    return command;
+  }
+  createCancelCommand(robotId: string, payload: IotCancelCommand["payload"]): IotCancelCommand {
+    if (!this.publisher) throw new Error("AWS IoT command publisher is disabled");
+    const ttl = Math.min(30000, Number(this.environment.VISTA_IOT_COMMAND_TTL_MS ?? "10000"));
+    if (!Number.isSafeInteger(ttl) || ttl < 1000) throw new Error("VISTA_IOT_COMMAND_TTL_MS must be 1000..60000");
+    const issuedAtMs = this.now();
+    return { schemaVersion: 1, kind: "cancel", commandId: this.uuid(), robotId, sequence: issuedAtMs, issuedAtMs, expiresAtMs: issuedAtMs + ttl, payload };
+  }
+  async publishCancelCommand(command: IotCancelCommand) {
     if (!this.publisher) throw new Error("AWS IoT command publisher is disabled");
     const prefix = (this.environment.VISTA_IOT_TOPIC_PREFIX ?? "").replace(/\/$/, "");
     if (!prefix) throw new Error("VISTA_IOT_TOPIC_PREFIX is required when AWS IoT is enabled");

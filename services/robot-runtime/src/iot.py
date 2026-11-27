@@ -30,12 +30,20 @@ class IotBridge:
         self.last_sequence, self.acks, self._publications, self._client, self.connected = -1, [], [], None, False
         self._shadow_publications: list[tuple[str, dict[str, Any]]] = []
         self._seen_commands: dict[str, tuple[str, str | None]] = {}
+        self._run_by_command: dict[str, str] = {}      # command id -> runtime run id, so a cancel is bound to the run it names
         self._max_seen_commands = max(1, int(config.get("commandDedupLimit", 1024)))
         self._retry_seconds = 1
         self._reported: set[tuple[str, str]] = set()
         self._lock = threading.Lock()
         self._watchers: list[threading.Thread] = []
         self._closing = threading.Event()
+        # Idle Device Shadow heartbeat: the Education API refuses a start when the Shadow is older than its freshness limit, so an idle edge keeps reporting.
+        self._heartbeat_seconds = min(10.0, max(1.0, float(config.get("heartbeatSeconds", 5))))
+        self._heartbeat_timer: threading.Timer | None = None
+        # Command-correlated simulation telemetry (status "telemetry"): per-command last sequence, count and last publish time.
+        self._telemetry_sequence: dict[str, int] = {}
+        self._telemetry_count: dict[str, int] = {}
+        self._telemetry_last_s: dict[str, float] = {}
     def _publish(self, suffix: str, value: dict[str, Any]) -> None:
         topic = f"{self.topic_prefix}/{suffix}"; self._publications.append((topic, value))
         if self._client is not None and self.connected: self._client.publish(topic, json.dumps(value, separators=(",", ":")), qos=1)
@@ -48,10 +56,16 @@ class IotBridge:
         return "MOCK_RUNTIME" if self.config.get("fakeRobot") is True or adapter == "fake_follower" else "UNVERIFIED_RUNTIME"
     def _report_shadow(self, status: dict[str, Any]) -> None:
         """Device Shadow `reported` state: last-known edge state for the console and the API. No secrets, no joint data, no commands."""
-        reported = {"schemaVersion": 1, "connection": "connected" if self.connected else "disconnected", "runtimeKind": self._runtime_kind(),
-                    "hardwareEnabled": status.get("hardwareEnabled") is True, "stopped": status.get("stopped") is True,
+        kind = self._runtime_kind()
+        runtime_config = getattr(self.runtime, "config", None)
+        adapter = runtime_config.get("adapterMode") if isinstance(runtime_config, dict) else None
+        # R1 drives only the checked fake follower: there is no physical hardware, so the Shadow must say so even though the runtime's own
+        # `hardwareEnabled` config switch is on (it enables the simulated follower). Readiness fields are reported honestly: nothing is armed or calibrated.
+        reported = {"schemaVersion": 1, "connection": "connected" if self.connected else "disconnected", "runtimeKind": kind,
+                    "hardwareEnabled": False if kind != "PHYSICAL_ROBOT" else status.get("hardwareEnabled") is True, "stopped": status.get("stopped") is True,
                     "activeRunId": status.get("activeRunId") if isinstance(status.get("activeRunId"), str) else None,
-                    "lastCommandSequence": max(0, self.last_sequence), "reportedAtMs": self.clock()}
+                    "lastCommandSequence": max(0, self.last_sequence), "adapterMode": adapter if isinstance(adapter, str) and adapter else "unknown",
+                    "armed": False, "calibrationReady": False, "fault": None, "reportedAtMs": self.clock()}
         topic, payload = self.shadow_topic(), {"state": {"reported": reported}}
         self._shadow_publications.append((topic, payload))
         if self._client is not None and self.connected: self._client.publish(topic, json.dumps(payload, separators=(",", ":")), qos=1)
@@ -72,6 +86,7 @@ class IotBridge:
         """Publish the run's execution lifecycle (executing, then completed or failed) as `status` events the feedback worker understands.
         Each (command, status) is published once; sequences continue after the ack so ordering is strict."""
         state = snapshot.get("state") if isinstance(snapshot, dict) else None
+        if isinstance(snapshot, dict): self._publish_telemetry(command_id, snapshot.get("telemetry"), terminal=state in self._TERMINAL)
         status = self._EXECUTION.get(state) if isinstance(state, str) else None
         if status is None and state in self._TERMINAL: status = "failed"
         if status is None: return
@@ -83,6 +98,35 @@ class IotBridge:
         code = snapshot.get("errorCode") if isinstance(snapshot.get("errorCode"), str) else (state if status == "failed" else None)
         if code: event["code"] = code
         self._publish("status", event)
+    def _publish_telemetry(self, command_id: str, telemetry: Any, *, terminal: bool = False) -> None:
+        """Relay a validated SIMULATION frame on the `status` topic, correlated to the command, for the Education API's Digital Twin bridge.
+        Never carries setpoints; one frame per telemetry sequence, at most 2 per second and 120 per command (the final frame bypasses only the rate limit)."""
+        if not isinstance(telemetry, dict) or telemetry.get("source_mode") != "SIMULATION" or telemetry.get("robot_id") != self.robot_id: return
+        sequence = telemetry.get("sequence")
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0: return
+        with self._lock:
+            if sequence <= self._telemetry_sequence.get(command_id, -1) or self._telemetry_count.get(command_id, 0) >= 120: return
+            now = time.monotonic(); last = self._telemetry_last_s.get(command_id)
+            if not terminal and last is not None and now - last < 0.5: return
+            self._telemetry_sequence[command_id], self._telemetry_last_s[command_id] = sequence, now
+            self._telemetry_count[command_id] = self._telemetry_count.get(command_id, 0) + 1
+            while len(self._telemetry_sequence) > 64:
+                oldest = next(iter(self._telemetry_sequence)); self._telemetry_sequence.pop(oldest); self._telemetry_count.pop(oldest, None); self._telemetry_last_s.pop(oldest, None)
+        self._publish("status", {"schemaVersion": 1, "kind": "status", "status": "telemetry", "robotId": self.robot_id, "commandId": command_id,
+                                 "eventId": f"{command_id}:telemetry:{sequence}", "sequence": sequence, "occurredAtMs": self.clock(), "telemetry": telemetry})
+    def _schedule_heartbeat(self) -> None:
+        if self._closing.is_set(): return
+        timer = threading.Timer(self._heartbeat_seconds, self._heartbeat); timer.daemon = True
+        previous, self._heartbeat_timer = self._heartbeat_timer, timer
+        if previous is not None: previous.cancel()
+        timer.start()
+    def _heartbeat(self) -> None:
+        try:
+            if self.connected and self.config.get("deviceShadow", True) is not False: self._report_shadow(self.runtime.status())
+        except Exception as error:  # a failed status read must never stop the heartbeat loop or publish invented readiness
+            LOG.warning("shadow heartbeat skipped: %s", type(error).__name__)
+        finally:
+            if self.connected: self._schedule_heartbeat()
     def _watch(self, command_id: str, sequence: int, run_id: str, deadline_s: float = 900.0) -> None:
         end = time.monotonic() + deadline_s
         while not self._closing.is_set() and time.monotonic() < end:
@@ -101,7 +145,31 @@ class IotBridge:
     def _remember_command(self, command_id: str, status: str, code: str | None) -> None:
         self._seen_commands[command_id] = (status, code)
         while len(self._seen_commands) > self._max_seen_commands: self._seen_commands.pop(next(iter(self._seen_commands)))
+    def _handle_cancel(self, command: dict[str, Any]) -> None:
+        """Stop Execution for ONE run. Bound to this robot, to the target command's own run and to a run that is still active, so a stale or
+        misdirected cancel can never stop an unrelated later run. The ACK only says the request was accepted; the stop is reported solely by the
+        target command's terminal status (`failed`, code `cancelled`) published by the watcher after the runtime has actually stopped the run."""
+        command_id, robot_id, sequence, expires, payload = command.get("commandId"), command.get("robotId"), command.get("sequence"), command.get("expiresAtMs"), command.get("payload")
+        if not isinstance(command_id, str) or not command_id or robot_id != self.robot_id or not isinstance(sequence, int) or isinstance(sequence, bool) or not isinstance(expires, int): self._ack(command, "rejected", "command_identity_invalid"); return
+        previous = self._seen_commands.get(command_id)
+        if previous is not None: self._ack(command, *previous); return
+        if expires <= self.clock(): self._ack(command, "rejected", "command_expired"); return
+        if sequence <= self.last_sequence: self._ack(command, "rejected", "command_replayed"); return
+        if not isinstance(payload, dict) or set(payload) != {"targetCommandId", "runId", "reason"} or not all(isinstance(payload[k], str) and payload[k] for k in payload): self._ack(command, "rejected", "command_payload_invalid"); return
+        self.last_sequence = sequence
+        target_run = self._run_by_command.get(payload["targetCommandId"])
+        status, code = "rejected", "cancel_target_unknown"
+        if target_run is not None and target_run == payload["runId"]:
+            active = self.runtime.status().get("activeRunId")
+            if active == target_run:
+                snapshot = self.runtime.cancel_run(target_run) if hasattr(self.runtime, "cancel_run") else None
+                status, code = ("accepted", None) if isinstance(snapshot, dict) else ("rejected", "cancel_unavailable")
+            else: code = "cancel_target_not_active"
+        elif target_run is not None: code = "cancel_target_mismatch"
+        self._remember_command(command_id, status, code); self._ack(command, status, code)
+
     def handle_command(self, command: Any) -> None:
+        if isinstance(command, dict) and command.get("schemaVersion") == 1 and command.get("kind") == "cancel": self._handle_cancel(command); return
         if not isinstance(command, dict) or command.get("schemaVersion") != 1 or command.get("kind") != "run": self._ack(command if isinstance(command, dict) else {}, "rejected", "command_invalid"); return
         command_id, robot_id, sequence, expires = command.get("commandId"), command.get("robotId"), command.get("sequence"), command.get("expiresAtMs")
         if not isinstance(command_id, str) or not command_id or robot_id != self.robot_id or not isinstance(sequence, int) or isinstance(sequence, bool) or not isinstance(expires, int): self._ack(command, "rejected", "command_identity_invalid"); return
@@ -119,7 +187,11 @@ class IotBridge:
         except Exception as error:
             LOG.warning("iot command rejected: %s", type(error).__name__)
         self._remember_command(command_id, status, code); self._ack(command, status, code)
-        if status == "accepted": self._track(command_id, sequence, snapshot)
+        if status == "accepted":
+            if isinstance(snapshot, dict) and isinstance(snapshot.get("runId"), str):
+                self._run_by_command[command_id] = snapshot["runId"]
+                while len(self._run_by_command) > self._max_seen_commands: self._run_by_command.pop(next(iter(self._run_by_command)))
+            self._track(command_id, sequence, snapshot)
         self.publish_state()
     def publish_state(self) -> None:
         status = self.runtime.status()
@@ -130,7 +202,8 @@ class IotBridge:
         if mqtt_factory is None:
             try: import paho.mqtt.client as mqtt
             except ImportError as error: raise RuntimeError("paho-mqtt is required for AWS IoT transport") from error
-            mqtt_factory = mqtt.Client
+            # paho-mqtt 2.x requires an explicit callback API version; MQTT 3.1.1 over mutual TLS with the Thing name as the client id.
+            mqtt_factory = lambda client_id: mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2, client_id=client_id, protocol=mqtt.MQTTv311, clean_session=True)  # noqa: E731
         context = ssl.create_default_context(cafile=tls.ca_path); context.minimum_version = ssl.TLSVersion.TLSv1_2; context.load_cert_chain(tls.certificate_path, tls.private_key_path)
         client = mqtt_factory(client_id=tls.thing_name); client.tls_set_context(context); client.tls_insecure_set(False)
         client.on_connect, client.on_disconnect, client.on_message = self._on_connect, self._on_disconnect, self._on_message
@@ -140,13 +213,16 @@ class IotBridge:
         self._client = client; client.connect_async(tls.endpoint, 8883, keepalive=30); client.loop_start()
     def close(self) -> None:
         self._closing.set()
+        if self._heartbeat_timer is not None: self._heartbeat_timer.cancel(); self._heartbeat_timer = None
         if self._client is not None: self._client.disconnect(); self._client.loop_stop(); self._client = None
         self.connected = False
     def _on_connect(self, client: Any, _userdata: Any, _flags: Any, reason_code: Any, _properties: Any = None) -> None:
-        if int(reason_code) != 0: LOG.warning("AWS IoT connection refused: %s", reason_code); return
-        self.connected, self._retry_seconds = True, 1; client.subscribe(f"{self.topic_prefix}/commands", qos=1); self.publish_state()
+        if int(getattr(reason_code, "value", reason_code)) != 0: LOG.warning("AWS IoT connection refused: %s", reason_code); return
+        self.connected, self._retry_seconds = True, 1; client.subscribe(f"{self.topic_prefix}/commands", qos=1); self.publish_state(); self._schedule_heartbeat()
     def _on_disconnect(self, _client: Any, _userdata: Any, *_args: Any) -> None:
-        self.connected = False; self._retry_seconds = min(30, max(1, self._retry_seconds * 2)); LOG.warning("AWS IoT disconnected; bounded reconnect backoff %ss", self._retry_seconds)
+        self.connected = False
+        if self._heartbeat_timer is not None: self._heartbeat_timer.cancel(); self._heartbeat_timer = None
+        self._retry_seconds = min(30, max(1, self._retry_seconds * 2)); LOG.warning("AWS IoT disconnected; bounded reconnect backoff %ss", self._retry_seconds)
     def _on_message(self, _client: Any, _userdata: Any, message: Any) -> None:
         try: self.handle_command(json.loads(message.payload))
         except (UnicodeDecodeError, json.JSONDecodeError): self._ack({}, "rejected", "command_invalid_json")

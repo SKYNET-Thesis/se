@@ -288,8 +288,8 @@ export async function apiPublicPost<T>(path: string, body: unknown): Promise<T> 
   return readJson<T>(response);
 }
 
-export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; }
-export interface ApiRobotResource { id: string; name: string; serialNo: string; modelName: string; status?: string; }
+export interface ApiClassroom { id: string; name: string; organization_id: string; allocated_robot?: ApiRobotResource | null; allocated_robots?: ApiRobotResource[]; }
+export interface ApiRobotResource { id: string; name: string; serialNo: string; modelName: string; status?: string; allocated?: boolean; }
 export interface ApiTeachingClassroom extends ApiClassroom { code: string; status: string; organization_name: string; student_count: number; /** Active students with an active enrollment in this classroom (what students can actually receive). Absent on older APIs. */ enrolled_student_count?: number; assignment_count: number; }
 export interface ApiMyLearning {
   classroom_assignment_id: string;
@@ -323,7 +323,7 @@ export interface ApiSchoolImportResult { processed:number; created:number; uncha
 export interface ApiClassroomStudentPreviewRow { row:number;firstName:string;lastName:string;studentCode:string;gradeLevel:string;email:string|null;status:'new_student'|'existing_student'|'already_in_class'|'needs_review';errors:string[];warnings:string[]; }
 export interface ApiClassroomStudentPreview { processed:number;newStudents:number;existingStudents:number;alreadyInClass:number;needsReview:number;rows:ApiClassroomStudentPreviewRow[]; }
 export interface ApiClassroomStudentImportResult { processed:number;createdAndAdded:number;existingAdded:number;unchanged:number;failed:number;results:Array<{row:number;status:'created_and_added'|'existing_added'|'unchanged'|'failed';code?:ApiImportErrorCode;message?:string;name:string;studentCode?:string;temporaryPassword?:string;temporaryPasswordExpiresAt?:string;setupCode?:string}>;schoolCode?:string; }
-export interface ApiSchoolClassroom { selfEnrollmentOpen?:boolean; id:string; organization_id:string; offering_id:string; name:string; code:string; description?:string|null; capacity?:number|null; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; }
+export interface ApiSchoolClassroom { selfEnrollmentOpen?:boolean; id:string; organization_id:string; offering_id:string; name:string; code:string; description?:string|null; capacity?:number|null; status:string; offering_title:string|null; student_count:number; teaching_staff_count:number; allocated_robot?:ApiRobotResource|null; allocated_robots?:ApiRobotResource[]; }
 export interface ApiOffering {
   id: string;
   code: string;
@@ -602,9 +602,43 @@ export const educationAdminApi = {
   upsertMember: (organizationId:string,classroomId:string,token:string,body:ApiRecord) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members`,token,'POST',body),
   revokeMember: (organizationId:string,classroomId:string,studentId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/members/${studentId}`,token,'DELETE'),
   removeStaff: (organizationId:string,classroomId:string,staffUserId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/organizations/${organizationId}/classrooms/${classroomId}/staff/${staffUserId}`,token,'DELETE'),
+  /** Reads an .xlsx/.csv on the server (bounded reader, formulas rejected) and returns the CSV text the import review validates. Creates nothing. */
+  parseImportFile: async (organizationId:string,token:string,file:File) => {
+    const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ''; for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return apiRequest<{rows:number;csv:string}>(`/education-admin/organizations/${organizationId}/user-imports/parse-file`,token,'POST',{fileName:file.name,contentBase64:btoa(binary)});
+  },
   eligibleRobots: (classroomId:string,token:string) => apiGet<ApiRobotResource[]>(`/education-admin/classrooms/${classroomId}/eligible-robots`,token),
 
-  allocateRobot: (classroomId:string,token:string,robotId:string) => apiRequest<ApiRecord>(`/education-admin/classrooms/${classroomId}/robot-allocation`,token,'PUT',{robotId}),
+  allocateRobot: (classroomId:string,token:string,robotId:string) => apiRequest<ApiRecord>(`/education-admin/classrooms/${classroomId}/robot-allocations`,token,'POST',{robotId}),
+  removeRobotAllocation: (classroomId:string,token:string,robotId:string) => apiRequest<ApiRecord>(`/education-admin/classrooms/${classroomId}/robot-allocations/${robotId}`,token,'DELETE'),
+};
+
+export interface ApiLabRobot { robotId:string; name:string; serialNo:string; modelName:string; operationalStatus:string; entitled:boolean; reservation:'none'|'this_classroom'|'other_classroom'; labSessionId:string|null; labSessionState:string|null; expiresAt:string|null; controllerActive:boolean|null; connectivity:'online'|'offline'|'unknown'; status:string; }
+export interface ApiLabSession { id:string; classroomId:string; robotId:string; state:'active'|'terminating'|'quarantined'|'released'; startedAt:string; expiresAt:string; extensionCount:number; endedAt:string|null; endReason:string|null; endedByRole:string|null; robot?:{id:string;name:string;serialNo:string}; instructorName?:string|null; recovery?:string|null; }
+/** Classroom Lab Session: classroom-level exclusive robot reservation (Instructor start/extend/end, School Admin controlled force end). */
+export const labSessionApi = {
+  robots: (classroomId:string,token:string) => apiGet<ApiLabRobot[]>(`/classrooms/${classroomId}/lab-robots`,token),
+  sessions: (classroomId:string,token:string) => apiGet<ApiLabSession[]>(`/classrooms/${classroomId}/lab-sessions`,token),
+  start: (classroomId:string,token:string,robotId:string,durationMinutes?:number) => apiRequest<ApiLabSession>(`/classrooms/${classroomId}/lab-sessions`,token,'POST',{robotId,...(durationMinutes?{durationMinutes}:{})}),
+  extend: (sessionId:string,token:string,minutes:number) => apiRequest<ApiLabSession>(`/lab-sessions/${sessionId}/extend`,token,'POST',{minutes}),
+  end: (sessionId:string,token:string) => apiRequest<ApiLabSession>(`/lab-sessions/${sessionId}/end`,token,'POST',{}),
+  stopExecution: (sessionId:string,token:string) => apiRequest<{controlActive:boolean;stopRequested:boolean;runtimeUnavailable:boolean;message:string}>(`/lab-sessions/${sessionId}/stop-execution`,token,'POST',{}),
+  forceEnd: (sessionId:string,token:string,reason:string) => apiRequest<ApiLabSession>(`/lab-sessions/${sessionId}/force-end`,token,'POST',{reason,confirm:true}),
+};
+
+export interface ApiRobotRegistryItem { id:string; serialNo:string; name:string; modelName:string; firmwareVersion:string|null; status:'available'|'in_use'|'maintenance'|'retired'; ownerOrganizationId:string|null; notes:string|null; createdAt:string; activeEntitlements:number; allocations:number; openLabSessions:number; commissioned:boolean; }
+export interface ApiRobotDetail { id:string; serialNo:string; name:string; modelName:string; firmwareVersion:string|null; status:ApiRobotRegistryItem['status']; notes:string|null; commissioned:boolean; connectivity:string;
+  entitlements:Array<{id:string;organizationId:string;organizationName:string;validFrom:string;validTo:string|null;active:boolean}>;
+  allocations:Array<{id:string;classroomId:string;classroomName:string;organizationId:string;organizationName:string;createdAt:string}>;
+  openLabSessions:Array<{id:string;classroomId:string;state:string;expiresAt:string}>; }
+/** System Administrator: logical Robot Resources and organization entitlements (no AWS resources, certificates or credentials are created). */
+export const robotRegistryApi = {
+  list: (token:string) => apiGet<ApiRobotRegistryItem[]>('/education-admin/robots',token),
+  detail: (robotId:string,token:string) => apiGet<ApiRobotDetail>(`/education-admin/robots/${robotId}`,token),
+  create: (token:string,body:{serialNo:string;name:string;modelName?:string;firmwareVersion?:string;notes?:string}) => apiRequest<ApiRobotDetail>('/education-admin/robots',token,'POST',body),
+  update: (robotId:string,token:string,body:{name?:string;modelName?:string;firmwareVersion?:string;notes?:string;status?:'available'|'maintenance'|'retired'}) => apiRequest<ApiRobotDetail>(`/education-admin/robots/${robotId}`,token,'PATCH',body),
+  grantEntitlement: (robotId:string,token:string,organizationId:string,validTo?:string) => apiRequest<ApiRecord>(`/education-admin/robots/${robotId}/entitlements`,token,'POST',{organizationId,...(validTo?{validTo}:{})}),
+  revokeEntitlement: (robotId:string,entitlementId:string,token:string) => apiRequest<ApiRecord>(`/education-admin/robots/${robotId}/entitlements/${entitlementId}`,token,'DELETE'),
 };
 export const catalogApi = {
   createGlobalCourse: (token:string, body:{title:string;description?:string;level?:string;tags?:string[];prerequisiteCourseIds?:string[]}) => apiRequest<ApiCourse>('/admin/courses',token,'POST',body),

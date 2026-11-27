@@ -121,13 +121,24 @@ class EducationCiSeparationTests(unittest.TestCase):
 
     def test_deploy_jobs_cannot_drop_schema_gate_environment_or_main_only(self):
         for old, new, needle in (
-            ("    needs: [api, web, docker, changes, database-safety, schema-gate]", "    needs: [api, web, docker, changes, database-safety]", "deploy-api must depend on schema-gate"),
+            ("    needs: [api, web, docker, changes, database-safety, schema-gate, rollback-guard]", "    needs: [api, web, docker, changes, database-safety, rollback-guard]", "deploy-api must depend on schema-gate"),
             ("    needs: [api, web, changes, deploy-api, database-safety, schema-gate]", "    needs: [api, web, changes, deploy-api, database-safety]", "deploy-web must depend on schema-gate"),
             ("needs.schema-gate.result == 'success' && needs.api.result", "needs.api.result", "deploy-web must require a successful schema-gate"),
-            ("(needs.schema-gate.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.action == 'rollback'))", "true", "deploy-api must require a successful schema-gate"),
+            ("(needs.schema-gate.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.action == 'rollback' && needs.rollback-guard.result == 'success'))", "true", "deploy-api must require a successful schema-gate"),
+            ("    needs: [api, web, docker, changes, database-safety, schema-gate, rollback-guard]", "    needs: [api, web, docker, changes, database-safety, schema-gate]", "deploy-api must depend on rollback-guard"),
         ):
             with self.subTest(needle=needle):
                 self.assertTrue(any(needle in p for p in self.problems(old, new)), self.problems(old, new))
+
+    def test_rollback_guard_is_mandatory_read_only_and_rollback_only(self):
+        for old, new, needle in (
+            ("production_db_release.py rollback-guard", "production_db_release.py compat", "rollback-guard must run the read-only production_db_release.py rollback-guard"),
+            ("    environment: production-database-preflight\n    permissions: { contents: read }\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-python@v5\n        with: { python-version: \"3.12\" }\n      - name: Install PostgreSQL 17 client\n        run: |\n          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y\n          sudo apt-get install -y postgresql-client-17\n          echo \"/usr/lib/postgresql/17/bin\" >> \"$GITHUB_PATH\"\n      - name: Refuse", "    permissions: { contents: read }\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-python@v5\n        with: { python-version: \"3.12\" }\n      - name: Install PostgreSQL 17 client\n        run: |\n          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y\n          sudo apt-get install -y postgresql-client-17\n          echo \"/usr/lib/postgresql/17/bin\" >> \"$GITHUB_PATH\"\n      - name: Refuse", "rollback-guard must use the read-only production-database-preflight environment"),
+            ("needs.changes.result == 'success' && github.event_name == 'workflow_dispatch' && inputs.action == 'rollback'\n    needs: [changes]", "needs.changes.result == 'success' && github.event_name == 'workflow_dispatch'\n    needs: [changes]", "rollback-guard must require inputs.action == 'rollback'"),
+        ):
+            with self.subTest(needle=needle):
+                self.assertTrue(any(needle in p for p in self.problems(old, new)), self.problems(old, new))
+        self.assertTrue(any("rollback-guard job is missing" in p for p in backend_ci_problems(CI.replace("  rollback-guard:", "  renamed-guard:", 1))))
 
     def test_approval_environment_and_aws_gates_are_mandatory(self):
         self.assertTrue(any("aws-demo" in p for p in self.problems("    environment: aws-demo\n", "", 1)))

@@ -200,7 +200,8 @@ class IotBridgeTests(unittest.TestCase):
         self.assertEqual(topic, "$aws/things/vista-demo-so101-001/shadow/update")
         reported = payload["state"]["reported"]
         self.assertEqual(reported["runtimeKind"], "MOCK_RUNTIME")                                                  # a fake follower is never labelled physical
-        self.assertEqual((reported["connection"], reported["hardwareEnabled"], reported["stopped"], reported["activeRunId"]), ("disconnected", True, False, "run-1"))
+        self.assertEqual((reported["connection"], reported["hardwareEnabled"], reported["stopped"], reported["activeRunId"]), ("disconnected", False, False, "run-1"))   # no physical hardware: never claimed, whatever the runtime switch says
+        self.assertEqual((reported["adapterMode"], reported["armed"], reported["calibrationReady"], reported["fault"]), ("fake_follower", False, False, None))
         self.assertNotIn("must-not-leak", json.dumps(payload))
 
     def test_unknown_runtime_is_never_reported_as_physical_and_the_shadow_can_be_turned_off(self):
@@ -332,3 +333,134 @@ class IotBridgeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+ROBOT = "f1c066c4-b5f2-45c4-b933-f034f3824dd9"
+CMD = "11111111-1111-4111-8111-111111111111"
+JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
+
+
+def frame(sequence, robot=ROBOT, source="SIMULATION"):
+    return {"schema_version": 1, "robot_id": robot, "source_mode": source, "controller_id": "checkik", "sequence": sequence,
+            "measured_at": "2026-11-27T00:00:00Z", "connection": "connected",
+            "measured": [{"name": n, "position": 0.1, "unit": "percent" if n == "gripper" else "rad"} for n in JOINTS]}
+
+
+class CloudSimulationDeviceTests(unittest.TestCase):
+    def bridge(self, **extra):
+        class FakeRuntime:
+            config = {"adapterMode": "fake_follower"}
+            def submit(self, _value): return {"state": "queued"}
+            def status(self): return {"hardwareEnabled": True, "stopped": False, "activeRunId": None}
+        t = [1000]
+        def clock():
+            t[0] += 1; return t[0]
+        return IotBridge({"thingName": "vista-demo-" + ROBOT, "robotId": ROBOT, "topicPrefix": "vista/demo/robots/" + ROBOT, **extra}, FakeRuntime(), clock=clock)
+
+    def test_correlated_telemetry_is_relayed_once_per_sequence_on_the_status_topic(self):
+        bridge = self.bridge()
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(5)})
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(5)})        # same sequence: not repeated
+        bridge.report_progress(CMD, 1, {"state": "succeeded", "telemetry": frame(6)})      # terminal frame bypasses the rate limit only
+        events = [v for topic, v in bridge.drain_publications() if topic.endswith("/status") and v.get("status") == "telemetry"]
+        self.assertEqual([e["sequence"] for e in events], [5, 6])
+        self.assertEqual({(e["commandId"], e["robotId"], e["kind"]) for e in events}, {(CMD, ROBOT, "status")})
+        self.assertEqual(events[0]["eventId"], f"{CMD}:telemetry:5")
+        self.assertIn("telemetry", events[0]); self.assertNotIn("jointState", events[0])
+
+    def test_telemetry_is_rate_limited_and_never_relays_foreign_or_non_simulation_frames(self):
+        bridge = self.bridge()
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(1)})
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(2)})         # inside 0.5 s of the previous frame
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(3, robot="other")})
+        bridge.report_progress(CMD, 1, {"state": "running", "telemetry": frame(4, source="PHYSICAL_ROBOT")})
+        sequences = [v["sequence"] for t, v in bridge.drain_publications() if v.get("status") == "telemetry"]
+        self.assertEqual(sequences, [1])
+
+    def test_idle_heartbeat_reports_a_fresh_honest_shadow_within_ten_seconds(self):
+        bridge = self.bridge(heartbeatSeconds=99)                                            # clamped to the 10 s ceiling
+        self.assertEqual(bridge._heartbeat_seconds, 10.0)
+        bridge.connected = True
+        bridge._heartbeat()
+        bridge._closing.set()
+        (topic, payload), = bridge.drain_shadow_publications()
+        reported = payload["state"]["reported"]
+        self.assertEqual((reported["runtimeKind"], reported["hardwareEnabled"], reported["connection"]), ("MOCK_RUNTIME", False, "connected"))
+        self.assertGreater(reported["reportedAtMs"], 1000)
+        if bridge._heartbeat_timer: bridge._heartbeat_timer.cancel()
+
+    def test_default_paho_client_uses_the_v2_callback_api_and_the_thing_name_as_client_id(self):
+        calls = []
+        class Client:
+            def __init__(self, **kw): calls.append(kw)
+            def tls_set_context(self, *_): pass
+            def tls_insecure_set(self, *_): pass
+            def will_set(self, *_a, **_k): pass
+            def connect_async(self, *_a, **_k): pass
+            def loop_start(self): pass
+        import types, iot
+        mqtt = types.SimpleNamespace(Client=Client, MQTTv311=4, CallbackAPIVersion=types.SimpleNamespace(VERSION2="v2"))
+        paho = types.ModuleType("paho"); paho_mqtt = types.ModuleType("paho.mqtt"); paho_client = types.ModuleType("paho.mqtt.client")
+        paho_client.Client, paho_client.MQTTv311, paho_client.CallbackAPIVersion = Client, 4, mqtt.CallbackAPIVersion
+        bridge = self.bridge()
+        with patch.dict(sys.modules, {"paho": paho, "paho.mqtt": paho_mqtt, "paho.mqtt.client": paho_client}), \
+             patch.object(iot.ssl, "create_default_context") as ctx:
+            ctx.return_value.load_cert_chain = lambda *_: None
+            bridge.connect(iot.TlsSettings("e", "vista-demo-" + ROBOT, "ca", "cert", "key"))
+        self.assertEqual(calls[0]["client_id"], "vista-demo-" + ROBOT)
+        self.assertEqual((calls[0]["callback_api_version"], calls[0]["clean_session"]), ("v2", True))
+
+
+class CancelCommandTests(unittest.TestCase):
+    """Stop Execution contract (kind "cancel"): bound to robot, target command, its run, and an ACTIVE run; the stop itself is reported by the terminal status."""
+    def bridge(self):
+        class FakeRuntime:
+            config = {"adapterMode": "fake_follower"}
+            active = None
+            cancelled: list = []
+            def submit(self, _value): FakeRuntime.active = "run-1"; return {"state": "running", "runId": "run-1"}
+            def status(self): return {"hardwareEnabled": True, "stopped": False, "activeRunId": FakeRuntime.active}
+            def cancel_run(self, run_id): FakeRuntime.cancelled.append(run_id); return {"state": "cancelled", "runId": run_id}
+            def get(self, run_id): return {"state": "running", "runId": run_id}
+        FakeRuntime.cancelled = []
+        t = [10_000]
+        def clock():
+            t[0] += 1; return t[0]
+        b = IotBridge({"thingName": "vista-demo-" + ROBOT, "robotId": ROBOT, "topicPrefix": "p/" + ROBOT, "watchProgress": False}, FakeRuntime(), clock=clock)
+        b.handle_command({"schemaVersion": 1, "kind": "run", "commandId": CMD, "robotId": ROBOT, "sequence": 100, "expiresAtMs": 10**12, "payload": {}})
+        b.acks.clear()
+        return b, FakeRuntime
+
+    def cancel(self, **over):
+        base = {"schemaVersion": 1, "kind": "cancel", "commandId": "33333333-3333-4333-8333-333333333333", "robotId": ROBOT, "sequence": 200, "expiresAtMs": 10**12, "payload": {"targetCommandId": CMD, "runId": "run-1", "reason": "lab_session_stop"}}
+        base.update(over); return base
+
+    def test_accepts_a_cancel_bound_to_the_active_run_and_does_not_claim_the_stop(self):
+        b, rt = self.bridge()
+        b.handle_command(self.cancel())
+        self.assertEqual([(a["status"], a.get("code")) for a in b.acks], [("accepted", None)])
+        self.assertEqual(rt.cancelled, ["run-1"])
+        self.assertFalse(any(v.get("status") in {"stopped", "completed"} for _t, v in b._publications))   # the ACK is not a stop confirmation
+
+    def test_rejects_wrong_robot_unknown_target_wrong_run_stale_and_replayed_cancels(self):
+        b, rt = self.bridge()
+        b.handle_command(self.cancel(robotId="other", sequence=200)); b.handle_command(self.cancel(commandId="44444444-4444-4444-8444-444444444444", sequence=201, payload={"targetCommandId": "nope", "runId": "run-1", "reason": "x"}))
+        b.handle_command(self.cancel(commandId="55555555-5555-4555-8555-555555555555", sequence=202, payload={"targetCommandId": CMD, "runId": "run-OTHER", "reason": "x"}))
+        b.handle_command(self.cancel(commandId="66666666-6666-4666-8666-666666666666", sequence=1))                      # not newer than the last command
+        b.handle_command(self.cancel(commandId="77777777-7777-4777-8777-777777777777", sequence=203, payload={"targetCommandId": CMD, "runId": "run-1"}))   # missing reason
+        self.assertEqual([(a["status"], a.get("code")) for a in b.acks],
+                         [("rejected", "command_identity_invalid"), ("rejected", "cancel_target_unknown"), ("rejected", "cancel_target_mismatch"), ("rejected", "command_replayed"), ("rejected", "command_payload_invalid")])
+        self.assertEqual(rt.cancelled, [])
+
+    def test_a_cancel_for_a_finished_run_cannot_stop_a_later_run(self):
+        b, rt = self.bridge()
+        rt.active = None                                                                                                # the run already ended
+        b.handle_command(self.cancel())
+        self.assertEqual((b.acks[-1]["status"], b.acks[-1]["code"]), ("rejected", "cancel_target_not_active"))
+        self.assertEqual(rt.cancelled, [])
+
+    def test_duplicate_cancel_is_idempotent(self):
+        b, rt = self.bridge()
+        b.handle_command(self.cancel()); b.handle_command(self.cancel())
+        self.assertEqual([a["status"] for a in b.acks], ["accepted", "accepted"])
+        self.assertEqual(rt.cancelled, ["run-1"])                                                                       # cancelled once

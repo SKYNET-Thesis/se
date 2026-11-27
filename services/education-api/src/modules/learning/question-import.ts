@@ -109,23 +109,25 @@ function readZip(buf: Buffer): Map<string, Buffer> {
   return out;
 }
 
-const textOf = (xml: string) => [...xml.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map((m) => xmlUnescape(m[1])).join('');
+const P = '(?:[A-Za-z0-9]+:)?';   // optional XML namespace prefix, as written by some OOXML producers (<x:row>, <x:c>, <x:v>)
+const textOf = (xml: string) => [...xml.matchAll(new RegExp(`<${P}t(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${P}t>`, 'g'))].map((m) => xmlUnescape(m[1])).join('');
 
-export function parseXlsx(buf: Buffer): string[][] {
+export function parseXlsx(buf: Buffer, options: { rejectFormulas?: boolean } = {}): string[][] {
   const parts = readZip(buf);
   const sheet = parts.get('xl/worksheets/sheet1.xml') ?? [...parts.entries()].filter(([n]) => n.startsWith('xl/worksheets/')).sort(([a], [b]) => a.localeCompare(b))[0]?.[1];
   if (!sheet || !parts.has('xl/workbook.xml')) throw new ImportFileError('The file is not a valid XLSX workbook.');
-  const shared = [...(parts.get('xl/sharedStrings.xml')?.toString('utf8') ?? '').matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => textOf(m[1]));
+  const shared = [...(parts.get('xl/sharedStrings.xml')?.toString('utf8') ?? '').matchAll(new RegExp(`<${P}si>([\\s\\S]*?)<\\/${P}si>`, 'g'))].map((m) => textOf(m[1]));
   const rows: string[][] = [];
-  for (const rm of sheet.toString('utf8').matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+  for (const rm of sheet.toString('utf8').matchAll(new RegExp(`<${P}row\\b[^>]*>([\\s\\S]*?)<\\/${P}row>`, 'g'))) {
     const row: string[] = [];
-    for (const cm of rm[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    for (const cm of rm[1].matchAll(new RegExp(`<${P}c\\b([^>]*?)(?:\\/>|>([\\s\\S]*?)<\\/${P}c>)`, 'g'))) {
       const ref = /r="([A-Z]+)\d+"/.exec(cm[1])?.[1]; const type = /t="(\w+)"/.exec(cm[1])?.[1]; const body = cm[2] ?? '';
       let col = 0; for (const ch of ref ?? '') col = col * 26 + ch.charCodeAt(0) - 64; col = ref ? col - 1 : row.length;
       if (col > 100) throw new ImportFileError('The worksheet has too many columns.');
       let value = '';
+      if (options.rejectFormulas && new RegExp(`<${P}f[\\s>/]`).test(body)) throw new ImportFileError('The workbook contains formulas. Formulas are never evaluated: paste plain values and upload again.');
       if (type === 'inlineStr') value = textOf(body);
-      else { const v = /<v>([\s\S]*?)<\/v>/.exec(body)?.[1]; value = v === undefined ? '' : type === 's' ? (shared[Number(v)] ?? '') : xmlUnescape(v); }
+      else { const v = new RegExp(`<${P}v>([\\s\\S]*?)<\\/${P}v>`).exec(body)?.[1]; value = v === undefined ? '' : type === 's' ? (shared[Number(v)] ?? '') : xmlUnescape(v); }
       while (row.length < col) row.push('');
       row[col] = value;
     }
@@ -135,11 +137,11 @@ export function parseXlsx(buf: Buffer): string[][] {
   return rows.filter((r) => r.some((c) => c.trim() !== ''));
 }
 
-export function readImportTable(filename: string, buf: Buffer): string[][] {
+export function readImportTable(filename: string, buf: Buffer, options: { rejectFormulas?: boolean } = {}): string[][] {
   if (!buf.length) throw new ImportFileError('The file is empty.');
   if (buf.length > IMPORT_MAX_BYTES) throw new ImportFileError('The file is larger than 1 MB.');
   const lower = filename.toLowerCase();
-  if (lower.endsWith('.xlsx')) return parseXlsx(buf);
+  if (lower.endsWith('.xlsx')) return parseXlsx(buf, options);
   if (lower.endsWith('.csv')) return parseCsv(buf.toString('utf8'));
   throw new ImportFileError('Only .csv and .xlsx files are supported.');
 }

@@ -80,8 +80,8 @@ def other_workflow_problems(content: str) -> list[str]:
     """Every workflow except the release workflow: no apply path, no privileged secret, no way to start the release."""
     problems = []
     for sub in wrapper_subcommands(content):
-        if sub not in ("compat", "evidence"):
-            problems.append(f"only the read-only 'compat' and 'evidence' subcommands of production_db_release may be used here (found {sub or 'unknown'!r})")
+        if sub not in ("compat", "evidence", "rollback-guard"):
+            problems.append(f"only the read-only compat, evidence and rollback-guard subcommands of production_db_release may be used here (found {sub or 'unknown'!r})")
     if "PRODUCTION_DATABASE_APPLY_URL" in content:
         problems.append("the privileged production database credential may only be referenced by the release workflow")
     if BACKUP_SCRIPT in content or "DB_BACKUP_" in content:
@@ -223,7 +223,7 @@ def backend_ci_problems(content: str) -> list[str]:
     if not concurrency or "github.event_name == 'workflow_dispatch'" not in concurrency.group(1) or not re.search(r"cancel-in-progress: false", concurrency.group(1)):
         problems.append("deployments must use their own non-cancelling concurrency group, separate from validation runs")
     jobs = _jobs(content)
-    production_jobs = {"changes", "schema-gate", "deploy-api", "deploy-web"}
+    production_jobs = {"changes", "schema-gate", "rollback-guard", "deploy-api", "deploy-web"}
     for name in ("api", "web", "docker", "database-safety"):
         body = jobs.get(name)
         if body is None:
@@ -254,7 +254,23 @@ def backend_ci_problems(content: str) -> list[str]:
         problems.append("schema-gate must run the read-only production_db_release.py compat check")
     if "github.event_name == 'push'" in gate_if or "pull_request" in gate_if:
         problems.append("schema-gate must not be started by push or pull_request")
-    rollback = "(github.event_name == 'workflow_dispatch' && inputs.action == 'rollback')"
+    rollback = "(github.event_name == 'workflow_dispatch' && inputs.action == 'rollback' && needs.rollback-guard.result == 'success')"
+    guard = jobs.get("rollback-guard", "")
+    guard_if = _job_if(guard)
+    if not guard:
+        problems.append("the rollback-guard job is missing: a rollback must be refused once the Production schema has outgrown the previous image")
+    else:
+        if not re.search(r"(?m)^    needs: \[changes\]\s*$", guard) or "needs.changes.result == 'success'" not in guard_if:
+            problems.append("rollback-guard must depend on the changes job and require its success")
+        if not re.search(r"(?m)^    environment: production-database-preflight\s*$", guard):
+            problems.append("rollback-guard must use the read-only production-database-preflight environment")
+        if not re.search(r"production_db_release\.py rollback-guard\b", guard):
+            problems.append("rollback-guard must run the read-only production_db_release.py rollback-guard check")
+        for clause in ("github.ref == 'refs/heads/main'", "vars.AWS_DEPLOY_ENABLED == 'true'", "github.event_name == 'workflow_dispatch'", "inputs.action == 'rollback'"):
+            if clause not in guard_if:
+                problems.append(f"rollback-guard must require {clause}")
+        if "github.event_name == 'push'" in guard_if or "pull_request" in guard_if:
+            problems.append("rollback-guard must not be started by push or pull_request")
     for name in ("deploy-api", "deploy-web"):
         body = jobs.get(name, "")
         condition = _job_if(body)
@@ -265,7 +281,7 @@ def backend_ci_problems(content: str) -> list[str]:
             problems.append(f"{name} must use the reviewer-gated aws-demo environment")
         needs = re.search(r"(?m)^    needs: \[(.*)\]\s*$", body)
         needed = {n.strip() for n in needs.group(1).split(",")} if needs else set()
-        for dependency in ("changes", "schema-gate", "database-safety"):
+        for dependency in ("changes", "schema-gate", "database-safety") + (("rollback-guard",) if name == "deploy-api" else ()):
             if dependency not in needed:
                 problems.append(f"{name} must depend on {dependency}")
         for clause in ("github.ref == 'refs/heads/main'", "vars.AWS_DEPLOY_ENABLED == 'true'", "needs.changes.result == 'success'", "needs.database-safety.result == 'success'"):

@@ -14,6 +14,9 @@ import { classifyImportError, ImportProvisioningError, type ImportErrorCode } fr
 import { StudentProvisioningService } from "./student-provisioning.service";
 import { EnrollmentDeliveryService } from "../learning/enrollment-delivery.service";
 import { DigitalTwinRevocationService } from "../learning/digital-twin-revocation.service";
+import { LabSessionSchemaProbe } from "../learning/lab-session-schema";
+import { ParseImportFileDto } from "./dto/parse-import-file.dto";
+import { ImportFileError, readImportTable } from "../learning/question-import";
 import { UpdateClassroomDto } from "./dto/update-classroom.dto";
 import { UpdateCourseOfferingDto } from "./dto/update-course-offering.dto";
 import { runCourseSyncTransaction } from "../learning/course-sync-transaction";
@@ -21,7 +24,7 @@ import { runCourseSyncTransaction } from "../learning/course-sync-transaction";
 @Injectable()
 export class EducationAdminService {
   private readonly logger = new Logger(EducationAdminService.name);
-  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly supabaseAdmin: SupabaseAdminService, private readonly studentProvisioning: StudentProvisioningService, private readonly enrollments: EnrollmentDeliveryService, private readonly twinRevocation?: DigitalTwinRevocationService) {}
+  constructor(private readonly prisma: PrismaService, private readonly scope: LearningScopeService, private readonly supabaseAdmin: SupabaseAdminService, private readonly studentProvisioning: StudentProvisioningService, private readonly enrollments: EnrollmentDeliveryService, private readonly twinRevocation?: DigitalTwinRevocationService, private readonly labSchema?: LabSessionSchemaProbe) {}
 
   async organizations(user: AuthenticatedUser) {
     if (!this.scope.isSystemAdministrator(user)) throw new NotFoundException("Organizations were not found.");
@@ -52,12 +55,16 @@ export class EducationAdminService {
     return this.prisma.$queryRaw`
       SELECT c.id, c.organization_id, c.offering_id, c.name, c.code, c.description, c.capacity, c.status, c.self_enrollment_open AS "selfEnrollmentOpen",
              o.code AS offering_code, o.title AS offering_title,
-             COUNT(cm.id) FILTER (WHERE cm.status = 'active' AND cm.classroom_role = 'student')::int AS student_count,
-             COUNT(cm.id) FILTER (WHERE cm.status = 'active' AND cm.classroom_role IN ('teacher', 'teaching_assistant'))::int AS teaching_staff_count,
+             COUNT(DISTINCT cm.id) FILTER (WHERE cm.status = 'active' AND cm.classroom_role = 'student')::int AS student_count,
+             COUNT(DISTINCT cm.id) FILTER (WHERE cm.status = 'active' AND cm.classroom_role IN ('teacher', 'teaching_assistant'))::int AS teaching_staff_count,
              (jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name)) FILTER (WHERE r.id IS NOT NULL AND r.status='available' AND EXISTS (
                SELECT 1 FROM public.org_entitlements e WHERE e.robot_id=r.id AND e.organization_id=c.organization_id AND e.resource_type='robot'
                  AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now())
-             )))->0 AS allocated_robot
+             )))->0 AS allocated_robot,
+             COALESCE(jsonb_agg(DISTINCT jsonb_build_object('id',r.id,'name',r.name,'serialNo',r.serial_no,'modelName',r.model_name)) FILTER (WHERE r.id IS NOT NULL AND r.status='available' AND EXISTS (
+               SELECT 1 FROM public.org_entitlements e WHERE e.robot_id=r.id AND e.organization_id=c.organization_id AND e.resource_type='robot'
+                 AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now())
+             )),'[]'::jsonb) AS allocated_robots
       FROM public.learning_classrooms c
       JOIN public.learning_course_offerings o ON o.id = c.offering_id
       LEFT JOIN public.learning_classroom_members cm ON cm.classroom_id = c.id
@@ -354,6 +361,28 @@ export class EducationAdminService {
     });
   }
 
+  /**
+   * Turns an uploaded .xlsx/.csv into the CSV text the school import UI already validates. Nothing is created: this only reads. XLSX is read with the
+   * bounded reader (no formula evaluation, no macros, no external references; a workbook that contains formulas is rejected) and every value is kept as
+   * text, so Vietnamese names and leading zeros survive. Authorization is the same as the import itself (organization-scoped `education.members.provision`).
+   */
+  async parseImportFile(user: AuthenticatedUser, organizationId: string, dto: ParseImportFileDto) {
+    await this.assertOrganizationPermission(user, organizationId, "education.members.provision");
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(dto.contentBase64) || dto.contentBase64.length % 4 !== 0) throw new BadRequestException({ code: "IMPORT_FILE_INVALID", message: "The file content is not valid." });
+    let table: string[][];
+    try { table = readImportTable(dto.fileName, Buffer.from(dto.contentBase64, "base64"), { rejectFormulas: true }); }
+    catch (error) {
+      if (error instanceof ImportFileError) throw new BadRequestException({ code: "IMPORT_FILE_INVALID", message: error.message });
+      throw error;
+    }
+    if (table.length < 2) throw new BadRequestException({ code: "IMPORT_FILE_EMPTY", message: "The file has a header but no records." });
+    if (table.length > 501) throw new BadRequestException({ code: "IMPORT_FILE_TOO_LARGE", message: "At most 500 records can be imported at once." });
+    // Cells that begin with a formula trigger are refused outright (spreadsheet injection), whatever the file type.
+    for (const row of table) for (const cell of row) if (/^[=@\t\r]/.test(cell) || /^[+-][A-Za-z(]/.test(cell)) throw new BadRequestException({ code: "IMPORT_FILE_INVALID", message: "A cell starts with a formula character (= + - @). Remove it and upload again." });
+    const quote = (cell: string) => (/[",\n\r]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell);
+    return { rows: table.length - 1, csv: table.map((row) => row.map(quote).join(",")).join("\n") + "\n" };
+  }
+
   async importUsers(user: AuthenticatedUser, organizationId: string, dto: ImportSchoolUsersDto) {
     await this.assertOrganizationPermission(user, organizationId, "education.members.provision");
     const seenEmails = new Set<string>(); const seenCodes = new Set<string>();
@@ -472,15 +501,17 @@ export class EducationAdminService {
 
   async eligibleRobots(user: AuthenticatedUser, classroomId: string) {
     const classroom = await this.classroomForAllocation(user, classroomId);
-    return this.prisma.$queryRaw`SELECT DISTINCT r.id,r.name,r.serial_no AS "serialNo",r.model_name AS "modelName",r.status FROM public.robots r JOIN public.org_entitlements e ON e.robot_id=r.id WHERE e.organization_id=${classroom.organization_id}::uuid AND e.resource_type='robot' AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now()) AND r.status='available' ORDER BY r.name`;
+    return this.prisma.$queryRaw`SELECT DISTINCT r.id,r.name,r.serial_no AS "serialNo",r.model_name AS "modelName",r.status,EXISTS (SELECT 1 FROM public.learning_classroom_robot_allocations a WHERE a.classroom_id=${classroomId}::uuid AND a.robot_id=r.id) AS allocated FROM public.robots r JOIN public.org_entitlements e ON e.robot_id=r.id WHERE e.organization_id=${classroom.organization_id}::uuid AND e.resource_type='robot' AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now()) AND r.status='available' ORDER BY r.name`;
   }
 
+  /**
+   * Adds a robot to a classroom. Allocation is many-to-many (a robot may serve several classrooms, a classroom may hold several robots) and grants
+   * ELIGIBILITY only: exclusive use comes from a Classroom Lab Session. A repeated request for the same pair is refused as a duplicate.
+   */
   async allocateRobot(user: AuthenticatedUser, classroomId: string, dto: AllocateClassroomRobotDto) {
     const classroom = await this.classroomForAllocation(user, classroomId);
-    const previous = await this.prisma.learning_classroom_robot_allocations.findUnique({ where: { classroom_id: classroomId }, select: { robot_id: true } });
-    const revokeOld = previous && previous.robot_id !== dto.robotId ? await this.twinRevocation?.prepare({ classroomId }) : undefined;   // resolved BEFORE the robot changes
-    const allocated = await this.prisma.$transaction(async (tx) => {
-      // Recheck and lock both the resource and the entitlement in the same transaction as the upsert.
+    return this.prisma.$transaction(async (tx) => {
+      // Recheck and lock both the resource and the entitlement in the same transaction as the insert.
       // Entitlement expiry/revocation or a status change before allocation must fail closed.
       const eligible = await tx.$queryRaw<{ id: string }[]>`SELECT r.id FROM public.robots r
         JOIN public.org_entitlements e ON e.robot_id=r.id
@@ -488,10 +519,39 @@ export class EducationAdminService {
           AND e.resource_type='robot' AND e.valid_from<=now() AND (e.valid_to IS NULL OR e.valid_to>now())
         ORDER BY e.valid_from DESC LIMIT 1 FOR UPDATE OF r,e`;
       if (!eligible[0]) throw new NotFoundException("Robot was not eligible for this classroom.");
-      return tx.$queryRaw`INSERT INTO public.learning_classroom_robot_allocations(classroom_id,robot_id,created_by_user_id) VALUES(${classroomId}::uuid,${dto.robotId}::uuid,${user.vistaUserId}::uuid) ON CONFLICT (classroom_id) DO UPDATE SET robot_id=EXCLUDED.robot_id,created_by_user_id=EXCLUDED.created_by_user_id,created_at=now() RETURNING id,classroom_id,robot_id,created_by_user_id,created_at`;
+      const rows = await tx.$queryRaw<Array<{ id: string; classroom_id: string; robot_id: string; created_at: Date }>>`
+        INSERT INTO public.learning_classroom_robot_allocations(classroom_id,robot_id,created_by_user_id)
+        VALUES(${classroomId}::uuid,${dto.robotId}::uuid,${user.vistaUserId}::uuid)
+        ON CONFLICT DO NOTHING RETURNING id,classroom_id,robot_id,created_at`;
+      if (!rows[0]) {
+        // A target-less ON CONFLICT works on both schemas (release compatibility with migration S): the pair already exists, or the pre-S
+        // one-robot-per-classroom constraint still applies and a second robot cannot be added yet.
+        const pair = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM public.learning_classroom_robot_allocations WHERE classroom_id=${classroomId}::uuid AND robot_id=${dto.robotId}::uuid`;
+        if (pair[0]) throw new ConflictException({ code: "ROBOT_ALREADY_ALLOCATED", message: "This robot is already allocated to this classroom." });
+        throw new ConflictException({ code: "MULTI_ROBOT_ALLOCATION_NOT_ENABLED", message: "This classroom already has a robot. Several robots per classroom become available after the database migration." });
+      }
+      return rows;
     });
-    if (revokeOld) void revokeOld();       // viewers of attempts that were bound to the previous robot are closed
-    return allocated;
+  }
+
+  /**
+   * Removes one robot from a classroom. Refused while that classroom holds an open Lab Session for the robot (active, ending or quarantined), so an
+   * allocation change can never silently invalidate a supervised session or hand control to another classroom. End the Lab Session first.
+   */
+  async removeRobotAllocation(user: AuthenticatedUser, classroomId: string, robotId: string) {
+    await this.classroomForAllocation(user, classroomId);
+    const revoke = await this.twinRevocation?.prepare({ classroomId });   // resolved BEFORE the allocation changes
+    const removed = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${robotId}::text, 0))`;
+      const open = (await this.labSchema?.isReady() ?? true)
+        ? await tx.$queryRaw<{ id: string }[]>`SELECT id FROM public.classroom_lab_sessions WHERE classroom_id=${classroomId}::uuid AND robot_id=${robotId}::uuid AND state IN ('active','terminating','quarantined') LIMIT 1`
+        : [];
+      if (open[0]) throw new ConflictException({ code: "LAB_SESSION_OPEN", message: "End this classroom's Lab Session for the robot before removing its allocation." });
+      return tx.$executeRaw`DELETE FROM public.learning_classroom_robot_allocations WHERE classroom_id=${classroomId}::uuid AND robot_id=${robotId}::uuid`;
+    });
+    if (!removed) throw new NotFoundException("Robot allocation was not found.");
+    if (revoke) void revoke();
+    return { removed: true };
   }
 
   private async classroomForAllocation(user: AuthenticatedUser, classroomId: string) {
