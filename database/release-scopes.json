@@ -263,6 +263,52 @@
         "functions": 15
       },
       "verifier": "s"
+    },
+    "T-U": {
+      "description": "Migration T (rubric achievement levels: learning_rubric_criteria.descriptors jsonb NULL with a four-element CHECK, learning_assessment_scores.level smallint NULL with a 0..4 CHECK) and migration U (staff first-login password state: public.users.password_change_required boolean NOT NULL DEFAULT false, password_changed_at, temporary_password_expires_at). Additive only: no table, policy, trigger or function is created, no backfill, no row is rewritten, nobody is restricted by the release. Requires D-L, N, O-Q and S applied.",
+      "productionStatus": "PROPOSED, NOT APPROVED: needs the production-database-apply reviewer approval and a verified backup. Compatible in either order with the API: an API that does not know the columns ignores them (explicit column lists); the API reads the U columns only while STAFF_TEMP_PASSWORD_ENABLED=true and the T columns only for assignments that carry descriptors or levels. Enable the flag only after this scope is applied and verified. Rollback = drop the five columns and two CHECK constraints (see each SQL header); it loses only descriptors, recorded levels and pending first-login state.",
+      "requiresApplied": [
+        "20261110_d_activity_content",
+        "20261110_e_learning_media",
+        "20261111_f_global_question_scope",
+        "20261111_g_activity_progress_scope_guard",
+        "20261112_h_learning_media_audio_mpeg",
+        "20261113_i_attempt_submission_foundation",
+        "20261114_j_one_submission_per_attempt",
+        "20261116_k_course_authoring_capabilities",
+        "20261116_l_runtime_role",
+        "20261118_n_student_password_change_required",
+        "20261119_o_wf01_robot_allocation_permission",
+        "20261119_p_course_level_tags_prerequisites_assignment_difficulty",
+        "20261120_q_media_archive",
+        "20261127_s_classroom_lab_sessions"
+      ],
+      "versions": [
+        "20261128_t_rubric_level_descriptors",
+        "20261128_u_staff_password_change_required"
+      ],
+      "sha256": {
+        "20261128_t_rubric_level_descriptors": "34e32fe373e7cf77ed7ebd1223c1da1693d6c734e30b87bbe19477a0b2f1bc2e",
+        "20261128_u_staff_password_change_required": "4c0225e1f1836b4135c275d672015d2e0137c348b5cbb2959bcebe487c3b6e2f"
+      },
+      "excludedVersions": [
+        "20261116_m_revoke_public_temp_privilege"
+      ],
+      "expectedCatalogBefore": {
+        "tables": 92,
+        "rls_enabled": 50,
+        "policies": 49,
+        "triggers": 22,
+        "functions": 15
+      },
+      "expectedCatalogAfter": {
+        "tables": 92,
+        "rls_enabled": 50,
+        "policies": 49,
+        "triggers": 22,
+        "functions": 15
+      },
+      "verifier": "tu"
     }
   }
 }
