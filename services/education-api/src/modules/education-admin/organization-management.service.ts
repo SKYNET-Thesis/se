@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { ConflictException, ForbiddenException, Injectable, NotFoundException, BadRequestException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/database/prisma.service";
+import { staffTempPasswordEnabled } from "./staff-temp-password.feature";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { LearningScopeService } from "../learning/learning-scope.service";
 import { SupabaseAdminService } from "./supabase-admin.service";
@@ -41,9 +43,10 @@ export class OrganizationManagementService {
 
   async administrators(user: AuthenticatedUser, organizationId: string) {
     this.assertSystemAdmin(user);
+    const pending = staffTempPasswordEnabled() ? Prisma.sql`WHEN u.password_change_required THEN 'password_change_required'` : Prisma.empty;
     return this.prisma.$queryRaw`
       SELECT u.id AS "userId", u.full_name AS "fullName", u.email, u.status AS "userStatus", m.id AS "membershipId", m.status AS "membershipStatus",
-             CASE WHEN u.auth_user_id IS NULL OR u.email_verified_at IS NULL THEN 'invited' ELSE 'active' END AS "accountState"
+             CASE ${pending} WHEN u.auth_user_id IS NULL OR u.email_verified_at IS NULL THEN 'invited' ELSE 'active' END AS "accountState"
       FROM public.memberships m JOIN public.roles r ON r.id=m.role_id JOIN public.users u ON u.id=m.user_id
       WHERE m.organization_id=${organizationId}::uuid AND r.code='school_admin'
       ORDER BY u.full_name`;

@@ -66,6 +66,8 @@ Cross-workflow dependencies: WF-03 cannot start without WF-02's submitted Progra
 21. **Gaps.** No physical-robot stop; Stop Execution is hard to exercise on Production (0.5 s run); session list/history UI is minimal.
 22. **[OWNER DECISION]** (a) Is the Lab Session part of the final WF-01 definition or a separate approved extension (the baseline documents call it a refinement, not a workflow)? (b) Default 120 min / max 480 min acceptable? (c) May an instructor extend beyond the 480-minute cap with School Admin approval?
 
+23. **[REFINEMENT 2026-11-28, owner-approved requirement] Account provisioning inside WF-01 (not a new workflow).** The school administration actor must be able to provision accounts by two independent methods: **A. Direct account creation** (server-generated one-time temporary password, no e-mail needed, mandatory server-enforced first-login password change) and **B. E-mail invitation** (Supabase invitation, user sets the password). System Admin provisions School Administrators; a School Admin provisions Instructors and Students of that school only. Existing never-signed-in invited accounts are recoverable in place. Implementation, flag `STAFF_TEMP_PASSWORD_ENABLED`, staged migration U and the 30 acceptance cases: `FINAL_SYSTEM_ACCEPTANCE_20261128/AUTH_PROVISIONING_ACCEPTANCE.md`.
+
 ---
 
 ## WF-02 — Learning & Assignment Management

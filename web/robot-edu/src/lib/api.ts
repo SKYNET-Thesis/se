@@ -547,8 +547,18 @@ export const studentAuthApi = {
   recover: (body: { schoolCode: string; studentCode: string; recoveryCode: string; password: string }) => apiPublicPost<{ status: "password_updated" }>("/auth/students/recover", body),
   changePassword: (token: string, body: { currentPassword: string; newPassword: string }) => apiRequest<ApiStudentAuthSession>("/auth/students/password", token, "PATCH", body),
 };
+export interface ApiStaffCredential { userId:string; organizationId:string; role:'school_admin'|'instructor'; fullName:string; email:string; accountState:'password_change_required'|'invited'; temporaryPassword?:string; temporaryPasswordExpiresAt?:string; }
+export interface ApiCreateStaffAccount { method:'direct'|'invite'; role:'school_admin'|'instructor'; fullName:string; email:string; employeeCode?:string; }
+/** School Administrator / Instructor provisioning and the mandatory first-login change. The server enforces every rule; this is transport only. */
+export const staffAccountApi = {
+  capabilities: () => apiPublicGet<{ staffDirectAccountsEnabled:boolean }>("/auth/staff/capabilities"),
+  create: (token:string, organizationId:string, body:ApiCreateStaffAccount) => apiRequest<ApiStaffCredential>(`/education-admin/organizations/${organizationId}/accounts`, token, "POST", body),
+  recoverPending: (token:string, organizationId:string, userId:string) => apiRequest<ApiStaffCredential>(`/education-admin/organizations/${organizationId}/accounts/${userId}/recover-pending`, token, "POST"),
+  resetCredentials: (token:string, organizationId:string, userId:string) => apiRequest<ApiStaffCredential>(`/education-admin/organizations/${organizationId}/accounts/${userId}/reset-credentials`, token, "POST"),
+  changePassword: (token:string, body:{ currentPassword:string; newPassword:string }) => apiRequest<ApiStudentAuthSession>("/auth/staff/password", token, "PATCH", body),
+};
 export interface ApiManagedOrganization { id:string; name:string; schoolCode:string|null; type:string; segment:string; status:'active'|'suspended'|'closed'; contractStart:string|null; contractEnd:string|null; createdAt:string; updatedAt:string; administratorCount:number; instructorCount:number; studentCount:number; classroomCount:number; }
-export interface ApiOrganizationAdministrator { userId:string; fullName:string; email:string|null; userStatus:string; membershipId:string; membershipStatus:string; accountState:'invited'|'active'; }
+export interface ApiOrganizationAdministrator { userId:string; fullName:string; email:string|null; userStatus:string; membershipId:string; membershipStatus:string; accountState:'invited'|'active'|'password_change_required'; }
 export interface ApiManagedOrganizationDetail extends ApiManagedOrganization { administrators: ApiOrganizationAdministrator[]; }
 export interface ApiChallengeRule { ruleKey:string; ruleConfig:Record<string,unknown>; description?:string; }
 export interface ApiAuthoredChallenge { id:string; title:string; description:string; status:'draft'|'published'; allowedBlocks:string[]; target:{arm:'left'|'right';x:number;y:number;z:number}|null; assignmentCount:number; conditions:ApiChallengeRule[]; }

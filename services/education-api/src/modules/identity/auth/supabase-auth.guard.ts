@@ -13,6 +13,7 @@ import { PrismaService } from "../../../common/database/prisma.service";
 import { AuthenticatedUser } from "./authenticated-user.interface";
 import { ALLOW_PASSWORD_CHANGE_ONLY_KEY } from "./allow-password-change.decorator";
 import { studentTempPasswordEnabled } from "../../education-admin/student-temp-password.feature";
+import { staffTempPasswordEnabled } from "../../education-admin/staff-temp-password.feature";
 
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
@@ -42,7 +43,24 @@ export class SupabaseAuthGuard implements CanActivate {
 
     // auth.users is intentionally not a Prisma relation.  The scalar mapping is
     // queried explicitly until Prisma can safely introspect the cross-schema FK.
-    const users = studentTempPasswordEnabled()
+    // Staff (School Administrator / Instructor) first-login state lives on public.users (staged migration U) and is read only while
+    // STAFF_TEMP_PASSWORD_ENABLED=true. Student state (profiles, migration N) is combined when its own flag is on.
+    const users = staffTempPasswordEnabled()
+      ? await this.prisma.$queryRaw<VistaUserRow[]>`
+      SELECT u.id, u.email, u.status,
+        (u.password_change_required OR ${studentTempPasswordEnabled()}::boolean AND EXISTS (
+          SELECT 1 FROM public.education_school_user_profiles p
+          WHERE p.user_id = u.id AND p.person_type = 'student' AND p.password_change_required = true)) AS password_change_required,
+        GREATEST(u.password_changed_at, CASE WHEN ${studentTempPasswordEnabled()}::boolean THEN (
+          SELECT MAX(p.password_changed_at) FROM public.education_school_user_profiles p WHERE p.user_id = u.id AND p.person_type = 'student') END) AS password_changed_at,
+        COALESCE(CASE WHEN u.password_change_required THEN u.temporary_password_expires_at END, CASE WHEN ${studentTempPasswordEnabled()}::boolean THEN (
+          SELECT MIN(p.temporary_password_expires_at) FROM public.education_school_user_profiles p
+          WHERE p.user_id = u.id AND p.person_type = 'student' AND p.password_change_required = true AND p.temporary_password_expires_at IS NOT NULL) END) AS temporary_password_expires_at
+      FROM public.users u
+      WHERE u.auth_user_id = ${payload.sub}::uuid
+      LIMIT 1
+    `
+      : studentTempPasswordEnabled()
       ? await this.prisma.$queryRaw<VistaUserRow[]>`
       SELECT u.id, u.email, u.status, EXISTS (
         SELECT 1 FROM public.education_school_user_profiles p

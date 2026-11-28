@@ -34,6 +34,7 @@ vi.mock('../contexts/SupabaseSessionContext', () => ({
 }));
 
 vi.mock('../lib/api', () => ({
+  ApiError: class ApiError extends Error { constructor(readonly status: number, message: string, readonly code?: string) { super(message); } },
   identityApi: {
     roles: authMocks.roles,
   },
@@ -299,6 +300,20 @@ describe('Login Component', () => {
     expect(passwordInput.type).toBe('text');
     expect(toggleBtn.getAttribute('aria-label')).toBe('Hide password');
     expect(toggleBtn.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('keeps the session and does not sign out when the API demands the first-login password change', async () => {
+    const { ApiError } = await import('../lib/api');
+    authMocks.signInWithPassword.mockResolvedValueOnce({ data: { session: { access_token: 'temp-token' } }, error: null });
+    authMocks.roles.mockRejectedValueOnce(new ApiError(403, 'Change your temporary password to continue.', 'PASSWORD_CHANGE_REQUIRED'));
+    authMocks.signOut.mockClear();
+
+    await change('#login-email', 'new.admin@school.edu');
+    await change('#login-password', 'temporary-password-value');
+    await clickButton('Sign in');
+
+    expect(authMocks.signOut).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
   it('displays error and signs out client when credentials are invalid', async () => {

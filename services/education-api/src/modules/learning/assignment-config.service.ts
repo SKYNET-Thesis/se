@@ -33,6 +33,11 @@ export class AssignmentConfigService {
   async updateAcademic(user: AuthenticatedUser, classroomId: string, assignmentId: string, dto: UpdateAssignmentAcademicDto) {
     await this.authorize(user, classroomId, assignmentId);
     const data = normalizeAssignmentAcademic(dto);
+    // Owner policy 2026-11-28: no NEW mixed-grading configuration until a grading formula is approved. An assignment that is already `mixed` keeps it (and may be re-saved).
+    if (data.grading_method === 'mixed') {
+      const current = await this.prisma.$queryRaw<{ grading_method: string | null }[]>`SELECT grading_method FROM public.learning_assignments WHERE id=${assignmentId}::uuid`;
+      if (current[0]?.grading_method !== 'mixed') throw new ConflictException({ code: 'MIXED_GRADING_NOT_AVAILABLE', message: 'Automatic + manual (mixed) grading cannot be newly configured until its grading formula is approved. Choose Automatic or Manual.' });
+    }
     const maxRows = await this.prisma.$queryRaw<{ max_score: string | null }[]>`SELECT SUM(max_points) AS max_score FROM public.learning_rubric_criteria WHERE assignment_id=${assignmentId}::uuid`;
     const maxScore = maxRows[0]?.max_score === null || maxRows[0]?.max_score === undefined ? null : Number(maxRows[0].max_score);
     if (data.pass_score !== undefined && data.pass_score !== null && maxScore !== null && data.pass_score > maxScore) throw new BadRequestException(`Pass score cannot exceed the maximum score (${maxScore}).`);
