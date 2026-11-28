@@ -363,6 +363,7 @@ export interface ApiSubmissionFile { id: string; attempt_id: string; original_fi
 export interface ApiPresignedPost { url: string; fields: Record<string, string>; }
 export interface ApiGradingScore { criterionId: string; title: string; maxPoints: number | string; awardedPoints: number | string; comment: string | null; }
 /** Until an instructor releases an attempt the server returns ONLY { attemptId, released: false }. */
+export interface ApiGradebookRow { attemptId: string; learnerUserId: string; fullName: string | null; assignmentId: string; title: string; kind: string | null; status: string; resultKind: 'quiz' | 'rubric' | 'other'; released: boolean; percentage: number | null; passed: boolean | null; graded: boolean | 'none' | 'partial' | 'complete' | 'no_rubric'; rubric: ApiRubricSummary | null; submittedAt: string | null }
 export interface ApiRubricSummary { awarded: number; max: number; percentage: number; scoreOutOf10: number; rating: 'Excellent' | 'Good' | 'Satisfactory' | 'Needs Improvement' | 'Needs Review'; gradedCriteria: number; totalCriteria: number; complete: boolean }
 export type ApiAttemptGrading = { attemptId: string; released: false } | { attemptId: string; released: true; releasedAt: string; score: number | null; assessment: { overallFeedback: string | null; reviewedAt: string | null; scores: ApiGradingScore[] } | null; summary?: ApiRubricSummary | null; feedback: Array<{ id: string; feedbackType: string; content: string; createdAt: string }> };
 export interface ApiDraftAnswer { questionId: string; optionId?: string; optionIds?: string[]; }
@@ -516,6 +517,7 @@ export const instructorApi = {
   learnerLessons: (classroomId: string, learnerUserId: string, token: string) => apiGet<ApiLearnerLessons>(`/classrooms/${classroomId}/learner-progress/${learnerUserId}/lessons`, token),
   quizResults: (classroomId: string, token: string) => apiGet<ApiQuizResult[]>(`/classrooms/${classroomId}/quiz-results`, token),
   learnerProgress: (classroomId: string, token: string) => apiGet<ApiLearnerProgress[]>(`/classrooms/${classroomId}/learner-progress`, token),
+  gradebook: (classroomId: string, token: string) => apiGet<ApiGradebookRow[]>(`/classrooms/${classroomId}/gradebook`, token),
   releaseGrading: (submissionId: string, token: string) => apiRequest<{ attemptId: string; released: true; releasedAt: string }>(`/submissions/${submissionId}/release`, token, "POST"),
   attemptFiles: (attemptId: string, token: string) => apiGet<ApiSubmissionFile[]>(`/attempts/${attemptId}/files`, token),
   attemptFileUrl: (attemptId: string, fileId: string, token: string) => apiGet<{ url: string; filename: string; mimeType: string; expiresIn: number }>(`/attempts/${attemptId}/files/${fileId}/url`, token),
