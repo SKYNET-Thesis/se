@@ -1,3 +1,5 @@
+import { StaffAccountController } from "./staff-account.controller";
+import { StaffAccountService } from "./staff-account.service";
 import { Module } from "@nestjs/common";
 import { IdentityModule } from "../identity/identity.module";
 import { LearningModule } from "../learning/learning.module";
@@ -16,5 +18,5 @@ import { StudentAuthService } from "./student-auth.service";
 import { StudentAuthHttpsGuard } from "./student-auth-https.guard";
 import { StudentAuthRateLimitGuard } from "./student-auth-rate-limit.guard";
 
-@Module({ imports: [IdentityModule, LearningModule], controllers: [EducationAdminController, RobotResourceController, StudentAuthController], providers: [RobotResourceService, SchoolProfileService, OrganizationManagementService, EducationAdminService, SchoolAdminQueryService, SupabaseAdminService, StudentProvisioningService, ClassroomStudentImportService, StudentAuthService, StudentAuthHttpsGuard, StudentAuthRateLimitGuard] })
+@Module({ imports: [IdentityModule, LearningModule], controllers: [EducationAdminController, RobotResourceController, StudentAuthController, StaffAccountController], providers: [StaffAccountService, RobotResourceService, SchoolProfileService, OrganizationManagementService, EducationAdminService, SchoolAdminQueryService, SupabaseAdminService, StudentProvisioningService, ClassroomStudentImportService, StudentAuthService, StudentAuthHttpsGuard, StudentAuthRateLimitGuard] })
 export class EducationAdminModule {}

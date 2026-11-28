@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { EyeIcon, EyeOffIcon } from 'lucide-react';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
-import { studentAuthApi } from '../lib/api';
+import { ApiError, staffAccountApi, studentAuthApi } from '../lib/api';
 import { Button } from '../components/ui/Button';
 import { PasswordFields } from '../components/auth/PasswordFields';
 import { passwordFormState } from '../lib/passwordPolicy';
@@ -26,11 +26,14 @@ export function StudentPasswordChange() {
     if (newPassword === currentPassword) { setError('Your new password must differ from the temporary password.'); return; }
     setBusy(true);
     try {
-      const next = await studentAuthApi.changePassword(session.access_token, { currentPassword, newPassword });
+      // The server decides which gate applies: students (profile state) or School Administrators / Instructors (account state). A 409 from one means "not pending here".
+      let next; let staff = false;
+      try { next = await studentAuthApi.changePassword(session.access_token, { currentPassword, newPassword }); }
+      catch (reason) { if (reason instanceof ApiError && reason.status === 409) { staff = true; next = await staffAccountApi.changePassword(session.access_token, { currentPassword, newPassword }); } else throw reason; }
       if (!client) throw new Error('Session manager is unavailable. Sign in again.');
       const { error: sessionError } = await client.auth.setSession({ access_token: next.access_token, refresh_token: next.refresh_token });
       if (sessionError) throw sessionError;
-      navigate('/my-learning', { replace: true });
+      navigate(staff ? '/' : '/my-learning', { replace: true });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Password change failed. Please try again.');
     } finally { setBusy(false); }
@@ -39,8 +42,8 @@ export function StudentPasswordChange() {
   const state = passwordFormState(newPassword, confirmation, currentPassword);
   const canSubmit = currentPassword.length > 0 && state.valid && !busy;
   return <main className="min-h-screen bg-[#f5f5f1] px-4 py-8 sm:py-12"><section className="mx-auto w-full max-w-md rounded-xl border border-line bg-surface p-5 shadow-sm sm:p-7" aria-labelledby="change-password-title">
-    <p className="text-xs font-semibold uppercase tracking-wider text-accent">Student account security</p><h1 id="change-password-title" className="mt-2 text-2xl font-semibold text-ink">Choose a new password</h1>
-    <p className="mt-2 text-sm text-ink-muted">Your school gave you a temporary password. Set a password only you know before you continue to your learning space.</p>
+    <p className="text-xs font-semibold uppercase tracking-wider text-accent">Account security</p><h1 id="change-password-title" className="mt-2 text-2xl font-semibold text-ink">Choose a new password</h1>
+    <p className="mt-2 text-sm text-ink-muted">Your administrator gave you a temporary password. Set a password only you know before you continue.</p>
     <form className="mt-6 space-y-5" onSubmit={event => void submit(event)} noValidate>
       <div>
         <label htmlFor="current-password" className="block text-sm font-medium text-ink">Temporary password</label>

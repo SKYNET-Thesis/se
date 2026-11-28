@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 const withUi = process.env.SA_WITH_UI === '1';
 export default defineConfig({
   testDir: './tests/e2e',
-  testMatch: process.env.SA_WITH_UI === '1' ? ['**/student-auth-ui.spec.ts', '**/student-bulk-import-ui.spec.ts', '**/student-recovery-ui.spec.ts', '**/student-auth-session-ui.spec.ts', '**/staff-auth-recovery-ui.spec.ts'] : ['**/student-auth-api.spec.ts', '**/student-auth-session-api.spec.ts'],
+  testMatch: process.env.SA_WITH_UI === '1' ? ['**/student-auth-ui.spec.ts', '**/student-bulk-import-ui.spec.ts', '**/student-recovery-ui.spec.ts', '**/student-auth-session-ui.spec.ts', '**/staff-auth-recovery-ui.spec.ts', '**/staff-direct-accounts-ui.spec.ts'] : ['**/student-auth-api.spec.ts', '**/student-auth-session-api.spec.ts', '**/staff-direct-accounts-api.spec.ts'],
   fullyParallel: false, workers: 1, retries: 0, reporter: [['list']],
   use: {
     baseURL: 'http://127.0.0.1:4173', actionTimeout: 10_000, browserName: 'chromium', headless: true, trace: 'retain-on-failure',
