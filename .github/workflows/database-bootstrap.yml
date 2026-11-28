@@ -183,6 +183,9 @@ jobs:
           RUN_POSTGRES_INTEGRATION: "1"
           RUN_RUNTIME_ROLE_SECURITY: "1"
           RUN_LOCAL_S3_INTEGRATION: "1"
+          # N-13: the three *.int.spec.ts suites (experiment evidence S3 storage, IoT feedback repository, learning-media S3 storage) were never executed by CI.
+          RUN_IOT_FEEDBACK_INTEGRATION: "1"
+          VISTA_INTEGRATION_DATABASE_URL: ${{ env.MAIN_DB_URL }}
           # The suite signs uploads through the application's storage client, which uses the default AWS credential chain;
           # these are the disposable keys of the throw-away S3-compatible service above (never real AWS credentials).
           AWS_REGION: us-east-1
@@ -191,7 +194,7 @@ jobs:
           LEARNING_MEDIA_S3_ACCESS_KEY: vista_media_test
           LEARNING_MEDIA_S3_SECRET_KEY: vista_media_test_only_password
         run: |
-          npx jest --runInBand --testPathPatterns 'db\.spec' --json --outputFile="$RUNNER_TEMP/db-tests.json"
+          npx jest --runInBand --testPathPatterns '(db|int)\.spec' --json --outputFile="$RUNNER_TEMP/db-tests.json"
           python - <<'PY'
           import json, os, sys
           d = json.load(open(os.environ["RUNNER_TEMP"] + "/db-tests.json"))
@@ -202,6 +205,15 @@ jobs:
           if len(media) != 1 or sum(1 for a in media[0]["assertionResults"] if a["status"] == "passed") < 4:
               sys.exit("Learning Media S3 integration suite must run and pass all of its tests against the S3-compatible service")
           print("learning-media.s3.db.spec.ts passed", sum(1 for a in media[0]["assertionResults"] if a["status"] == "passed"), "tests")
+          # N-13: each integration suite must be present, run every test and skip none (a suite that silently skips would hide the evidence-storage and IoT-feedback coverage).
+          for suite in ("experiment-evidence.storage.s3.int.spec.ts", "iot-feedback.repository.int.spec.ts", "learning-media.storage.s3.int.spec.ts"):
+              found = [r for r in d["testResults"] if r["name"].endswith(suite)]
+              if len(found) != 1:
+                  sys.exit(suite + " did not run")
+              statuses = [a["status"] for a in found[0]["assertionResults"]]
+              if not statuses or any(s != "passed" for s in statuses):
+                  sys.exit(suite + " must pass every test with none skipped: " + str({s: statuses.count(s) for s in set(statuses)}))
+              print(suite, "passed", len(statuses), "tests")
           PY
       - name: Full backend test suite against the bootstrapped database
         working-directory: services/education-api
