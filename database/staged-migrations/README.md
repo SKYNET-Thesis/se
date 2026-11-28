@@ -22,3 +22,5 @@ Never edit a migration after it has been registered or applied.
 CI: the `Database Bootstrap` workflow applies staged SQL to its throw-away runner database only (after the manifest-pinned schema
 verification) with `scripts/apply_staged_migration_to_test_database.py`, so the database-backed integration tests exercise the final schema.
 That script refuses anything but a loopback `vista_test_*` database and files under this directory; it is not a release mechanism.
+
+| `20261128_t_rubric_level_descriptors.sql` (PROPOSAL: nullable `descriptors jsonb` on rubric criteria, nullable `level smallint` on assessment scores) | assessment tables only | **Owner approval required; not released.** Verified on a disposable database by `scripts/verify_staged_migration_t.sh` (idempotent, additive, constraints enforced, clean rollback). Release by the standard two-commit procedure above. |
