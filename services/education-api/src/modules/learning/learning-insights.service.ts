@@ -1,3 +1,4 @@
+import { summarizeRubric } from "./rubric-score";
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
@@ -98,6 +99,47 @@ export class LearningInsightsService {
       FROM public.learning_lessons l LEFT JOIN public.learning_lesson_progress lp ON lp.lesson_id=l.id AND lp.learner_user_id=${learnerUserId}::uuid
       WHERE l.course_id=${enrolled[0].course_id}::uuid ORDER BY l.ordinal`;
     return { learnerUserId, fullName: enrolled[0].full_name, lessons };
+  }
+
+  /**
+   * Gradebook (read-only): the latest submitted attempt of every learner for every assignment of this classroom. Quizzes show their stored auto-graded
+   * percentage; rubric assignments show the canonical summary (`rubric-score.ts`: ungraded criteria count in the maximum). Nothing is written and
+   * `attempt.score` is never derived from a rubric, so the two result kinds are never mixed or double counted.
+   */
+  async gradebook(user: AuthenticatedUser, classroomId: string) {
+    await this.scope.assertTeacherClassroomPermission(user, classroomId, ["learning.work.review"]);
+    const attempts = await this.prisma.$queryRaw<Array<{ attemptId: string; learnerUserId: string; fullName: string | null; assignmentId: string; title: string; kind: string | null; status: string; score: number | null; passed: boolean | null; releasedAt: Date | null; releaseOrigin: string | null; submittedAt: Date | null }>>`
+      SELECT DISTINCT ON (att.learner_user_id,ca.id)
+        att.id AS "attemptId",att.learner_user_id AS "learnerUserId",u.full_name AS "fullName",a.id AS "assignmentId",a.title,a.constraints->>'kind' AS kind,
+        att.status,att.score::float AS score,(att.result_snapshot->>'passed')::boolean AS passed,att.grading_released_at AS "releasedAt",att.grading_release_origin AS "releaseOrigin",att.submitted_at AS "submittedAt"
+      FROM public.learning_assignment_attempts att
+      JOIN public.learning_classroom_assignments ca ON ca.id=att.classroom_assignment_id
+      JOIN public.learning_assignments a ON a.id=ca.assignment_id
+      JOIN public.learning_enrollments e ON e.classroom_id=ca.classroom_id AND e.learner_user_id=att.learner_user_id AND e.status='active'
+      JOIN public.users u ON u.id=att.learner_user_id
+      WHERE ca.classroom_id=${classroomId}::uuid AND att.status IN ('submitted','evaluated')
+      ORDER BY att.learner_user_id,ca.id,att.attempt_number DESC`;
+    const rubricIds = attempts.filter((row) => row.kind !== "knowledge_check").map((row) => row.attemptId);
+    const criteria = rubricIds.length === 0 ? [] : await this.prisma.$queryRaw<Array<{ attemptId: string; maxPoints: string | number; awardedPoints: string | number | null }>>`
+      SELECT att.id AS "attemptId",c.max_points AS "maxPoints",sc.awarded_points AS "awardedPoints"
+      FROM public.learning_assignment_attempts att
+      JOIN public.learning_submissions s ON s.attempt_id=att.id
+      JOIN public.learning_rubric_criteria c ON c.assignment_id=s.assignment_id
+      LEFT JOIN public.learning_assessments ass ON ass.submission_id=s.id
+      LEFT JOIN public.learning_assessment_scores sc ON sc.assessment_id=ass.id AND sc.criterion_id=c.id
+      WHERE att.id=ANY(${rubricIds}::uuid[]) ORDER BY att.id,c.ordinal`;
+    const byAttempt = new Map<string, Array<{ maxPoints: string | number; awardedPoints: string | number | null }>>();
+    for (const row of criteria) byAttempt.set(row.attemptId, [...(byAttempt.get(row.attemptId) ?? []), { maxPoints: row.maxPoints, awardedPoints: row.awardedPoints }]);
+    return attempts.map((row) => {
+      const released = row.releasedAt !== null;
+      if (row.kind === "knowledge_check") {
+        return { ...row, resultKind: "quiz" as const, released, percentage: row.score, passed: row.passed, rubric: null, graded: row.status === "evaluated" };
+      }
+      const list = byAttempt.get(row.attemptId) ?? [];
+      const rubric = list.length > 0 ? summarizeRubric(list) : null;
+      const graded = rubric ? (rubric.complete ? "complete" : rubric.gradedCriteria > 0 ? "partial" : "none") : "no_rubric";
+      return { ...row, resultKind: rubric ? ("rubric" as const) : ("other" as const), released, percentage: rubric && rubric.gradedCriteria > 0 ? rubric.percentage : null, passed: null, rubric, graded };
+    });
   }
 
   /** Every finished quiz attempt of this classroom with its weighted result (instructor review of quiz results). */
