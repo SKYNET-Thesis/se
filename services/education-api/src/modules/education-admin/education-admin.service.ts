@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../common/database/prisma.service";
+import { staffTempPasswordEnabled } from "./staff-temp-password.feature";
 import { AuthenticatedUser } from "../identity/auth/authenticated-user.interface";
 import { LearningScopeService } from "../learning/learning-scope.service";
 import { CreateClassroomDto } from "./dto/create-classroom.dto";
@@ -36,11 +37,12 @@ export class EducationAdminService {
 
   async members(user: AuthenticatedUser, organizationId: string) {
     await this.assertOrganizationPermission(user, organizationId, "education.members.read");
+    const pending = staffTempPasswordEnabled() ? Prisma.sql`WHEN u.password_change_required THEN 'password_change_required'` : Prisma.empty;
     return this.prisma.$queryRaw`
       SELECT u.id, u.full_name, u.email, u.status, u.created_at,
              m.id AS membership_id, m.status AS membership_status, r.code AS role_code,
              p.employee_code, p.student_code, p.grade_level, p.guardian_email,
-             CASE WHEN p.account_state='account_setup_pending' OR u.auth_user_id IS NULL THEN 'account_setup_pending'
+             CASE ${pending} WHEN p.account_state='account_setup_pending' OR u.auth_user_id IS NULL THEN 'account_setup_pending'
                   WHEN u.email_verified_at IS NULL THEN 'invited' ELSE 'active' END AS account_state
       FROM public.memberships m
       JOIN public.users u ON u.id = m.user_id
