@@ -46,7 +46,15 @@ export class FeedbackRepository {
       if (!inserted[0]) return "duplicate";
 
       const now = this.now();
-      if (event.sequence <= Number(lifecycle.last_sequence)) throw new IotFeedbackRejectedError("iot feedback sequence is stale");
+      if (event.sequence <= Number(lifecycle.last_sequence)) {
+        // D-04: ACK and status travel through SQS independently, so the ACK can arrive after the run already reports executing/completed.
+        // That is not a stale command event: it is history that has not been recorded yet. Record it exactly once and never move the state.
+        if (this.isLateAckCandidate(event, lifecycle.state)) {
+          if (event.occurredAtMs > now + 60_000) throw new IotFeedbackRejectedError("iot feedback occurredAt is too far in the future");
+          if (await this.recordLateAck(tx, event, lifecycle)) return "processed";
+        }
+        throw new IotFeedbackRejectedError("iot feedback sequence is stale");
+      }
       if (event.occurredAtMs > now + 60_000) throw new IotFeedbackRejectedError("iot feedback occurredAt is too far in the future");
 
       const current: LifecycleRecord = { commandId: lifecycle.command_id, robotId: lifecycle.robot_id, expiresAtMs: lifecycle.expires_at.getTime(), state: lifecycle.state, sequence: Number(lifecycle.last_sequence) };
@@ -80,6 +88,27 @@ export class FeedbackRepository {
         ON CONFLICT (experiment_id,event_index) DO NOTHING`);
       return "processed";
     });
+  }
+
+  /** An accepted ACK for a run that is already executing, completed or failed (the ACK was emitted first but delivered last). */
+  private isLateAckCandidate(event: FeedbackEvent, state: IotLifecycle): boolean {
+    return event.kind === "ack" && event.status === "accepted" && (state === "executing" || state === "completed" || state === "failed");
+  }
+
+  /** Records the late ACK as history only: no lifecycle state, sequence, experiment or session change. Returns false when an ACK is already recorded. */
+  private async recordLateAck(tx: Pick<Prisma.TransactionClient, "$queryRaw" | "$executeRaw">, event: FeedbackEvent, lifecycle: LifecycleRow): Promise<boolean> {
+    const earlier = await tx.$queryRaw<{ event_id: string }[]>(Prisma.sql`
+      SELECT event_id FROM public.iot_inbound_events WHERE command_id=${lifecycle.command_id}::uuid AND kind='ack' AND event_id<>${event.eventId} LIMIT 1`);
+    if (earlier[0]) return false;
+    await tx.$executeRaw(Prisma.sql`
+      UPDATE public.iot_command_lifecycles SET acknowledged_at=COALESCE(acknowledged_at,to_timestamp(${event.occurredAtMs}::double precision/1000)),updated_at=now()
+      WHERE command_id=${lifecycle.command_id}::uuid`);
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO public.learning_experiment_events(experiment_id,event_index,event_type,event_data,occurred_at)
+      SELECT ${lifecycle.experiment_id}::uuid,COALESCE(MAX(event_index),-1)+1,'iot_ack_acknowledged',${JSON.stringify(event)}::jsonb,to_timestamp(${event.occurredAtMs}::double precision/1000)
+      FROM public.learning_experiment_events WHERE experiment_id=${lifecycle.experiment_id}::uuid
+      ON CONFLICT (experiment_id,event_index) DO NOTHING`);
+    return true;
   }
 
   private parse(value: unknown): FeedbackEvent {

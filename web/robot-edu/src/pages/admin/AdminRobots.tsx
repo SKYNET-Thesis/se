@@ -26,7 +26,7 @@ export function AdminRobots() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: key });
 
   return (
-    <div className="mx-auto w-full max-w-[1240px] px-4 py-6 md:px-8 md:py-9">
+    <div className="mx-auto w-full min-w-0 max-w-[1240px] px-4 py-6 md:px-8 md:py-9">
       <PageHeader
         title="Robot Resources"
         description="Register logical robot resources and grant or revoke organization entitlements. Registering a resource does not create cloud infrastructure, certificates or credentials, and does not make it ready for use."
@@ -36,7 +36,7 @@ export function AdminRobots() {
       {list.isError ? <p className="mt-6 text-sm text-danger" role="alert">{message(list.error)}</p> : null}
       {list.isSuccess && list.data.length === 0 ? <p className="mt-6 text-sm text-ink-muted">No robot resources are registered.</p> : null}
       {list.isSuccess && list.data.length > 0 ? (
-        <div className="mt-6 overflow-x-auto rounded-lg border border-line">
+        <div className="relative mt-6 w-full max-w-full overflow-x-auto rounded-lg border border-line">
           <table className="w-full text-left text-sm">
             <caption className="sr-only">Registered robot resources</caption>
             <thead className="bg-sunken text-xs text-ink-muted"><tr><th className="p-3">Name</th><th className="p-3">Serial</th><th className="p-3">Model</th><th className="p-3">Status</th><th className="p-3">Entitled orgs</th><th className="p-3">Allocations</th><th className="p-3">Open sessions</th><th className="p-3"><span className="sr-only">Actions</span></th></tr></thead>
@@ -44,8 +44,8 @@ export function AdminRobots() {
               {list.data.map((robot: ApiRobotRegistryItem) => (
                 <tr key={robot.id} className="border-t border-line">
                   <td className="p-3 font-medium text-ink"><BotIcon className="mr-2 inline h-4 w-4 text-ink-muted" aria-hidden="true" />{robot.name}</td>
-                  <td className="p-3 text-ink-muted">{robot.serialNo}</td>
-                  <td className="p-3 text-ink-muted">{robot.modelName}</td>
+                  <td className="whitespace-nowrap p-3 font-mono text-[13px] text-ink-muted">{robot.serialNo}</td>
+                  <td className="whitespace-nowrap p-3 text-ink-muted">{robot.modelName}</td>
                   <td className="p-3">{STATUS_LABEL[robot.status] ?? robot.status}{!robot.commissioned ? <span className="ml-2 text-xs text-ink-muted">Not commissioned</span> : null}</td>
                   <td className="p-3">{robot.activeEntitlements}</td>
                   <td className="p-3">{robot.allocations}</td>

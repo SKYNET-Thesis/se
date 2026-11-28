@@ -7,6 +7,7 @@ import { PageHeader } from '../../components/ui/PageHeader';
 import { Field, inputClasses } from '../../components/ui/Field';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
 import { educationAdminApi, type ApiManagedOrganization } from '../../lib/api';
+import { StaffAccountDialog, StaffCredentialAction, useStaffDirectAccounts } from '../../components/auth/StaffAccountDialog';
 
 const STATUS_LABEL = { active: 'Active', suspended: 'Suspended', closed: 'Closed' } as const;
 // Text stays the high-contrast ink colour; the status colour is carried by the dot (and the label), so contrast never depends on a tint.
@@ -77,6 +78,7 @@ function CreateOrganizationDialog({ open, onClose, token, onCreated }: { open: b
 
 function ManageOrganizationDialog({ organizationId, onClose, token, onChanged, summary }: { organizationId: string; onClose: () => void; token: string; onChanged: () => void; summary?: ApiManagedOrganization }) {
   const queryClient = useQueryClient(); const detailKey = ['system-admin', 'organization', organizationId];
+  const directAccounts = useStaffDirectAccounts(); const [createOpen, setCreateOpen] = useState(false);
   const [email, setEmail] = useState(''); const [fullName, setFullName] = useState(''); const [renameTo, setRenameTo] = useState(''); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const detail = useQuery({ queryKey: detailKey, queryFn: () => educationAdminApi.organizationDetail(organizationId, token), enabled: Boolean(organizationId && token) });
   const settle = () => { queryClient.invalidateQueries({ queryKey: detailKey }); onChanged(); };
@@ -111,9 +113,11 @@ function ManageOrganizationDialog({ organizationId, onClose, token, onChanged, s
               <ul className="divide-y divide-line rounded-md border border-line">{detail.data.administrators.map((admin) => (
                 <li key={admin.userId} className="flex items-center justify-between gap-3 p-3 text-sm" data-testid="org-admin">
                   <span><span className="font-medium text-ink">{admin.fullName}</span> <span className="text-ink-muted">{admin.email}</span>
-                    <span className="ml-2 text-xs text-ink-muted">{admin.userStatus === 'disabled' ? 'Disabled' : admin.membershipStatus === 'active' ? (admin.accountState === 'invited' ? 'Invited' : 'Active') : 'Removed'}</span></span>
+                    <span className="ml-2 text-xs text-ink-muted">{admin.userStatus === 'disabled' ? 'Disabled' : admin.membershipStatus === 'active' ? (admin.accountState === 'invited' ? 'Pending invitation' : admin.accountState === 'password_change_required' ? 'Password change required' : 'Active') : 'Removed'}</span></span>
                   <span className="flex flex-wrap gap-2">
                     {admin.accountState === 'invited' && admin.userStatus !== 'disabled' ? <Button variant="secondary" size="sm" disabled={resend.isPending} onClick={() => { setNotice(''); resend.mutate(admin.userId); }} aria-label={`Resend invitation to ${admin.fullName}`}>Resend invitation</Button> : null}
+                    {directAccounts && admin.accountState === 'invited' && admin.userStatus !== 'disabled' ? <StaffCredentialAction kind="recover" organizationId={organizationId} userId={admin.userId} name={admin.fullName} token={token} onChanged={settle} /> : null}
+                    {directAccounts && admin.accountState === 'password_change_required' && admin.userStatus !== 'disabled' ? <StaffCredentialAction kind="reset" organizationId={organizationId} userId={admin.userId} name={admin.fullName} token={token} onChanged={settle} /> : null}
                     <Button variant="secondary" size="sm" disabled={account.isPending} onClick={() => { setNotice(''); account.mutate({ userId: admin.userId, status: admin.userStatus === 'disabled' ? 'active' : 'disabled' }); }} aria-label={`${admin.userStatus === 'disabled' ? 'Enable' : 'Disable'} account of ${admin.fullName}`}>{admin.userStatus === 'disabled' ? 'Enable account' : 'Disable account'}</Button>
                     {admin.membershipStatus === 'active' ? <Button variant="secondary" size="sm" disabled={revoke.isPending} onClick={() => revoke.mutate(admin.userId)} aria-label={`Remove ${admin.fullName}`}>Remove</Button> : null}
                   </span>
@@ -124,6 +128,13 @@ function ManageOrganizationDialog({ organizationId, onClose, token, onChanged, s
                 <Field label="Administrator email">{(p) => <input {...p} type="email" className={inputClasses} value={email} maxLength={254} onChange={(e) => setEmail(e.target.value)} />}</Field>
                 <Button variant="primary" icon={<UserPlusIcon className="h-4 w-4" />} disabled={!validAdmin || assign.isPending} onClick={() => assign.mutate()}>{assign.isPending ? 'Assigning…' : 'Assign administrator'}</Button>
               </div>) : null}
+            {detail.data.status !== 'closed' ? (
+              <div className="flex flex-wrap items-center gap-3 text-xs text-ink-muted">
+                <span>“Assign administrator” sends an e-mail invitation.</span>
+                {directAccounts ? <Button variant="secondary" size="sm" icon={<UserPlusIcon className="h-4 w-4" />} onClick={() => setCreateOpen(true)}>Create account</Button> : null}
+                {directAccounts ? <span>“Create account” generates a temporary password (no e-mail needed).</span> : null}
+              </div>) : null}
+            <StaffAccountDialog open={createOpen} mode="direct" role="school_admin" organizationId={organizationId} token={token} onClose={() => setCreateOpen(false)} onChanged={settle} />
           </section>
           {notice ? <p role="status" className="text-sm text-ok">{notice}</p> : null}
           {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}

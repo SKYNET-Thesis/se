@@ -47,6 +47,7 @@ import { RoutedErrorBoundary } from './components/ui/AppErrorBoundary';
 import { AccountSettings } from './pages/AccountSettings';
 import { ForgotPassword } from './pages/ForgotPassword';
 import { ResetPassword } from './pages/ResetPassword';
+import { AcceptInvitation } from './pages/AcceptInvitation';
 import { WebSettings } from './pages/WebSettings';
 import { SchoolImportUsers } from './pages/school/SchoolImportUsers';
 import { SchoolQueryProvider } from './queries/SchoolQueryProvider';
@@ -71,6 +72,7 @@ export function App() {
                 <Route path="login" element={<Login />} />
                 <Route path="forgot-password" element={<ForgotPassword />} />
                 <Route path="reset-password" element={<ResetPassword />} />
+                <Route path="accept-invitation" element={<AcceptInvitation />} />
                 <Route path="student/change-password" element={<StudentPasswordChange />} />
                 <Route index element={<PublicEntry />} />
                 <Route path="home-v2" element={<Navigate to="/" replace />} />
@@ -114,7 +116,6 @@ export function App() {
                   <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />
                   <Route path="admin/students" element={<RequireRole roles={['admin']}><AdminStudentImport /></RequireRole>} />
                   <Route path="admin/users" element={<Navigate to="/admin/organizations" replace />} />
-                  <Route path="admin/robots" element={<Navigate to="/admin/organizations" replace />} />
                   <Route path="admin/settings" element={<Navigate to="/admin/organizations" replace />} />
                   <Route path="admin/courses" element={<RequireRole roles={['admin', 'teacher', 'school_admin']}><AdminCourses /></RequireRole>} />
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />

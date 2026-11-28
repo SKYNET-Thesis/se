@@ -1,3 +1,4 @@
+import { pointsForLevel, summarizeRubric } from "./rubric-score";
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../common/database/prisma.service";
 import { classifyExecution } from "./execution-provenance";
@@ -75,9 +76,15 @@ export class AssessmentService {
       await this.assertNotReleased(tx,submission.attempt_id);
       const criteria=await tx.$queryRaw<{id:string;max_points:number}[]>`SELECT id,max_points FROM public.learning_rubric_criteria WHERE assignment_id=${submission.assignment_id}::uuid AND id=ANY(${dto.scores.map(s=>s.criterionId)}::uuid[])`;
       if(criteria.length!==dto.scores.length || new Set(dto.scores.map(s=>s.criterionId)).size!==dto.scores.length) throw new BadRequestException("Scores must reference distinct criteria from this assignment.");
-      for(const score of dto.scores){const criterion=criteria.find(c=>c.id===score.criterionId)!;if(score.awardedPoints>Number(criterion.max_points)) throw new BadRequestException("Awarded points exceed the rubric maximum.");}
+      const resolved=dto.scores.map(score=>{const criterion=criteria.find(c=>c.id===score.criterionId)!;
+        if(score.level!==undefined){const points=pointsForLevel(score.level,criterion.max_points);   // server-authoritative: level x (max/4)
+          if(score.awardedPoints!==undefined && Math.abs(Number(score.awardedPoints)-points)>0.005) throw new BadRequestException("Awarded points do not match the selected achievement level.");
+          return {...score,awardedPoints:points,level:score.level as number|null};}
+        if(score.awardedPoints===undefined) throw new BadRequestException("Each score needs awarded points or an achievement level.");
+        if(score.awardedPoints>Number(criterion.max_points)) throw new BadRequestException("Awarded points exceed the rubric maximum.");
+        return {...score,level:null as number|null};});
       const assessments=await tx.$queryRaw<{id:string}[]>`INSERT INTO public.learning_assessments(submission_id,reviewer_user_id,overall_feedback,reviewed_at) VALUES(${submissionId}::uuid,${user.vistaUserId}::uuid,${dto.overallFeedback??null},now()) ON CONFLICT (submission_id) DO UPDATE SET reviewer_user_id=EXCLUDED.reviewer_user_id,overall_feedback=EXCLUDED.overall_feedback,reviewed_at=now() RETURNING id`;
-      for(const score of dto.scores) await tx.$executeRaw`INSERT INTO public.learning_assessment_scores(assessment_id,criterion_id,awarded_points,comment) VALUES(${assessments[0].id}::uuid,${score.criterionId}::uuid,${score.awardedPoints},${score.comment??null}) ON CONFLICT (assessment_id,criterion_id) DO UPDATE SET awarded_points=EXCLUDED.awarded_points,comment=EXCLUDED.comment`;
+      for(const score of resolved) await tx.$executeRaw`INSERT INTO public.learning_assessment_scores(assessment_id,criterion_id,awarded_points,level,comment) VALUES(${assessments[0].id}::uuid,${score.criterionId}::uuid,${score.awardedPoints},${score.level},${score.comment??null}) ON CONFLICT (assessment_id,criterion_id) DO UPDATE SET awarded_points=EXCLUDED.awarded_points,level=EXCLUDED.level,comment=EXCLUDED.comment`;
       return this.detail(submissionId,tx);
     });
   }
@@ -140,7 +147,7 @@ export class AssessmentService {
     if(!attempts[0].grading_released_at) return { attemptId, released:false };
     const assessment=await this.prisma.$queryRaw<Record<string,unknown>[]>`
       SELECT ass.overall_feedback AS "overallFeedback",ass.reviewed_at AS "reviewedAt",
-        COALESCE((SELECT json_agg(json_build_object('criterionId',c.id,'title',c.title,'maxPoints',c.max_points,'awardedPoints',sc.awarded_points,'comment',sc.comment) ORDER BY c.ordinal)
+        COALESCE((SELECT json_agg(json_build_object('criterionId',c.id,'title',c.title,'maxPoints',c.max_points,'awardedPoints',sc.awarded_points,'level',sc.level,'descriptors',c.descriptors,'comment',sc.comment) ORDER BY c.ordinal)
           FROM public.learning_assessment_scores sc JOIN public.learning_rubric_criteria c ON c.id=sc.criterion_id WHERE sc.assessment_id=ass.id),'[]'::json) AS scores
       FROM public.learning_submissions s
       JOIN public.learning_assessments ass ON ass.submission_id=s.id
@@ -151,7 +158,16 @@ export class AssessmentService {
       WHERE f.author_user_id<>${user.vistaUserId}::uuid AND (f.attempt_id=${attemptId}::uuid
         OR f.submission_id IN (SELECT s.id FROM public.learning_submissions s WHERE s.attempt_id=${attemptId}::uuid AND s.learner_user_id=${user.vistaUserId}::uuid))
       ORDER BY f.created_at ASC`;
-    return { attemptId, released:true, releasedAt:attempts[0].grading_released_at, score:attempts[0].score===null?null:Number(attempts[0].score), assessment:assessment[0]??null, feedback };
+    // Canonical rubric summary (additive): computed from EVERY criterion of the assignment, an ungraded criterion counts in the maximum.
+    const rubric=await this.prisma.$queryRaw<{max_points:string|number;awarded_points:string|number|null}[]>`
+      SELECT c.max_points,sc.awarded_points
+      FROM public.learning_submissions s
+      JOIN public.learning_rubric_criteria c ON c.assignment_id=s.assignment_id
+      LEFT JOIN public.learning_assessments ass ON ass.submission_id=s.id
+      LEFT JOIN public.learning_assessment_scores sc ON sc.assessment_id=ass.id AND sc.criterion_id=c.id
+      WHERE s.attempt_id=${attemptId}::uuid AND s.learner_user_id=${user.vistaUserId}::uuid ORDER BY c.ordinal`;
+    const summary=rubric.length>0 && assessment[0] ? summarizeRubric(rubric.map(r=>({maxPoints:r.max_points,awardedPoints:r.awarded_points}))) : null;
+    return { attemptId, released:true, releasedAt:attempts[0].grading_released_at, score:attempts[0].score===null?null:Number(attempts[0].score), assessment:assessment[0]??null, summary, feedback };
   }
 
   /** Instructor release of one attempt's grading and feedback (idempotent; the release is attempt-level for every assignment type). */
@@ -170,16 +186,20 @@ export class AssessmentService {
   private async releaseAttemptGrading(user:AuthenticatedUser,attemptId:string,classroomId:string) {
     await this.scope.assertTeacherClassroomPermission(user,classroomId,["learning.work.review","learning.assessment.assess"]);
     return this.prisma.$transaction(async tx=>{
-      const rows=await tx.$queryRaw<{id:string;status:string;grading_released_at:Date|null;graded:boolean}[]>`
+      const rows=await tx.$queryRaw<{id:string;status:string;grading_released_at:Date|null;graded:boolean;rubric_total:number;rubric_scored:number}[]>`
         SELECT a.id,a.status,a.grading_released_at,
           (EXISTS(SELECT 1 FROM public.learning_submissions s JOIN public.learning_assessments x ON x.submission_id=s.id WHERE s.attempt_id=a.id)
-           OR EXISTS(SELECT 1 FROM public.learning_feedback f WHERE f.attempt_id=a.id OR f.submission_id IN (SELECT s.id FROM public.learning_submissions s WHERE s.attempt_id=a.id))) AS graded
+           OR EXISTS(SELECT 1 FROM public.learning_feedback f WHERE f.attempt_id=a.id OR f.submission_id IN (SELECT s.id FROM public.learning_submissions s WHERE s.attempt_id=a.id))) AS graded,
+          (SELECT count(*)::int FROM public.learning_rubric_criteria c WHERE c.assignment_id IN (SELECT s.assignment_id FROM public.learning_submissions s WHERE s.attempt_id=a.id)) AS rubric_total,
+          (SELECT count(DISTINCT sc.criterion_id)::int FROM public.learning_assessment_scores sc JOIN public.learning_assessments x ON x.id=sc.assessment_id JOIN public.learning_submissions s ON s.id=x.submission_id WHERE s.attempt_id=a.id) AS rubric_scored
         FROM public.learning_assignment_attempts a WHERE a.id=${attemptId}::uuid FOR UPDATE`;
       const attempt=rows[0];
       if(!attempt) throw new NotFoundException("Attempt was not found.");
       if(attempt.grading_released_at) return { attemptId, released:true, releasedAt:attempt.grading_released_at };
       if(!["submitted","evaluated"].includes(attempt.status)) throw new ConflictException({code:"ATTEMPT_NOT_SUBMITTED",message:"Only a submitted attempt can be released."});
       if(!attempt.graded) throw new ConflictException({code:"NOTHING_TO_RELEASE",message:"Assess the attempt or add feedback before releasing it."});
+      // D-06 (owner-approved policy only): an assignment configured with rubric criteria needs every criterion scored; non-rubric grading is unchanged.
+      if(attempt.rubric_total>0 && attempt.rubric_scored<attempt.rubric_total) throw new ConflictException({code:"RUBRIC_INCOMPLETE",message:`Score every rubric criterion before releasing (${attempt.rubric_scored} of ${attempt.rubric_total} scored).`});
       const released=await tx.$queryRaw<{grading_released_at:Date}[]>`
         UPDATE public.learning_assignment_attempts SET grading_released_at=now(),grading_released_by=${user.vistaUserId}::uuid,grading_release_origin='instructor'
         WHERE id=${attemptId}::uuid AND grading_released_at IS NULL RETURNING grading_released_at`;
@@ -320,9 +340,9 @@ export class AssessmentService {
       CASE WHEN pv.id IS NULL THEN NULL ELSE json_build_object('id',pv.id,'versionNumber',pv.version_number,'workspaceJson',COALESCE(s.submitted_workspace,pv.workspace_json),'robotProgram',COALESCE(s.submitted_program,pv.robot_program),'snapshotSource',CASE WHEN s.submitted_program IS NOT NULL AND s.submitted_workspace IS NOT NULL THEN 'submission' ELSE 'version' END,'validationResult',pv.validation_result,'changeSummary',pv.change_summary,'createdAt',pv.created_at) END AS program_version,
       CASE WHEN se.id IS NULL THEN NULL ELSE json_build_object('id',se.id,'experimentId',se.experiment_id,'programVersionId',se.program_version_id,'evaluatorVersion',se.evaluator_version,'ruleSetSchemaVersion',se.rule_set_schema_version,'ruleSetHash',se.rule_set_hash,'verdict',se.verdict,'ruleResults',se.rule_results,'metrics',se.metrics,'createdAt',se.created_at) END AS symbolic_evaluation,
       CASE WHEN ex.id IS NULL THEN NULL ELSE json_build_object('id',ex.id,'status',ex.status,'executionMode',ex.execution_mode,'createdAt',ex.created_at,'endedAt',ex.ended_at) END AS experiment,
-      CASE WHEN a.id IS NULL THEN NULL ELSE json_build_object('id',a.id,'reviewerUserId',a.reviewer_user_id,'overallFeedback',a.overall_feedback,'reviewedAt',a.reviewed_at,'scores',COALESCE((SELECT json_agg(json_build_object('criterionId',sc.criterion_id,'awardedPoints',sc.awarded_points,'comment',sc.comment)) FROM public.learning_assessment_scores sc WHERE sc.assessment_id=a.id),'[]'::json)) END AS assessment,
+      CASE WHEN a.id IS NULL THEN NULL ELSE json_build_object('id',a.id,'reviewerUserId',a.reviewer_user_id,'overallFeedback',a.overall_feedback,'reviewedAt',a.reviewed_at,'scores',COALESCE((SELECT json_agg(json_build_object('criterionId',sc.criterion_id,'awardedPoints',sc.awarded_points,'level',sc.level,'comment',sc.comment)) FROM public.learning_assessment_scores sc WHERE sc.assessment_id=a.id),'[]'::json)) END AS assessment,
       COALESCE((SELECT json_agg(json_build_object('id',f.id,'submissionId',f.submission_id,'authorUserId',f.author_user_id,'feedbackType',f.feedback_type,'content',f.content,'createdAt',f.created_at) ORDER BY f.created_at) FROM public.learning_feedback f WHERE f.submission_id=s.id OR (s.attempt_id IS NOT NULL AND f.attempt_id=s.attempt_id)),'[]'::json) AS feedback,
-      COALESCE((SELECT json_agg(json_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points,'ordinal',rc.ordinal) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=s.assignment_id),'[]'::json) AS rubric_criteria
+      COALESCE((SELECT json_agg(json_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points,'ordinal',rc.ordinal,'descriptors',rc.descriptors) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=s.assignment_id),'[]'::json) AS rubric_criteria
     FROM public.learning_submissions s JOIN public.users u ON u.id=s.learner_user_id JOIN public.learning_assignments la ON la.id=s.assignment_id
     LEFT JOIN public.learning_program_versions pv ON pv.id=s.program_version_id AND pv.program_id=s.program_id
     LEFT JOIN LATERAL (SELECT e.* FROM public.learning_experiments e WHERE e.submission_id=s.id AND e.learner_user_id=s.learner_user_id AND e.input_snapshot->>'programVersionId'=s.program_version_id::text ORDER BY e.created_at DESC LIMIT 1) ex ON true

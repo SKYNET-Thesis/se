@@ -87,7 +87,7 @@ export function CourseDetail() {
 
       <header className="mt-5 grid gap-7 border-b border-line pb-9 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
         <div className="max-w-3xl">
-          <h1 className="mt-4 text-[clamp(2rem,5vw,3.5rem)] font-semibold leading-[1.02] tracking-[-0.045em] text-ink text-balance">
+          <h1 className="mt-4 text-[clamp(1.75rem,4vw,2.5rem)] font-semibold leading-[1.1] tracking-[-0.025em] text-ink text-balance">
             {course.title}
           </h1>
           <LinkButton to={`/courses/${course.id}/info`} variant="secondary" className="mt-5">

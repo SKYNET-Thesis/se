@@ -43,6 +43,9 @@ export class ExperimentEvidenceService {
         storagePath = key;
       }
     } catch { /* object-store failure is persisted as unavailable, never as a delivered artifact */ }
+    // The table requires a storage_path or external_uri: when the object store did not accept the evidence nothing is persisted
+    // (an artifact row without an object would violate that constraint and must never be reported as delivered).
+    if (!storagePath) return { availability: "unavailable" as const };
     const artifact = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${experimentId}::text, 73))`;
       const existing = await tx.$queryRaw<Array<{ id: string }>>`

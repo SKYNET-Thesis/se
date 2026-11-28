@@ -55,6 +55,14 @@ describe('D03 submission UI', () => {
       expect(container.querySelector('[aria-label="Score 8 out of 10"]')).not.toBeNull();
       expect(container.textContent).toContain('Well done'); expect(container.textContent).toContain('Safety'); expect(container.textContent).toContain('feedback text');
     });
+    it('shows the canonical rubric summary (percentage, out of 10, rating) and flags an ungraded criterion', async () => {
+      mocks.attemptGrading.mockResolvedValue({ attemptId: 'a1', released: true, releasedAt: '2026-11-12T10:00:00Z', score: null,
+        assessment: { overallFeedback: null, reviewedAt: null, scores: [{ criterionId: 'c1', title: 'Sequence', maxPoints: 6, awardedPoints: 6, comment: null }, { criterionId: 'c2', title: 'Safety', maxPoints: 4, awardedPoints: 3, comment: null }] },
+        summary: { awarded: 9, max: 10, percentage: 90, scoreOutOf10: 9, rating: 'Excellent', gradedCriteria: 2, totalCriteria: 2, complete: true }, feedback: [] });
+      await render(<GradingFeedbackPanel attemptId="a1" token="tok" submitted />);
+      expect(container.querySelector('[aria-label="Score 9 out of 10"]')).not.toBeNull();
+      expect(container.querySelector('[data-testid="rubric-summary"]')?.textContent).toContain('90% · 9/10 · Excellent');
+    });
     it('does not even request grading for an attempt that is not submitted', async () => {
       await render(<GradingFeedbackPanel attemptId="a1" token="tok" submitted={false} />);
       expect(mocks.attemptGrading).not.toHaveBeenCalled();

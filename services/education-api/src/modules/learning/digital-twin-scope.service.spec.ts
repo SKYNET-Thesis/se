@@ -93,5 +93,15 @@ describe("DigitalTwinScopeService", () => {
       config.get.mockReturnValueOnce(undefined);
       await expect(service.issueAttemptViewerScope(user as never, attemptId, robotId)).rejects.toThrow(/not configured/);
     });
+
+    it("also admits the owner of a recent real-robot run of this same attempt after submission (D-09), still bound to that attempt", async () => {
+      queryRaw.mockResolvedValue([row]);
+      await service.issueAttemptViewerScope(user as never, attemptId, robotId);
+      const sql = (queryRaw.mock.calls.at(-1)?.[0] as string[]).join("?");
+      expect(sql).toMatch(/at\.status='in_progress' OR EXISTS/);
+      expect(sql).toMatch(/run\.execution_mode='real_robot'/);
+      expect(sql).toMatch(/run\.input_snapshot->>'attemptId'=at\.id::text/);
+      expect(sql).toMatch(/run\.learner_user_id=at\.learner_user_id/);
+    });
   });
 });

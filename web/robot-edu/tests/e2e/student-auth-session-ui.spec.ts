@@ -8,7 +8,7 @@ test('student signs in with GoTrue, keeps the session across reloads and a corru
   const errors: string[] = []; page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/my-learning');
   await expect(page).toHaveURL(/\/login/);                                                      // protected route without a session
-  await page.getByLabel('Email').fill('phase243-student@vista.test');
+  await page.getByLabel('Email address').fill('phase243-student@vista.test');
   await page.locator('input[type="password"]').first().fill('LocalFixturePass-student!');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/(my-learning|courses|)$/);

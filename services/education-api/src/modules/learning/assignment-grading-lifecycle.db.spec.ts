@@ -1,3 +1,4 @@
+import { LearningInsightsService } from './learning-insights.service';
 import { AssessmentService } from './assessment.service';
 import { AssignmentConfigService } from './assignment-config.service';
 import { createDb, createStudent, createSystemAdmin, createWorld, describeDb, joinClassroom, schoolAdminUser, type Db, type World } from './db-test-support';
@@ -12,7 +13,7 @@ const program = { schemaVersion: 1, kind: 'robot_program', steps: [{ type: 'wait
 describeDb('real PostgreSQL assignment configuration, rubric grading, release and audited correction', () => {
   jest.setTimeout(30_000);
   const db = (describeDb === describe ? createDb() : undefined) as unknown as Db;
-  let learning: LearningService; let programming: ProgrammingService; let assessment: AssessmentService; let config: AssignmentConfigService; let enrollments: EnrollmentDeliveryService;
+  let insights: LearningInsightsService; let learning: LearningService; let programming: ProgrammingService; let assessment: AssessmentService; let config: AssignmentConfigService; let enrollments: EnrollmentDeliveryService;
   beforeAll(async () => {
     await db.$connect();
     const scope = new LearningScopeService(db as never);
@@ -20,6 +21,7 @@ describeDb('real PostgreSQL assignment configuration, rubric grading, release an
     learning = new LearningService(db as never, scope, new ProgressionService(db as never, scope), enrollments);
     programming = new ProgrammingService(db as never, scope);
     assessment = new AssessmentService(db as never, scope);
+    insights = new LearningInsightsService(db as never, scope);
     config = new AssignmentConfigService(db as never, scope);
   });
   afterAll(async () => { await db.$disconnect(); });
@@ -97,9 +99,11 @@ describeDb('real PostgreSQL assignment configuration, rubric grading, release an
 
   it('keeps grading invisible to the student until release; then shows it; reopening hides it again with an audit snapshot, and a corrected grade can be re-released', async () => {
     const f = await fixture(); const { attempt, submission } = await submit(f);
-    const [a] = (await config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, rubric as never)).criteria;
-    await assessment.assess(f.teacher, submission.id, { overallFeedback: 'first', scores: [{ criterionId: a.id, awardedPoints: 3 }] } as never);
+    const [a, b] = (await config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, rubric as never)).criteria;
+    await assessment.assess(f.teacher, submission.id, { overallFeedback: 'first', scores: [{ criterionId: a.id, awardedPoints: 3 }] } as never);   // partial draft is allowed
     expect(await assessment.myGrading(f.user, attempt.id)).toEqual({ attemptId: attempt.id, released: false });
+    await expect(assessment.releaseSubmission(f.teacher, submission.id)).rejects.toMatchObject({ response: { code: 'RUBRIC_INCOMPLETE' } });          // D-06: every criterion must be graded
+    await assessment.assess(f.teacher, submission.id, { overallFeedback: 'first', scores: [{ criterionId: a.id, awardedPoints: 3 }, { criterionId: b.id, awardedPoints: 0 }] } as never);   // explicit zero is graded
     await assessment.releaseSubmission(f.teacher, submission.id);
     expect(await assessment.myGrading(f.user, attempt.id)).toMatchObject({ released: true, assessment: { overallFeedback: 'first' } });
 
@@ -115,8 +119,65 @@ describeDb('real PostgreSQL assignment configuration, rubric grading, release an
     expect(history[0]).toMatchObject({ action: 'grading.release_withdrawn', actorUserId: f.teacher.vistaUserId });
     expect(history[0].details.reason).toBe('Mis-scored the sequence criterion');
     expect(history[0].details.withdrawn.assessment.overallFeedback).toBe('first');
-    expect(history[0].details.withdrawn.assessment.scores[0].awardedPoints).toBe(3);
+    expect(history[0].details.withdrawn.assessment.scores.find((x: any) => x.criterionId === a.id).awardedPoints).toBe(3);
     await expect(assessment.reopenGrading(f.teacher, attempt.id, 'second reopen')).resolves.toBeDefined(); // released again → reopenable again
+  });
+
+  it('D-06 release gate: feedback-only and partial drafts are saved but cannot be released; explicit zero counts as graded; a non-rubric assignment keeps its behaviour', async () => {
+    const f = await fixture(); const { attempt, submission } = await submit(f);
+    const [a, b] = (await config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, rubric as never)).criteria;
+    await assessment.feedback(f.teacher, submission.id, { content: 'draft note' } as never);                                              // feedback-only draft
+    await expect(assessment.releaseSubmission(f.teacher, submission.id)).rejects.toMatchObject({ response: { code: 'RUBRIC_INCOMPLETE' } });
+    await assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: a.id, awardedPoints: 0 }] } as never);                    // zero is a grade, one criterion still missing
+    await expect(assessment.releaseSubmission(f.teacher, submission.id)).rejects.toMatchObject({ response: { code: 'RUBRIC_INCOMPLETE', message: expect.stringContaining('1 of 2') } });
+    await assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: b.id, awardedPoints: 0 }] } as never);
+    await expect(assessment.releaseSubmission(f.teacher, submission.id)).resolves.toMatchObject({ released: true });
+    const grading = await assessment.myGrading(f.user, attempt.id) as unknown as { summary: Record<string, unknown> };
+    expect(grading.summary).toMatchObject({ awarded: 0, max: 10, percentage: 0, complete: true, rating: 'Needs Review' });
+    await expect(assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: a.id, awardedPoints: 6 }] } as never)).rejects.toMatchObject({ response: { code: 'GRADE_RELEASED' } });   // locked after release
+    const plain = await fixture(); const second = await submit(plain);                                                                      // no rubric criteria: unchanged
+    await assessment.feedback(plain.teacher, second.submission.id, { content: 'good work' } as never);
+    await expect(assessment.releaseSubmission(plain.teacher, second.submission.id)).resolves.toMatchObject({ released: true });
+  });
+
+  it('migration T (levels): descriptors are stored and read; a level scores level x max/4 on the server, 0 is graded, a mismatching points value is refused, direct points keep working', async () => {
+    const f = await fixture(); const { attempt, submission } = await submit(f);
+    const withDescriptors = { criteria: [
+      { title: 'Correctness', maxPoints: 12, descriptors: ['All logic works', 'Most logic works', 'Some logic works', 'Major errors'] },
+      { title: 'Structure', maxPoints: 4 },                                                                     // legacy direct-point criterion: no descriptors
+    ] };
+    const saved = await config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, withDescriptors as never) as unknown as { criteria: Array<{ id: string; descriptors: string[] | null }> };
+    expect(saved.criteria[0].descriptors).toEqual(['All logic works', 'Most logic works', 'Some logic works', 'Major errors']);
+    expect(saved.criteria[1].descriptors).toBeNull();
+    const [a, b] = saved.criteria;
+    await expect(config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, { criteria: [{ title: 'X', maxPoints: 4, descriptors: ['a', ' ', 'c', 'd'] }] } as never)).rejects.toThrow(/descriptor/i);
+    await expect(assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: a.id, level: 3, awardedPoints: 12 }] } as never)).rejects.toThrow(/do not match/);
+    await assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: a.id, level: 3 }, { criterionId: b.id, awardedPoints: 0 }] } as never);
+    const rows = await db.$queryRaw<Array<{ criterion_id: string; awarded_points: string; level: number | null }>>`SELECT criterion_id,awarded_points,level FROM public.learning_assessment_scores`;
+    const byId = Object.fromEntries(rows.map((r) => [r.criterion_id, r]));
+    expect(Number(byId[a.id].awarded_points)).toBe(9); expect(byId[a.id].level).toBe(3);                      // 3 x (12/4)
+    expect(Number(byId[b.id].awarded_points)).toBe(0); expect(byId[b.id].level).toBeNull();                    // direct points: level stays NULL (legacy-compatible)
+    await assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: b.id, level: 0 }] } as never);    // explicit level 0 = graded with zero points
+    await expect(assessment.releaseSubmission(f.teacher, submission.id)).resolves.toMatchObject({ released: true });
+    const grading = await assessment.myGrading(f.user, attempt.id) as unknown as { summary: Record<string, number>; assessment: { scores: Array<{ level: number | null; descriptors: string[] | null }> } };
+    expect(grading.summary).toMatchObject({ awarded: 9, max: 16, percentage: 56.25, complete: true });
+    expect(grading.assessment.scores.find((x) => x.descriptors)?.level).toBe(3);
+  });
+
+  it('Gradebook (real PostgreSQL): partial draft -> partial; complete with an explicit zero -> complete; the canonical summary matches the student result; attempt.score stays untouched', async () => {
+    const f = await fixture(); const { attempt, submission } = await submit(f);
+    const [a, b] = (await config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, rubric as never)).criteria;
+    await assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: a.id, awardedPoints: 6 }] } as never);
+    const partial = (await insights.gradebook(f.teacher, f.x.room.id) as Array<Record<string, any>>).find((r) => r.attemptId === attempt.id)!;
+    expect(partial).toMatchObject({ resultKind: 'rubric', graded: 'partial', released: false, percentage: 60 });
+    expect(partial.rubric).toMatchObject({ awarded: 6, max: 10, gradedCriteria: 1, totalCriteria: 2, complete: false });
+    await assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: b.id, awardedPoints: 0 }] } as never);
+    await assessment.releaseSubmission(f.teacher, submission.id);
+    const done = (await insights.gradebook(f.teacher, f.x.room.id) as Array<Record<string, any>>).find((r) => r.attemptId === attempt.id)!;
+    expect(done).toMatchObject({ graded: 'complete', released: true, percentage: 60 });
+    const student = await assessment.myGrading(f.user, attempt.id) as unknown as { summary: { percentage: number }; score: number | null };
+    expect(student.summary.percentage).toBe(done.percentage);          // student, instructor and Gradebook agree
+    expect(student.score).toBeNull();                                    // attempt.score is never overwritten by a rubric
   });
 
   it('cannot reopen what was never released or what the system auto-released', async () => {

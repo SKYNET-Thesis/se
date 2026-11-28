@@ -534,7 +534,7 @@ export class LearningService {
           CASE WHEN latest.grading_released_at IS NOT NULL
             THEN (SELECT SUM(sc.awarded_points)::float FROM public.learning_assessment_scores sc WHERE sc.assessment_id=ass.id) END AS assessment_score,
           CASE WHEN latest.grading_released_at IS NOT NULL
-            THEN (SELECT SUM(rc.max_points)::float FROM public.learning_assessment_scores sc JOIN public.learning_rubric_criteria rc ON rc.id=sc.criterion_id WHERE sc.assessment_id=ass.id) END AS assessment_max
+            THEN (SELECT SUM(rc.max_points)::float FROM public.learning_rubric_criteria rc WHERE ass.id IS NOT NULL AND rc.assignment_id=ca.assignment_id) END AS assessment_max   -- canonical denominator: EVERY criterion (D-15), same rule as rubric-score.ts
         FROM public.learning_submissions s
         LEFT JOIN public.learning_assessments ass ON ass.submission_id=s.id
         WHERE s.assignment_id=ca.assignment_id AND s.learner_user_id=${user.vistaUserId}::uuid AND s.status<>'draft'
@@ -557,7 +557,7 @@ export class LearningService {
   async assignments(user: AuthenticatedUser, classroomId: string) {
     await this.classroom(user,classroomId);
     const canManage = await this.scope.canManageClassroom(user, classroomId);
-    return this.prisma.$queryRaw`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,ca.published_by,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints,a.difficulty,a.assignment_type,a.pass_score::float AS pass_score,a.grading_method,a.learning_objectives,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=a.id),'[]'::jsonb) AS rubric FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.classroom_id=${classroomId}::uuid AND (${canManage} OR ca.status='published') ORDER BY ca.created_at DESC`;
+    return this.prisma.$queryRaw`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,ca.published_by,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints,a.difficulty,a.assignment_type,a.pass_score::float AS pass_score,a.grading_method,a.learning_objectives,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points,'descriptors',rc.descriptors) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=a.id),'[]'::jsonb) AS rubric FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.classroom_id=${classroomId}::uuid AND (${canManage} OR ca.status='published') ORDER BY ca.created_at DESC`;
   }
   async assignment(user: AuthenticatedUser, classroomAssignmentId: string) {
     const rows = await this.prisma.$queryRaw<{ classroom_id: string }[]>`SELECT classroom_id FROM public.learning_classroom_assignments WHERE id=${classroomAssignmentId}::uuid`;
@@ -565,7 +565,7 @@ export class LearningService {
     const classroomId = rows[0].classroom_id;
     await this.classroom(user, classroomId);
     const canManage = await this.scope.canManageClassroom(user, classroomId);
-    const assignment = await this.prisma.$queryRaw<Record<string, unknown>[]>`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints,a.difficulty,a.assignment_type,a.pass_score::float AS pass_score,a.grading_method,a.learning_objectives,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=a.id),'[]'::jsonb) AS rubric FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.id=${classroomAssignmentId}::uuid AND (${canManage} OR ca.status='published')`;
+    const assignment = await this.prisma.$queryRaw<Record<string, unknown>[]>`SELECT ca.id,ca.classroom_id,ca.assignment_id,ca.available_from,ca.due_at,ca.close_at,ca.max_attempts,ca.status,a.lesson_id,l.title AS lesson_title,a.challenge_id,ch.title AS challenge_title,a.title,a.instructions,a.allowed_blocks,a.constraints,a.difficulty,a.assignment_type,a.pass_score::float AS pass_score,a.grading_method,a.learning_objectives,COALESCE((SELECT jsonb_agg(jsonb_build_object('id',rc.id,'title',rc.title,'description',rc.description,'maxPoints',rc.max_points,'descriptors',rc.descriptors) ORDER BY rc.ordinal) FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=a.id),'[]'::jsonb) AS rubric FROM public.learning_classroom_assignments ca JOIN public.learning_assignments a ON a.id=ca.assignment_id JOIN public.learning_lessons l ON l.id=a.lesson_id LEFT JOIN public.learning_challenges ch ON ch.id=a.challenge_id WHERE ca.id=${classroomAssignmentId}::uuid AND (${canManage} OR ca.status='published')`;
     if (!assignment[0]) throw new NotFoundException("Assignment was not found.");
     return assignment[0];
   }
@@ -588,7 +588,7 @@ export class LearningService {
             )
         ),'[]'::jsonb) AS challenges,
         COALESCE((
-          SELECT jsonb_agg(jsonb_build_object('title',rc.title,'description',rc.description,'maxPoints',rc.max_points) ORDER BY rc.ordinal)
+          SELECT jsonb_agg(jsonb_build_object('title',rc.title,'description',rc.description,'maxPoints',rc.max_points,'descriptors',rc.descriptors) ORDER BY rc.ordinal)
           FROM public.learning_rubric_criteria rc WHERE rc.assignment_id=rubric_source.id
         ),'[]'::jsonb) AS rubric
       FROM public.learning_classrooms c

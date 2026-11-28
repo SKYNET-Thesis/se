@@ -46,7 +46,7 @@ test.describe.serial('System Admin: organization lifecycle, administrator assign
     await manage.getByLabel('Administrator email').fill(`invited.${run}@example.test`);
     await manage.getByRole('button', { name: 'Assign administrator' }).click();
     await expect(manage.getByTestId('org-admin')).toHaveCount(2);
-    await expect(manage.getByTestId('org-admin').filter({ hasText: `Invited Head ${run}` })).toContainText('Invited');
+    await expect(manage.getByTestId('org-admin').filter({ hasText: `Invited Head ${run}` })).toContainText('Pending invitation');
     await page.screenshot({ path: path.join(shots, 'system-admin-manage-organization.png') });
     await manage.getByRole('button', { name: 'Close' }).first().click().catch(() => page.keyboard.press('Escape'));
     orgId = psql(`select id from organizations where name='${orgName}'`);

@@ -1,9 +1,12 @@
 import { Type } from "class-transformer";
-import { ArrayMinSize, IsArray, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from "class-validator";
+import { ArrayMinSize, IsArray, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min, ValidateIf, ValidateNested } from "class-validator";
 
 class AssessmentScoreDto {
   @IsUUID() criterionId!: string;
-  @IsNumber() @Min(0) awardedPoints!: number;
+  /** Direct points (legacy / free entry). Optional when an achievement `level` is given: the server then computes level × (max/4). */
+  @ValidateIf((o: AssessmentScoreDto) => o.level === undefined) @IsNumber() @Min(0) awardedPoints?: number;
+  /** Migration T: achievement level 0 (graded, no points) … 4. */
+  @IsOptional() @IsInt() @Min(0) @Max(4) level?: number;
   @IsOptional() @IsString() @MaxLength(2000) comment?: string;
 }
 

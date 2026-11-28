@@ -1,0 +1,53 @@
+# Final defect register (2026-11-27)
+
+| ID | Sev | Defect | Root cause | Status |
+|---|---|---|---|---|
+| D-01 | High | Twin returned 403 for the WF03 run's telemetry | `ProgrammingService.submit` revoked the attempt in the Twin before the run reported | **Fixed #253, deployed `43dcb60`; retest PASS** (Twin 202, 205 frames) + regression test #255 |
+| D-02 | Medium | Student UI showed physical wording in simulation | readiness `runtimeMode` null in cloud simulation | **Fixed #253, deployed; PASS** |
+| D-03 | **High (OPEN, blocks WF03 evidence acceptance)** | No evidence artifact for a successful cloud run | `physical-execution.service status()` IoT branch returned before the evidence step; no persisted last frame | #257 deployed in `430ad59` but **Production retest FAILED** (2026-11-27 13:25Z, experiment `31627072…`): `GET /me/physical-executions/:id` returns **HTTP 500** (`learning_experiment_artifacts_check` violation) and no artifact exists. Root cause (verified in API logs + IAM): the API instance role `vista-demo-education-api-instance` has no `s3:PutObject/GetObject` on `learning-media/experiments/*`, so the object write failed and a row without `storage_path` was inserted. Fix PR **#260** (no row without object; status never 500s; Terraform `ExperimentEvidenceObjectAccess`). **Needs owner: merge #260, release, `terraform apply` of the IAM change (not executed), then retest.** |
+| D-04 | Low/Medium | ACK event `iot_ack_acknowledged` missing; worker logs `feedback sequence is stale` | ACK and status arrive via SQS out of order; ACK treated as stale after `executing` | **Open.** Run lifecycle and result unaffected. Handle in tomorrow's IoT integration (accept late ACK without regressing state) |
+| D-05 | Process | Instructor/System Admin credentials needed owner-approved resets | seed sets passwords only on create; E2E mailboxes have no inbox | Closed (resets approved and done); do not repeat |
+| D-06 | Low | Grade can be released without numeric rubric scores; later assessment is rejected `GRADE_RELEASED` | release not gated on rubric completeness | Open (observation; product decision) |
+| D-07 | Low | Wrong-verb attempts (PUT) on assessment return generic 404 | test script error, not a product defect | Closed |
+
+## NOT RUN on Production (reason)
+Stop Execution (run lasts ~0.5 s), concurrent control, reconnect during a run, session expiry, quarantine, Emergency Stop, Desktop runtime, physical SO-101, VLA. Covered by real-PostgreSQL/CI tests where marked in the matrix; **not claimed accepted.**
+
+| D-08 | High (regression from #257, in `430ad59`) | Run status endpoint 500 after a successful run | see D-03 | Fix in #260; not deployed |
+| D-09 | Medium | Digital Twin viewer displays the Twin's own mock stream (robot `so101-mock`, controller `offline-fixture`, ~29 Hz, seq 11178+) during a run; the R1-relayed frame (robot UUID, seq 12, stored as `simulation_telemetry_latest`) is accepted by the Twin (202) but not what the browser received | Twin mock mode | **Provenance: browser frames NOT R1-synchronised (VERIFIED by comparing the two streams).** Product decision for tomorrow's integration |
+| D-04 note | | Retest 13:24Z: `iot_ack_acknowledged` present this time → intermittent ordering | | Still open (low) |
+| D-06 note | | Per-criterion scoring works; the top-level attempt `score` field is `null` in `/me/attempts/:id/grading` while the student UI shows `9 / 10` | | Observation; release without scores remains an owner product decision |
+
+## Verified findings update (2026-11-27 evening)
+| ID | Finding |
+|---|---|
+| D-03 / D-08 | Root cause confirmed (IAM `learning-media/experiments/*` missing; API log `learning_experiment_artifacts_check`). Fix PR #260 (CI all green incl. fresh-bootstrap): no row without a stored object, status never 500s, truthful `evidence: unavailable`, retry-safe (advisory lock + existing-row check, same object key → no duplicates), scope query unchanged (student/classroom/robot checks preserved). **Read-only Terraform plan against the live state: `0 to add, 1 to change, 0 to destroy`; only `aws_iam_role_policy.ec2` changes, adding `ExperimentEvidenceObjectAccess` (`s3:PutObject`, `s3:GetObject` on `arn:aws:s3:::vista-demo-media-157098813811-sg/learning-media/experiments/*`); nothing removed. Bucket public-access block is fully on.** Caveat: the plan must be run with the live IoT/recordings variables (`iot_command_topic_arn`, `iot_feedback_queue_arn`, `iot_thing_arn`, `recordings_bucket_arn`, `recordings_events_queue_arn`) — a plan from the repository `terraform.tfvars` alone would REMOVE the IoT/SQS/recordings statements. Status: OPEN until deployed + applied + retested. |
+| D-04 | Late ACK (`feedback sequence is stale`) is intermittent (absent in run `92c7780c…`, present earlier). Run state, Twin telemetry and evidence are unaffected; only the ACK audit event can be missing. Low; fix scheduled as CC-2. |
+| D-06 | Existing behaviour: release does not require rubric scores; after release scoring is locked (409). No approved requirement found that mandates scores. **Recommendation (needs owner approval, not implemented):** for assignments that have rubric criteria, refuse `release` until every criterion has a score; assignments without a rubric (feedback-only/manual grade) release as today. |
+| D-09 | **Root cause (verified live):** Twin stores relayed frames per `(robot, attempt)` and refuses robot-wide viewers once such frames exist (observed `4403`); the Web viewer requests only the robot-wide scope; the attempt-bound scope returned **404** because WF03 runs after submission (attempt `evaluated`, scope required `in_progress`). The viewer therefore got the Twin's offline fixture (`so101-mock` / `offline-fixture`). Fix PR **#262** (attempt scope for the owner's recent run; Twin attempt viewers never fall back to the fixture; run panel uses the attempt scope; truthful evidence text). Tests assert frame identity, sequence and value, not just count. Not deployed; live retest pending. |
+
+| D-10 | Low (test debt) | `platform-route-sweep` expected `/admin/robots` to redirect; the route is a real page since #243 (duplicate dead redirect route remains in `App.tsx`) | Test fixed in #261; dead route left untouched |
+| D-06 proposal | | Implemented as DRAFT #263 (409 `RUBRIC_INCOMPLETE`; non-rubric unchanged; 36 assessment tests pass). **Not to be merged without explicit owner approval.** |
+
+| D-11 | Medium (owner decision) | Legacy `PUT /education-admin/classrooms/:id/robot-allocation` now **adds** an allocation (many-to-many, #243) instead of replacing the classroom's robot; the classroom detail `allocated_robot` stays the first one. Playwright `lms-independent`/`digital-twin-*` still assumed "replace" | contract change from migration S | **Owner decision:** keep PUT as "add" (documented), or restore replace semantics for PUT only? Tests updated to the current behaviour |
+| D-12 | Low (fixed in #264) | `/admin/robots` overflowed horizontally by 410 px at 390 px (`sr-only` caption escaping the scroll container) found by `platform-route-inventory` | absolute caption without a positioned ancestor | Fixed + verified (SW 390, spec 12/12); not deployed |
+| D-13 | Low (test debt, fixed in #264) | Stale Playwright expectations after #243/#250/#253 and the import confirmation; Playwright is not part of CI | specs not maintained with product changes | Updated; **recommend adding the Playwright suite (or a smoke subset) to CI** |
+| D-14 | Info | `platform-invite-security`, `platform-system-admin` cannot run locally (need `local-gotrue-proxy` + GoTrue keys; no provisioning script) | environment | BLOCKED; add a harness script |
+
+| D-15 | Low | Student assignment list shows `SUM(awarded)/SUM(max of scored rows)` while the grading DTO now returns the canonical `summary` (all criteria in the maximum); they differ only for partially graded legacy releases. Two parallel instructor grading components exist (`TeacherSubmissionReview`, `SubmissionReviewDetail`) | historical implementation | Open: after D-06 is decided, point the list at the same function; consolidate the two components |
+| D-06 | (unchanged) | Release gate still **not** implemented in `develop` (#263 draft, red on purpose); rubric spec v0.1 compatibility: `RUBRIC_COMPATIBILITY_MATRIX.md` | owner approval | Open |
+
+| D-15 | (update) | **Fixed and merged (#265)**: the student assignment list now divides by the canonical maximum (all criteria); regression assertion added | — | Closed locally; Production verification after release |
+| D-16 | Info | Multiple-choice quiz grading is **exact match, no partial credit** (shown on the result page). Unchanged by this work | existing rule | **Owner to confirm** the rule is the intended one (the rubric spec says "preserve existing") |
+| D-17 | Info | Quarantine after a runtime disconnect releases only after the run's status is reconciled once the runtime is back (a status read + End retry); nothing releases it autonomously | design | Documented; acceptable; revisit with CC-3 |
+
+## Update 2026-11-28 (owner-approved grading policy)
+| ID | Status |
+|---|---|
+| D-06 | **Implemented and merged (#263, develop `2345341`)**: partial drafts, feedback-only drafts, 409 `RUBRIC_INCOMPLETE`, explicit zero graded, lock after release; UI saves partial drafts and gates Release on a complete saved rubric. Verified locally (Jest DB 90/90 incl. updated lifecycle spec; Playwright lms-assignment-grading, lms-beginner-lab, lms-independent, blockly-simulation). **Production verification pending release.** |
+| D-16 | **Approved**: multiple-choice = exact match, no partial credit (stated on the quiz result page; `lms-module-quiz`). Documented, unchanged. |
+| D-17 | **Fixed and merged (#270)**: a REACHABLE runtime reporting a started run lost closes it failed/`runtime_run_lost`, so a quarantined session releases through the reconcile sweep without a student read (safety spec 4/4); heartbeat alone / unreachable runtime / unstarted run release nothing; the IoT path keeps its authoritative Shadow rule (fresh, connected, idle, newer than the last lifecycle update). Production IoT path unchanged. |
+| D-11 | Unchanged; owner review page `D11_LEGACY_ALLOCATION_PUT_OWNER_REVIEW.md`. |
+| Gradebook | **Merged (#271)**: quiz (auto) and rubric (canonical) results, read-only, `attempt.score` untouched. |
+| Rubric levels / descriptors / templates | Implemented in **draft #272** (needs migration T; not merged). |
+| Mixed grading | No new mixed configurations may be created until a formula is approved (guard in a separate PR); existing mixed records stay readable. |

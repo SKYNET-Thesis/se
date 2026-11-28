@@ -349,7 +349,7 @@ class WorkflowSafetyTests(unittest.TestCase):
         self.assertEqual(j["requiresApplied"], d_i["versions"])
         manifest = json.loads((ROOT / "database/migrations/manifest.json").read_text())["migrations"]
         kl = scopes["scopes"]["K-L"]  # authoring capabilities and the restricted runtime role: their own scope; M is staged outside the manifest
-        reviewed = d_i["versions"] + j["versions"] + kl["versions"] + scopes["scopes"]["N"]["versions"] + scopes["scopes"]["O-Q"]["versions"] + scopes["scopes"]["S"]["versions"]
+        reviewed = d_i["versions"] + j["versions"] + kl["versions"] + scopes["scopes"]["N"]["versions"] + scopes["scopes"]["O-Q"]["versions"] + scopes["scopes"]["S"]["versions"] + scopes["scopes"]["T-U"]["versions"]
         self.assertEqual([e["version"] for e in manifest][:len(reviewed)], reviewed)  # J precedes K-L, which precede N, in source ordering
         self.assertEqual([e["version"] for e in manifest][len(reviewed):], [])  # every manifest migration has a reviewed scope
         self.assertEqual(kl["requiresApplied"], d_i["versions"] + j["versions"])  # J is a hard prerequisite of K-L

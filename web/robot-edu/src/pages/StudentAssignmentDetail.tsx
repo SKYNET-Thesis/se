@@ -80,9 +80,11 @@ export function StudentAssignmentDetail() {
         <h2 className="text-lg font-semibold text-ink">How this is graded</h2>
         <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
           {(item.rubric ?? []).map((criterion) => (
-            <li key={criterion.id} className="flex items-start justify-between gap-4 px-4 py-3 text-sm"><div><p className="font-medium text-ink">{criterion.title}</p>{criterion.description && <p className="mt-0.5 text-ink-muted">{criterion.description}</p>}</div><span className="shrink-0 text-ink-muted">{criterion.maxPoints} points</span></li>
+            <li key={criterion.id ?? criterion.title} className="px-4 py-3 text-sm"><div className="flex items-start justify-between gap-4"><div><p className="font-medium text-ink">{criterion.title}</p>{criterion.description && <p className="mt-0.5 text-ink-muted">{criterion.description}</p>}</div><span className="shrink-0 text-ink-muted">{criterion.maxPoints} points</span></div>
+              {criterion.descriptors && <dl className="mt-2 grid gap-1 text-xs sm:grid-cols-2" aria-label={`Achievement levels for ${criterion.title}`}>{['4 — Excellent', '3 — Good', '2 — Developing', '1 — Beginning'].map((label, k) => <div key={label} className="rounded-md bg-sunken px-2 py-1"><dt className="font-medium text-ink">{label}</dt><dd className="text-ink-muted">{criterion.descriptors?.[k]}</dd></div>)}</dl>}</li>
           ))}
         </ul>
+        <p className="mt-2 text-right text-xs text-ink-muted tabular-nums" data-testid="rubric-total">Total: {(item.rubric ?? []).reduce((sum, criterion) => sum + Number(criterion.maxPoints), 0)} points</p>
       </section>
     )}
     <section className="mt-8">

@@ -400,7 +400,8 @@ export class PhysicalExecutionService {
       const frames = await this.prisma.$queryRaw<Array<{ event_data: unknown }>>`
         SELECT event_data FROM public.learning_experiment_events WHERE experiment_id=${experimentId}::uuid AND event_type='simulation_telemetry_latest' LIMIT 1`;
       if (!frames[0]) return { ...dto, evidence: "unavailable" as const };
-      const evidence = await this.evidence.persistTelemetry(experimentId, frames[0].event_data);
+      // Evidence is best-effort: a persistence failure must never turn the run status into a 500.
+      const evidence = await this.evidence.persistTelemetry(experimentId, frames[0].event_data).catch(() => ({ availability: "unavailable" as const }));
       return { ...dto, evidence: evidence.availability };
     }
     const runId = execution.run_id ?? `wf03-${execution.experiment_id}`;
@@ -466,7 +467,15 @@ export class PhysicalExecutionService {
       const snapshot = await this.runtime.cancelRun(robotId, runId);
       await this.persistRuntimeSnapshot(active.experiment_id, active.control_session_id, runId, snapshot, "lab_session_stop_requested");
       return { active: Boolean(await this.activeSession(this.prisma, robotId)), stopRequested: true, runtimeUnavailable: false };
-    } catch {
+    } catch (error) {
+      // D-17: an authenticated, REACHABLE runtime that answers "run not found" for a run we know it started has lost that run (restart): it is authoritative about
+      // its own state, exactly as the status read treats it. The execution is closed as failed (`runtime_run_lost`, never succeeded) so a quarantined Lab Session can
+      // finish releasing without waiting for a student to poll. An unreachable runtime, a heartbeat alone or an unstarted run never release anything.
+      const code = error instanceof ConflictException ? (error.getResponse() as { code?: string }).code : null;
+      if (code === "ROBOT_RUNTIME_RUN_NOT_FOUND" && active.experiment_status === "running") {
+        await this.persistRuntimeSnapshot(active.experiment_id, active.control_session_id, runId, { state: "failed", errorCode: "runtime_run_lost" }, "lab_session_run_lost");
+        return { active: Boolean(await this.activeSession(this.prisma, robotId)), stopRequested: true, runtimeUnavailable: false };
+      }
       return { active: true, stopRequested: false, runtimeUnavailable: true };
     }
   }

@@ -41,12 +41,12 @@ export function AccountSettings() {
   const alias = isInternalAlias(session?.user.email);
   return <main className="mx-auto max-w-3xl px-5 py-8 sm:px-8">
     <PageHeader title="Account Settings" description="Your authenticated VISTA identity." />
-    <section aria-label="Identity" className="mt-8 divide-y divide-line border-y border-line text-sm">
+    <section aria-label="Identity" className="mt-8 divide-y divide-line rounded-xl border border-line bg-surface px-5 text-sm shadow-hairline">
       <div className="py-4"><p className="text-ink-muted">Name</p><p className="mt-1 font-medium text-ink">{String(name)}</p></div>
       <div className="py-4"><p className="text-ink-muted">Email</p><p className="mt-1 font-medium text-ink">{alias ? 'No email on file (school code sign-in)' : session?.user.email}</p></div>
       <div className="py-4"><p className="text-ink-muted">Current role</p><p className="mt-1 font-medium capitalize text-ink">{role?.replace('_', ' ')}</p></div>
     </section>
-    <section aria-labelledby="security-heading" className="mt-10">
+    <section aria-labelledby="security-heading" className="mt-6 rounded-xl border border-line bg-surface p-5 shadow-hairline sm:p-6">
       <h2 id="security-heading" className="text-lg font-semibold text-ink">Password</h2>
       {alias
         ? <p className="mt-2 text-sm text-ink-muted">You sign in with your school code and student code. If you forgot your password, ask your school administrator for a one-time Recovery Code and use &ldquo;Forgot password?&rdquo; on the Student Code tab of the sign-in page.</p>

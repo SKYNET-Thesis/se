@@ -14,7 +14,7 @@ export function Badge({ tone = 'neutral', children, className, dot }: BadgeProps
   return (
     <span
       className={cn(
-        'inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded px-2 text-xs font-medium',
+        'inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-md px-2 text-xs font-medium ring-1 ring-inset ring-black/[0.04]',
         tone === 'neutral' && 'bg-sunken text-ink-muted',
         tone === 'accent' && 'bg-accent-soft text-accent-ink',
         tone === 'ok' && 'bg-ok-soft text-ok',

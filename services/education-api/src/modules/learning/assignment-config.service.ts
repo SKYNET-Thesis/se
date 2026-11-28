@@ -33,6 +33,11 @@ export class AssignmentConfigService {
   async updateAcademic(user: AuthenticatedUser, classroomId: string, assignmentId: string, dto: UpdateAssignmentAcademicDto) {
     await this.authorize(user, classroomId, assignmentId);
     const data = normalizeAssignmentAcademic(dto);
+    // Owner policy 2026-11-28: no NEW mixed-grading configuration until a grading formula is approved. An assignment that is already `mixed` keeps it (and may be re-saved).
+    if (data.grading_method === 'mixed') {
+      const current = await this.prisma.$queryRaw<{ grading_method: string | null }[]>`SELECT grading_method FROM public.learning_assignments WHERE id=${assignmentId}::uuid`;
+      if (current[0]?.grading_method !== 'mixed') throw new ConflictException({ code: 'MIXED_GRADING_NOT_AVAILABLE', message: 'Automatic + manual (mixed) grading cannot be newly configured until its grading formula is approved. Choose Automatic or Manual.' });
+    }
     const maxRows = await this.prisma.$queryRaw<{ max_score: string | null }[]>`SELECT SUM(max_points) AS max_score FROM public.learning_rubric_criteria WHERE assignment_id=${assignmentId}::uuid`;
     const maxScore = maxRows[0]?.max_score === null || maxRows[0]?.max_score === undefined ? null : Number(maxRows[0].max_score);
     if (data.pass_score !== undefined && data.pass_score !== null && maxScore !== null && data.pass_score > maxScore) throw new BadRequestException(`Pass score cannot exceed the maximum score (${maxScore}).`);
@@ -42,8 +47,8 @@ export class AssignmentConfigService {
 
   async getRubric(user: AuthenticatedUser, classroomId: string, assignmentId: string) {
     const { isQuiz } = await this.authorize(user, classroomId, assignmentId);
-    const criteria = await this.prisma.$queryRaw<Array<{ id: string; title: string; description: string | null; maxPoints: number; ordinal: number }>>`
-      SELECT id,title,description,max_points::float AS "maxPoints",ordinal FROM public.learning_rubric_criteria WHERE assignment_id=${assignmentId}::uuid ORDER BY ordinal`;
+    const criteria = await this.prisma.$queryRaw<Array<{ id: string; title: string; description: string | null; maxPoints: number; ordinal: number; descriptors: string[] | null }>>`
+      SELECT id,title,description,max_points::float AS "maxPoints",ordinal,descriptors FROM public.learning_rubric_criteria WHERE assignment_id=${assignmentId}::uuid ORDER BY ordinal`;
     const scored = await this.prisma.$queryRaw<{ n: number }[]>`SELECT COUNT(*)::int AS n FROM public.learning_assessment_scores s JOIN public.learning_rubric_criteria c ON c.id=s.criterion_id WHERE c.assignment_id=${assignmentId}::uuid`;
     const locked = scored[0].n > 0;
     return { assignmentId, criteria, editable: !isQuiz && !locked, lockedReason: isQuiz ? 'Quizzes are machine-graded and have no rubric.' : locked ? 'Submissions have already been scored against this rubric.' : null, totalPoints: criteria.reduce((sum, c) => sum + Number(c.maxPoints), 0) };
@@ -54,6 +59,7 @@ export class AssignmentConfigService {
     if (isQuiz) throw new ConflictException({ code: 'QUIZ_HAS_NO_RUBRIC', message: 'Quizzes are machine-graded and have no rubric.' });
     const titles = dto.criteria.map((c) => c.title.trim().toLowerCase());
     if (titles.some((t) => !t) || new Set(titles).size !== titles.length) throw new BadRequestException('Criterion titles must be non-empty and distinct.');
+    if (dto.criteria.some((c) => c.descriptors && c.descriptors.some((d) => !d.trim()))) throw new BadRequestException('Every achievement-level descriptor must be non-empty.');
     if (dto.criteria.some((c) => c.maxPoints > 1000)) throw new BadRequestException('A criterion may be worth at most 1000 points.');
     await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM public.learning_assignments WHERE id=${assignmentId}::uuid FOR UPDATE`;
@@ -61,7 +67,8 @@ export class AssignmentConfigService {
       if (scored[0].n > 0) throw new ConflictException({ code: 'RUBRIC_IN_USE', message: 'Submissions have already been scored against this rubric, so it can no longer be changed.' });
       await tx.$executeRaw`DELETE FROM public.learning_rubric_criteria WHERE assignment_id=${assignmentId}::uuid`;
       for (const [i, c] of dto.criteria.entries()) {
-        await tx.$executeRaw`INSERT INTO public.learning_rubric_criteria(assignment_id,ordinal,title,description,max_points) VALUES(${assignmentId}::uuid,${i + 1},${c.title.trim()},${c.description?.trim() || null},${c.maxPoints})`;
+        const descriptors = c.descriptors ? JSON.stringify(c.descriptors.map((d) => d.trim())) : null;
+        await tx.$executeRaw`INSERT INTO public.learning_rubric_criteria(assignment_id,ordinal,title,description,max_points,descriptors) VALUES(${assignmentId}::uuid,${i + 1},${c.title.trim()},${c.description?.trim() || null},${c.maxPoints},${descriptors}::jsonb)`;
       }
     });
     return this.getRubric(user, classroomId, assignmentId);

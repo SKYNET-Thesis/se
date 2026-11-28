@@ -137,6 +137,27 @@ export class SupabaseAdminService {
     };
   }
 
+  /** Strict create: never reuses an existing identity. `created:false` means the e-mail already existed and nothing was changed. */
+  async createStaffIdentity(email: string, password: string): Promise<{ user: SupabaseAdminUser; created: boolean }> {
+    return this.createStudentIdentityIfMissing(email, password);
+  }
+
+  /** Reads one Auth user by id (read-only). Used to prove that a pending account never signed in before issuing temporary credentials. */
+  async getAuthUser(authUserId: string): Promise<{ id: string; email?: string; lastSignInAt: string | null } | null> {
+    const { baseUrl, serviceRole } = this.adminConfiguration();
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/auth/v1/admin/users/${encodeURIComponent(authUserId)}`, {
+        headers: { apikey: serviceRole, Authorization: `Bearer ${serviceRole}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch { throw new Error("Identity provider is unavailable."); }
+    if (response.status === 404) return null;
+    if (!response.ok) throw new Error("Identity could not be verified.");
+    const body = await response.json() as { id: string; email?: string; last_sign_in_at?: string | null };
+    return { id: body.id, email: body.email, lastSignInAt: body.last_sign_in_at ?? null };
+  }
+
   async invite(email: string, fullName: string): Promise<SupabaseAdminUser> {
     const baseUrl = this.config.get<string>("SUPABASE_URL")?.replace(/\/$/, "");
     const serviceRole = this.config.get<string>("SUPABASE_SERVICE_ROLE_KEY");

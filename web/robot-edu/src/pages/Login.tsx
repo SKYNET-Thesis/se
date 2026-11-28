@@ -5,7 +5,7 @@ import { Button } from '../components/ui/Button';
 import { VistaMark } from '../components/layout/VistaMark';
 import { useSupabaseSession } from '../contexts/SupabaseSessionContext';
 import { signInErrorMessage } from '../lib/passwordPolicy';
-import { identityApi, studentAuthApi } from '../lib/api';
+import { ApiError, identityApi, studentAuthApi } from '../lib/api';
 
 export type StudentMode = 'login' | 'setup' | 'recovery';
 
@@ -160,6 +160,8 @@ export function Login() {
         throw new Error('This account has no active VISTA role.');
       }
     } catch (reason) {
+      // A temporary password is valid only for the forced change: the API client is already redirecting to the change page. Keep the session.
+      if (reason instanceof ApiError && reason.code === 'PASSWORD_CHANGE_REQUIRED') return;
       try {
         await client.auth.signOut();
       } catch {
@@ -203,7 +205,7 @@ export function Login() {
               className="h-full w-full object-cover object-[52%_52%] mix-blend-screen opacity-90"
             />
           </div>
-          <p className="relative z-10 mt-auto max-w-[28ch] text-sm leading-relaxed text-[#dce5dc]">
+          <p className="relative z-10 mt-auto max-w-[30ch] self-start rounded-lg bg-[#17352e]/90 px-4 py-3 text-sm leading-relaxed text-[#e8efe8] shadow-sm">
             A focused environment for programming, schematic experiments, and robot practice.
           </p>
         </aside>

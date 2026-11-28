@@ -90,8 +90,10 @@ test('Unlock rule: failing the weighted quiz keeps module two locked; a passing 
   await dialog.getByLabel('Question file').setInputFiles({ name: 'gate.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(dialog.getByRole('status').filter({ hasText: '2 rows · 2 valid' })).toBeVisible();
   await dialog.getByLabel('New Learning Outcome').fill('Learners pass the gate.');
+  await dialog.getByLabel('Publish immediately (otherwise questions are imported as drafts)').check();
+  await dialog.getByLabel('I reviewed this preview and want to import the valid rows.').check();   // hash-bound confirmation (61dcda5)
   await dialog.getByRole('button', { name: /^Import 2 valid questions/ }).click();
-  await expect(dialog.getByText('Imported 2 questions.')).toBeVisible();
+  await expect(dialog.getByText(/Imported 2 questions/)).toBeVisible();
   await dialog.getByRole('button', { name: 'Done' }).click();
   for (const stem of ['Heavy gate question?', 'Light gate question?']) {
     const card = workspace.locator('article', { hasText: stem });

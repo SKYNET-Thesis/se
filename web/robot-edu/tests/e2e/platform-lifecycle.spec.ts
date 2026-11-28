@@ -48,7 +48,7 @@ test.describe.serial('lifecycle operations', () => {
     await manage.getByLabel('Administrator name').fill(`Life Head ${run}`); await manage.getByLabel('Administrator email').fill(email);
     await manage.getByRole('button', { name: 'Assign administrator' }).click();
     const adminRow = manage.getByTestId('org-admin');
-    await expect(adminRow).toContainText('Invited');
+    await expect(adminRow).toContainText('Pending invitation');
     await adminRow.getByRole('button', { name: /Resend invitation to/ }).click();
     await expect(manage.getByRole('status').filter({ hasText: `Invitation sent again to ${email}` })).toBeVisible();
     expect(await invites(page, email)).toBe(2);
@@ -58,7 +58,7 @@ test.describe.serial('lifecycle operations', () => {
     await expect(adminRow).toContainText('Disabled');
     expect((await call(page, token, 'GET', '/me/memberships')).status).toBe(403);                 // refused everywhere while disabled
     await adminRow.getByRole('button', { name: /Enable account of/ }).click();
-    await expect(adminRow).toContainText('Invited');                                               // never accepted: back to invited, not silently active
+    await expect(adminRow).toContainText('Pending invitation');                                               // never accepted: back to invited, not silently active
     expect((await call(page, token, 'GET', '/me/memberships')).status).toBe(200);                  // the first verified sign-in then activates it (membership + email claim hold)
     expect(psql(`select status from users where email='${email}'`)).toBe('active');
   });
