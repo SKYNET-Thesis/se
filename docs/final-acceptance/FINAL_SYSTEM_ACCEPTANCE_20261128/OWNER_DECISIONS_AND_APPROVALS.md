@@ -39,6 +39,7 @@ Revision context: develop `eceb8d1`, Production `430ad59`. Nothing below has bee
 | C11 | Production CSP is `Content-Security-Policy-Report-Only` — enforce? | enforce after reviewing reports |
 | C12 | Add a Playwright smoke subset to CI (D-13) | recommend |
 | C13 | Remove the tracked symlink `services/education-api/node_modules` (see defect register) | recommend (fix PR prepared) |
+| C14 | Extend the CI integration step to also run `*.int.spec.ts` (evidence S3 storage, IoT feedback repository, media S3 storage) — currently never executed in CI (N-13) | recommend (workflow change; needs the database-workflow safety check) |
 
 ## D. Approvals needed from the hardware owner / Codex (Gates H, I)
 Physical safety profile for the exact robot (position/velocity limits, command-rate/stale bounds); named operator; independent E-stop confirmation; leader/follower IDs and port roles; calibration file verification; a supervised session date; decision on who forwards physical telemetry; implementation of EDGE contract §14 `cancel` on Desktop; resolution of the Desktop-vs-EDGE contradiction about the MQTT authorization bridge.

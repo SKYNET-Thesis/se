@@ -55,6 +55,7 @@ Environment: workstation, PostgreSQL 17 (tmpfs) on loopback, RustFS S3-compatibl
 * `visual-audit.spec.ts` (2 opt-in tests): not run as written (it crops a 2400 px viewport); replaced by a scratch full-page copy, 2/2.
 * Digital Twin: 3 skips and 1 failure with default extras (MuJoCo model/package absent).
 * Desktop installers/packaging, physical teleoperation, MQTT/IoT against AWS: **NOT RUN**.
+* **CI does not run `*.int.spec.ts`** (`experiment-evidence.storage.s3.int`, `iot-feedback.repository.int`, `learning-media.storage.s3.int`): the integration step filters on `db\.spec` (N-13). Their only evidence is the local runs above — treat them as local-only until C14 is decided.
 * CI-only evidence at `eceb8d1` (from the PR #266 check rollup): `syntax`, `fresh-bootstrap`, `validate-inventory`, `api`, `runtime`, `web`, `database-safety`, `docker` = SUCCESS; `schema-gate`, `rollback-guard`, `deploy-*` skipped by design.
 
 ## 4. Verdict (Gate D)
