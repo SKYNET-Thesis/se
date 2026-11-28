@@ -1,4 +1,4 @@
--- Migration U (STAGED, PROPOSAL - owner approval required; not in the release manifest): server-authoritative first-login password state for staff.
+-- Migration U (released only through the approval-gated Production Database Release, scope T-U): server-authoritative first-login password state for staff.
 -- Directly created School Administrators and Instructors must replace their temporary password before using the application. Students already
 -- have this state on education_school_user_profiles (migration N); School Administrators have no profile row, so the state lives on public.users.
 -- Additive only: three columns, no backfill, no constraint/index/RLS/grant change. Existing users keep password_change_required=false and are never restricted.
