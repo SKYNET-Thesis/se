@@ -180,16 +180,20 @@ export class AssessmentService {
   private async releaseAttemptGrading(user:AuthenticatedUser,attemptId:string,classroomId:string) {
     await this.scope.assertTeacherClassroomPermission(user,classroomId,["learning.work.review","learning.assessment.assess"]);
     return this.prisma.$transaction(async tx=>{
-      const rows=await tx.$queryRaw<{id:string;status:string;grading_released_at:Date|null;graded:boolean}[]>`
+      const rows=await tx.$queryRaw<{id:string;status:string;grading_released_at:Date|null;graded:boolean;rubric_total:number;rubric_scored:number}[]>`
         SELECT a.id,a.status,a.grading_released_at,
           (EXISTS(SELECT 1 FROM public.learning_submissions s JOIN public.learning_assessments x ON x.submission_id=s.id WHERE s.attempt_id=a.id)
-           OR EXISTS(SELECT 1 FROM public.learning_feedback f WHERE f.attempt_id=a.id OR f.submission_id IN (SELECT s.id FROM public.learning_submissions s WHERE s.attempt_id=a.id))) AS graded
+           OR EXISTS(SELECT 1 FROM public.learning_feedback f WHERE f.attempt_id=a.id OR f.submission_id IN (SELECT s.id FROM public.learning_submissions s WHERE s.attempt_id=a.id))) AS graded,
+          (SELECT count(*)::int FROM public.learning_rubric_criteria c WHERE c.assignment_id IN (SELECT s.assignment_id FROM public.learning_submissions s WHERE s.attempt_id=a.id)) AS rubric_total,
+          (SELECT count(DISTINCT sc.criterion_id)::int FROM public.learning_assessment_scores sc JOIN public.learning_assessments x ON x.id=sc.assessment_id JOIN public.learning_submissions s ON s.id=x.submission_id WHERE s.attempt_id=a.id) AS rubric_scored
         FROM public.learning_assignment_attempts a WHERE a.id=${attemptId}::uuid FOR UPDATE`;
       const attempt=rows[0];
       if(!attempt) throw new NotFoundException("Attempt was not found.");
       if(attempt.grading_released_at) return { attemptId, released:true, releasedAt:attempt.grading_released_at };
       if(!["submitted","evaluated"].includes(attempt.status)) throw new ConflictException({code:"ATTEMPT_NOT_SUBMITTED",message:"Only a submitted attempt can be released."});
       if(!attempt.graded) throw new ConflictException({code:"NOTHING_TO_RELEASE",message:"Assess the attempt or add feedback before releasing it."});
+      // D-06 (owner-approved policy only): an assignment configured with rubric criteria needs every criterion scored; non-rubric grading is unchanged.
+      if(attempt.rubric_total>0 && attempt.rubric_scored<attempt.rubric_total) throw new ConflictException({code:"RUBRIC_INCOMPLETE",message:`Score every rubric criterion before releasing (${attempt.rubric_scored} of ${attempt.rubric_total} scored).`});
       const released=await tx.$queryRaw<{grading_released_at:Date}[]>`
         UPDATE public.learning_assignment_attempts SET grading_released_at=now(),grading_released_by=${user.vistaUserId}::uuid,grading_release_origin='instructor'
         WHERE id=${attemptId}::uuid AND grading_released_at IS NULL RETURNING grading_released_at`;

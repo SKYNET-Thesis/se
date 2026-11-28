@@ -102,3 +102,27 @@ describe('instructor release', () => {
 it('ConflictException is what release preconditions raise', () => {
   expect(new ConflictException({ code: 'X' }).getStatus()).toBe(409);
 });
+
+describe('D-06 (proposal, owner approval required): rubric-configured assignments need every criterion scored before release', () => {
+  const row = (over: Record<string, unknown>) => [{ id: ATTEMPT, status: 'evaluated', grading_released_at: null, graded: true, rubric_total: 2, rubric_scored: 2, ...over }];
+  it('refuses RUBRIC_INCOMPLETE when only some criteria are scored', async () => {
+    const t = build();
+    t.queryRaw.mockResolvedValueOnce([{ classroom_id: 'class-1' }]);
+    t.txQuery.mockResolvedValueOnce(row({ rubric_scored: 1 }));
+    await expect(t.service.releaseAttempt(teacher, ATTEMPT)).rejects.toMatchObject({ response: { code: 'RUBRIC_INCOMPLETE' } });
+  });
+  it('refuses a feedback-only release when the assignment has a rubric', async () => {
+    const t = build();
+    t.queryRaw.mockResolvedValueOnce([{ classroom_id: 'class-1' }]);
+    t.txQuery.mockResolvedValueOnce(row({ rubric_scored: 0 }));
+    await expect(t.service.releaseAttempt(teacher, ATTEMPT)).rejects.toMatchObject({ response: { code: 'RUBRIC_INCOMPLETE' } });
+  });
+  it('still releases a complete rubric, and a non-rubric assignment with feedback only', async () => {
+    for (const over of [{}, { rubric_total: 0, rubric_scored: 0 }]) {
+      const t = build();
+      t.queryRaw.mockResolvedValueOnce([{ classroom_id: 'class-1' }]);
+      t.txQuery.mockResolvedValueOnce(row(over)).mockResolvedValueOnce([{ grading_released_at: new Date('2026-11-27') }]);
+      await expect(t.service.releaseAttempt(teacher, ATTEMPT)).resolves.toMatchObject({ released: true });
+    }
+  });
+});
