@@ -1,0 +1,43 @@
+# Final defect register — acceptance cycle 2026-11-28
+
+Tested revision unless stated: `develop` `eceb8d1d0cfabdb0ca96906eeaaa9f5e9cf5b69f`, isolated local stack. Production = `430ad59` (read-only checks). Severity: Critical / High / Medium / Low / Info. Status vocabulary: OPEN, FIXED (PR prepared, not merged), FIXED-MERGED, OWNER-DECISION, BLOCKED, CLOSED.
+The earlier register (`../FINAL_DEFECT_REGISTER.md`, D-01…D-17) is not repeated; its entries are carried below with their **current verified status**.
+
+## A. New findings this cycle
+| ID | Sev | Finding | Evidence | Status |
+|---|---|---|---|---|
+| N-01 | Medium (repo safety) | `services/education-api/node_modules` is **committed as a symlink** (`120000`) to `/home/quangduc/Code/vista/se-sprint-90/services/education-api/node_modules` on both `main` and `develop` (commit `79eb732`). `.gitignore` rule `node_modules/` matches directories only, so the symlink was never ignored. Any `npm ci` in a checkout followed it and **emptied the other worktree's dependency directory** (this happened during this audit; it was rebuilt from that worktree's own lockfile, 427 packages, Prisma client regenerated). Also leaks a developer's absolute path. CI/Docker are not affected (fresh directory). | `git ls-tree origin/develop services/education-api/node_modules` | **FIXED, not pushed**: branch `bugfix/untrack-node-modules-symlink-20261128`, commit `38b770a` (`.gitignore` → `node_modules`, symlink untracked) |
+| N-02 | Low | **D-04 is still open in code**: `iot-feedback.repository.ts` rejected a late accepted ACK as "feedback sequence is stale", so `iot_ack_acknowledged` was intermittently missing from the run history (Production run `92c7780c…` vs earlier). Run state, Twin and evidence were never affected. | code read; unit tests red before the change | **FIXED, not pushed**: branch `bugfix/late-ack-d04-20261128`, commit `54b876d`. Unit 13/13, real-PostgreSQL integration spec 27/27 (one earlier run showed a timing failure of the unrelated `extends visibility…` test under CPU load; second run 27/27). Needs CI + deploy; Production retest pending |
+| N-03 | Low (test hygiene) | `services/digital-twin/tests/test_wf03_r1_fake_follower_bridge.py` **fails instead of skipping** when the `simulation` extra / SO-101 model directory is absent (`mujoco` → `"unavailable"`); the sibling `test_mujoco_sync` skips. With `--extra simulation` and `VISTA_TWIN_TEST_MODEL` set: 73/73 | `uv run --extra dev pytest` → 1 failed / 69 passed / 3 skipped | OPEN (not changed; adding a prerequisite skip is a test-policy choice) |
+| N-04 | Medium (security posture) | Production serves `content-security-policy-report-only`, not an enforced CSP (HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy` are present) | `curl -I https://skynex.best` | OWNER-DECISION C11 |
+| N-05 | High (release readiness of Option B) | PR #272 `fresh-bootstrap` **FAILED** on both runs (head `17c9c547`). The failing step is `PostgreSQL integration tests (real database; none skipped)` (from `gh run view --json jobs`); the log text was not retrievable. That workflow applies staged migrations **M and R only**, never T, so T-dependent DB specs are the probable cause (inference, not read from the log). Local run on a fresh bootstrap **plus staged T**: `tsc` 0, Jest DB 46/46, Vitest 71/71, Playwright `rubric-levels-flow` 1/1 | `gh pr view 272` | OPEN — blocks Option B until the log is read |
+| N-06 | High (requirements) | **Requirement baseline contradiction**: `docs/SRS.md` + `docs/requirements/10–12` (FR-01…06, NFR-01…06) define a *local-operator, dual-arm, no-RBAC teleoperation/VLA pipeline*; WF-01…WF-04 + LMS define a *multi-tenant education platform with RBAC*. Not silently resolved | file read | OWNER-DECISION B6 |
+| N-07 | Info | 8 backend endpoints have no static caller in Web, Desktop or runtimes: device `rotate-credential`, `health/ready` (probe), `author/challenges/catalog`, `me/experiment-comparisons`, `benchmark-tasks`, `evaluation-runs/:id/benchmark`, and the standalone `GET/POST author/question-bank/questions` (the UI uses lesson-scoped quiz-authoring routes). API-only, covered by backend tests; **no UI to rotate a device credential** | `endpoints.py` heuristic, then grep | OPEN (documented gap; not an in-scope requirement failure unless the owner requires a UI) |
+| N-08 | Info | Duplicate route `admin/robots` in `App.tsx` (second is a dead redirect shadowed by the real page); previously D-10 | `App.tsx:114,117` | OPEN (cosmetic) |
+| N-09 | Info | Owner approval package states develop head `04fed8b`; develop is now `eceb8d1` (docs-only difference, 3 files) | `git diff --stat` | CLOSED by this report |
+| N-10 | Info | Desktop report quotes HEAD `c5f4bce`; repository HEAD is `12fd55b` (descendant). Desktop docs also say remote stop/expiry semantics are undefined while EDGE contract §14 defines `kind:"cancel"` and the backend publishes it | Desktop repo, EDGE contract | OWNER/Codex reconciliation |
+| N-11 | Info | Shared-fixture suites are order-dependent: a single-use fixture makes later specs fail with 409/403 when run after a spec that already allocated the robot (seen: `digital-twin-revocation`, `digital-twin-websocket-revocation`, `lms-independent`, `lms-robot-lab-access`, `lab-session-management` in a one-stack pass; each re-run on a clean stack — see `FINAL_REGRESSION_REPORT.md`). Playwright is not part of CI (D-13) | run logs | OPEN (process) |
+| N-12 | Info | Public Desktop download: Linux button gated on a published file, Windows/macOS permanently "Coming Soon" | `DesktopDownloadChapter.tsx` | OWNER (installers NOT RUN) |
+
+## B. Carried from the previous register — current status
+| ID | Previous | Verified status now |
+|---|---|---|
+| D-01 | fixed | CLOSED (regression test in suite, green) |
+| D-02 | fixed | CLOSED |
+| **D-03 / D-08** | open, Production FAIL | **Code fixed on develop (#260); Production still FAIL.** Live role policy re-read 2026-11-28: 11 statements, **no** `ExperimentEvidenceObjectAccess`. Release #266 + IAM apply + retest outstanding. Local real-S3 evidence: PASS |
+| D-04 | open | see N-02 |
+| D-06 | approved + merged #263 | local PASS; Production verification pending release |
+| D-09 | fixed #262, not deployed | local PASS; Production retest pending release |
+| D-10 | cosmetic | N-08 |
+| D-11 | owner decision | OWNER-DECISION B5 (behaviour unchanged: PUT adds; duplicate PUT 409 observed again in this cycle's order-dependent failures) |
+| D-12 | fixed | CLOSED (`platform-route-inventory` 12/12 at `eceb8d1`) |
+| D-13 | recommend CI Playwright | OPEN (C12) |
+| D-14 | BLOCKED harness | **Resolved locally** this cycle: `scripts/local_student_auth_harness.sh` exists; the two specs additionally need the proxy (`local-gotrue-proxy.mjs`) started with `VISTA_E2E_GOTRUE_SERVICE_ROLE_KEY`, `VISTA_E2E_GOTRUE_FIXTURE_PASSWORD`, `VISTA_E2E_GOTRUE_SIGNING_KID`, `VISTA_E2E_GOTRUE_SIGNING_KEY` (the harness starts it without them → HTTP 503). With them: `platform-system-admin` 5/5, `platform-invite-security` 10 passed + 1 skipped. Remaining action: make the harness script export those variables (not done; test-infrastructure change) |
+| D-15 | fixed #265 | CLOSED |
+| D-16 | approved | CLOSED |
+| D-17 | fixed #270 | local PASS (safety spec); Production NOT RUN |
+
+## C. Items checked and NOT defects
+* Evaluator parameters `arm`, `minZ`, `objectId`, `zoneId` **are applied** by `symbolic-rule-evaluator.service.ts` (codes `OBJECT_GRASPED_BY_OTHER_ARM`, `LIFT_HEIGHT_INSUFFICIENT`, `OBJECT_NOT_FOUND`, `TARGET_ZONE_UNKNOWN`); 12 assertions on those codes in `symbolic-rule-evaluator.service.spec.ts` pass this cycle. The earlier GAP-L02-02/-03 are fixed (PR #147).
+* Digital-twin test failure with system Python: environment (no MuJoCo), not product.
+* 41 `tests/database` release-flow/rollback tests could not be reproduced with my harness (the suites need the `vista_baseline_test_*` template workflow); they are green in CI `database-safety` at `eceb8d1` — recorded as BLOCKED-locally, not PASS.
