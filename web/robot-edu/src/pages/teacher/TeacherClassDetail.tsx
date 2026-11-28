@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom';
 import { ClipboardCheckIcon, FileQuestionIcon } from 'lucide-react';
 import { QuizResultsTable } from '../../components/teacher/QuizResultsTable';
 import { LearnerProgressTable } from '../../components/teacher/LearnerProgressTable';
+import { GradebookTable } from '../../components/teacher/GradebookTable';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { LabSessionPanel } from '../../components/robot/LabSessionPanel';
 import { useSupabaseSession } from '../../contexts/SupabaseSessionContext';
@@ -86,6 +87,7 @@ export function TeacherClassDetail() {
         </div>
       </section>
 
+      <GradebookTable classroomId={classroomId} token={token} />
       <LearnerProgressTable classroomId={classroomId} token={token} />
       <QuizResultsTable classroomId={classroomId} token={token} />
 

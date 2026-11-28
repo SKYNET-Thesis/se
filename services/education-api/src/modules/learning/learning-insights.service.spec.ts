@@ -22,4 +22,26 @@ describe("LearningInsightsService scoped read models", () => {
     queryRaw.mockResolvedValue([{ classroom_count: 1, attempt_count: 2 }]);
     await expect(service.myDashboard(student)).resolves.toMatchObject({ classroom_count: 1, attempt_count: 2 });
   });
+  it("gradebook: requires teacher review scope, keeps quiz (auto) and rubric (canonical) results separate and never mixes them", async () => {
+    const base = { learnerUserId: "l1", fullName: "A", status: "submitted", score: null, passed: null, releasedAt: null, releaseOrigin: null, submittedAt: null };
+    queryRaw
+      .mockResolvedValueOnce([
+        { ...base, attemptId: "q1", assignmentId: "a1", title: "Quiz", kind: "knowledge_check", status: "evaluated", score: 80, passed: true, releasedAt: new Date(), releaseOrigin: "system_auto" },
+        { ...base, attemptId: "r1", assignmentId: "a2", title: "Blockly", kind: null },
+        { ...base, attemptId: "r2", assignmentId: "a3", title: "Final", kind: null },
+        { ...base, attemptId: "n1", assignmentId: "a4", title: "Plain", kind: null },
+      ])
+      .mockResolvedValueOnce([
+        { attemptId: "r1", maxPoints: 12, awardedPoints: 12 }, { attemptId: "r1", maxPoints: 8, awardedPoints: null },   // partial: one criterion ungraded
+        { attemptId: "r2", maxPoints: 6, awardedPoints: 6 }, { attemptId: "r2", maxPoints: 4, awardedPoints: 0 },        // complete with an explicit zero
+      ]);
+    const rows = await service.gradebook(teacher, "classroom-1") as Array<Record<string, any>>;
+    expect(scope.assertTeacherClassroomPermission).toHaveBeenCalledWith(teacher, "classroom-1", ["learning.work.review"]);
+    const by = Object.fromEntries(rows.map((r) => [r.attemptId, r]));
+    expect(by.q1).toMatchObject({ resultKind: "quiz", percentage: 80, passed: true, rubric: null, released: true });
+    expect(by.r1).toMatchObject({ resultKind: "rubric", graded: "partial", released: false, percentage: 60 });          // 12 of 20: the ungraded criterion counts in the maximum
+    expect(by.r1.rubric).toMatchObject({ awarded: 12, max: 20, complete: false });
+    expect(by.r2).toMatchObject({ resultKind: "rubric", graded: "complete", percentage: 60 });                           // 6 of 10, explicit zero counted as graded
+    expect(by.n1).toMatchObject({ resultKind: "other", percentage: null, rubric: null });                                // no rubric criteria: nothing invented
+  });
 });
