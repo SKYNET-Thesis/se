@@ -107,6 +107,6 @@ describeDb('real PostgreSQL instructor assignment management', () => {
     expect(copied[0].id).not.toBe(f.criterion.id);
     expect(await db.learning_rubric_criteria.count({ where: { assignment_id: f.assignment.id } })).toBe(1);
     const options = await learning.deliveryOptions(f.teacher, f.x.room.id) as Array<Record<string, any>>;
-    expect(options[0].rubric).toEqual([{ title: 'Sequence', description: null, maxPoints: 10 }]);
+    expect(options[0].rubric).toEqual([{ title: 'Sequence', description: null, descriptors: null, maxPoints: 10 }]);
   });
 });

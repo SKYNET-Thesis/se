@@ -5,6 +5,8 @@ export class RubricCriterionDto {
   @IsString() @MinLength(1) @MaxLength(200) title!: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) maxPoints!: number;
+  /** Migration T: exactly four achievement-level descriptors, level 4 first (Excellent … Beginning). Omitted = legacy direct-point criterion. */
+  @IsOptional() @IsArray() @ArrayMinSize(4) @ArrayMaxSize(4) @IsString({ each: true }) @MaxLength(500, { each: true }) descriptors?: string[];
 }
 export class ReplaceRubricDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(20) @ValidateNested({ each: true }) @Type(() => RubricCriterionDto) criteria!: RubricCriterionDto[];

@@ -3,8 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { assignmentApi } from '../../lib/api';
 import { Button } from '../ui/Button';
 import { LEVEL_LABEL, type AcademicLevel } from '../academic/LevelBadge';
+import { RUBRIC_TEMPLATES, templateRows } from '../../queries/rubricTemplates';
 
-type Row = { title: string; description: string; maxPoints: string };
+type Row = { title: string; description: string; maxPoints: string; descriptors?: string[] };
+const DESCRIPTOR_LABELS = ['Level 4 — Excellent', 'Level 3 — Good', 'Level 2 — Developing', 'Level 1 — Beginning'];
 const field = 'mt-1 w-full rounded-md border border-line-strong bg-surface px-3 py-2 text-sm text-ink';
 const toLocal = (iso?: string | null) => { if (!iso) return ''; const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 const toIso = (local: string) => (local ? new Date(local).toISOString() : null);
@@ -21,11 +23,11 @@ export function AssignmentConfigPanel({ classroomId, assignmentId, token, schedu
   const [attempts, setAttempts] = useState(schedule?.maxAttempts ? String(schedule.maxAttempts) : '');
   const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
   const dirty = useRef(false); // unsaved local edits must not be overwritten by a late or repeated server fetch
-  useEffect(() => { if (rubric.data && !dirty.current) setRows(rubric.data.criteria.map((c) => ({ title: c.title, description: c.description ?? '', maxPoints: String(c.maxPoints) }))); }, [rubric.data]);
+  useEffect(() => { if (rubric.data && !dirty.current) setRows(rubric.data.criteria.map((c) => ({ title: c.title, description: c.description ?? '', maxPoints: String(c.maxPoints), ...(c.descriptors ? { descriptors: c.descriptors } : {}) }))); }, [rubric.data]);
   const total = rows.reduce((sum, r) => sum + (Number(r.maxPoints) || 0), 0);
-  const invalid = !rows.length || rows.some((r) => !r.title.trim() || !(Number(r.maxPoints) > 0));
+  const invalid = !rows.length || rows.some((r) => !r.title.trim() || !(Number(r.maxPoints) > 0) || (r.descriptors && r.descriptors.some((d) => !d.trim())));
   const saveRubric = useMutation({
-    mutationFn: () => assignmentApi.replaceRubric(classroomId, assignmentId, token, rows.map((r) => ({ title: r.title.trim(), ...(r.description.trim() ? { description: r.description.trim() } : {}), maxPoints: Number(r.maxPoints) }))),
+    mutationFn: () => assignmentApi.replaceRubric(classroomId, assignmentId, token, rows.map((r) => ({ title: r.title.trim(), ...(r.description.trim() ? { description: r.description.trim() } : {}), maxPoints: Number(r.maxPoints), ...(r.descriptors ? { descriptors: r.descriptors.map((d) => d.trim()) } : {}) }))),
     onSuccess: async () => { dirty.current = false; setRubricMsg('Rubric saved.'); await client.invalidateQueries({ queryKey: ['assignment-rubric', assignmentId] }); },
     onError: (e) => setRubricMsg(e instanceof Error ? e.message : 'The rubric could not be saved.'),
   });
@@ -48,10 +50,21 @@ export function AssignmentConfigPanel({ classroomId, assignmentId, token, schedu
           <input className={field} aria-label={`Criterion ${i + 1} description`} placeholder="Description (optional)" maxLength={2000} disabled={!editable} value={r.description} onChange={(e) => update(i, { description: e.target.value })} />
           <input className={field} aria-label={`Criterion ${i + 1} max points`} type="number" min={0.01} step={0.01} disabled={!editable} value={r.maxPoints} onChange={(e) => update(i, { maxPoints: e.target.value })} />
           {editable && <Button size="sm" variant="ghost" onClick={() => { dirty.current = true; setRows((cur) => cur.filter((_, idx) => idx !== i)); }}>Remove</Button>}
+          <div className="sm:col-span-4">
+            {r.descriptors ? <details className="rounded-md border border-line bg-sunken/40 px-3 py-2 text-sm">
+              <summary className="cursor-pointer text-ink-muted">Achievement levels · weight {(Number(r.maxPoints) || 0) / 4} (max points ÷ 4)</summary>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">{DESCRIPTOR_LABELS.map((label, k) => <label key={label} className="text-xs text-ink-muted">{label}
+                <input className={field} aria-label={`Criterion ${i + 1} ${label}`} maxLength={500} disabled={!editable} value={r.descriptors?.[k] ?? ''} onChange={(e) => update(i, { descriptors: DESCRIPTOR_LABELS.map((_, j) => (j === k ? e.target.value : r.descriptors?.[j] ?? '')) })} /></label>)}</div>
+              {editable && <Button size="sm" variant="ghost" onClick={() => update(i, { descriptors: undefined })}>Use direct points only</Button>}
+            </details> : editable && <Button size="sm" variant="ghost" onClick={() => update(i, { descriptors: ['', '', '', ''] })}>Add achievement levels</Button>}
+          </div>
         </div>)}
         {!rows.length && <p className="text-sm text-ink-muted">No criteria yet. Add at least one so submissions can be scored.</p>}
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-sm text-ink-muted">Total: {total} points</span>
+          {editable && <label className="text-sm text-ink-muted">Template
+            <select className="ml-2 rounded-md border border-line-strong bg-surface px-2 py-1 text-sm text-ink" aria-label="Apply rubric template" value="" onChange={(e) => { const t = RUBRIC_TEMPLATES.find((x) => x.id === e.target.value); if (t) { dirty.current = true; setRows(templateRows(t)); } }}>
+              <option value="">Apply…</option>{RUBRIC_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}</select></label>}
           {editable && <><Button size="sm" variant="secondary" disabled={rows.length >= 20} onClick={() => { dirty.current = true; setRows((cur) => [...cur, { title: '', description: '', maxPoints: '1' }]); }}>Add criterion</Button>
             <Button size="sm" disabled={invalid} loading={saveRubric.isPending} onClick={() => { setRubricMsg(null); saveRubric.mutate(); }}>Save rubric</Button></>}
         </div>

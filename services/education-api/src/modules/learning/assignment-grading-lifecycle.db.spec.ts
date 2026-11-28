@@ -140,6 +140,30 @@ describeDb('real PostgreSQL assignment configuration, rubric grading, release an
     await expect(assessment.releaseSubmission(plain.teacher, second.submission.id)).resolves.toMatchObject({ released: true });
   });
 
+  it('migration T (levels): descriptors are stored and read; a level scores level x max/4 on the server, 0 is graded, a mismatching points value is refused, direct points keep working', async () => {
+    const f = await fixture(); const { attempt, submission } = await submit(f);
+    const withDescriptors = { criteria: [
+      { title: 'Correctness', maxPoints: 12, descriptors: ['All logic works', 'Most logic works', 'Some logic works', 'Major errors'] },
+      { title: 'Structure', maxPoints: 4 },                                                                     // legacy direct-point criterion: no descriptors
+    ] };
+    const saved = await config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, withDescriptors as never) as unknown as { criteria: Array<{ id: string; descriptors: string[] | null }> };
+    expect(saved.criteria[0].descriptors).toEqual(['All logic works', 'Most logic works', 'Some logic works', 'Major errors']);
+    expect(saved.criteria[1].descriptors).toBeNull();
+    const [a, b] = saved.criteria;
+    await expect(config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, { criteria: [{ title: 'X', maxPoints: 4, descriptors: ['a', ' ', 'c', 'd'] }] } as never)).rejects.toThrow(/descriptor/i);
+    await expect(assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: a.id, level: 3, awardedPoints: 12 }] } as never)).rejects.toThrow(/do not match/);
+    await assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: a.id, level: 3 }, { criterionId: b.id, awardedPoints: 0 }] } as never);
+    const rows = await db.$queryRaw<Array<{ criterion_id: string; awarded_points: string; level: number | null }>>`SELECT criterion_id,awarded_points,level FROM public.learning_assessment_scores`;
+    const byId = Object.fromEntries(rows.map((r) => [r.criterion_id, r]));
+    expect(Number(byId[a.id].awarded_points)).toBe(9); expect(byId[a.id].level).toBe(3);                      // 3 x (12/4)
+    expect(Number(byId[b.id].awarded_points)).toBe(0); expect(byId[b.id].level).toBeNull();                    // direct points: level stays NULL (legacy-compatible)
+    await assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: b.id, level: 0 }] } as never);    // explicit level 0 = graded with zero points
+    await expect(assessment.releaseSubmission(f.teacher, submission.id)).resolves.toMatchObject({ released: true });
+    const grading = await assessment.myGrading(f.user, attempt.id) as unknown as { summary: Record<string, number>; assessment: { scores: Array<{ level: number | null; descriptors: string[] | null }> } };
+    expect(grading.summary).toMatchObject({ awarded: 9, max: 16, percentage: 56.25, complete: true });
+    expect(grading.assessment.scores.find((x) => x.descriptors)?.level).toBe(3);
+  });
+
   it('Gradebook (real PostgreSQL): partial draft -> partial; complete with an explicit zero -> complete; the canonical summary matches the student result; attempt.score stays untouched', async () => {
     const f = await fixture(); const { attempt, submission } = await submit(f);
     const [a, b] = (await config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, rubric as never)).criteria;
