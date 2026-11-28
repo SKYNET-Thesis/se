@@ -100,6 +100,9 @@ test('ACCT-11/13: the new School Admin directly creates an Instructor who must c
   expect((await api(request, 'GET', '/me/roles', t)).body.code).toBe('PASSWORD_CHANGE_REQUIRED');
   const members = await api(request, 'GET', `/education-admin/organizations/${ORG}/members`, newAdmin.token);
   expect((members.body as unknown as Array<{ email: string; account_state: string }>).find((m) => m.email === newInstr.email)?.account_state).toBe('password_change_required'); // ACCT-30: not falsely Active
+  const people = await api(request, 'GET', `/education-admin/organizations/${ORG}/people?page=1&pageSize=100`, newAdmin.token);
+  expect(people.status).toBe(200);
+  expect((people.body.items as Array<{ email: string; accountState: string }>).find((x) => x.email === newInstr.email)?.accountState).toBe('password_change_required'); // the School Admin's own people list is accurate too
   const changed = await api(request, 'PATCH', '/auth/staff/password', t, { currentPassword: newInstr.temp, newPassword: newInstr.permanent });
   expect(changed.status).toBe(200);
   const perm = await login(request, newInstr.email, newInstr.permanent); expect(perm.status).toBe(200); newInstr.token = perm.token!;
