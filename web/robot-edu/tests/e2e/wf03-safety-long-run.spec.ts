@@ -114,10 +114,10 @@ test.describe.serial('simulation safety cases on a long-running isolated fixture
     const state = (await lab(page))?.state;
     expect(['quarantined', 'terminating', 'released']).toContain(state);
     if (state !== 'released') {
-      // recovery: restart R1, retry release
+      // recovery: restart R1 (it no longer knows the run), then ONLY the instructor's retry / the reconcile sweep may release; a heartbeat alone never does
       spawn('python3', ['../../services/robot-runtime/src/server.py', '--config', '/tmp/r1-local.json'], { detached: true, stdio: 'ignore', env: { ...process.env, VISTA_RUNTIME_TOKEN: process.env.VISTA_RUNTIME_TOKEN ?? 'runtimetoken-local-0123456789abcdef', VISTA_CHECKIK_ADAPTER_TOKEN: process.env.VISTA_CHECKIK_ADAPTER_TOKEN ?? 'adaptertoken-local-0123456789abcdef' } }).unref();
       await sleep(4000);
-      for (let i = 0; i < 40 && (await lab(page))?.state !== 'released'; i += 1) { await call(page, student, 'GET', `/me/physical-executions/${run.id}`); await call(page, teacher, 'POST', `/lab-sessions/${session}/end`); await sleep(1000); }
+      for (let i = 0; i < 40 && (await lab(page))?.state !== 'released'; i += 1) { await call(page, teacher, 'POST', `/lab-sessions/${session}/end`);   // D-17: no student status read needed; the reachable restarted runtime reports the run lost await sleep(1000); }
       expect((await lab(page))?.state).toBe('released');
     }
   });
