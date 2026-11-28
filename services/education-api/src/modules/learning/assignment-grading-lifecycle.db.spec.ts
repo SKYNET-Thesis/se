@@ -162,6 +162,8 @@ describeDb('real PostgreSQL assignment configuration, rubric grading, release an
     const grading = await assessment.myGrading(f.user, attempt.id) as unknown as { summary: Record<string, number>; assessment: { scores: Array<{ level: number | null; descriptors: string[] | null }> } };
     expect(grading.summary).toMatchObject({ awarded: 9, max: 16, percentage: 56.25, complete: true });
     expect(grading.assessment.scores.find((x) => x.descriptors)?.level).toBe(3);
+  });
+
   it('Gradebook (real PostgreSQL): partial draft -> partial; complete with an explicit zero -> complete; the canonical summary matches the student result; attempt.score stays untouched', async () => {
     const f = await fixture(); const { attempt, submission } = await submit(f);
     const [a, b] = (await config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, rubric as never)).criteria;
