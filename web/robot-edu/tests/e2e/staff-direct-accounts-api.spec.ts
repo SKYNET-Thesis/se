@@ -100,6 +100,9 @@ test('ACCT-11/13: the new School Admin directly creates an Instructor who must c
   expect((await api(request, 'GET', '/me/roles', t)).body.code).toBe('PASSWORD_CHANGE_REQUIRED');
   const members = await api(request, 'GET', `/education-admin/organizations/${ORG}/members`, newAdmin.token);
   expect((members.body as unknown as Array<{ email: string; account_state: string }>).find((m) => m.email === newInstr.email)?.account_state).toBe('password_change_required'); // ACCT-30: not falsely Active
+  const people = await api(request, 'GET', `/education-admin/organizations/${ORG}/people?page=1&pageSize=100`, newAdmin.token);
+  expect(people.status).toBe(200);
+  expect((people.body.items as Array<{ email: string; accountState: string }>).find((x) => x.email === newInstr.email)?.accountState).toBe('password_change_required'); // the School Admin's own people list is accurate too
   const changed = await api(request, 'PATCH', '/auth/staff/password', t, { currentPassword: newInstr.temp, newPassword: newInstr.permanent });
   expect(changed.status).toBe(200);
   const perm = await login(request, newInstr.email, newInstr.permanent); expect(perm.status).toBe(200); newInstr.token = perm.token!;
@@ -160,6 +163,18 @@ test('ACCT-18: a pending account (Auth user without a password) is recovered in 
   const fixtureInstructor = psql(`select id from public.users where email='phase243-instructor@vista.test'`);
   expect((await api(request, 'POST', `/education-admin/organizations/${ORG}/accounts/${fixtureInstructor}/recover-pending`, newAdmin.token)).status).toBe(409);
   expect((await login(request, FIX.instructor[0], FIX.instructor[1])).status).toBe(200);
+});
+
+test('Resend invitation: allowed for a pending account, refused for an active one and across schools', async ({ request }) => {
+  const email = `acct.resend.${run}@vista.test`;
+  const made = await api(request, 'POST', `/education-admin/organizations/${ORG}/accounts`, newAdmin.token, { method: 'invite', role: 'instructor', fullName: 'Resend Person', email, employeeCode: `R-${run}` });
+  expect(made.status).toBe(201); const id = made.body.userId as string;
+  const again = await api(request, 'POST', `/education-admin/organizations/${ORG}/accounts/${id}/resend-invitation`, newAdmin.token);
+  expect(again.status).toBe(201); expect(again.body.accountState).toBe('invited');
+  expect(psql(`select count(*) from public.audit_logs where action='account.invitation_resent' and target_id='${id}'`)).toBe('1');
+  expect((await api(request, 'POST', `/education-admin/organizations/${ORG}/accounts/${newInstr.userId}/resend-invitation`, newAdmin.token)).status).toBe(409);   // active account
+  const otherAdmin = await fixtureToken(request, 'other');
+  expect((await api(request, 'POST', `/education-admin/organizations/${ORG}/accounts/${id}/resend-invitation`, otherAdmin)).status).toBe(404);                  // another school
 });
 
 test('ACCT-14/16/29/30: the invitation path is independent of direct creation and leaves no half-created account when delivery fails', async ({ request }) => {

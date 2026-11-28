@@ -24,6 +24,7 @@ function harness(options: { duplicateEmail?: boolean; failInsert?: boolean; orgS
       if (sql.includes("JOIN public.memberships m")) return options.target ? [options.target] : [];
       return [];
     }),
+    $executeRaw: jest.fn(async (strings: TemplateStringsArray) => { writes.push(strings.join("?")); return 1; }),
     $transaction: jest.fn(async (work: (t: unknown) => unknown) => work(tx)),
   };
   const supabase = {
@@ -31,6 +32,7 @@ function harness(options: { duplicateEmail?: boolean; failInsert?: boolean; orgS
     invite: jest.fn(async () => ({ id: "auth-invited" })),
     deleteStudentIdentity: jest.fn(async () => undefined),
     setStudentPassword: jest.fn(async () => undefined),
+    resendInvite: jest.fn(async () => undefined),
     getAuthUser: jest.fn(async () => ({ id: "auth-t", lastSignInAt: options.lastSignInAt ?? null })),
   };
   const service = new StaffAccountService(prisma as never, scope, supabase as never);
@@ -138,6 +140,26 @@ describe("StaffAccountService", () => {
       expect(result.temporaryPassword).toBeTruthy();
       expect(h.tx.$queryRaw.mock.calls.map((c) => (c[0] as unknown as string[]).join("?")).join("\n")).toContain("password_changed_at=clock_timestamp()");
       expect(h.tx.$executeRaw.mock.calls.flat()).toContain("account.credentials_reset");
+    });
+  });
+
+  describe("resend invitation", () => {
+    const pending = { id: "t1", auth_user_id: "auth-t", email: "p@school.test", full_name: "Pending", status: "invited", password_change_required: false, role_code: "instructor" };
+    it("re-sends the invitation of a pending account and audits it, without touching credentials", async () => {
+      const h = harness({ target: pending });
+      const result = await h.service.resendInvitation(schoolAdmin(), ORG, "t1");
+      expect(h.supabase.resendInvite).toHaveBeenCalledWith("p@school.test", "Pending");
+      expect(result.accountState).toBe("invited");
+      expect(h.supabase.setStudentPassword).not.toHaveBeenCalled();
+    });
+    it("refuses an account that is not pending, another school's account, and a school admin target for a school admin", async () => {
+      await expect(harness({ target: { ...pending, status: "active" } }).service.resendInvitation(schoolAdmin(), ORG, "t1")).rejects.toBeInstanceOf(ConflictException);
+      await expect(harness({ target: pending }).service.resendInvitation(schoolAdmin(OTHER), ORG, "t1")).rejects.toBeInstanceOf(NotFoundException);
+      await expect(harness({ target: { ...pending, role_code: "school_admin" } }).service.resendInvitation(schoolAdmin(), ORG, "t1")).rejects.toBeInstanceOf(NotFoundException);
+    });
+    it("reports delivery failure without claiming success", async () => {
+      const h = harness({ target: pending }); h.supabase.resendInvite.mockRejectedValueOnce(new Error("smtp down"));
+      await expect(h.service.resendInvitation(schoolAdmin(), ORG, "t1")).rejects.toBeInstanceOf(BadRequestException);
     });
   });
 });

@@ -315,7 +315,7 @@ export interface ApiOrganizationMembership { membershipId?: string; organization
 export interface ApiAccessContext { systemRoleCodes: string[]; memberships: ApiOrganizationMembership[]; }
 export interface ApiSchoolMember { id:string; full_name:string; email:string|null; status:string; membership_id:string; membership_status:string; role_code:string; employee_code?:string|null; student_code?:string|null; grade_level?:string|null; guardian_email?:string|null; account_state?:'active'|'invited'|'account_setup_pending'; }
 export interface ApiSchoolOverview { studentsCount:number; teachersCount:number; classroomsCount:number; robotResourcesCount:number; accountSetupPendingCount:number; }
-export interface ApiSchoolPerson { membershipStatus?:'active'|'suspended'; id:string; displayName:string; role:'student'|'instructor'; studentCode?:string|null; employeeCode?:string|null; gradeLevel?:string|null; email:string|null; accountState:'active'|'invited'|'account_setup_pending'; passwordChangeRequired?:boolean; temporaryPasswordExpiresAt?:string|null; }
+export interface ApiSchoolPerson { membershipStatus?:'active'|'suspended'; id:string; displayName:string; role:'student'|'instructor'; studentCode?:string|null; employeeCode?:string|null; gradeLevel?:string|null; email:string|null; accountState:'active'|'invited'|'account_setup_pending'|'password_change_required'; passwordChangeRequired?:boolean; temporaryPasswordExpiresAt?:string|null; }
 export interface ApiMemberCandidate { userId:string; displayName:string; organizationRole:'student'|'instructor'; schoolCode:string|null; accountState:'active'|'invited'|'account_setup_pending'; alreadyMember:boolean; }
 export interface ApiPage<T> { items:T[]; page:number; pageSize:number; total:number; }
 export type ApiImportErrorCode='VALIDATION_ERROR'|'DUPLICATE_USER'|'ACCOUNT_INVITE_FAILED'|'ACCOUNT_PROVISIONING_FAILED'|'DATABASE_WRITE_FAILED'|'NOT_AUTHORIZED'|'UNKNOWN_IMPORT_ERROR';
@@ -554,6 +554,7 @@ export const staffAccountApi = {
   capabilities: () => apiPublicGet<{ staffDirectAccountsEnabled:boolean }>("/auth/staff/capabilities"),
   create: (token:string, organizationId:string, body:ApiCreateStaffAccount) => apiRequest<ApiStaffCredential>(`/education-admin/organizations/${organizationId}/accounts`, token, "POST", body),
   recoverPending: (token:string, organizationId:string, userId:string) => apiRequest<ApiStaffCredential>(`/education-admin/organizations/${organizationId}/accounts/${userId}/recover-pending`, token, "POST"),
+  resendInvitation: (token:string, organizationId:string, userId:string) => apiRequest<ApiStaffCredential>(`/education-admin/organizations/${organizationId}/accounts/${userId}/resend-invitation`, token, "POST"),
   resetCredentials: (token:string, organizationId:string, userId:string) => apiRequest<ApiStaffCredential>(`/education-admin/organizations/${organizationId}/accounts/${userId}/reset-credentials`, token, "POST"),
   changePassword: (token:string, body:{ currentPassword:string; newPassword:string }) => apiRequest<ApiStudentAuthSession>("/auth/staff/password", token, "PATCH", body),
 };

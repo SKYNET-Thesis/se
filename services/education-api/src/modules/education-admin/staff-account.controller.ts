@@ -30,6 +30,13 @@ export class StaffAccountController {
     return this.staff.recoverPending(user, organizationId, userId);
   }
 
+  @Post("education-admin/organizations/:organizationId/accounts/:userId/resend-invitation")
+  @UseGuards(SupabaseAuthGuard)
+  @Header("Cache-Control", "no-store, private")
+  resendInvitation(@CurrentUser() user: AuthenticatedUser, @Param("organizationId", ParseUUIDPipe) organizationId: string, @Param("userId", ParseUUIDPipe) userId: string) {
+    return this.staff.resendInvitation(user, organizationId, userId);
+  }
+
   @Post("education-admin/organizations/:organizationId/accounts/:userId/reset-credentials")
   @UseGuards(SupabaseAuthGuard)
   @Header("Cache-Control", "no-store, private") @Header("Pragma", "no-cache")

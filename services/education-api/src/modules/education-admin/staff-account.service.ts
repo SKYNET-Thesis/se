@@ -155,6 +155,18 @@ export class StaffAccountService {
     return this.issue(actor, organizationId, target, "account.recovered");
   }
 
+  /** Re-sends the e-mail invitation of an account that has not accepted it yet (an Instructor for a School Admin, a School Admin for a System Admin). Never touches an active account. */
+  async resendInvitation(actor: AuthenticatedUser, organizationId: string, userId: string) {
+    const target = await this.target(organizationId, userId);
+    this.authorize(actor, organizationId, target.role_code);
+    if (target.status !== "invited" || !target.email) throw new ConflictException("Only a pending invitation can be sent again.");
+    try { await this.supabase.resendInvite(target.email, target.full_name); }
+    catch { throw new BadRequestException("The invitation could not be sent. Nothing was changed."); }
+    await this.prisma.$executeRaw`INSERT INTO public.audit_logs(actor_user_id,organization_id,action,target_type,target_id,details)
+      VALUES(${actor.vistaUserId}::uuid,${organizationId}::uuid,'account.invitation_resent','user',${userId}::uuid,jsonb_build_object('role',${target.role_code}::text))`;
+    return { userId, organizationId, role: target.role_code, fullName: target.full_name, email: target.email, accountState: "invited" as const };
+  }
+
   /** Re-issues temporary credentials for an account whose first-login change is still pending. Never touches an account with a permanent password. */
   async resetTemporary(actor: AuthenticatedUser, organizationId: string, userId: string): Promise<StaffCredentialResult> {
     if (!staffTempPasswordEnabled()) throw new ConflictException("Credential reset is not enabled on this server.");

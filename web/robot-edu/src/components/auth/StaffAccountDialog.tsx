@@ -78,15 +78,16 @@ export function StaffAccountDialog({ open, mode, role, organizationId, token, on
 }
 
 /** Row actions for accounts that need help: recover a never-signed-in invitation, or re-issue pending temporary credentials. */
-export function StaffCredentialAction({ kind, organizationId, userId, name, token, onChanged }: { kind: 'recover' | 'reset'; organizationId: string; userId: string; name: string; token: string; onChanged: () => void }) {
-  const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [credential, setCredential] = useState<ApiStaffCredential | null>(null);
+export function StaffCredentialAction({ kind, organizationId, userId, name, token, onChanged }: { kind: 'recover' | 'reset' | 'resend'; organizationId: string; userId: string; name: string; token: string; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null); const [credential, setCredential] = useState<ApiStaffCredential | null>(null); const [notice, setNotice] = useState<string | null>(null);
   const run = async () => {
-    if (busy) return; setError(null); setBusy(true);
-    try { const r = kind === 'recover' ? await staffAccountApi.recoverPending(token, organizationId, userId) : await staffAccountApi.resetCredentials(token, organizationId, userId); setCredential(r); onChanged(); }
+    if (busy) return; setError(null); setNotice(null); setBusy(true);
+    try { if (kind === 'resend') { const r = await staffAccountApi.resendInvitation(token, organizationId, userId); setNotice(`Invitation sent again to ${r.email}.`); onChanged(); return; } const r = kind === 'recover' ? await staffAccountApi.recoverPending(token, organizationId, userId) : await staffAccountApi.resetCredentials(token, organizationId, userId); setCredential(r); onChanged(); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'The request failed.'); } finally { setBusy(false); }
   };
   return (<>
-    <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run()} aria-label={`${kind === 'recover' ? 'Recover pending account of' : 'Reset temporary credentials of'} ${name}`}>{kind === 'recover' ? 'Recover pending account' : 'Reset temporary credentials'}</Button>
+    <Button variant="secondary" size="sm" disabled={busy} onClick={() => void run()} aria-label={`${kind === 'recover' ? 'Recover pending account of' : kind === 'resend' ? 'Resend invitation to' : 'Reset temporary credentials of'} ${name}`}>{kind === 'recover' ? 'Recover pending account' : kind === 'resend' ? 'Resend invitation' : 'Reset temporary credentials'}</Button>
+    {notice ? <span role="status" className="text-xs text-ok">{notice}</span> : null}
     {error ? <span role="alert" className="text-xs text-danger">{error}</span> : null}
     <Dialog open={credential !== null} onClose={() => setCredential(null)} title="New temporary credentials">{credential ? <CredentialReveal credential={credential} onDone={() => setCredential(null)} /> : null}</Dialog>
   </>);
