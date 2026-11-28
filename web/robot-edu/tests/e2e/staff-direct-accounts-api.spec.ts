@@ -165,6 +165,18 @@ test('ACCT-18: a pending account (Auth user without a password) is recovered in 
   expect((await login(request, FIX.instructor[0], FIX.instructor[1])).status).toBe(200);
 });
 
+test('Resend invitation: allowed for a pending account, refused for an active one and across schools', async ({ request }) => {
+  const email = `acct.resend.${run}@vista.test`;
+  const made = await api(request, 'POST', `/education-admin/organizations/${ORG}/accounts`, newAdmin.token, { method: 'invite', role: 'instructor', fullName: 'Resend Person', email, employeeCode: `R-${run}` });
+  expect(made.status).toBe(201); const id = made.body.userId as string;
+  const again = await api(request, 'POST', `/education-admin/organizations/${ORG}/accounts/${id}/resend-invitation`, newAdmin.token);
+  expect(again.status).toBe(201); expect(again.body.accountState).toBe('invited');
+  expect(psql(`select count(*) from public.audit_logs where action='account.invitation_resent' and target_id='${id}'`)).toBe('1');
+  expect((await api(request, 'POST', `/education-admin/organizations/${ORG}/accounts/${newInstr.userId}/resend-invitation`, newAdmin.token)).status).toBe(409);   // active account
+  const otherAdmin = await fixtureToken(request, 'other');
+  expect((await api(request, 'POST', `/education-admin/organizations/${ORG}/accounts/${id}/resend-invitation`, otherAdmin)).status).toBe(404);                  // another school
+});
+
 test('ACCT-14/16/29/30: the invitation path is independent of direct creation and leaves no half-created account when delivery fails', async ({ request }) => {
   const email = `acct.invite.${run}@vista.test`;
   const r = await api(request, 'POST', `/education-admin/organizations/${ORG}/accounts`, adminToken, { method: 'invite', role: 'school_admin', fullName: 'Invited Admin', email } as never);

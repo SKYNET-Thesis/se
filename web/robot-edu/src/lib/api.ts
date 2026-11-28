@@ -554,6 +554,7 @@ export const staffAccountApi = {
   capabilities: () => apiPublicGet<{ staffDirectAccountsEnabled:boolean }>("/auth/staff/capabilities"),
   create: (token:string, organizationId:string, body:ApiCreateStaffAccount) => apiRequest<ApiStaffCredential>(`/education-admin/organizations/${organizationId}/accounts`, token, "POST", body),
   recoverPending: (token:string, organizationId:string, userId:string) => apiRequest<ApiStaffCredential>(`/education-admin/organizations/${organizationId}/accounts/${userId}/recover-pending`, token, "POST"),
+  resendInvitation: (token:string, organizationId:string, userId:string) => apiRequest<ApiStaffCredential>(`/education-admin/organizations/${organizationId}/accounts/${userId}/resend-invitation`, token, "POST"),
   resetCredentials: (token:string, organizationId:string, userId:string) => apiRequest<ApiStaffCredential>(`/education-admin/organizations/${organizationId}/accounts/${userId}/reset-credentials`, token, "POST"),
   changePassword: (token:string, body:{ currentPassword:string; newPassword:string }) => apiRequest<ApiStudentAuthSession>("/auth/staff/password", token, "PATCH", body),
 };
