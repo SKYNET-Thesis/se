@@ -41,6 +41,7 @@ try:
     from scripts import verify_production_release_n as verifier_n
     from scripts import verify_production_release_op as verifier_op
     from scripts import verify_production_release_s as verifier_s
+    from scripts import verify_production_release_tu as verifier_tu
     from scripts import verify_production_release_km as verifier_km
     from scripts import verify_production_release_kl as verifier_kl
     from scripts import production_readiness_evidence as readiness
@@ -53,6 +54,7 @@ except ModuleNotFoundError:  # executed as a script from the repository root
     import verify_production_release_n as verifier_n  # type: ignore
     import verify_production_release_op as verifier_op  # type: ignore
     import verify_production_release_s as verifier_s  # type: ignore
+    import verify_production_release_tu as verifier_tu  # type: ignore
     import verify_production_release_km as verifier_km  # type: ignore
     import verify_production_release_kl as verifier_kl  # type: ignore
     import production_readiness_evidence as readiness  # type: ignore
@@ -69,7 +71,7 @@ SCOPE_FILE = "database/release-scopes.json"
 # Scopes that may never be planned or applied against Production until a reviewed code change removes them from this tuple (release metadata alone
 # cannot unblock them). K-L needs the hosted read-only evidence + restore rehearsal; M additionally needs its platform-role allowlist reviewed.
 HOSTED_BLOCKED_SCOPES = ("M",)
-VERIFIERS = {"d_i": verifier, "j": verifier_j, "kl": verifier_kl, "km": verifier_km, "n": verifier_n, "oq": verifier_op, "s": verifier_s}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
+VERIFIERS = {"d_i": verifier, "j": verifier_j, "kl": verifier_kl, "km": verifier_km, "n": verifier_n, "oq": verifier_op, "s": verifier_s, "tu": verifier_tu}  # registered postflight verifiers: a scope naming an unregistered one cannot be planned or applied
 
 
 def load_scopes(root: Path) -> dict:
