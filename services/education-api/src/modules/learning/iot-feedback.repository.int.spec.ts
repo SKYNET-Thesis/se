@@ -28,7 +28,7 @@ const eventId = () => `${fixturePrefix}-event-${randomUUID()}`;
 const repository = () => new FeedbackRepository(prisma as never, () => acknowledgementAtMs);
 const event = (command: string, id = eventId(), overrides: Record<string, unknown> = {}) => ({ eventId: id, kind: "ack" as const, robotId: fixture.robotId, commandId: command, sequence: 1, occurredAtMs: acknowledgementAtMs, status: "accepted", ...overrides });
 
-async function waitUntil(check: () => Promise<boolean>, timeoutMs = 5_000) {
+async function waitUntil(check: () => Promise<boolean>, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await check()) return;
@@ -140,7 +140,7 @@ describeIntegration("FeedbackRepository PostgreSQL integration", () => {
       if (processing) await processing;
       await lockClient.$disconnect();
     }
-  });
+  }, 30_000); // waits on the worker's real visibility timer plus a held row lock: the default 5 s test timeout was exceeded under full-suite load
   it("stops gracefully during an in-flight delivery and does not poll again", async () => { const command = await createLifecycle(); const accepted = event(command); const sqs = new FakeSqs([{ Body: JSON.stringify(accepted), ReceiptHandle: "shutdown" }]); let release!: () => void; const publishing = new Promise<void>((resolve) => { release = resolve; }); const delayedRepository = { process: async (value: unknown) => { await publishing; return repository().process(value); } }; const worker = new IotFeedbackWorker("queue", delayedRepository, sqs as never); const running = worker.run(); await new Promise((resolve) => setTimeout(resolve, 20)); worker.stop(); release(); await running; expect(sqs.deleted).toEqual(["shutdown"]); expect(await ledger(command)).toHaveLength(1); });
   it("does not delete a malformed delivery's unknown-command retry", async () => { const missingCommandId = randomUUID(); const sqs = new FakeSqs([{ Body: JSON.stringify(event(missingCommandId)), ReceiptHandle: "unknown" }]); await new IotFeedbackWorker("queue", repository(), sqs as never).once(); expect(sqs.deleted).toEqual([]); expect(await ledger(missingCommandId)).toHaveLength(0); });
   it("deletes a malformed SQS body as a permanent rejection", async () => { const sqs = new FakeSqs([{ Body: "not-json", ReceiptHandle: "malformed" }]); await new IotFeedbackWorker("queue", repository(), sqs as never).once(); expect(sqs.deleted).toEqual(["malformed"]); });
