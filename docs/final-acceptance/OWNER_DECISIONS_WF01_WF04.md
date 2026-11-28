@@ -41,3 +41,18 @@ Exactly four workflows; no WF-05. "Approved" = repository activity diagrams / ga
 
 ## Cross-cutting
 - **Freeze** needs W4-1 decided (approve or explicitly defer), W1-1 answered, migration T approved or deferred. Until then Web Freeze = PENDING.
+
+
+## Status after the owner's policy approval (2026-11-28)
+| ID | Decision / status |
+|---|---|
+| W4-1 (D-06) | **Approved and implemented** (develop; Production verification pending release) |
+| W4-2 | **Approved** (levels 4,3,2,1 and explicit 0; level 0 = graded with zero points). Implemented in **draft #272** (needs migration T) |
+| W4-3 | **Approved and implemented** (partial drafts; UI saves entered criteria only) |
+| W4-4 | **Approved**: canonical computation only; `attempt.score` never overwritten (implemented) |
+| W4-5 | **Approved**: Gradebook shows quiz and rubric results (implemented, #271) |
+| W2-4 | **Approved**: four configurable templates and 4 descriptors per criterion; descriptor storage = migration T (draft #267/#272), release timing pending |
+| W2-5 | **Approved**: no NEW mixed-grading configurations; existing mixed records preserved (implemented, #274) |
+| D-16 | **Approved**: multiple-choice exact match, no partial credit |
+| W1-1 (D-11) | **Still open** — `D11_LEGACY_ALLOCATION_PUT_OWNER_REVIEW.md` |
+| Other W1-2…W3-5 | unchanged / open |

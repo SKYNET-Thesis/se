@@ -1,7 +1,7 @@
 # Final owner approval package (2026-11-28)
 
 ## 1. Release candidate
-Release PR **#266 develop → main** (open, unmerged). Develop head at hand-off is stated in the final report. Contents since Production `430ad59`: evidence IAM/status fix (#260), Twin attempt-bound telemetry (#262), UI polish + route fixes (#261/#264/#269), rubric summary (#265), D-06 release gate (#263), D-17 quarantine reconciliation (#270), Gradebook (#271), safety/regression tests (#268), docs. **No database migration** (no `database/` or `schema.prisma` change). Excluded: #272 (rubric levels, needs migration T), #267 (T SQL).
+Release PR **#266 develop → main** (open, unmerged). Develop head verified for this package: **`04fed8b`** (`#266` head tracks develop). Contents since Production `430ad59`: evidence IAM/status fix (#260), Twin attempt-bound telemetry (#262), UI polish + route fixes (#261/#264/#269), rubric summary (#265), D-06 release gate (#263), D-17 quarantine reconciliation (#270), Gradebook (#271), safety/regression tests (#268), docs. **No database migration** (no `database/` or `schema.prisma` change). Excluded: #272 (rubric levels, needs migration T), #267 (T SQL).
 Required CI: api, web, docker, runtime, database-safety, fresh-bootstrap, syntax, validate-inventory — green on every merged PR.
 
 ## 2. Deployment sequence (owner-approved gates marked ■)
