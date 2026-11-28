@@ -114,7 +114,6 @@ export function App() {
                   <Route path="admin/robots" element={<RequireRole roles={['admin']}><AdminRobots /></RequireRole>} />
                   <Route path="admin/students" element={<RequireRole roles={['admin']}><AdminStudentImport /></RequireRole>} />
                   <Route path="admin/users" element={<Navigate to="/admin/organizations" replace />} />
-                  <Route path="admin/robots" element={<Navigate to="/admin/organizations" replace />} />
                   <Route path="admin/settings" element={<Navigate to="/admin/organizations" replace />} />
                   <Route path="admin/courses" element={<RequireRole roles={['admin', 'teacher', 'school_admin']}><AdminCourses /></RequireRole>} />
                   <Route path="school" element={<RequireRole roles={['school_admin']}><SchoolManagement /></RequireRole>} />
