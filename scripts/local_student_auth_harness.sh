@@ -39,7 +39,11 @@ docker run -d --name "$NAME" --network host \
   "$GOTRUE_IMAGE" >/dev/null
 for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:9999/health >/dev/null 2>&1 && break; sleep 1; done
 curl -fsS http://127.0.0.1:9999/health >/dev/null || { docker logs --tail 20 "$NAME"; echo "GoTrue did not start" >&2; exit 1; }
-nohup node web/robot-edu/tests/e2e/local-gotrue-proxy.mjs 54323 9999 >"$H/proxy.log" 2>&1 &
+# The proxy also serves /__test/users (fixture identities) and token minting for the specs that need them (platform-system-admin, platform-invite-security):
+# it needs the service-role key, a fixture password and the ES256 signing key generated above (private files under $H, never in the repository).
+node -e 'const c=require("crypto"),fs=require("fs");const k=JSON.parse(fs.readFileSync(process.argv[1]+"/jwt-keys.json","utf8"))[0];fs.writeFileSync(process.argv[1]+"/signing.pem",c.createPrivateKey({key:k,format:"jwk"}).export({type:"pkcs8",format:"pem"}),{mode:0o600})' "$H"
+VISTA_E2E_GOTRUE_SERVICE_ROLE_KEY="$(cat "$H/service.txt")" VISTA_E2E_GOTRUE_FIXTURE_PASSWORD='LocalFixturePass-spec1!' VISTA_E2E_GOTRUE_SIGNING_KID=vista-sa-es256 VISTA_E2E_GOTRUE_SIGNING_KEY="$H/signing.pem" \
+  nohup node web/robot-edu/tests/e2e/local-gotrue-proxy.mjs 54323 9999 >"$H/proxy.log" 2>&1 &
 sleep 1
 # GoTrue users with the fixture auth UUIDs, so the fixture accounts can sign in with a password.
 SERVICE=$(cat "$H/service.txt")

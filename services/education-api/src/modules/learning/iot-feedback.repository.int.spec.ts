@@ -127,7 +127,10 @@ describeIntegration("FeedbackRepository PostgreSQL integration", () => {
       // guarantees the real repository transaction stays in flight until the test releases it below.
       await started;
       await waitUntil(async () => sqs.visibility.includes("slow"));
-      expect(sqs.visibility).toEqual(["slow"]);
+      // The worker re-arms its visibility timer while the transaction is blocked; on a slow runner it may tick more than once. The contract is that it extends
+      // THIS message (and only this one) at least once - not that it ticks exactly once (that made the suite flaky in CI).
+      expect(sqs.visibility.length).toBeGreaterThanOrEqual(1);
+      expect(new Set(sqs.visibility)).toEqual(new Set(["slow"]));
       release();
       await lock;
       await processing;

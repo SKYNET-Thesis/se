@@ -1,11 +1,14 @@
 """In-process contract journey from R1/checkik fake follower through Twin ingest to MuJoCo."""
 import asyncio
+import importlib.util
 import json
 import sys
 import threading
 import time
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 RUNTIME = Path(__file__).resolve().parents[2] / "robot-runtime" / "src"
 CHECKIK = Path(__file__).resolve().parents[3] / "web" / "checkIk"
@@ -16,6 +19,10 @@ from wf03_command_adapter import FakeFollower, Wf03CommandAdapter
 from vista_digital_twin.app import create_app
 from vista_digital_twin.authorization import TwinAuthorizer
 from test_mujoco_sync import MODEL
+
+
+# Needs the optional `simulation` extra (mujoco) and the SO-101 model, which lives outside the repository: skip, exactly like test_mujoco_sync, instead of failing.
+requires_mujoco = pytest.mark.skipif(importlib.util.find_spec("mujoco") is None or not MODEL.exists(), reason="mujoco and the SO-101 model are required (uv sync --extra simulation; model outside the repository)")
 
 
 class R1AdapterBoundary:
@@ -45,6 +52,7 @@ async def post(app, body, token):
     return sent
 
 
+@requires_mujoco
 def test_r1_fake_run_telemetry_is_authenticated_and_synchronized_to_so101_mujoco():
     checked = R1AdapterBoundary()
     runtime = Runtime({"hardwareEnabled": True, "adapterMode": "fake_follower", "profiles": {"lesson": {"maxWaitMs": 1000, "maxRunMs": 3000}}, "arms": {"left": {"enabled": True, "safeHomeJointDegrees": [0], "gripperOpen": 100, "gripperClosed": 0}}}, checked)
