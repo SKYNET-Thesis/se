@@ -40,3 +40,14 @@ Stop Execution (run lasts ~0.5 s), concurrent control, reconnect during a run, s
 | D-15 | (update) | **Fixed and merged (#265)**: the student assignment list now divides by the canonical maximum (all criteria); regression assertion added | — | Closed locally; Production verification after release |
 | D-16 | Info | Multiple-choice quiz grading is **exact match, no partial credit** (shown on the result page). Unchanged by this work | existing rule | **Owner to confirm** the rule is the intended one (the rubric spec says "preserve existing") |
 | D-17 | Info | Quarantine after a runtime disconnect releases only after the run's status is reconciled once the runtime is back (a status read + End retry); nothing releases it autonomously | design | Documented; acceptable; revisit with CC-3 |
+
+## Update 2026-11-28 (owner-approved grading policy)
+| ID | Status |
+|---|---|
+| D-06 | **Implemented and merged (#263, develop `2345341`)**: partial drafts, feedback-only drafts, 409 `RUBRIC_INCOMPLETE`, explicit zero graded, lock after release; UI saves partial drafts and gates Release on a complete saved rubric. Verified locally (Jest DB 90/90 incl. updated lifecycle spec; Playwright lms-assignment-grading, lms-beginner-lab, lms-independent, blockly-simulation). **Production verification pending release.** |
+| D-16 | **Approved**: multiple-choice = exact match, no partial credit (stated on the quiz result page; `lms-module-quiz`). Documented, unchanged. |
+| D-17 | **Fixed and merged (#270)**: a REACHABLE runtime reporting a started run lost closes it failed/`runtime_run_lost`, so a quarantined session releases through the reconcile sweep without a student read (safety spec 4/4); heartbeat alone / unreachable runtime / unstarted run release nothing; the IoT path keeps its authoritative Shadow rule (fresh, connected, idle, newer than the last lifecycle update). Production IoT path unchanged. |
+| D-11 | Unchanged; owner review page `D11_LEGACY_ALLOCATION_PUT_OWNER_REVIEW.md`. |
+| Gradebook | **Merged (#271)**: quiz (auto) and rubric (canonical) results, read-only, `attempt.score` untouched. |
+| Rubric levels / descriptors / templates | Implemented in **draft #272** (needs migration T; not merged). |
+| Mixed grading | No new mixed configurations may be created until a formula is approved (guard in a separate PR); existing mixed records stay readable. |

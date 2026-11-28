@@ -69,3 +69,16 @@ Isolated stack, R1 + CHECKIK fake follower, real GoTrue harness; heavy suites st
 Playwright skips: 4 opt-in specs now run separately (pilot import 2, visual audit 2 — counted passed above, not in the 207) plus 1 intentional skip in `platform-invite-security`.
 **`platform-invite-security` (10 pass) and `platform-system-admin` (5 pass) were previously BLOCKED:** resolved by running the repository's `local-gotrue-proxy.mjs` (real GoTrue + signing key converted to PEM + service-role/anon keys from the harness directory) on :54323, and pointing `platform-system-admin` at the harness API (:3012, which has a real service-role key for GoTrue invitations).
 Not done: a separate global browser console/network sweep beyond the suites' own `pageerror`/overflow/404 assertions and the visual-audit overflow check.
+
+
+## Addendum (2026-11-28, after the policy resolution) — LOCAL
+| Check | Result |
+|---|---|
+| **Global browser console + network sweep** (`console-network-sweep.spec.ts`: 45 routes across anonymous/admin/school admin/instructor/student): page errors, `console.error`, failed requests, HTTP ≥ 400 | **0 findings** (5/5 tests) |
+| Quiz **taking** (weights shown before submission: total points, pass mark, per-question "1 point"/"2 points", question navigator, no answers revealed) | **Reviewed** — `docs/acceptance/screenshots/ui-final/quiz-taking-weights-visible.png` (`lms-module-quiz` passes) |
+| Quiz results (exact-match note, weighted score, rating) | Reviewed (earlier) |
+| D-06 release gate | Jest DB 90/90 (partial draft, feedback-only draft, `RUBRIC_INCOMPLETE`, explicit zero, release, lock, non-rubric unchanged); Playwright grading specs 4/4 |
+| D-17 | unit 3/3; safety spec 4/4 with autonomous recovery |
+| Gradebook | unit, component, real-PostgreSQL (partial → complete, student = instructor = Gradebook, `attempt.score` null) |
+| Rubric levels (**needs migration T**, draft #272) | Jest DB level spec; Vitest templates (maxima 36/40/48/40); Playwright `rubric-levels-flow` passes: template → student sees descriptors → partial draft (3 of 5) → release refused → complete (4,3,3,4,2) = **31/36, 86.11 %, 8.61/10** → student result and Gradebook agree → locked |
+Not re-run after these changes: the complete 212-test Playwright pass and the Jest full-suite (run on `cfaae15`; the changed areas were re-run as listed).

@@ -71,6 +71,7 @@ test('Module-end quiz: weights are shown before submission, scoring and pass thr
   await page.getByRole('button', { name: /^(Start|Continue) attempt$/ }).click();
   await expect(page).toHaveURL(/\/practice\//);
   await expect(page.getByTestId('quiz-total-points')).toContainText(`Total: ${total} points`);
+  if (shotDir) { await page.setViewportSize({ width: 1100, height: 1800 }); await page.screenshot({ path: `${shotDir}/quiz-taking-weights-visible.png` }); await page.setViewportSize({ width: 1280, height: 720 }); }
   await answerAll('wrong');
   await submit();
   await expect(page.getByRole('heading', { name: 'Not passed yet' })).toBeVisible();
