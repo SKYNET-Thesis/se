@@ -4,7 +4,7 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { useUnsavedChangesWarning } from '../../hooks/useUnsavedChangesWarning';
 import { ApiError, instructorApi, type ApiInstructorSubmission } from '../../lib/api';
 import { attemptHistory, criterionError, formatDateTime, scoreTotals, stageLabel, submissionStage } from '../../queries/teacherSubmissionsModel';
-import { buildAssessmentScores, evaluationPresentation } from '../../queries/teacherSubmissionReview';
+import { buildAssessmentScores, evaluationPresentation, isRubricComplete } from '../../queries/teacherSubmissionReview';
 import { teacherLearningKeys, teacherReviewInvalidations } from '../../queries/teacherLearningQueries';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
@@ -81,7 +81,7 @@ export function SubmissionReviewDetail({ submissionId, token, allSubmissions, cl
   const criteria = item?.rubric_criteria ?? [];
   const scores = buildAssessmentScores(criteria, points, comments);
   const assess = useMutation({
-    mutationFn: () => scores ? instructorApi.assess(submissionId, token, { overallFeedback: overall.trim() || undefined, scores }) : Promise.reject(new Error('Enter a score within the allowed range for every criterion.')),
+    mutationFn: () => scores ? instructorApi.assess(submissionId, token, { overallFeedback: overall.trim() || undefined, scores }) : Promise.reject(new Error('Enter at least one score within the allowed range (blank = not graded yet, 0 = graded with zero points)')),
     onSuccess: async () => { setNotice('Assessment saved. The student cannot see it until you release the grade.'); setDirty(false); await refresh(); },
   });
   const sendFeedback = useMutation({
@@ -108,7 +108,8 @@ export function SubmissionReviewDetail({ submissionId, token, allSubmissions, cl
   const totals = scoreTotals(criteria, points);
   const history = attemptHistory(allSubmissions, item);
   const reflections = item.experiments.map((experiment) => experiment.demonstration?.reflection).filter((value): value is NonNullable<typeof value> => Boolean(value));
-  const canRelease = !released && !dirty && Boolean(item.assessment || item.feedback.length) && !release.isPending;
+  const rubricReady = criteria.length === 0 || (isRubricComplete(criteria, points) && Boolean(item.assessment));   // D-06: every criterion graded (and saved) before release
+  const canRelease = !released && !dirty && rubricReady && Boolean(item.assessment || item.feedback.length) && !release.isPending;
   const mutationError = assess.error ?? sendFeedback.error ?? release.error;
   const fieldClass = `${inputClasses} disabled:bg-sunken`;
 
@@ -213,7 +214,7 @@ export function SubmissionReviewDetail({ submissionId, token, allSubmissions, cl
                 <Button type="submit" variant="secondary" loading={assess.isPending} disabled={released || assess.isPending || !dirty && Boolean(item.assessment)}>Save Assessment</Button>
                 <Button variant="primary" disabled={!canRelease} onClick={() => setConfirmRelease(true)} aria-describedby="release-hint">Release Grade</Button>
               </div>
-              <p id="release-hint" className="text-xs text-ink-subtle">{released ? 'Already released.' : !item.assessment ? 'Save the assessment first. Release is a separate, explicit step.' : dirty ? 'Save your changes before releasing.' : 'Releasing makes the scores and feedback visible to the student.'}</p>
+              <p id="release-hint" className="text-xs text-ink-subtle">{released ? 'Already released.' : !item.assessment ? 'Save the assessment first. Release is a separate, explicit step.' : dirty ? 'Save your changes before releasing.' : !rubricReady ? 'Grade every criterion (0 counts as graded) and save before releasing.' : 'Releasing makes the scores and feedback visible to the student.'}</p>
             </form>
           )}
           {criteria.length === 0 && <div className="mt-4"><Button variant="primary" disabled={!canRelease} onClick={() => setConfirmRelease(true)}>Release Grade</Button></div>}
