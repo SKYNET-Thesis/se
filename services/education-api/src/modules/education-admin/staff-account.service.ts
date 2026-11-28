@@ -168,15 +168,20 @@ export class StaffAccountService {
     const password = this.newPassword(); const expiresAt = new Date(Date.now() + this.ttlHours() * 3_600_000);
     try { await this.supabase.setStudentPassword(target.auth_user_id!, password); }
     catch { throw new BadRequestException("The credentials could not be issued. Nothing was changed."); }
+    let cutoff: Date | null = null;
     await this.prisma.$transaction(async (tx) => {
       // password_changed_at = now() makes every earlier session stale (SESSION_ROTATED), i.e. sessions are revoked.
-      const n = await tx.$executeRaw`UPDATE public.users SET status='active',email_verified_at=COALESCE(email_verified_at,now()),password_change_required=true,
-        temporary_password_expires_at=${expiresAt},password_changed_at=clock_timestamp(),updated_at=now() WHERE id=${target.id}::uuid`;
-      if (n !== 1) throw new Error("user not updated");
+      const rows = await tx.$queryRaw<Array<{ password_changed_at: Date }>>`UPDATE public.users SET status='active',email_verified_at=COALESCE(email_verified_at,now()),password_change_required=true,
+        temporary_password_expires_at=${expiresAt},password_changed_at=clock_timestamp(),updated_at=now() WHERE id=${target.id}::uuid RETURNING password_changed_at`;
+      if (!rows[0]) throw new Error("user not updated");
+      cutoff = rows[0].password_changed_at;
       await tx.$executeRaw`UPDATE public.education_school_user_profiles SET account_state='active',updated_at=now() WHERE user_id=${target.id}::uuid AND organization_id=${organizationId}::uuid`;
       await tx.$executeRaw`INSERT INTO public.audit_logs(actor_user_id,organization_id,action,target_type,target_id,details)
         VALUES(${actor.vistaUserId}::uuid,${organizationId}::uuid,${action},'user',${target.id}::uuid,jsonb_build_object('role',${target.role_code}::text))`;
     }, FIRST_LOGIN_TX);
+    // Access tokens carry iat with one-second precision and the guard rejects iat <= password_changed_at: do not hand out credentials that could
+    // be used within the same second as the cutoff (that session would be treated as stale).
+    if (cutoff) await new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.floor(cutoff!.getTime() / 1000) * 1000 + 1000 - Date.now())));
     return { userId: target.id, organizationId, role: target.role_code, fullName: target.full_name, email: target.email ?? "", accountState: "password_change_required", temporaryPassword: password, temporaryPasswordExpiresAt: expiresAt.toISOString() };
   }
 

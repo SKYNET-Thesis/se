@@ -12,7 +12,7 @@ function harness(options: { duplicateEmail?: boolean; failInsert?: boolean; orgS
   const logs: unknown[] = [];
   const writes: string[] = [];
   const tx = {
-    $queryRaw: jest.fn(async (strings: TemplateStringsArray) => { const sql = strings.join("?"); if (sql.includes("INSERT INTO public.users")) { if (options.failInsert) throw new Error("db down"); return [{ id: "new-user" }]; } return []; }),
+    $queryRaw: jest.fn(async (strings: TemplateStringsArray) => { const sql = strings.join("?"); if (sql.includes("INSERT INTO public.users")) { if (options.failInsert) throw new Error("db down"); return [{ id: "new-user" }]; } if (sql.includes("RETURNING password_changed_at")) return [{ password_changed_at: new Date() }]; return []; }),
     $executeRaw: jest.fn(async (strings: TemplateStringsArray) => { writes.push(strings.join("?")); return 1; }),
   };
   const prisma = {
@@ -115,7 +115,7 @@ describe("StaffAccountService", () => {
       expect(h.supabase.setStudentPassword).toHaveBeenCalledWith("auth-t", result.temporaryPassword);
       expect(h.supabase.deleteStudentIdentity).not.toHaveBeenCalled();
       expect(h.supabase.createStaffIdentity).not.toHaveBeenCalled();
-      expect(h.writes.join("\n")).toContain("password_change_required=true");
+      expect(h.tx.$queryRaw.mock.calls.map((c) => (c[0] as unknown as string[]).join("?")).join("\n")).toContain("password_change_required=true");
     });
     it("never overwrites the password of an account that is active, has signed in, or is already restricted", async () => {
       await expect(harness({ target: { ...pending, status: "active" } }).service.recoverPending(schoolAdmin(), ORG, "t1")).rejects.toBeInstanceOf(ConflictException);
@@ -136,7 +136,7 @@ describe("StaffAccountService", () => {
       const h = harness({ target: { ...pending, status: "active", password_change_required: true } });
       const result = await h.service.resetTemporary(schoolAdmin(), ORG, "t1");
       expect(result.temporaryPassword).toBeTruthy();
-      expect(h.writes.join("\n")).toContain("password_changed_at=clock_timestamp()");
+      expect(h.tx.$queryRaw.mock.calls.map((c) => (c[0] as unknown as string[]).join("?")).join("\n")).toContain("password_changed_at=clock_timestamp()");
       expect(h.tx.$executeRaw.mock.calls.flat()).toContain("account.credentials_reset");
     });
   });
