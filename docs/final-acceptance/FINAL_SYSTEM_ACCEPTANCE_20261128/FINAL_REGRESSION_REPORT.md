@@ -5,7 +5,7 @@ Nothing here reuses an earlier count. Two revisions were tested; both numbers ar
 | Label | Revision | Content |
 |---|---|---|
 | **R0** | `develop` `eceb8d1d0cfabdb0ca96906eeaaa9f5e9cf5b69f` | the release baseline; last code change `04fed8b` |
-| **R1** | candidate `72efedd21701fdad8492af86f19e1390e9d457fa` (branch `candidate/final-20261128`, **not pushed**, no CI) | R0 + fix N-02/D-04 (`54b876d`) + fix N-01 (`72efedd`): 5 non-doc files, all under `services/education-api/src/modules/learning/iot-feedback.repository*` and `.gitignore`/the symlink; **no web, runtime, Twin or database change** |
+| **R1** | candidate `72efedd21701fdad8492af86f19e1390e9d457fa` (local branch `candidate/final-20261128`; its two parts are PR #276 and PR #277, each with its own CI) | R0 + fix N-02/D-04 (`54b876d`) + fix N-01 (`72efedd`): 5 non-doc files, all under `services/education-api/src/modules/learning/iot-feedback.repository*` and `.gitignore`/the symlink; **no web, runtime, Twin or database change** |
 | **#272** | `17c9c54710d3006ff0749c934eb29d92aa96b536` + Migration T | tested on a separate worktree and database |
 
 Environment: workstation, PostgreSQL 17 (tmpfs) on loopback, RustFS S3-compatible store, Education API with the runtime role, Chrome. Suites were run **strictly sequentially** (one heavy workload at a time; 14 GB RAM, no OOM). Synthetic data only. **No Production write, no AWS mutation, no Terraform apply, no hardware.** Logs and per-spec results are in the session scratch directory; screenshots in `~/.vista-acceptance/20261128-final/`.

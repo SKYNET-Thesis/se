@@ -6,7 +6,7 @@
 | Item | Revision |
 |---|---|
 | `develop` (tested, "R0") | `eceb8d1d0cfabdb0ca96906eeaaa9f5e9cf5b69f` (code identical to `04fed8b`; 3 doc files differ) |
-| Fix candidate ("R1"), **local, not pushed, no CI** | `72efedd21701fdad8492af86f19e1390e9d457fa` = R0 + D-04 fix `54b876d` + symlink fix `72efedd` (also available as separate branches `bugfix/late-ack-d04-20261128`, `bugfix/untrack-node-modules-symlink-20261128`) |
+| Fix candidate ("R1"), **local combination, no CI of its own** (the two fixes are open as PR #276 and PR #277; this documentation is PR #278) | `72efedd21701fdad8492af86f19e1390e9d457fa` = R0 + D-04 fix `54b876d` + symlink fix `72efedd` (also available as separate branches `bugfix/late-ack-d04-20261128`, `bugfix/untrack-node-modules-symlink-20261128`) |
 | Production `main` (API and Web, read-only) | `430ad594d8fc1087d16870104d5eb037b4fca864` |
 | PR #266 (develop → main) | head `eceb8d1`, open, CLEAN, **0 reviews**, no migration |
 | PR #267 / #272 (drafts) | `08e77706…` / `17c9c54710d3006ff0749c934eb29d92aa96b536` — #272 CI `fresh-bootstrap` **FAILED** |

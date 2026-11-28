@@ -1,6 +1,6 @@
 # Final freeze gate (2026-11-28)
 
-Each gate is reported independently. Verdicts: **GO** (criteria met with evidence), **CONDITIONAL GO** (met locally, named conditions remain), **NO-GO** (criteria not met or prerequisite missing). The project is **not** declared complete: gates E–J are NO-GO. Revisions: develop `eceb8d1`, fix candidate `72efedd` (not pushed), Production `430ad59`, Desktop `12fd55b`.
+Each gate is reported independently. Verdicts: **GO** (criteria met with evidence), **CONDITIONAL GO** (met locally, named conditions remain), **NO-GO** (criteria not met or prerequisite missing). The project is **not** declared complete: gates E–J are NO-GO. Revisions: develop `eceb8d1`, fix candidate `72efedd` (local combination of PR #276 and PR #277), Production `430ad59`, Desktop `12fd55b`.
 
 | Gate | Verdict | Basis | What closes it |
 |---|---|---|---|
