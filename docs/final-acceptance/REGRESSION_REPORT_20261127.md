@@ -82,3 +82,16 @@ Not done: a separate global browser console/network sweep beyond the suites' own
 | Gradebook | unit, component, real-PostgreSQL (partial → complete, student = instructor = Gradebook, `attempt.score` null) |
 | Rubric levels (**needs migration T**, draft #272) | Jest DB level spec; Vitest templates (maxima 36/40/48/40); Playwright `rubric-levels-flow` passes: template → student sees descriptors → partial draft (3 of 5) → release refused → complete (4,3,3,4,2) = **31/36, 86.11 %, 8.61/10** → student result and Gradebook agree → locked |
 Not re-run after these changes: the complete 212-test Playwright pass and the Jest full-suite (run on `cfaae15`; the changed areas were re-run as listed).
+
+
+## FINAL integrated regression on develop `04fed8b` (2026-11-28, LOCAL)
+| Suite | Result |
+|---|---|
+| Vitest (web) | **843/843**; TypeScript clean (web and API); production build OK; ESLint 0 errors |
+| Jest, whole suite with real PostgreSQL + S3 flags | 1682 tests: **1656 pass, 0 fail**, 26 skipped; 2 suites need CI-only databases (`runtime-role-security.db`, `iot-feedback.repository.int`; green in CI `fresh-bootstrap`) |
+| Playwright main config (50 spec files: grading, LMS, quiz, Gradebook-adjacent, Twin, WF-03 evidence, lab-session, safety, console/network sweep, …) | **197 pass, 0 fail, 4 skipped (opt-in)**; the five shared-fixture specs pass on fresh stacks (6+11+4+9+1) |
+| GoTrue-proxy specs `platform-invite-security` / `platform-system-admin` | 10 + 5 pass (run earlier on `cfaae15`; unchanged code) |
+| GoTrue harness UI 18 / API 13 | pass on `cfaae15` (auth code unchanged since) |
+| Rubric levels (draft #272, needs T) | `rubric-levels-flow` pass on the T-applied disposable DB |
+| Console/network sweep | 45 routes, **0 findings** |
+Not re-run on `04fed8b`: GoTrue harness suites and Twin/R1 pytest (no changes in those areas).
