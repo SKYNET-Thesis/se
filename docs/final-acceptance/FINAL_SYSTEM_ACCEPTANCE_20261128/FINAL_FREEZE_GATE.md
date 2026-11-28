@@ -15,6 +15,9 @@ Each gate is reported independently. Verdicts: **GO** (criteria met with evidenc
 | **I — Physical WF-03 integration acceptance** | **NO-GO (BLOCKED)** | requires E and H | after E, H |
 | **J — Feature and architecture freeze** | **NO-GO** | requires F, G, and the decisions in `OWNER_DECISIONS_AND_APPROVALS.md` (notably B5/D-11, B6, migration T timing) | after the above |
 
+## Authentication / WF-01 provisioning completion gate (owner requirement 2026-11-28)
+**NO-GO.** Local: direct creation, backend-enforced first-login change, recovery of pending accounts and isolation PASS (23 of 30 ACCT cases, PR #279). Not met: e-mail invitation delivery, SMTP, redirect configuration, recovery of the real affected accounts, and any Production evidence (`AUTH_PROVISIONING_ACCEPTANCE.md` §5). Gate G and Gate J stay closed until these are executed with owner authorization.
+
 ## Freeze checklist the owner can use
 1. Decide B6, B5, B1 (option), B3 (T timing). 2. Merge/deploy per option; apply IAM; run the Production runbook. 3. Codex closes E (contract) and supplies H/I evidence. 4. Re-run `FINAL_REGRESSION_REPORT.md` suites on the released SHA. 5. Update the defect register; any open High (D-03/D-08/D-09, N-05) must be closed or explicitly deferred by the owner.
 

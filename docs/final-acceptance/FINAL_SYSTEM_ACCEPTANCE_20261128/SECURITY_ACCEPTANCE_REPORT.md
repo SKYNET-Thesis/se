@@ -37,6 +37,20 @@ Revision `develop` `eceb8d1` (local isolated) plus **read-only** inspection of P
 | Secrets handling | no secret was written to the repository by this cycle; harness keys were generated per run under `/tmp/vista-sa-harness` (mode 0700, removed by `harness down`); the workstation holds acceptance credentials in `~/.vista-acceptance/` outside Git | **PASS** |
 | Production environment config, monitoring | container health / SSM not inspected (no SSM use) | NOT RUN |
 
+## C2. Account provisioning and first-login policy (2026-11-28 requirement; local `7beb691`, details in `AUTH_PROVISIONING_ACCEPTANCE.md`)
+| Control | Evidence | Status |
+|---|---|---|
+| Temporary password uniqueness/strength, one-time disclosure | 24 random bytes (32 chars), unique per call (unit); response `no-store`; never in listings | **PASS** (local) |
+| No plaintext persistence / logging | searched `audit_logs`, `users`, member listings and the API log for every issued password: none | **PASS** (local) |
+| Server-enforced first-login restriction; no API/URL/refresh/new-session bypass | 403 `PASSWORD_CHANGE_REQUIRED` on every protected route incl. provisioning; UI redirects on direct URL, reload, fresh context | **PASS** (local) |
+| Temporary credential expiry; session invalidation | 403 `TEMPORARY_PASSWORD_EXPIRED`; reset/recovery rotate sessions (`SESSION_ROTATED`) | **PASS** (local) |
+| Cross-school isolation, no escalation, duplicates | 404 for cross-school/escalation, 409 duplicates, 400 unknown role, 401 unauthenticated | **PASS** (local) |
+| Never overwrite an active account | recovery refuses non-invited, previously signed-in, or permanent-password accounts | **PASS** (local) |
+| Audit events | `account.created`, `account.invited`, `account.recovered`, `account.credentials_reset`, `account.first_login_password_changed` | **PASS** (local) |
+| Invitation / recovery token security, e-mail delivery, SMTP | not exercisable without a mail transport | **NOT RUN** |
+| Service-role key exposure | key stays server-side (`SupabaseAdminService`); never returned to the browser | **PASS** (code review) |
+| Residual risk | a user can still change their own password directly at Supabase with the temporary session; the server flag then stays set and the API change endpoint can no longer verify the temporary password, so the account stays **restricted** until an administrator resets it (fail-closed, not a bypass) | documented |
+
 ## D. Findings
 * **N-01 (Medium, fixed in a branch, not pushed):** a committed `node_modules` symlink to a developer's absolute path; `npm ci` followed it and emptied another worktree's dependencies during this audit (restored). Fix `38b770a` untracks it and ignores `node_modules` without a trailing slash.
 * **N-04 (Medium):** CSP is report-only in Production.

@@ -28,17 +28,18 @@ Baseline: `develop` `eceb8d1d0cfabdb0ca96906eeaaa9f5e9cf5b69f` (verified with `g
 | X-8 | "36/36" LMS acceptance and earlier regression counts | tied to `63c5ac8`/`2d0b260`; **re-executed** here (see `FINAL_REGRESSION_REPORT.md`) | — |
 | X-9 | PR #272 CI is red but earlier documents describe the rubric-level work as ready | `fresh-bootstrap` fails at the DB integration step | N-05 |
 
-## 3. Counts (65 registered line items)
-Registered = 49 website modules (A1–L4) + 4 workflows + 6 FR + 6 NFR. The 41-line capability checklist in `FULL_FEATURE_ACCEPTANCE_MATRIX.md` are checks **inside** those items, not extra requirements.
+## 3. Counts (66 registered line items)
+Registered = 49 website modules (A1–L4) + B8 (account provisioning, added 2026-11-28) + 4 workflows + 6 FR + 6 NFR. The 41-line capability checklist in `FULL_FEATURE_ACCEPTANCE_MATRIX.md` are checks **inside** those items, not extra requirements.
 
 | Lens | PASS | FAIL | BLOCKED | NOT RUN | DEFERRED |
 |---|---|---|---|---|---|
 | Local isolated, `eceb8d1` — 49 modules | 45 | 0 | 3 (B5, H3, L4) | 1 (J1) | 0 |
+| B8 account provisioning, `7beb691` (PR #279, separate branch) | 0 | 0 | 1 | 0 | 0 |
 | Local isolated — 4 workflows (Local column of `WF01_WF04_FINAL_ACCEPTANCE.md`) | 4 | 0 | 0 | 0 | 0 |
 | Original FR/NFR (12) | 1 (NFR-05) | 0 | 4 (FR-01, FR-03, NFR-01, NFR-02) | 3 (FR-04, FR-05, NFR-06) | 4 (FR-02, FR-06, NFR-03, NFR-04 — by brief §2, formal owner record pending B6) |
-| **Total, 65** | **50** | **0** | **7** | **4** | **4** |
+| **Total, 66** | **50** | **0** | **8** | **4** | **4** |
 | Requirements with at least one executed test this cycle | 54 (49 modules + 4 workflows + NFR-05) | | | | |
-| **Production acceptance (`430ad59`)** | 0 of 65 re-executed this cycle (read-only checks only); the 2026-11-27 Production matrix has 24 PASS, 4 PASS-with-qualifier, 15 NOT RUN of 44 cases, with D-03/D-08/D-09 FAIL | | | | |
+| **Production acceptance (`430ad59`)** | 0 of 66 re-executed this cycle (read-only checks only); the 2026-11-27 Production matrix has 24 PASS, 4 PASS-with-qualifier, 15 NOT RUN of 44 cases, with D-03/D-08/D-09 FAIL | | | | |
 | Physical SO-101 | 0 PASS — NOT RUN / BLOCKED | | | | |
 
 ## 4. Table A — website modules (A1–L4)
@@ -52,6 +53,7 @@ Registered = 49 website modules (A1–L4) + 4 workflows + 6 FR + 6 NFR. The 41-l
 | B2 | Student code login, activation, temporary password, first-login change | `/login (student code)` | auth/students/* | student_login_aliases, users | rate-limited, HTTPS-only guard | gotrue-ui (5 files): 18 passed (1.4m) (dedicated run); gotrue-api (3 files, clean DB): 13 passed (9.0s) (dedicated run) | **PASS** |  |
 | B3 | Student recovery with one-time Recovery Code, reissue | `/login (recovery)` | auth/students/* | student recovery codes | School Admin issues code | gotrue-ui (5 files): 18 passed (1.4m) (dedicated run); gotrue-api (3 files, clean DB): 13 passed (9.0s) (dedicated run) | **PASS** |  |
 | B4 | Staff password recovery (forgot → e-mailed link → choose password; neutral answers; link single-use; sessions revoked; forged URL marker refused) | `/forgot-password, /reset-password` | Supabase recovery | - | single-use link | gotrue-ui (5 files): 18 passed (1.4m) (dedicated run) | **PASS** |  |
+| B8 | **Account provisioning (direct creation + e-mail invitation) and mandatory first-login password change** (WF-01 refinement; owner requirement 2026-11-28) | `/admin/organizations`, `/school/users`, `/student/change-password` | `education-admin/organizations/:id/accounts[/…]`, `auth/staff/password`, `SupabaseAuthGuard` | users(+U columns), memberships, education_school_user_profiles, audit_logs | System Admin → School Admin; School Admin → Instructor/Student of own school | `AUTH_PROVISIONING_ACCEPTANCE.md`: 23 of 30 ACCT cases PASS locally (API 10/10, UI 3/3, student suites 13/13 with the flag on, unit 11/11) | **BLOCKED** | e-mail invitation delivery, SMTP provider, Site URL/redirect, recovery of existing Production accounts, migration U approval: NOT RUN / need owner |
 | B5 | Profile / account management | `/account, /settings` | identity /me | users | signed-in | profile fields read-only (documented Partial) | **BLOCKED** | owner decision: profile editing has no backend endpoint; staff password change works |
 | B6 | RBAC, tenant isolation, protected routes, expired-session UX | `RequireRole on 40+ routes` | SupabaseAuthGuard on 28/31 controllers; health/version/status public | memberships, roles | role + tenant scope | lms-security-matrix: 1 passed (5.4s) (full pass); platform-resilience: 6 passed (21.4s) (clean-stack rerun); platform-invite-security (GoTrue harness + configured proxy): 1 skipped, 10 passed (8.1s) (dedicated run) | **PASS** |  |
 | B7 | Account provisioning: admin-created, invitations, activation (no public self-registration) | `/admin/organizations, /admin/students, /school/users` | education-admin.* | organizations, memberships, student aliases | system_admin / school_admin | platform-lifecycle: 3 passed (18.9s) (full pass); gotrue-ui (5 files): 18 passed (1.4m) (dedicated run); platform-device-provisioning: 10 passed (9.6s) (full pass); platform-invite-security (GoTrue harness + configured proxy): 1 skipped, 10 passed (8.1s) (dedicated run) | **PASS** |  |

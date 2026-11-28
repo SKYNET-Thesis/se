@@ -38,6 +38,17 @@ AUTH → SA → SCHOOL → INST → STU → LMS/QUIZ/ASSIGN → ROBOT/LAB → WF
 
 Option B only (after Migration T is released): create one assignment from each of the four templates, verify descriptors, level selector, weights and the 31/36 = 86.11 % = 8.61/10 example end to end, release lock, and that pre-T grades render unchanged.
 
+## 3a. Account provisioning cases (WF-01 refinement; Production only after owner authorization of migration U, the flag, SMTP/redirect configuration and test mailboxes)
+Entry criteria: migration U applied and verified; `STAFF_TEMP_PASSWORD_ENABLED=true`; Supabase SMTP provider confirmed; Site URL and redirect allow-list = Production origin only; `SUPABASE_INVITE_REDIRECT_URL` set. Use disposable synthetic accounts in the E2E organization with mailboxes the owner controls. **Do not touch real invited users without explicit approval.**
+| ID | Case | Pass criterion |
+|---|---|---|
+| ACCT-01…13 | direct creation and first-login change (System Admin → School Admin → Instructor/Student) | as in `AUTH_PROVISIONING_ACCEPTANCE.md`, on the Production URL; temporary credentials never visible in logs |
+| ACCT-14…17 | invitation by real e-mail for School Admin, Instructor, Student | e-mail delivered; link opens the **Production** URL (never localhost); user sets Password + Confirm; account becomes Active; correct dashboard |
+| ACCT-18 | recover one verified pending account | `recover-pending` keeps the Auth user id; or a re-sent invitation after the redirect fix — owner chooses per account |
+| ACCT-21 | expired and reused invitation | clear message, no activation, no duplicate account |
+| ACCT-22/23 | forgot-password e-mail and reset | delivered; reset on the Production URL; link single-use |
+| ACCT-24 | direct creation with SMTP disabled or rate-limited | still succeeds |
+
 ## 4. Stop conditions
 Any 5xx on a path that returned 200 locally; any cross-tenant data; any `PHYSICAL_ROBOT` label without hardware; any write outside the E2E organization (`E2ES01`/owner-reserved accounts untouched); a queue or DLQ above 0. Stop, record FAIL with evidence, do not retry destructively.
 

@@ -23,6 +23,8 @@ Revision context: develop `eceb8d1`, Production `430ad59`. Nothing below has bee
 | B6 | Authoritative requirement baseline | The repository's `docs/SRS.md` and `docs/requirements/10–12` describe a **local-operator dual-arm teleoperation/VLA pipeline with no RBAC** (FR-01…06, NFR-01…06). The approved WF-01…04 and LMS requirements describe a **multi-tenant education platform with RBAC**. These contradict each other in actor, scope and non-goals. Not resolved here. Owner to state which document set is authoritative and to record the deferral of FR-04…06/NFR-03/04 formally | Gate A |
 | B7 | Production test content ("approved: Production test content") | needed for any Production acceptance beyond read-only | Gate G |
 
+| B8 | **Account provisioning (2026-11-28):** approve migration U and its release; enable `STAFF_TEMP_PASSWORD_ENABLED`; confirm SMTP provider and Supabase Site URL / redirect allow-list / `SUPABASE_INVITE_REDIRECT_URL`; authorize the Production ACCT run and the recovery of existing invited accounts | `AUTH_PROVISIONING_ACCEPTANCE.md` §6 | Authentication / WF-01 gate, Gate G |
+
 ## C. Decisions open — non-blocking for A, needed for freeze
 | # | Decision | Recommendation |
 |---|---|---|
