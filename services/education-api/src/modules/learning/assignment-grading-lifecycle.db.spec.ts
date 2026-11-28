@@ -97,9 +97,11 @@ describeDb('real PostgreSQL assignment configuration, rubric grading, release an
 
   it('keeps grading invisible to the student until release; then shows it; reopening hides it again with an audit snapshot, and a corrected grade can be re-released', async () => {
     const f = await fixture(); const { attempt, submission } = await submit(f);
-    const [a] = (await config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, rubric as never)).criteria;
-    await assessment.assess(f.teacher, submission.id, { overallFeedback: 'first', scores: [{ criterionId: a.id, awardedPoints: 3 }] } as never);
+    const [a, b] = (await config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, rubric as never)).criteria;
+    await assessment.assess(f.teacher, submission.id, { overallFeedback: 'first', scores: [{ criterionId: a.id, awardedPoints: 3 }] } as never);   // partial draft is allowed
     expect(await assessment.myGrading(f.user, attempt.id)).toEqual({ attemptId: attempt.id, released: false });
+    await expect(assessment.releaseSubmission(f.teacher, submission.id)).rejects.toMatchObject({ response: { code: 'RUBRIC_INCOMPLETE' } });          // D-06: every criterion must be graded
+    await assessment.assess(f.teacher, submission.id, { overallFeedback: 'first', scores: [{ criterionId: a.id, awardedPoints: 3 }, { criterionId: b.id, awardedPoints: 0 }] } as never);   // explicit zero is graded
     await assessment.releaseSubmission(f.teacher, submission.id);
     expect(await assessment.myGrading(f.user, attempt.id)).toMatchObject({ released: true, assessment: { overallFeedback: 'first' } });
 
@@ -115,8 +117,25 @@ describeDb('real PostgreSQL assignment configuration, rubric grading, release an
     expect(history[0]).toMatchObject({ action: 'grading.release_withdrawn', actorUserId: f.teacher.vistaUserId });
     expect(history[0].details.reason).toBe('Mis-scored the sequence criterion');
     expect(history[0].details.withdrawn.assessment.overallFeedback).toBe('first');
-    expect(history[0].details.withdrawn.assessment.scores[0].awardedPoints).toBe(3);
+    expect(history[0].details.withdrawn.assessment.scores.find((x: any) => x.criterionId === a.id).awardedPoints).toBe(3);
     await expect(assessment.reopenGrading(f.teacher, attempt.id, 'second reopen')).resolves.toBeDefined(); // released again → reopenable again
+  });
+
+  it('D-06 release gate: feedback-only and partial drafts are saved but cannot be released; explicit zero counts as graded; a non-rubric assignment keeps its behaviour', async () => {
+    const f = await fixture(); const { attempt, submission } = await submit(f);
+    const [a, b] = (await config.replaceRubric(f.teacher, f.x.room.id, f.assignment.id, rubric as never)).criteria;
+    await assessment.feedback(f.teacher, submission.id, { content: 'draft note' } as never);                                              // feedback-only draft
+    await expect(assessment.releaseSubmission(f.teacher, submission.id)).rejects.toMatchObject({ response: { code: 'RUBRIC_INCOMPLETE' } });
+    await assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: a.id, awardedPoints: 0 }] } as never);                    // zero is a grade, one criterion still missing
+    await expect(assessment.releaseSubmission(f.teacher, submission.id)).rejects.toMatchObject({ response: { code: 'RUBRIC_INCOMPLETE', message: expect.stringContaining('1 of 2') } });
+    await assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: b.id, awardedPoints: 0 }] } as never);
+    await expect(assessment.releaseSubmission(f.teacher, submission.id)).resolves.toMatchObject({ released: true });
+    const grading = await assessment.myGrading(f.user, attempt.id) as unknown as { summary: Record<string, unknown> };
+    expect(grading.summary).toMatchObject({ awarded: 0, max: 10, percentage: 0, complete: true, rating: 'Needs Review' });
+    await expect(assessment.assess(f.teacher, submission.id, { scores: [{ criterionId: a.id, awardedPoints: 6 }] } as never)).rejects.toMatchObject({ response: { code: 'GRADE_RELEASED' } });   // locked after release
+    const plain = await fixture(); const second = await submit(plain);                                                                      // no rubric criteria: unchanged
+    await assessment.feedback(plain.teacher, second.submission.id, { content: 'good work' } as never);
+    await expect(assessment.releaseSubmission(plain.teacher, second.submission.id)).resolves.toMatchObject({ released: true });
   });
 
   it('cannot reopen what was never released or what the system auto-released', async () => {
