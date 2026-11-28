@@ -47,3 +47,7 @@ The earlier register (`../FINAL_DEFECT_REGISTER.md`, D-01…D-17) is not repeate
 * Evaluator parameters `arm`, `minZ`, `objectId`, `zoneId` **are applied** by `symbolic-rule-evaluator.service.ts` (codes `OBJECT_GRASPED_BY_OTHER_ARM`, `LIFT_HEIGHT_INSUFFICIENT`, `OBJECT_NOT_FOUND`, `TARGET_ZONE_UNKNOWN`); 12 assertions on those codes in `symbolic-rule-evaluator.service.spec.ts` pass this cycle. The earlier GAP-L02-02/-03 are fixed (PR #147).
 * Digital-twin test failure with system Python: environment (no MuJoCo), not product.
 * 41 `tests/database` release-flow/rollback tests could not be reproduced with my harness (the suites need the `vista_baseline_test_*` template workflow); they are green in CI `database-safety` at `eceb8d1` — recorded as BLOCKED-locally, not PASS.
+
+
+## Status update after the release package
+The current status of every N-/D- item is in `../FINAL_RELEASE_PACKAGE_20261128/05_PR_LEDGER_AND_DEFECT_STATUS.md`. New since this register: **N-19** the web app had no page for invited users to set a password (root cause of accounts without a usable password) — fixed in #283; **N-20** the People list showed pending first-login accounts as Active, two browser specs asserted a stale status word, and Instructors could not be re-invited — fixed in #285.

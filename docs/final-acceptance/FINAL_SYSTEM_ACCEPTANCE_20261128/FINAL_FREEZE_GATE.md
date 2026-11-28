@@ -22,3 +22,16 @@ Each gate is reported independently. Verdicts: **GO** (criteria met with evidenc
 1. Decide B6, B5, B1 (option), B3 (T timing). 2. Merge/deploy per option; apply IAM; run the Production runbook. 3. Codex closes E (contract) and supplies H/I evidence. 4. Re-run `FINAL_REGRESSION_REPORT.md` suites on the released SHA. 5. Update the defect register; any open High (D-03/D-08/D-09, N-05) must be closed or explicitly deferred by the owner.
 
 Nothing in this document changes product scope: exactly WF-01…WF-04, one SO-101 pair, dual-arm physical and physical VLA deferred.
+
+## Update after the release package (RC `b79067f5215320561c559ed301e8a3075e8bcd10`) — supersedes the verdicts above where it differs
+| Gate | Verdict | Basis |
+|---|---|---|
+| A — Requirements coverage | CONDITIONAL GO | unchanged: owner decision B6 (which requirement baseline is authoritative) |
+| B — Local functional acceptance | **GO** | final regression: 269 browser tests passed, 0 failed, 1 documented skip; all static suites green (`FINAL_RELEASE_PACKAGE_20261128/04_FINAL_REGRESSION_RC.md`) |
+| C — Security and data integrity | **GO (local)**; Production items need the owner's configuration | N-13 closed (CI runs the integration suites), N-14…N-16 fixed, IAM plan revalidated on the RC |
+| D — Final regression | **GO** | exact RC tested; CI green on release PR #266 |
+| E — Desktop integration contract | NO-GO | unchanged (Codex: `kind:"cancel"`, authorization bridge, physical telemetry) |
+| F — Owner release authorization | **READY, awaiting the owner**: one package, `00_OWNER_FINAL_ACTIONS.md` | merge #266, run database release `T-U`, approve apply/deploy, Supabase/SMTP, approvals B-1…B-5 |
+| G — Production deployment and acceptance | NO-GO until executed | `02_…` and `03_…` |
+| H, I — physical | NO-GO (BLOCKED) | Codex |
+| J — Freeze | NO-GO until G | the Web release freezes after G; H/I are tracked separately |
