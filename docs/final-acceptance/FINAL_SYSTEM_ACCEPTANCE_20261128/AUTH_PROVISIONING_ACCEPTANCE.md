@@ -44,13 +44,13 @@ Status vocabulary PASS / FAIL / BLOCKED / NOT RUN. "Local" = the environment abo
 | ACCT-12 | School Admin directly creates a Student | **PASS (existing pipeline)** | students keep the existing temporary-password provisioning; real-GoTrue student API suite **13/13 re-run with the staff flag on**; UI suite 18/18 (earlier in this cycle, flag off) | NOT RUN |
 | ACCT-13 | Instructor and Student complete mandatory changes | **PASS** | Instructor: API + same page; Student: existing suites | NOT RUN |
 | ACCT-14 | System Admin invites a School Admin by **actual** e-mail | **NOT RUN** | the local invitation path creates an `invited` account but **no mail transport exists locally**; real delivery needs the Production SMTP and owner authorization | NOT RUN |
-| ACCT-15 | School Admin activates the invitation, sets a password | **NOT RUN** | needs a real invitation e-mail | NOT RUN |
+| ACCT-15 | School Admin activates the invitation, sets a password | **PASS (local, real GoTrue invitation link)** | `staff-invitation-ui` 3/3 on the release candidate: the link produced by GoTrue's admin API (the same `/verify?token&type=invite` URL the e-mail carries) opens `/accept-invitation`; Password + Confirm; the account becomes Active; normal sign-in works; no second forced change. **E-mail transport itself NOT RUN** | NOT RUN |
 | ACCT-16 | School Admin invites Instructor and Student | **NOT RUN** | same | NOT RUN |
-| ACCT-17 | Both activate and set passwords | **NOT RUN** | same | NOT RUN |
+| ACCT-17 | Both activate and set passwords | **PASS (local; one page and one activation call for both roles)** | `staff-invitation-ui` (School Admin); the Instructor uses the identical page and call | NOT RUN |
 | ACCT-18 | Existing previously invited account recovered without deletion | **PASS (simulated)** | an Auth user with no password + `invited` rows recovered in place: same Auth user id, one membership, login works, then a second recovery is refused (409) and an active fixture instructor is refused (409) and still signs in. **Real affected Production accounts: NOT RUN — needs owner approval** | NOT RUN |
 | ACCT-19 | Duplicate creation handled safely | **PASS** | 409, no extra rows, existing identity never deleted (unit + API) | NOT RUN |
 | ACCT-20 | Expired temporary credentials rejected | **PASS** | expiry forced in the database → 403 `TEMPORARY_PASSWORD_EXPIRED` for every route including the change endpoint; authorized reset re-issues, old password and old session die | NOT RUN |
-| ACCT-21 | Expired and reused invitations | **PARTIAL → NOT RUN for invitations** | single-use recovery links were already proven (`staff-auth-recovery-ui`); invitation tokens need a real invitation | NOT RUN |
+| ACCT-21 | Expired and reused invitations | **PASS (local)** | the same invitation link a second time → *expired or already used*, no form; a forged `type=invite` fragment → *cannot be used*, no form (`staff-invitation-ui`); recovery links are single-use (`staff-auth-recovery-ui`) | NOT RUN |
 | ACCT-22 | Actual password-recovery e-mail delivered | **NOT RUN** | no SMTP locally; link generation through the admin API is tested, delivery is not | NOT RUN |
 | ACCT-23 | Recovery succeeds on the correct Production URL | **NOT RUN** | Production only | NOT RUN |
 | ACCT-24 | Direct creation works independently of SMTP | **PASS** | the local GoTrue has no SMTP at all | NOT RUN |
@@ -61,7 +61,7 @@ Status vocabulary PASS / FAIL / BLOCKED / NOT RUN. "Local" = the environment abo
 | ACCT-29 | Failure leaves no inconsistent membership | **PASS** | unit tests (persistence failure deletes the Auth identity; no success reported; invite path likewise) | NOT RUN |
 | ACCT-30 | Activation status accurate | **PASS for the implemented states** | *Password change required* (not "Active") until the change, *Pending invitation* for invited, *Active* after; **gaps: no computed "Expired invitation" state; Disable already exists** | NOT RUN |
 
-**Totals (local, 30 cases):** PASS 23 (ACCT-12 and ACCT-18 with the scope stated in their rows), NOT RUN 7 (ACCT-14, 15, 16, 17, 21, 22, 23), FAIL 0. Production: 0 of 30 executed.
+**Totals (local, 30 cases, release candidate `b79067f`):** PASS 26 (ACCT-12 and ACCT-18 with the scope stated in their rows), NOT RUN 4 (ACCT-14, 16, 22, 23: real e-mail delivery), FAIL 0. Production: 0 of 30 executed. Added since this table was first written: resend invitation (API + unit), People-list status and actions, and the invitation acceptance page (root cause of invited accounts without a usable password).
 
 ## 4. Test evidence
 * Backend Jest, no database: 122 suites passed; **1415 passed, 0 failed** (unit `staff-account.service.spec` 11/11).
@@ -76,8 +76,8 @@ Status vocabulary PASS / FAIL / BLOCKED / NOT RUN. "Local" = the environment abo
 | Direct Account Creation works | **PASS locally** |
 | Temporary credentials work | **PASS locally** |
 | First-login change enforced by the backend | **PASS locally** (behind the flag; needs migration U) |
-| Email Invitation works | **NOT RUN** (delivery) |
-| Invited users establish passwords | **NOT RUN** |
+| Email Invitation works | link, page and activation **PASS locally**; e-mail delivery **NOT RUN** |
+| Invited users establish passwords | **PASS locally** (`/accept-invitation`); Production NOT RUN |
 | Existing affected accounts can be recovered | **PASS in simulation; Production NOT RUN** |
 | SMTP works | **BLOCKED** — provider unknown, no access |
 | Password recovery works | link/password change **PASS locally**; delivery **NOT RUN** |

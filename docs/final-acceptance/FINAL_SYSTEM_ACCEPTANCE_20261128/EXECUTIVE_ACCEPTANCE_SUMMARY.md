@@ -1,5 +1,7 @@
 # Executive acceptance summary (2026-11-28)
 
+> **Later update (release package):** all independently actionable work is merged into `develop` (RC `b79067f5215320561c559ed301e8a3075e8bcd10`; PRs #276–#285 and #272) and the final regression on that exact RC passed (269 browser tests, 0 failed). What remains needs the owner: `../FINAL_RELEASE_PACKAGE_20261128/00_OWNER_FINAL_ACTIONS.md`. The sections below describe the earlier baseline and are kept for history.
+
 **Update 2026-11-28 (later): account provisioning and first-login policy implemented and locally accepted (23 of 30 ACCT cases PASS, 7 NOT RUN), see `AUTH_PROVISIONING_ACCEPTANCE.md`; Authentication, WF-01 and Web Production Acceptance remain NOT complete.**
 
 **Outcome: a verified local acceptance baseline, not project completion.** The software passes everything that can be executed on a workstation. It is **not accepted on Production** and **not accepted on physical hardware**. Gates E–J are NO-GO; A–D are CONDITIONAL GO. No completion percentage is given on purpose.
